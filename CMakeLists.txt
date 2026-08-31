@@ -38,7 +38,7 @@ FetchContent_MakeAvailable(Crow nlohmann_json)
 find_package(SQLite3 REQUIRED)
 find_package(CURL REQUIRED)
 
-add_executable(gangyiAI src/main.cpp)
+add_executable(gangyiAI src/main.cpp src/db.cpp)
 
 target_include_directories(gangyiAI PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -51,6 +51,16 @@ target_link_libraries(gangyiAI PRIVATE
     SQLite::SQLite3
     CURL::libcurl
 )
+
+option(GANGYI_BUILD_DB_TEST "Build the standalone database smoke test" ON)
+if(GANGYI_BUILD_DB_TEST)
+    add_executable(db_test src/db_main_test.cpp src/db.cpp)
+    target_include_directories(db_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(db_test PRIVATE SQLite::SQLite3)
+endif()
 
 add_custom_command(TARGET gangyiAI POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
