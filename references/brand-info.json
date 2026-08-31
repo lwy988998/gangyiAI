@@ -1,0 +1,136 @@
+{
+  "source_note": "Captured from local D:/AILINES-CAMPUS render because SSH password file was missing, public 103.236.84.172:3001 refused connection, and SSH requires password/key not available.",
+  "logo_image_urls": [],
+  "school_text_present": true,
+  "school_text": "柳州市钢一中学",
+  "brand_name_occurrences": [
+    "柳州市钢一中学2629班定制AI",
+    "柳州市钢一中学2629班定制AI\\",
+    "钢一定制AI"
+  ],
+  "primary_hex_candidates": [
+    {
+      "hex": "#0284c7",
+      "count": 3
+    },
+    {
+      "hex": "#f5f9ff",
+      "count": 22
+    },
+    {
+      "hex": "#f8fbff",
+      "count": 2
+    },
+    {
+      "hex": "#0000",
+      "count": 24
+    },
+    {
+      "hex": "#fff",
+      "count": 19
+    },
+    {
+      "hex": "#000",
+      "count": 14
+    },
+    {
+      "hex": "#0000001a",
+      "count": 12
+    },
+    {
+      "hex": "#f8fafc",
+      "count": 4
+    },
+    {
+      "hex": "#e2e8f0",
+      "count": 3
+    },
+    {
+      "hex": "#ffffff1a",
+      "count": 3
+    },
+    {
+      "hex": "#f0f9ffcc",
+      "count": 3
+    },
+    {
+      "hex": "#ffffffb3",
+      "count": 3
+    },
+    {
+      "hex": "#fffc",
+      "count": 2
+    },
+    {
+      "hex": "#f0f9ff99",
+      "count": 2
+    },
+    {
+      "hex": "#f0f9ffb3",
+      "count": 2
+    },
+    {
+      "hex": "#00000040",
+      "count": 2
+    },
+    {
+      "hex": "#024a701a",
+      "count": 2
+    },
+    {
+      "hex": "#0f2747",
+      "count": 2
+    },
+    {
+      "hex": "#fef2f2",
+      "count": 1
+    },
+    {
+      "hex": "#ffe2e2",
+      "count": 1
+    },
+    {
+      "hex": "#ffcaca",
+      "count": 1
+    },
+    {
+      "hex": "#e40014",
+      "count": 1
+    },
+    {
+      "hex": "#bf000f",
+      "count": 1
+    },
+    {
+      "hex": "#fffbeb",
+      "count": 1
+    },
+    {
+      "hex": "#fef3c6",
+      "count": 1
+    },
+    {
+      "hex": "#fee685",
+      "count": 1
+    },
+    {
+      "hex": "#ffd236",
+      "count": 1
+    },
+    {
+      "hex": "#dd7400",
+      "count": 1
+    },
+    {
+      "hex": "#b75000",
+      "count": 1
+    },
+    {
+      "hex": "#953d00",
+      "count": 1
+    }
+  ],
+  "css_assets_fetched": [
+    "http://127.0.0.1:3001/_next/static/chunks/%5Broot-of-the-server%5D__0cbk-n2._.css"
+  ]
+}
