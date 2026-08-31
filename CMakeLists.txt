@@ -18,10 +18,12 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/json-3.11.3)
 endif()
 # Asio：服务器用系统 libasio-dev；Windows 本机用 third_party/asio（header-only）
 # Crow 1.2.0 需要 asio::io_service（asio < 1.30），故用 1.28.2
-set(ASIO_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/asio-asio-1-28-2/asio/include)
-if(EXISTS ${ASIO_INCLUDE_DIR}/asio.hpp)
-    set(FETCHCONTENT_SOURCE_DIR_ASIO ${CMAKE_CURRENT_SOURCE_DIR}/third_party/asio-asio-1-28-2)
-    set(ASIO_FOUND TRUE CACHE INTERNAL "")
+if(WIN32)
+    set(ASIO_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/asio-asio-1-28-2/asio/include)
+    if(EXISTS ${ASIO_INCLUDE_DIR}/asio.hpp)
+        set(FETCHCONTENT_SOURCE_DIR_ASIO ${CMAKE_CURRENT_SOURCE_DIR}/third_party/asio-asio-1-28-2)
+        set(ASIO_FOUND TRUE CACHE INTERNAL "")
+    endif()
 endif()
 
 FetchContent_Declare(
@@ -42,10 +44,12 @@ set(CROW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(CROW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(Crow nlohmann_json)
 
-# SQLite：优先系统库（服务器 libsqlite3-dev）；本机用 third_party amalgamation 源码
-set(SQLITE_SRC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/sqlite)
-file(GLOB SQLITE_AMALG_DIR ${SQLITE_SRC}/sqlite-amalgamation-*)
-if(SQLITE_AMALG_DIR AND EXISTS ${SQLITE_AMALG_DIR}/sqlite3.c)
+# SQLite：本机 Windows 用 third_party amalgamation 源码；Linux 服务器用系统 libsqlite3-dev
+if(WIN32)
+    set(SQLITE_SRC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/sqlite)
+    file(GLOB SQLITE_AMALG_DIR ${SQLITE_SRC}/sqlite-amalgamation-*)
+endif()
+if(WIN32 AND SQLITE_AMALG_DIR AND EXISTS ${SQLITE_AMALG_DIR}/sqlite3.c)
     add_library(sqlite3_amalgamation STATIC ${SQLITE_AMALG_DIR}/sqlite3.c)
     target_include_directories(sqlite3_amalgamation PUBLIC ${SQLITE_AMALG_DIR})
     set(GANGYI_SQLITE_LIB sqlite3_amalgamation)
@@ -53,10 +57,12 @@ else()
     find_package(SQLite3 REQUIRED)
     set(GANGYI_SQLITE_LIB SQLite::SQLite3)
 endif()
-# CURL：优先本地 third_party 开发包（本机 MinGW 缺 curl 头）；服务器用系统 libcurl
-set(CURL_DEV_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/curl)
-file(GLOB CURL_MINGW_DIR ${CURL_DEV_DIR}/curl-*-win64-mingw)
-if(CURL_MINGW_DIR AND EXISTS ${CURL_MINGW_DIR}/include/curl/curl.h)
+# CURL：本机 Windows 用 third_party curl 开发包（MinGW 缺 curl 头）；Linux 服务器用系统 libcurl
+if(WIN32)
+    set(CURL_DEV_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/curl)
+    file(GLOB CURL_MINGW_DIR ${CURL_DEV_DIR}/curl-*-win64-mingw)
+endif()
+if(WIN32 AND CURL_MINGW_DIR AND EXISTS ${CURL_MINGW_DIR}/include/curl/curl.h)
     set(GANGYI_CURL_INCLUDE ${CURL_MINGW_DIR}/include)
     # MinGW 下 curl 头文件声明 __imp_ 导入符号，必须用动态导入库 libcurl.dll.a
     # （静态 libcurl.a 与 __imp_ 前缀不匹配）
@@ -74,10 +80,6 @@ if(CURL_MINGW_DIR AND EXISTS ${CURL_MINGW_DIR}/include/curl/curl.h)
         ${CURL_MINGW_DIR}/lib/libnghttp3.a
         ${CURL_MINGW_DIR}/lib/libngtcp2.a
         ${CURL_MINGW_DIR}/lib/libngtcp2_crypto_libressl.a
-        ws2_32
-        bcrypt
-        crypt32
-        user32
     )
     set(GANGYI_CURL_LINK ${GANGYI_CURL_LIB})
 else()
@@ -100,9 +102,11 @@ target_link_libraries(gangyiAI PRIVATE
     nlohmann_json::nlohmann_json
     ${GANGYI_SQLITE_LIB}
     ${GANGYI_CURL_LINK}
-    ws2_32
-    mswsock
 )
+
+if(WIN32)
+    target_link_libraries(gangyiAI PRIVATE ws2_32 mswsock bcrypt crypt32 user32)
+endif()
 
 add_custom_command(TARGET gangyiAI POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
