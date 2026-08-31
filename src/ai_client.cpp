@@ -33,6 +33,15 @@ long long nowMs() {
 
 struct Endpoint { std::string url; std::string key; std::string model; };
 
+// 归一化 chat/completions 端点：baseUrl 可能带 /v1 或不带
+std::string chatEndpoint(const std::string& baseUrl) {
+    std::string url = baseUrl;
+    while (!url.empty() && url.back() == '/') url.pop_back();
+    if (url.find("/chat/completions") == std::string::npos) {
+        url += "/chat/completions";
+    }
+    return url;
+}
 AIClientError errorFor(CURLcode code, long status, const std::string& message) {
     if (code == CURLE_OPERATION_TIMEDOUT) return AIClientError("timeout", message);
     if (code != CURLE_OK) return AIClientError("network_error", message);
@@ -59,7 +68,7 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
     headers = curl_slist_append(headers, "Content-Type: application/json");
     const std::string authorization = "Authorization: Bearer " + endpoint.key;
     headers = curl_slist_append(headers, authorization.c_str());
-    curl_easy_setopt(curl, CURLOPT_URL, (endpoint.url + "/chat/completions").c_str());
+    curl_easy_setopt(curl, CURLOPT_URL, chatEndpoint(endpoint.url).c_str());
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.dump().c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
@@ -104,7 +113,7 @@ AIClientError::AIClientError(const std::string& type, const std::string& message
     : std::runtime_error(message), errorType(type) {}
 
 AIClient::AIClient()
-    : baseUrl_(env("AI_BASE_URL", "https://api.deepseek.com")), apiKey_(env("AI_API_KEY")),
+    : baseUrl_(env("AI_BASE_URL", "https://api.deepseek.com/v1")), apiKey_(env("AI_API_KEY")),
       model_(env("AI_MODEL", "deepseek-chat")), timeoutMs_(envInt("AI_TIMEOUT_MS", 35000)),
       retryAttempts_(envInt("AI_RETRY_ATTEMPTS", 2)), fallbackBaseUrl_(env("AI_BASE_URL_FALLBACK")),
       fallbackApiKey_(env("AI_API_KEY_FALLBACK")), fallbackModel_(env("AI_MODEL_FALLBACK")) {
