@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(gangyiAI VERSION 0.1.0 LANGUAGES CXX)
+project(gangyiAI VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -15,6 +15,13 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/Crow-1.2.0)
 endif()
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/json-3.11.3)
     set(FETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON ${CMAKE_CURRENT_SOURCE_DIR}/third_party/json-3.11.3)
+endif()
+# Asio：服务器用系统 libasio-dev；Windows 本机用 third_party/asio（header-only）
+# Crow 1.2.0 需要 asio::io_service（asio < 1.30），故用 1.28.2
+set(ASIO_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/asio-asio-1-28-2/asio/include)
+if(EXISTS ${ASIO_INCLUDE_DIR}/asio.hpp)
+    set(FETCHCONTENT_SOURCE_DIR_ASIO ${CMAKE_CURRENT_SOURCE_DIR}/third_party/asio-asio-1-28-2)
+    set(ASIO_FOUND TRUE CACHE INTERNAL "")
 endif()
 
 FetchContent_Declare(
@@ -35,38 +42,81 @@ set(CROW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(CROW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(Crow nlohmann_json)
 
-find_package(SQLite3 REQUIRED)
-find_package(CURL REQUIRED)
+# SQLite：优先系统库（服务器 libsqlite3-dev）；本机用 third_party amalgamation 源码
+set(SQLITE_SRC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/sqlite)
+file(GLOB SQLITE_AMALG_DIR ${SQLITE_SRC}/sqlite-amalgamation-*)
+if(SQLITE_AMALG_DIR AND EXISTS ${SQLITE_AMALG_DIR}/sqlite3.c)
+    add_library(sqlite3_amalgamation STATIC ${SQLITE_AMALG_DIR}/sqlite3.c)
+    target_include_directories(sqlite3_amalgamation PUBLIC ${SQLITE_AMALG_DIR})
+    set(GANGYI_SQLITE_LIB sqlite3_amalgamation)
+else()
+    find_package(SQLite3 REQUIRED)
+    set(GANGYI_SQLITE_LIB SQLite::SQLite3)
+endif()
+# CURL：优先本地 third_party 开发包（本机 MinGW 缺 curl 头）；服务器用系统 libcurl
+set(CURL_DEV_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/curl)
+file(GLOB CURL_MINGW_DIR ${CURL_DEV_DIR}/curl-*-win64-mingw)
+if(CURL_MINGW_DIR AND EXISTS ${CURL_MINGW_DIR}/include/curl/curl.h)
+    set(GANGYI_CURL_INCLUDE ${CURL_MINGW_DIR}/include)
+    # MinGW 下 curl 头文件声明 __imp_ 导入符号，必须用动态导入库 libcurl.dll.a
+    # （静态 libcurl.a 与 __imp_ 前缀不匹配）
+    set(GANGYI_CURL_LIB
+        ${CURL_MINGW_DIR}/lib/libcurl.dll.a
+        ${CURL_MINGW_DIR}/lib/libssl.a
+        ${CURL_MINGW_DIR}/lib/libcrypto.a
+        ${CURL_MINGW_DIR}/lib/libz.a
+        ${CURL_MINGW_DIR}/lib/libzstd.a
+        ${CURL_MINGW_DIR}/lib/libssh2.a
+        ${CURL_MINGW_DIR}/lib/libnghttp2.a
+        ${CURL_MINGW_DIR}/lib/libpsl.a
+        ${CURL_MINGW_DIR}/lib/libbrotlidec.a
+        ${CURL_MINGW_DIR}/lib/libbrotlicommon.a
+        ${CURL_MINGW_DIR}/lib/libnghttp3.a
+        ${CURL_MINGW_DIR}/lib/libngtcp2.a
+        ${CURL_MINGW_DIR}/lib/libngtcp2_crypto_libressl.a
+        ws2_32
+        bcrypt
+        crypt32
+        user32
+    )
+    set(GANGYI_CURL_LINK ${GANGYI_CURL_LIB})
+else()
+    find_package(CURL REQUIRED)
+    set(GANGYI_CURL_INCLUDE "")
+    set(GANGYI_CURL_LINK CURL::libcurl)
+endif()
 
-add_executable(gangyiAI src/main.cpp src/db.cpp src/ai_client.cpp src/json_fix.cpp)
+add_executable(gangyiAI src/main.cpp src/db.cpp src/ai_client.cpp src/json_fix.cpp src/plan_generator.cpp src/learning_generator.cpp src/page_renderer.cpp)
 
 target_include_directories(gangyiAI PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${ASIO_INCLUDE_DIR}
+    ${GANGYI_CURL_INCLUDE}
 )
 
 target_link_libraries(gangyiAI PRIVATE
     Crow::Crow
     nlohmann_json::nlohmann_json
-    SQLite::SQLite3
-    CURL::libcurl
+    ${GANGYI_SQLITE_LIB}
+    ${GANGYI_CURL_LINK}
+    ws2_32
+    mswsock
 )
 
-option(GANGYI_BUILD_DB_TEST "Build the standalone database smoke test" ON)
-if(GANGYI_BUILD_DB_TEST)
-    add_executable(db_test src/db_main_test.cpp src/db.cpp)
-    target_include_directories(db_test PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-    )
-    target_link_libraries(db_test PRIVATE SQLite::SQLite3)
-endif()
+add_custom_command(TARGET gangyiAI POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_CURRENT_SOURCE_DIR}/public
+        $<TARGET_FILE_DIR:gangyiAI>/public
+)
 
-option(GANGYI_BUILD_JSON_FIX_TEST "Build the AI JSON parser test" ON)
-if(GANGYI_BUILD_JSON_FIX_TEST)
-    add_executable(json_fix_test src/json_fix_test.cpp src/json_fix.cpp src/ai_client.cpp)
-    target_include_directories(json_fix_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-    target_link_libraries(json_fix_test PRIVATE nlohmann_json::nlohmann_json CURL::libcurl)
+# 本机：复制 curl DLL 到可执行目录（运行时依赖）
+if(GANGYI_CURL_INCLUDE AND EXISTS ${CURL_MINGW_DIR}/bin/libcurl-x64.dll)
+    add_custom_command(TARGET gangyiAI POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CURL_MINGW_DIR}/bin/libcurl-x64.dll
+            $<TARGET_FILE_DIR:gangyiAI>/libcurl-x64.dll
+    )
 endif()
 
 add_custom_command(TARGET gangyiAI POST_BUILD
@@ -74,3 +124,12 @@ add_custom_command(TARGET gangyiAI POST_BUILD
         ${CMAKE_CURRENT_SOURCE_DIR}/public
         $<TARGET_FILE_DIR:gangyiAI>/public
 )
+
+# 本机：复制 curl DLL 到可执行目录（运行时依赖）
+if(GANGYI_CURL_INCLUDE AND EXISTS ${CURL_MINGW_DIR}/bin/libcurl-x64.dll)
+    add_custom_command(TARGET gangyiAI POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CURL_MINGW_DIR}/bin/libcurl-x64.dll
+            $<TARGET_FILE_DIR:gangyiAI>/libcurl-x64.dll
+    )
+endif()
