@@ -38,7 +38,7 @@ FetchContent_MakeAvailable(Crow nlohmann_json)
 find_package(SQLite3 REQUIRED)
 find_package(CURL REQUIRED)
 
-add_executable(gangyiAI src/main.cpp src/db.cpp)
+add_executable(gangyiAI src/main.cpp src/db.cpp src/ai_client.cpp src/json_fix.cpp)
 
 target_include_directories(gangyiAI PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -60,6 +60,13 @@ if(GANGYI_BUILD_DB_TEST)
         ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
     target_link_libraries(db_test PRIVATE SQLite::SQLite3)
+endif()
+
+option(GANGYI_BUILD_JSON_FIX_TEST "Build the AI JSON parser test" ON)
+if(GANGYI_BUILD_JSON_FIX_TEST)
+    add_executable(json_fix_test src/json_fix_test.cpp src/json_fix.cpp src/ai_client.cpp)
+    target_include_directories(json_fix_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_link_libraries(json_fix_test PRIVATE nlohmann_json::nlohmann_json CURL::libcurl)
 endif()
 
 add_custom_command(TARGET gangyiAI POST_BUILD
