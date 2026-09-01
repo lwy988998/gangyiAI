@@ -73,6 +73,11 @@ nlohmann::json planToJson(const gangyi::GeneratedPlan& plan) {
 int main() {
     const auto config = gangyi::Config::from_environment();
     gangyi::Database db;
+    // 自动创建数据库所在目录（首次部署时 data/ 可能不存在，避免 sqlite 打开失败）
+    try {
+        const std::filesystem::path dbPath(config.database_path);
+        if (dbPath.has_parent_path()) std::filesystem::create_directories(dbPath.parent_path());
+    } catch (...) {}
     db.open(config.database_path);
     db.migrate();
     crow::SimpleApp app;
