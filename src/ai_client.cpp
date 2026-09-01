@@ -5,6 +5,7 @@
 
 #include <chrono>
 #include <cstdlib>
+#include <iostream>
 #include <thread>
 
 namespace gangyi {
@@ -63,14 +64,22 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
         body["messages"].push_back({{"role", message.role}, {"content", message.content}});
     if (!options.responseFormat.empty()) body["response_format"] = {{"type", options.responseFormat}};
 
+    if (std::getenv("AI_DEBUG")) {
+        std::cerr << "[ai-debug] POST " << chatEndpoint(endpoint.url) << std::endl
+                  << "[ai-debug] body=" << body.dump().substr(0, 2000) << std::endl;
+    }
+
     std::string responseBody;
     struct curl_slist* headers = nullptr;
     headers = curl_slist_append(headers, "Content-Type: application/json");
     const std::string authorization = "Authorization: Bearer " + endpoint.key;
     headers = curl_slist_append(headers, authorization.c_str());
+    // 必须存局部变量：body.dump() 的临时 string 在语句结束即析构，直接传 c_str() 会悬垂导致请求体为空
+    const std::string postBody = body.dump();
     curl_easy_setopt(curl, CURLOPT_URL, chatEndpoint(endpoint.url).c_str());
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.dump().c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postBody.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(postBody.size()));
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeBody);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseBody);
@@ -82,6 +91,10 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
     curl_easy_cleanup(curl);
     curl_slist_free_all(headers);
     if (code != CURLE_OK || status < 200 || status >= 300) {
+        if (std::getenv("AI_DEBUG")) {
+            std::cerr << "[ai-debug] response status=" << status
+                      << " body=" << responseBody.substr(0, 2000) << std::endl;
+        }
         throw errorFor(code, status, code == CURLE_OK ? "AI provider returned HTTP " + std::to_string(status) : curl_easy_strerror(code));
     }
     try {
