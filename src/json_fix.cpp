@@ -63,7 +63,22 @@ std::string closeTruncated(const std::string& value) {
         else if ((c == '}' || c == ']') && !stack.empty()) stack.pop_back();
     }
     std::string result = value;
-    if (string) result += '"';
+    if (string) {
+        // 截断可能发生在 UTF-8 多字节字符中间（半个汉字）：补引号前先丢弃不完整的字符序列
+        size_t i = result.size();
+        int cont = 0;
+        while (i > 0) {
+            const unsigned char c = static_cast<unsigned char>(result[i - 1]);
+            if (c >= 0x80 && c < 0xC0) { ++cont; --i; continue; }   // 续字节(10xxxxxx)
+            if (c >= 0xC0) {                                         // 起始字节
+                const int expected = c >= 0xF0 ? 3 : (c >= 0xE0 ? 2 : 1);
+                if (cont < expected) result.erase(i - 1);            // 字符不完整：删除整个未完成序列
+                break;
+            }
+            break;                                                   // ASCII：完整
+        }
+        result += '"';
+    }
     while (!stack.empty()) { result += stack.back(); stack.pop_back(); }
     return result;
 }

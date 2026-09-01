@@ -374,7 +374,9 @@ LearningAnswer generateOnce(const AIClient& client,
     ChatOptions options;
     options.messages = createLearningPromptMessages(goal, phaseName, topic, mode, resources, retry);
     options.temperature = 0.3;
-    options.maxTokens = isLiteMode(mode) ? 4000 : 6000;
+    // 微课程 JSON 较大：max_tokens 需覆盖完整输出（4000/6000 会截断），超时同步放宽
+    options.maxTokens = isLiteMode(mode) ? 6000 : 8000;
+    options.timeoutMs = isLiteMode(mode) ? 60000 : 90000;
     options.responseFormat = "json_object";
     options.maxAttempts = 1;
 

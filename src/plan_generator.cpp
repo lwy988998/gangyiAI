@@ -128,8 +128,11 @@ void validate(const GeneratedPlan& plan, const std::string& mode) {
 }
 
 ChatOptions options(const std::string& system, const std::string& user, const std::string& mode) {
+    // 计划生成专用参数：max_tokens 需覆盖 v4-flash 的完整骨架输出（lite 4800 会截断）；
+    // 单次超时对齐生成量（lite 100s / deep 150s，2 次 attempt + 退避构成总时长）
     return {{ {"system", system}, {"user", user} }, {}, 0.7,
-        mode == "lite" ? 4800 : 7600, "json_object", 0, 0};
+        mode == "lite" ? 6000 : 8000, "json_object",
+        mode == "lite" ? 100000 : 150000, 2};
 }
 
 }
