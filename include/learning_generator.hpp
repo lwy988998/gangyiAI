@@ -14,6 +14,12 @@ struct SearchResource {
     std::string source;
     std::string description;
     std::string type;
+    // 搜索归一化扩展字段（search_client 填充；learning_generator 仅使用前 5 个字段）
+    std::string difficulty;
+    std::string language;
+    bool free = true;
+    double score = 70.0;
+    std::string reason;
 };
 
 struct LessonStep {
