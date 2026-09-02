@@ -181,6 +181,42 @@ int main() {
         return response;
     });
 
+    // /phase 阶段页：从 courseId 课程快照 SSR 渲染阶段与主题网格
+    CROW_ROUTE(app, "/phase")([&db](const crow::request& req) {
+        const char* courseIdP = req.url_params.get("courseId");
+        const char* anonymousIdP = req.url_params.get("anonymousId");
+        const char* goalP = req.url_params.get("goal");
+        const char* modeP = req.url_params.get("mode");
+        const char* phaseIndexP = req.url_params.get("phaseIndex");
+        const char* phaseNameP = req.url_params.get("phaseName");
+        std::string courseId = courseIdP ? courseIdP : "";
+        std::string anonymousId = anonymousIdP ? anonymousIdP : "";
+        std::string goal = goalP ? goalP : "";
+        std::string mode = modeP && *modeP ? modeP : "deep";
+        std::string phaseIndex = phaseIndexP ? phaseIndexP : "1";
+        std::string phaseName = phaseNameP ? phaseNameP : "";
+        nlohmann::json plan = nlohmann::json::object();
+        nlohmann::json card = nlohmann::json::object();
+        if (!courseId.empty()) {
+            if (const auto found = gangyi::getCourseWithSnapshot(db, courseId)) {
+                if (found->payload.is_object()) plan = found->payload;
+                if (goal.empty()) goal = found->course.goal;
+                if (mode.empty()) mode = found->course.mode;
+                int phase = 1;
+                try { phase = std::stoi(phaseIndex); if (phase < 1) phase = 1; } catch (...) {}
+                for (const auto& r : db.listLearningCardProgress()) {
+                    if (r.courseId.value_or("") == courseId && r.phaseIndex == phase &&
+                        (r.status == "completed" || r.status == "in_progress")) {
+                        card[std::to_string(r.topicIndex)] = r.status;
+                    }
+                }
+            }
+        }
+        crow::response response(gangyi::renderPhasePage(courseId, anonymousId, goal, mode, phaseIndex, phaseName, plan, card));
+        response.set_header("Content-Type", "text/html; charset=utf-8");
+        return response;
+    });
+
     CROW_ROUTE(app, "/login")([] {
         crow::response response(gangyi::renderLoginPage());
         response.set_header("Content-Type", "text/html; charset=utf-8");

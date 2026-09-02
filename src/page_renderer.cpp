@@ -1,5 +1,7 @@
 #include "page_renderer.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <iomanip>
 #include <sstream>
 #include <string>
@@ -328,6 +330,167 @@ std::string renderMyCoursesPage() {
   </section>
 </main>)HTML";
     return document("柳州市钢一中学2629班定制AI - 高中学习规划助手", body);
+}
+
+std::string renderPhasePage(const std::string& courseId, const std::string& anonymousId,
+                            const std::string& goal, const std::string& mode,
+                            const std::string& phaseIndex, const std::string& phaseName,
+                            const nlohmann::json& plan, const nlohmann::json& cardStatus) {
+    const auto str = [](const nlohmann::json& v) {
+        if (v.is_string()) return v.get<std::string>();
+        return std::string();
+    };
+    const auto arr = [](const nlohmann::json& v) { return v.is_array(); };
+    const auto q = [&](const std::string& key) {
+        return std::string("&") + key + "=";
+    };
+    const std::string anonQ = anonymousId.empty() ? "" : q("anonymousId") + urlEncode(anonymousId);
+
+    // 解析阶段与主题（MockPlan：roadmap[] / courseStructure[]）
+    int index = 1;
+    try { if (!phaseIndex.empty()) index = std::max(1, std::stoi(phaseIndex)); } catch (...) {}
+    const bool hasPlan = plan.is_object() && arr(plan.value("roadmap", nlohmann::json())) &&
+        arr(plan.value("courseStructure", nlohmann::json()));
+    std::string stageTitle = phaseName.empty() ? "阶段" + std::to_string(index) : phaseName;
+    std::string stageGoal, stageWhy, stageOutput, stageDuration, suitable;
+    std::vector<std::pair<std::string, int>> topics;  // title, topicIndex
+    if (hasPlan) {
+        const auto roadmap = plan["roadmap"];
+        const auto courseStructure = plan["courseStructure"];
+        const nlohmann::json* stage = nullptr;
+        if (index <= static_cast<int>(roadmap.size())) stage = &roadmap[index - 1];
+        else for (const auto& s : roadmap) if (str(s.value("name", "")) == stageTitle) { stage = &s; break; }
+        if (stage) {
+            if (stage->contains("name") && (*stage)["name"].is_string()) stageTitle = (*stage)["name"].get<std::string>();
+            stageGoal = str(stage->value("goal", stage->value("description", "")));
+            stageWhy = str(stage->value("why", ""));
+            stageOutput = str(stage->value("output", ""));
+            stageDuration = str(stage->value("duration", ""));
+        }
+        const nlohmann::json* topicsSrc = nullptr;
+        if (index <= static_cast<int>(courseStructure.size())) {
+            const auto& cs = courseStructure[index - 1];
+            if (arr(cs.value("topics", nlohmann::json()))) topicsSrc = &cs["topics"];
+        }
+        if (!topicsSrc && stage && arr(stage->value("tasks", nlohmann::json()))) topicsSrc = &(*stage)["tasks"];
+        if (topicsSrc) {
+            int n = 0;
+            for (const auto& t : *topicsSrc) { ++n; topics.emplace_back(str(t), n); }
+        }
+        if (topics.empty() && stage) { stageTitle = str(stage->value("name", stageTitle)); }
+    }
+    if (!hasPlan) {
+        // 无课程快照：给出“未找到/未生成”降级态
+        const std::string back = courseId.empty()
+            ? "/plan?goal=" + urlEncode(goal) + "&mode=" + urlEncode(mode) + anonQ
+            : "/plan?courseId=" + urlEncode(courseId) + anonQ;
+        const std::string body = headerShell("learn") + R"HTML(
+<main class="learn-app-page min-h-screen bg-[#f5f9ff] text-slate-950">
+  <section class="mx-auto flex min-h-[70vh] w-full max-w-3xl items-center justify-center px-4 py-12 sm:px-6">
+    <div class="rounded-3xl border border-amber-100 bg-white p-8 text-center shadow-sm shadow-sky-900/5">
+      <h1 class="text-3xl font-semibold tracking-tight text-slate-950">阶段内容暂未生成完成</h1>
+      <p class="mt-3 text-base leading-7 text-slate-600">当前课程结构还不完整，暂时无法生成阶段讲解、任务、课件和知识结构。请回到课程页重新生成或刷新后重试。</p>
+      <div class="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
+        <a class="inline-flex min-h-12 items-center justify-center rounded-xl bg-sky-700 px-5 text-sm font-semibold text-white transition hover:bg-sky-800" href=")HTML" + back + R"HTML(">返回课程大纲</a>
+      </div>
+    </div>
+  </section>
+</main>)HTML";
+        return document("阶段 - 钢一定制AI", body);
+    }
+
+    // 主题状态
+    int completed = 0;
+    for (const auto& [title, no] : topics) {
+        if (cardStatus.value(std::to_string(no), "") == "completed") ++completed;
+    }
+    const int total = static_cast<int>(topics.size());
+    const int percent = total > 0 ? static_cast<int>(std::lround(completed * 100.0 / total)) : 0;
+    const bool done = total > 0 && completed >= total;
+    const std::string modeLabel = mode == "lite" ? "快速规划" : "深度 钢一定制AI 规划";
+    const std::string modeDesc = mode == "lite" ? "轻量学习课程：阶段内容更聚焦，保留关键讲解和练习。" : "系统学习课程：阶段讲解、任务、课件和资料更完整。";
+    if (suitable.empty()) suitable = "适合正在学习「" + goal + "」并准备完成「" + stageTitle + "」阶段任务的学习者。";
+    const std::string backHref = courseId.empty()
+        ? "/plan?goal=" + urlEncode(goal) + "&mode=" + urlEncode(mode) + anonQ
+        : "/plan?courseId=" + urlEncode(courseId) + anonQ;
+    const std::string firstHref = courseId.empty()
+        ? "/learn?goal=" + urlEncode(goal) + "&mode=" + urlEncode(mode)
+            + "&phaseIndex=" + std::to_string(index) + "&phaseName=" + urlEncode(stageTitle) + anonQ
+        : "/learn?courseId=" + urlEncode(courseId)
+            + "&phaseIndex=" + std::to_string(index) + "&phaseName=" + urlEncode(stageTitle)
+            + "&topicIndex=1&goal=" + urlEncode(goal) + "&mode=" + urlEncode(mode) + anonQ;
+    const std::string askHref = "/ask?goal=" + urlEncode(goal) + "&mode=" + urlEncode(mode) + anonQ;
+
+    std::string topicsHtml;
+    for (const auto& [title, no] : topics) {
+        const std::string status = cardStatus.value(std::to_string(no), "not_started");
+        const std::string statusLabel = status == "completed" ? "已完成" : status == "in_progress" ? "学习中" : "未开始";
+        const std::string statusCls = status == "completed" ? "border-emerald-100 bg-emerald-50" : status == "in_progress" ? "border-sky-100 bg-sky-50" : "border-slate-200 bg-slate-50";
+        const std::string badgeCls = status == "completed" ? "bg-emerald-100 text-emerald-700" : status == "in_progress" ? "bg-sky-100 text-sky-800" : "bg-white text-slate-600";
+        const std::string hint = status == "completed" ? "已完成，可以复习巩固。" : status == "in_progress" ? "当前学习中，继续完成本节。" : "还未开始，从这里进入微课程。";
+        std::string href = courseId.empty()
+            ? "/learn?goal=" + urlEncode(goal) + "&mode=" + urlEncode(mode)
+                + "&phaseIndex=" + std::to_string(index) + "&phaseName=" + urlEncode(stageTitle)
+                + "&topicIndex=" + std::to_string(no) + "&topic=" + urlEncode(title) + anonQ
+            : "/learn?courseId=" + urlEncode(courseId)
+                + "&phaseIndex=" + std::to_string(index) + "&phaseName=" + urlEncode(stageTitle)
+                + "&topicIndex=" + std::to_string(no) + "&topic=" + urlEncode(title)
+                + "&goal=" + urlEncode(goal) + "&mode=" + urlEncode(mode) + anonQ;
+        topicsHtml += R"HTML(<article class="interactive-card rounded-2xl border p-4 )HTML" + statusCls + R"HTML(">
+          <div class="flex items-start justify-between gap-3">
+            <div><p class="text-xs font-semibold text-sky-700">第 )HTML" + std::to_string(no) + R"HTML( 节</p><h3 class="mt-1 break-words font-semibold text-slate-950">)HTML" + htmlEscape(title) + R"HTML(</h3><p class="mt-2 text-sm text-slate-600">)HTML" + hint + R"HTML(</p></div>
+            <span class="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold )HTML" + badgeCls + R"HTML(">)HTML" + statusLabel + R"HTML(</span>
+          </div>
+          <a class="mt-4 inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-white px-3 text-sm font-semibold text-sky-800 ring-1 ring-sky-100 transition hover:bg-sky-100" href=")HTML" + href + R"HTML(">学习这一节</a>
+        </article>)HTML";
+    }
+
+    const std::string progressState = done ? "本阶段已完成" : (completed > 0 ? "当前阶段进度" : "本阶段未开始");
+    const std::string primaryLabel = done ? "复习本阶段" : (completed > 0 ? "继续本阶段" : "开始本阶段学习");
+    const std::string body = headerShell("learn") + R"HTML(
+<main class="learn-app-page min-h-screen bg-[#f5f9ff] text-slate-950">
+  <div class="mx-auto w-full max-w-6xl space-y-6 px-4 py-8 sm:px-6 lg:px-8 lg:py-10 xl:max-w-7xl">
+    <section class="rounded-3xl border border-sky-100 bg-white p-4 shadow-sm shadow-sky-900/5 sm:p-8">
+      <a class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50 hover:text-sky-800" href=")HTML" + backHref + R"HTML(">← 返回学习方案</a>
+      <div class="mt-8 grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-end">
+        <div>
+          <div class="mb-4 inline-flex items-center gap-2 rounded-full bg-sky-50 px-3 py-2 text-sm font-medium text-sky-800">第 )HTML" + std::to_string(index) + R"HTML( 阶段详情</div>
+          <h1 class="break-words text-2xl font-semibold tracking-tight text-slate-950 sm:text-4xl lg:text-5xl">)HTML" + htmlEscape(stageTitle) + R"HTML(</h1>
+          <p class="mt-4 max-w-3xl break-words text-base leading-8 text-slate-600 sm:text-lg">针对「)HTML" + htmlEscape(goal.empty() ? "你的目标" : goal) + R"HTML(」的阶段学习计划</p>
+          <div class="mt-4 rounded-2xl border border-sky-100 bg-white/80 p-4">
+            <div class="flex flex-wrap items-center justify-between gap-3 text-sm font-semibold text-slate-700"><span>)HTML" + progressState + R"HTML(</span><span>)HTML" + std::to_string(percent) + R"HTML(% · )HTML" + std::to_string(completed) + R"HTML(/ )HTML" + std::to_string(total) + R"HTML( 节</span></div>
+            <div class="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-100"><div class="h-full rounded-full bg-sky-700" style="width: )HTML" + std::to_string(percent) + R"HTML(%"></div></div>
+          </div>
+          <div class="mt-5 max-w-full rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm shadow-sm sm:w-fit">
+            <p class="font-semibold text-sky-800">当前模式：)HTML" + modeLabel + R"HTML(</p>
+            <p class="mt-1 leading-6 text-slate-600">)HTML" + modeDesc + R"HTML(</p>
+          </div>
+        </div>
+        <div class="grid min-w-0 gap-3 md:grid-cols-2 lg:grid-cols-1">
+          <a class="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-sky-700 px-4 text-sm font-semibold text-white transition hover:bg-sky-800" href=")HTML" + firstHref + R"HTML(">)HTML" + primaryLabel + R"HTML(</a>
+          <a class="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-800 transition hover:bg-sky-100" href=")HTML" + askHref + R"HTML(">问 钢一定制AI</a>
+        </div>
+      </div>
+    </section>
+    <section class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="rounded-3xl border border-sky-100 bg-white p-4 shadow-sm shadow-sky-900/5 sm:p-5"><p class="text-sm font-semibold text-sky-700">阶段名称</p><p class="mt-2 break-words text-lg font-semibold text-slate-950">)HTML" + htmlEscape(stageTitle) + R"HTML(</p></div>
+      <div class="rounded-3xl border border-sky-100 bg-white p-4 shadow-sm shadow-sky-900/5 sm:p-5"><p class="text-sm font-semibold text-sky-700">当前学习目标</p><p class="mt-2 break-words text-lg font-semibold text-slate-950">)HTML" + htmlEscape(stageGoal) + R"HTML(</p></div>
+      <div class="rounded-3xl border border-sky-100 bg-white p-4 shadow-sm shadow-sky-900/5 sm:p-5"><p class="text-sm font-semibold text-sky-700">推荐学习周期</p><p class="mt-2 break-words text-lg font-semibold text-slate-950">)HTML" + (stageDuration.empty() ? std::string("按课程安排") : htmlEscape(stageDuration)) + R"HTML(</p></div>
+      <div class="rounded-3xl border border-sky-100 bg-white p-4 shadow-sm shadow-sky-900/5 sm:p-5"><p class="text-sm font-semibold text-sky-700">适合人群</p><p class="mt-2 break-words text-sm leading-6 text-slate-600">)HTML" + htmlEscape(suitable) + R"HTML(</p></div>
+    </section>
+    <section class="rounded-3xl border border-sky-100 bg-white p-4 shadow-sm shadow-sky-900/5 sm:p-8">
+      <div class="mb-6"><p class="text-sm font-semibold text-sky-700">阶段概览</p><h2 class="mt-2 text-2xl font-semibold tracking-tight text-slate-950">阶段目标</h2>
+        <p class="mt-3 break-words leading-7 text-slate-600">)HTML" + htmlEscape(stageGoal) + R"HTML(</p>
+        <p class="mt-4 break-words rounded-2xl bg-sky-50 p-4 text-sm leading-6 text-sky-900">为什么先学：)HTML" + htmlEscape(stageWhy) + R"HTML(</p>
+        <p class="mt-3 break-words rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">阶段产出：)HTML" + htmlEscape(stageOutput) + R"HTML(</p>
+      </div>
+      <div class="grid gap-3 md:grid-cols-2">
+)HTML" + topicsHtml + R"HTML(
+      </div>
+    </section>
+  </div>
+</main>)HTML";
+    return document("阶段 - 钢一定制AI", body);
 }
 
 }  // namespace gangyi
