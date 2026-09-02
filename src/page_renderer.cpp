@@ -436,7 +436,7 @@ std::string renderPhasePage(const std::string& courseId, const std::string& anon
                 + "&phaseIndex=" + std::to_string(index) + "&phaseName=" + urlEncode(stageTitle)
                 + "&topicIndex=" + std::to_string(no) + "&topic=" + urlEncode(title)
                 + "&goal=" + urlEncode(goal) + "&mode=" + urlEncode(mode) + anonQ;
-        topicsHtml += R"HTML(<article class="interactive-card rounded-2xl border p-4 )HTML" + statusCls + R"HTML(">
+        topicsHtml += R"HTML(<article data-topic=")HTML" + htmlEscape(title) + R"HTML(" class="interactive-card rounded-2xl border p-4 )HTML" + statusCls + R"HTML(">
           <div class="flex items-start justify-between gap-3">
             <div><p class="text-xs font-semibold text-sky-700">第 )HTML" + std::to_string(no) + R"HTML( 节</p><h3 class="mt-1 break-words font-semibold text-slate-950">)HTML" + htmlEscape(title) + R"HTML(</h3><p class="mt-2 text-sm text-slate-600">)HTML" + hint + R"HTML(</p></div>
             <span class="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold )HTML" + badgeCls + R"HTML(">)HTML" + statusLabel + R"HTML(</span>
@@ -488,9 +488,38 @@ std::string renderPhasePage(const std::string& courseId, const std::string& anon
 )HTML" + topicsHtml + R"HTML(
       </div>
     </section>
+    <section class="rounded-3xl border border-sky-100 bg-white p-4 shadow-sm shadow-sky-900/5 sm:p-8">
+      <div class="mb-6"><p class="text-sm font-semibold text-sky-700">阶段展开</p><h2 class="mt-2 text-2xl font-semibold tracking-tight text-slate-950">分步讲解与任务</h2><p class="mt-3 break-words text-sm leading-6 text-slate-600">系统会为这个阶段生成讲解步骤、任务练习与常见错误提醒。</p></div>
+      <div id="phase-expansion-body">)HTML" + loadingSpinner("正在整理阶段讲解", "正在生成步骤、任务与检查点…") + R"HTML(</div>
+    </section>
   </div>
 </main>)HTML";
-    return document("阶段 - 钢一定制AI", body);
+    // 阶段展开：POST /api/phase-expansion 生成讲解/任务/检查点；失败展示降级态（可重试）
+    const std::string script = R"HTML(<script>(()=>{
+const C=)HTML"+jsString(courseId)+R"HTML(,A=)HTML"+jsString(anonymousId)+R"HTML(,G=)HTML"+jsString(goal)+R"HTML(,M=)HTML"+jsString(mode)+R"HTML(,P=)HTML"+std::to_string(index)+R"HTML(,N=)HTML"+jsString(stageTitle)+R"HTML(;
+const esc=v=>{const d=document.createElement('div');d.textContent=v??'';return d.innerHTML};
+const topics=Array.from(document.querySelectorAll('[data-topic]')).map(e=>e.getAttribute('data-topic')||'');
+const box=document.getElementById('phase-expansion-body');
+const arr=v=>Array.isArray(v)?v:[];
+const block=(label,rows)=>rows.length?('<div class="mt-5"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">'+label+'</p><div class="mt-2 grid gap-2">'+rows.join('')+'</div></div>'):'';
+const pills=items=>items.length?('<div class="mt-2 flex flex-wrap gap-2">'+items.map(x=>'<span class="inline-flex rounded-full border border-amber-100 bg-amber-50 px-3 py-1 text-sm text-amber-800">'+esc(x)+'</span>').join('')+'</div>'):'';
+function render(x){
+ const parts=[];
+ if(x.objective)parts.push('<p class="mt-1 break-words leading-7 text-slate-600"><b>阶段目标：</b>'+esc(x.objective)+'</p>');
+ if(x.overview)parts.push('<div class="rounded-2xl bg-sky-50 p-4 text-sm leading-6 text-sky-900">'+esc(x.overview)+'</div>');
+ parts.push(block('分步讲解',arr(x.steps).map((s,i)=>'<div class="rounded-2xl border border-sky-100 bg-sky-50/50 p-4"><p class="text-xs font-semibold text-sky-700">Step '+(i+1)+'</p><h3 class="mt-1 font-semibold text-slate-950">'+esc(s.title||('第 '+(i+1)+' 步'))+'</h3>'+(s.explanation?'<p class="mt-2 text-sm leading-7 text-slate-600">'+esc(s.explanation)+'</p>':'')+(s.example?'<p class="mt-2 text-sm text-slate-700"><b>示例：</b>'+esc(s.example)+'</p>':'')+(s.action?'<p class="mt-2 text-sm text-slate-700"><b>行动：</b>'+esc(s.action)+'</p>':'')+(s.check?'<p class="mt-2 text-sm text-slate-700"><b>检查：</b>'+esc(s.check)+'</p>':'')+'</div>'));
+ parts.push(block('阶段任务',arr(x.tasks).map((t,i)=>'<div class="rounded-2xl border border-slate-200 bg-white p-4"><p class="font-semibold text-slate-950">'+esc(t.title||('任务 '+(i+1)))+'</p>'+(t.duration?'<p class="mt-1 text-sm text-slate-500">预计 '+esc(t.duration)+'</p>':'')+(t.description?'<p class="mt-2 text-sm leading-7 text-slate-600">'+esc(t.description)+'</p>':'')+(t.output?'<p class="mt-2 rounded-xl bg-slate-50 p-3 text-sm text-slate-700"><b>产出：</b>'+esc(t.output)+'</p>':'')+'</div>'));
+ if(arr(x.checklist).length)parts.push('<div class="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">阶段验收 checklist</p><div class="mt-2 grid gap-2">'+arr(x.checklist).map(s=>'<p class="text-sm text-emerald-900">✓ '+esc(s)+'</p>').join('')+'</div></div>');
+ if(arr(x.commonMistakes).length)parts.push('<div class="mt-5"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-rose-700">常见错误</p>'+pills(arr(x.commonMistakes))+'</div>');
+ box.innerHTML=parts.join('')||'<p class="text-sm text-slate-500">暂无展开内容，可在阶段页重新生成。</p>';
+}
+function failed(){
+ box.innerHTML='<div class="rounded-2xl border border-amber-100 bg-amber-50 p-5 text-center"><p class="font-semibold text-amber-800">阶段内容暂未生成完成</p><p class="mt-2 text-sm text-slate-600">AI 暂时无法生成讲解与任务，请稍后重试或返回课程页重新生成。</p><button type="button" onclick="location.reload()" class="mt-4 inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white">重新生成阶段</button></div>';
+}
+fetch('/api/phase-expansion',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({courseId:C||undefined,anonymousId:A||undefined,goal:G,mode:M,phaseIndex:Number(P)||1,stage:N,topics})})
+ .then(r=>r.json()).then(d=>{if(d.ok&&d.phase)render(d.phase);else failed();}).catch(failed);
+})()</script>)HTML";
+    return document("阶段 - 钢一定制AI", body, script);
 }
 
 }  // namespace gangyi
