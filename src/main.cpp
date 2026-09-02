@@ -173,10 +173,66 @@ int main() {
         return response;
     });
 
-    CROW_ROUTE(app, "/progress")([](const crow::request& req) {
-        const char* courseId = req.url_params.get("courseId");
-        const char* anonymousId = req.url_params.get("anonymousId");
-        crow::response response(gangyi::renderProgressPage(courseId ? courseId : "", anonymousId ? anonymousId : ""));
+    CROW_ROUTE(app, "/progress")([&db](const crow::request& req) {
+        const char* courseIdP = req.url_params.get("courseId");
+        const char* anonymousIdP = req.url_params.get("anonymousId");
+        const char* goalP = req.url_params.get("goal");
+        const char* modeP = req.url_params.get("mode");
+        const std::string courseId = courseIdP ? courseIdP : "";
+        const std::string anonymousId = anonymousIdP ? anonymousIdP : "";
+        const std::string goal = goalP ? goalP : "";
+        const std::string mode = modeP && *modeP ? modeP : "deep";
+        nlohmann::json data = {{"ready", false}, {"courseTitle", courseId}};
+        if (!courseId.empty()) {
+            if (const auto found = gangyi::getCourseWithSnapshot(db, courseId)) {
+                if (found->payload.is_object() && found->payload.contains("roadmap") && found->payload["roadmap"].is_array()) {
+                    data["ready"] = true;
+                    data["courseTitle"] = found->course.title.empty() ? found->course.goal : found->course.title;
+                    if (const auto prog = gangyi::recomputeCourseProgress(db, courseId, anonymousId, found->course.goal)) {
+                        data["overallPercent"] = prog->value("overallPercent", 0);
+                        data["completedCount"] = prog->value("completedCount", 0);
+                        data["totalCount"] = prog->value("totalCount", 0);
+                        data["updatedAt"] = prog->value("updatedAt", "");
+                    }
+                    if (const auto cp = db.findProgressByCourseId(courseId)) {
+                        if (cp->lastVisitedUrl && !cp->lastVisitedUrl->empty()) {
+                            data["hasBreakpoint"] = true;
+                            data["lastVisitedUrl"] = *cp->lastVisitedUrl;
+                            std::string bp = (cp->lastPhaseName && !cp->lastPhaseName->empty()) ? *cp->lastPhaseName : "上次学习位置";
+                            if (cp->lastTopicTitle && !cp->lastTopicTitle->empty()) bp += " · " + *cp->lastTopicTitle;
+                            data["breakpointText"] = bp;
+                        }
+                    }
+                    const auto roadmap = found->payload["roadmap"];
+                    const nlohmann::json courseStructure = found->payload.contains("courseStructure") && found->payload["courseStructure"].is_array() ? found->payload["courseStructure"] : nlohmann::json::array();
+                    const auto cards = db.listLearningCardProgress();
+                    nlohmann::json phases = nlohmann::json::array();
+                    int idx = 0;
+                    for (const auto& st : roadmap) {
+                        ++idx;
+                        int totalTopics = 0;
+                        if (idx - 1 < static_cast<int>(courseStructure.size()) && courseStructure[idx - 1].contains("topics") && courseStructure[idx - 1]["topics"].is_array())
+                            totalTopics = static_cast<int>(courseStructure[idx - 1]["topics"].size());
+                        if (totalTopics == 0 && st.contains("tasks") && st["tasks"].is_array()) totalTopics = static_cast<int>(st["tasks"].size());
+                        int done = 0;
+                        for (const auto& c : cards)
+                            if (c.courseId.value_or("") == courseId && c.phaseIndex == idx && c.status == "completed") ++done;
+                        const int pct = totalTopics > 0 ? static_cast<int>(done * 100.0 / totalTopics + 0.5) : 0;
+                        const std::string name = (st.contains("name") && st["name"].is_string()) ? st["name"].get<std::string>() : ("阶段" + std::to_string(idx));
+                        std::string status = "not_started";
+                        if (totalTopics > 0 && done >= totalTopics) status = "completed";
+                        else if (done > 0) status = "in_progress";
+                        const std::string href = "/phase?courseId=" + courseId + "&phaseIndex=" + std::to_string(idx) +
+                            "&goal=" + goal + "&mode=" + mode +
+                            (anonymousId.empty() ? "" : "&anonymousId=" + anonymousId);
+                        phases.push_back({{"index", idx}, {"name", name}, {"total", totalTopics},
+                            {"completed", done}, {"percent", pct}, {"status", status}, {"href", href}});
+                    }
+                    data["phases"] = phases;
+                }
+            }
+        }
+        crow::response response(gangyi::renderProgressPage(courseId, anonymousId, data));
         response.set_header("Content-Type", "text/html; charset=utf-8");
         return response;
     });

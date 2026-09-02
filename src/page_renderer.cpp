@@ -232,10 +232,56 @@ std::string renderProgressPageLegacy(const std::string& courseId) {
     return document("柳州市钢一中学2629班定制AI - 高中学习规划助手", body);
 }
 
-std::string renderProgressPage(const std::string& courseId, const std::string& anonymousId) {
-    const std::string body = headerShell("progress") + R"HTML(<main class="learn-app-page min-h-screen bg-[#f5f9ff] text-slate-950"><section class="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6"><div class="flex items-end justify-between gap-4"><div><p class="text-sm font-semibold text-sky-700">学习进度</p><h1 id="progress-title" class="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">正在同步进度</h1><p class="mt-3 text-slate-600">每一次理解、练习和完成都会汇总到这里。</p></div><a id="continue" class="hidden rounded-xl bg-sky-700 px-4 py-3 text-sm font-semibold text-white" href="#">继续学习 →</a></div><section class="mt-6 grid gap-4 md:grid-cols-3"><article class="rounded-2xl border border-sky-100 bg-white p-5"><p class="text-sm text-slate-500">总体完成度</p><b id="percent" class="mt-2 block text-4xl text-sky-700">0%</b><div class="mt-4 h-3 overflow-hidden rounded-full bg-slate-200"><i id="bar" class="block h-full w-0 rounded-full bg-sky-600"></i></div></article><article class="rounded-2xl border border-sky-100 bg-white p-5"><p class="text-sm text-slate-500">已完成项目</p><b id="completed" class="mt-2 block text-4xl">0</b><p class="mt-2 text-sm text-slate-500">理解、卡片与任务</p></article><article class="rounded-2xl border border-sky-100 bg-white p-5"><p class="text-sm text-slate-500">课程项目总数</p><b id="total" class="mt-2 block text-4xl">0</b><p id="updated" class="mt-2 text-sm text-slate-500">等待同步</p></article></section><section class="mt-6 rounded-2xl border border-sky-100 bg-white p-5"><div class="flex items-center justify-between"><h2 class="text-xl font-semibold">学习断点</h2><span id="message" class="text-sm text-slate-500">正在读取课程快照</span></div><div id="breakpoint" class="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">暂无断点记录，完成一节课后会显示下一步。</div></section></section></main>)HTML";
-    const std::string script = R"HTML(<script>(()=>{const C=)HTML"+jsString(courseId)+R"HTML(,A=)HTML"+jsString(anonymousId)+R"HTML(,$=id=>document.getElementById(id);if(!C){$('message').textContent='请从课程页面进入';return}const url='/api/course-progress?courseId='+encodeURIComponent(C)+(A?'&anonymousId='+encodeURIComponent(A):'');fetch(url).then(r=>r.json()).then(x=>{const p=x.progress||{};const n=Number(p.overallPercent)||0;$('percent').textContent=n+'%';$('bar').style.width=n+'%';$('completed').textContent=p.completedCount||0;$('total').textContent=p.totalCount||0;$('updated').textContent=p.updatedAt?'最近同步：'+p.updatedAt:'尚未完成学习';if(p.lastVisitedUrl){$('continue').href=p.lastVisitedUrl;$('continue').classList.remove('hidden');$('breakpoint').textContent=(p.lastPhaseName||'上次学习位置')+' · '+(p.lastTopicTitle||'继续完成当前课程')}else $('message').textContent='完成一节课后会自动更新'}).catch(()=>{$('message').textContent='进度暂时无法读取，请刷新重试'})})()</script>)HTML";
-    return document("学习进度 - 钢一定制AI", body, script);
+std::string renderProgressPage(const std::string& courseId, const std::string& anonymousId,
+                               const nlohmann::json& data) {
+    const auto str = [](const nlohmann::json& v) { return v.is_string() ? v.get<std::string>() : std::string(); };
+    const auto num = [](const nlohmann::json& v) { return v.is_number() ? v.get<int>() : 0; };
+    const bool ready = data.value("ready", false);
+    std::string body;
+    if (!ready) {
+        body = headerShell("progress") + R"HTML(<main class="learn-app-page min-h-screen bg-[#f5f9ff] text-slate-950"><section class="mx-auto flex min-h-[60vh] w-full max-w-2xl items-center justify-center px-4 py-12 sm:px-6"><div class="w-full rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm shadow-sky-900/5"><h1 class="text-2xl font-semibold text-slate-950">学习进度</h1><p class="mt-3 text-sm leading-6 text-slate-600">请从课程或计划页进入，系统会按阶段汇总你的学习进度。</p><a class="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white" href="/">去首页生成课程</a></div></section></main>)HTML";
+        return document("学习进度 - 钢一定制AI", body);
+    }
+    const int overall = num(data.value("overallPercent", 0));
+    const int completed = num(data.value("completedCount", 0));
+    const int total = num(data.value("totalCount", 0));
+    const std::string updated = str(data.value("updatedAt", ""));
+    const bool hasBp = data.value("hasBreakpoint", false);
+    const std::string bpUrl = str(data.value("lastVisitedUrl", ""));
+    const std::string bpText = str(data.value("breakpointText", ""));
+    std::string contLink;
+    if (hasBp && !bpUrl.empty()) contLink = R"HTML(<a class="inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white transition hover:bg-sky-800" href=")HTML" + htmlEscape(bpUrl) + R"HTML(">继续学习 →</a>)HTML";
+
+    std::string phaseCards;
+    for (const auto& ph : data.value("phases", nlohmann::json::array())) {
+        const std::string name = str(ph.value("name", ""));
+        const int pindex = num(ph.value("index", 0));
+        const int ptotal = num(ph.value("total", 0));
+        const int pdone = num(ph.value("completed", 0));
+        const int pct = num(ph.value("percent", 0));
+        const std::string href = str(ph.value("href", ""));
+        const std::string status = str(ph.value("status", "not_started"));
+        const std::string statusLabel = status == "completed" ? "已完成" : status == "in_progress" ? "学习中" : "未开始";
+        const std::string pillCls = status == "completed" ? "bg-emerald-100 text-emerald-700" : status == "in_progress" ? "bg-sky-100 text-sky-800" : "bg-slate-100 text-slate-600";
+        const std::string barCls = status == "completed" ? "bg-emerald-500" : "bg-sky-600";
+        phaseCards += R"HTML(<article class="rounded-3xl border border-sky-100 bg-white p-5 shadow-sm shadow-sky-900/5">
+  <div class="flex flex-wrap items-center justify-between gap-2"><div><p class="text-xs font-semibold text-sky-700">第 )HTML" + std::to_string(pindex) + R"HTML( 阶段</p><h2 class="mt-1 break-words text-xl font-semibold text-slate-950">)HTML" + htmlEscape(name) + R"HTML(</h2></div><span class="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold )HTML" + pillCls + R"HTML(">)HTML" + statusLabel + R"HTML(</span></div>
+  <div class="mt-4 flex items-center justify-between text-sm text-slate-600"><span>完成进度</span><span class="font-semibold text-slate-900">)HTML" + std::to_string(pct) + R"HTML(% · )HTML" + std::to_string(pdone) + R"HTML(/ )HTML" + std::to_string(ptotal) + R"HTML( 节</span></div>
+  <div class="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-100"><div class="h-full rounded-full )HTML" + barCls + R"HTML(" style="width: )HTML" + std::to_string(pct) + R"HTML(%"></div></div>
+  <a class="mt-4 inline-flex min-h-10 items-center justify-center rounded-xl bg-sky-700 px-3 text-sm font-semibold text-white transition hover:bg-sky-800" href=")HTML" + htmlEscape(href) + R"HTML(">进入本阶段 →</a>
+</article>)HTML";
+    }
+    body = headerShell("progress") + R"HTML(<main class="learn-app-page min-h-screen bg-[#f5f9ff] text-slate-950"><section class="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
+  <div class="flex flex-wrap items-end justify-between gap-3"><div><p class="text-sm font-semibold text-sky-700">学习进度</p><h1 class="mt-2 break-words text-3xl font-bold tracking-tight sm:text-4xl">)HTML" + htmlEscape(data.value("courseTitle", courseId)) + R"HTML(</h1><p class="mt-2 text-sm text-slate-600">)HTML" + (updated.empty() ? std::string("每一次理解、练习和完成都会汇总到这里。") : "最近同步：" + htmlEscape(updated)) + R"HTML(</p></div>)HTML" + contLink + R"HTML(</div>
+  <section class="mt-6 grid gap-4 md:grid-cols-3">
+    <article class="rounded-2xl border border-sky-100 bg-white p-5"><p class="text-sm text-slate-500">总体完成度</p><b class="mt-2 block text-4xl text-sky-700">)HTML" + std::to_string(overall) + R"HTML(%</b><div class="mt-4 h-3 overflow-hidden rounded-full bg-slate-200"><i class="block h-full rounded-full bg-sky-600" style="width: )HTML" + std::to_string(overall) + R"HTML(%"></i></div></article>
+    <article class="rounded-2xl border border-sky-100 bg-white p-5"><p class="text-sm text-slate-500">已完成项目</p><b class="mt-2 block text-4xl">)HTML" + std::to_string(completed) + R"HTML(</b><p class="mt-2 text-sm text-slate-500">理解、卡片与任务</p></article>
+    <article class="rounded-2xl border border-sky-100 bg-white p-5"><p class="text-sm text-slate-500">课程项目总数</p><b class="mt-2 block text-4xl">)HTML" + std::to_string(total) + R"HTML(</b><p class="mt-2 text-sm text-slate-500">按最新快照估算</p></article>
+  </section>
+  )HTML" + (hasBp ? R"HTML(<section class="mt-6 rounded-2xl border border-sky-100 bg-white p-5"><p class="text-sm font-semibold text-slate-700">学习断点</p><p class="mt-2 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">)HTML" + htmlEscape(bpText) + R"HTML(</p></section>)HTML" : std::string()) + R"HTML(
+  <section class="mt-6"><div class="mb-3"><h2 class="text-xl font-semibold">分阶段进度</h2></div><div class="grid gap-4 md:grid-cols-2">)HTML" + (phaseCards.empty() ? R"HTML(<p class="text-sm text-slate-500 md:col-span-2">暂无可展示的阶段，先到课程里生成学习计划。</p>)HTML" : phaseCards) + R"HTML(</div></section>
+</section></main>)HTML";
+    return document("学习进度 - 钢一定制AI", body);
 }
 
 std::string renderLoginPage() {
