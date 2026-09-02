@@ -9,6 +9,7 @@ namespace gangyi {
 struct ChatMessage {
     std::string role;
     std::string content;
+    std::string imageDataUrl;
 };
 
 struct ChatOptions {

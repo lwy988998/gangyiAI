@@ -33,6 +33,10 @@ std::optional<CourseWithSnapshot> getCourseWithSnapshot(Database& db, const std:
 std::vector<Course> listCoursesForIdentity(Database& db, const std::string& userId,
                                            const std::string& anonymousId, size_t limit, size_t offset);
 
+// 删除属于指定身份的课程及其快照、进度和学习会话。身份不匹配时返回 false。
+bool deleteCourseForIdentity(Database& db, const std::string& courseId, const std::string& userId,
+                             const std::string& anonymousId);
+
 // 入库前脱敏（对齐校园版 sanitizeCoursePayload + stripUnsafeKeys）：
 // 深度 ≤8；剔除键名含 apikey/api_key/secret/token/authorization/base64/image/rawerror/stack 的字段；
 // 字符串截 10,000；白名单重排 title,duration,summary,courseIntro,overview,audience,prerequisites,

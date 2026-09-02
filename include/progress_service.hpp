@@ -37,6 +37,10 @@ int countCompletedTasks(Database& db, const std::string& courseId);
 std::optional<nlohmann::json> recomputeCourseProgress(Database& db, const std::string& courseId,
                                                       const std::string& anonymousId, const std::string& goal);
 
+// 清空课程的学习卡、步骤、任务和断点记录，并返回重新计算后的零进度。
+std::optional<nlohmann::json> resetCourseProgress(Database& db, const std::string& courseId,
+                                                   const std::string& anonymousId, const std::string& goal);
+
 // 更新断点续学字段（lastVisitedUrl 必须是站内相对路径且以 / 开头且不含 //，否则忽略该字段）
 bool updateLastVisited(Database& db, const std::string& courseId, const std::string& anonymousId,
                        const std::string& goal, const std::string& mode, const nlohmann::json& body);

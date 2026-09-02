@@ -246,6 +246,19 @@ std::optional<json> recomputeCourseProgress(Database& db, const std::string& cou
     } catch (...) { return std::nullopt; }
 }
 
+std::optional<json> resetCourseProgress(Database& db, const std::string& courseId, const std::string& anonymousId, const std::string& goal) {
+    try {
+        for (const auto& item : db.listLearningCardProgress())
+            if (item.courseId.value_or("") == courseId) db.deleteLearningCardProgress(item.id);
+        for (const auto& item : db.listLearningStepProgress())
+            if (item.courseId.value_or("") == courseId) db.deleteLearningStepProgress(item.id);
+        for (const auto& item : db.listTaskProgress())
+            if (item.courseId.value_or("") == courseId) db.deleteTaskProgress(item.id);
+        if (const auto progress = db.findProgressByCourseId(courseId)) db.deleteCourseProgress(progress->id);
+        return recomputeCourseProgress(db, courseId, anonymousId, goal);
+    } catch (...) { return std::nullopt; }
+}
+
 bool updateLastVisited(Database& db, const std::string& courseId, const std::string& anonymousId, const std::string& goal, const std::string& mode, const json& body) {
     try {
         auto existing = db.findProgressByCourseId(courseId);

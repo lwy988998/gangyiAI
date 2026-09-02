@@ -481,7 +481,9 @@ std::vector<SearchResource> fetchFromProvider(const std::string& provider, const
             body = {{"query", query}, {"search_depth", "basic"}, {"max_results", 5},
                     {"include_answer", false}, {"include_raw_content", false}};
         }
-        const HttpResult response = postJson(url, key, body, 15000, provider != "bocha");
+        // 与校园版一致：资源搜索超时后静默降级，不能拖慢课程或阶段内容生成。
+        const long timeoutMs = static_cast<long>(env_ll("RESOURCE_SEARCH_TIMEOUT_MS", 8000LL));
+        const HttpResult response = postJson(url, key, body, std::max(1000L, timeoutMs), provider != "bocha");
         if (response.status < 200 || response.status >= 300) continue;
         std::vector<SearchResource> parsed = provider == "bocha" ? parseBocha(response.body) : parseTavily(response.body);
         collected.insert(collected.end(), parsed.begin(), parsed.end());

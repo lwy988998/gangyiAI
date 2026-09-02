@@ -60,8 +60,16 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
     json body{{"model", options.model.empty() ? endpoint.model : options.model},
               {"temperature", options.temperature}, {"max_tokens", options.maxTokens}};
     body["messages"] = json::array();
-    for (const auto& message : options.messages)
-        body["messages"].push_back({{"role", message.role}, {"content", message.content}});
+    for (const auto& message : options.messages) {
+        if (message.imageDataUrl.empty()) {
+            body["messages"].push_back({{"role", message.role}, {"content", message.content}});
+        } else {
+            body["messages"].push_back({{"role", message.role}, {"content", json::array({
+                {{"type", "text"}, {"text", message.content}},
+                {{"type", "image_url"}, {"image_url", {{"url", message.imageDataUrl}}}},
+            })}});
+        }
+    }
     if (!options.responseFormat.empty()) body["response_format"] = {{"type", options.responseFormat}};
 
     if (std::getenv("AI_DEBUG")) {

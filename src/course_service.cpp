@@ -294,4 +294,25 @@ std::vector<Course> listCoursesForIdentity(Database& db, const std::string& user
     }
 }
 
+bool deleteCourseForIdentity(Database& db, const std::string& courseId, const std::string& userId,
+                             const std::string& anonymousId) {
+    try {
+        const auto course = db.getCourse(courseId);
+        if (!course || course->status != "active") return false;
+        const bool ownedByUser = !userId.empty() && course->userId && *course->userId == userId;
+        const bool ownedByAnonymous = !anonymousId.empty() && course->anonymousId && *course->anonymousId == anonymousId;
+        if (!ownedByUser && !ownedByAnonymous) return false;
+
+        for (const auto& item : db.findSnapshotsByCourseId(courseId)) db.deleteCourseSnapshot(item.id);
+        if (const auto item = db.findProgressByCourseId(courseId)) db.deleteCourseProgress(item->id);
+        for (const auto& item : db.listTaskProgress()) if (item.courseId.value_or("") == courseId) db.deleteTaskProgress(item.id);
+        for (const auto& item : db.listLearningStepProgress()) if (item.courseId.value_or("") == courseId) db.deleteLearningStepProgress(item.id);
+        for (const auto& item : db.listLearningCardProgress()) if (item.courseId.value_or("") == courseId) db.deleteLearningCardProgress(item.id);
+        for (const auto& item : db.listLearningSessions()) if (item.courseId.value_or("") == courseId) db.deleteLearningSession(item.id);
+        return db.deleteCourse(courseId);
+    } catch (...) {
+        return false;
+    }
+}
+
 }  // namespace gangyi
