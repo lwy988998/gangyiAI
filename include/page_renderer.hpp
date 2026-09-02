@@ -24,6 +24,6 @@ std::string renderPhasePage(const std::string& courseId, const std::string& anon
                             const nlohmann::json& plan, const nlohmann::json& cardStatus);
 std::string renderLoginPage();
 std::string renderAskPage(const std::string& goal);
-std::string renderMyCoursesPage();
+std::string renderMyCoursesPage(const nlohmann::json& data = {});
 
 }  // namespace gangyi

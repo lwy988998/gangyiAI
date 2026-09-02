@@ -351,31 +351,44 @@ std::string renderAskPage(const std::string& goal) {
     return document("柳州市钢一中学2629班定制AI - 高中学习规划助手", body);
 }
 
-std::string renderMyCoursesPage() {
+std::string renderMyCoursesPage(const nlohmann::json& data) {
+    const auto str = [](const nlohmann::json& v) { return v.is_string() ? v.get<std::string>() : std::string(); };
+    const auto num = [](const nlohmann::json& v) { return v.is_number() ? v.get<int>() : 0; };
+    std::string cardsHtml;
+    for (const auto& c : data.value("courses", nlohmann::json::array())) {
+        const std::string title = str(c.value("title", ""));
+        const std::string goal = str(c.value("goal", ""));
+        const std::string source = str(c.value("source", "ai"));
+        const std::string createdAt = str(c.value("createdAt", ""));
+        const int pct = num(c.value("overallPercent", 0));
+        const std::string status = str(c.value("status", "not_started"));
+        const std::string statusLabel = status == "completed" ? "已完成" : status == "in_progress" ? "学习中" : "未开始";
+        const std::string statusCls = status == "completed" ? "bg-emerald-100 text-emerald-700" : status == "in_progress" ? "bg-sky-100 text-sky-800" : "bg-slate-100 text-slate-600";
+        const std::string learnHref = str(c.value("learnHref", "#"));
+        const std::string progressHref = str(c.value("progressHref", "#"));
+        const std::string sourceLabel = source == "fallback" ? "应急内容" : (source == "mock" || source == "template" ? "示例" : "AI 生成");
+        cardsHtml += R"HTML(<article class="rounded-3xl border border-sky-100 bg-white p-5 shadow-sm shadow-sky-900/5 sm:p-6">
+  <div class="flex flex-wrap items-center justify-between gap-2"><div class="min-w-0"><p class="text-xs font-semibold text-sky-700">)HTML" + htmlEscape(sourceLabel) + R"HTML(</p><h2 class="mt-1 break-words text-xl font-semibold text-slate-950">)HTML" + htmlEscape(title) + R"HTML(</h2></div><span class="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold )HTML" + statusCls + R"HTML(">)HTML" + statusLabel + R"HTML(</span></div>
+  <p class="mt-3 break-words text-sm leading-7 text-slate-600">)HTML" + htmlEscape(goal) + R"HTML(</p>
+  <div class="mt-4 flex items-center justify-between text-xs text-slate-500"><span>完成度</span><span class="font-semibold text-slate-700">)HTML" + std::to_string(pct) + R"HTML(%</span></div>
+  <div class="mt-1 h-2 overflow-hidden rounded-full bg-slate-200"><div class="h-full rounded-full bg-sky-600" style="width: )HTML" + std::to_string(pct) + R"HTML(%"></div></div>
+  <div class="mt-4 flex flex-wrap gap-2"><a class="inline-flex min-h-10 items-center justify-center rounded-xl bg-sky-700 px-3 text-sm font-semibold text-white transition hover:bg-sky-800" href=")HTML" + htmlEscape(learnHref) + R"HTML(">继续学习</a><a class="inline-flex min-h-10 items-center justify-center rounded-xl border border-sky-200 bg-sky-50 px-3 text-sm font-semibold text-sky-800 transition hover:bg-sky-100" href=")HTML" + htmlEscape(progressHref) + R"HTML(">查看进度</a></div>
+  )HTML" + (createdAt.empty() ? "" : R"HTML(<p class="mt-3 text-xs text-slate-400">创建于 )HTML" + htmlEscape(createdAt) + "</p>") + R"HTML(
+</article>)HTML";
+    }
     const std::string body = headerShell("my-courses") + R"HTML(
 <main class="learn-app-page min-h-screen bg-[#f5f9ff] text-slate-950">
   <section class="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
-    <section class="overflow-hidden rounded-3xl border border-sky-100 bg-white p-6 shadow-sm shadow-sky-900/5 sm:p-8">
-      <p class="text-sm font-semibold text-sky-700">我的课程</p>
-      <h1 class="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">正在加载我的课堂</h1>
-      <p class="mt-3 text-base leading-7 text-slate-600">这里会显示已生成的课程、最近学习记录和继续学习入口。</p>
-    </section>
-    <section class="mt-6 grid gap-4 lg:grid-cols-2">
-      <article class="rounded-3xl border border-sky-100 bg-white p-5 shadow-sm shadow-sky-900/5 sm:p-6">
-        <div class="flex items-center justify-between gap-3"><div><p class="text-sm font-semibold text-sky-700">课程卡片</p><h2 class="mt-1 text-xl font-semibold text-slate-950">示例课程</h2></div><a class="rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700" href="/learn?courseId=demo-course&phaseIndex=0&topicIndex=0">继续学习</a></div>
-        <p class="mt-3 text-sm leading-7 text-slate-600">课程名称、阶段、目标与最近进度会在这里列出。</p>
-        <div class="mt-4 h-2 overflow-hidden rounded-full bg-slate-200"><div class="h-full w-1/2 rounded-full bg-sky-600"></div></div>
-        <p class="mt-2 text-xs text-slate-500">完成度 50%</p>
-      </article>
-      <article class="rounded-3xl border border-sky-100 bg-white p-5 shadow-sm shadow-sky-900/5 sm:p-6">
-        <div class="flex items-center justify-between gap-3"><div><p class="text-sm font-semibold text-sky-700">课程卡片</p><h2 class="mt-1 text-xl font-semibold text-slate-950">学习进度</h2></div><a class="rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700" href="/progress?courseId=demo-course">查看进度</a></div>
-        <p class="mt-3 text-sm leading-7 text-slate-600">可在此展示多个课程条目，后续接入接口后会自动填充真实数据。</p>
-        <div class="mt-4 grid gap-2 text-sm text-slate-700"><div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">暂无更多课程</div><div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">可以先去首页生成新课程</div></div>
-      </article>
-    </section>
+    <div class="flex flex-wrap items-end justify-between gap-3">
+      <div><p class="text-sm font-semibold text-sky-700">我的课程</p><h1 class="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">我的课堂</h1><p class="mt-3 text-base leading-7 text-slate-600">继续学习已生成的课程，或生成一个新的学习计划。</p></div>
+      <a class="inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white transition hover:bg-sky-800" href="/">+ 生成新课程</a>
+    </div>
+    <section class="mt-6 grid gap-4 lg:grid-cols-2">)HTML"
+        + (cardsHtml.empty() ? R"HTML(<div class="lg:col-span-2 rounded-3xl border border-dashed border-slate-200 bg-white p-8 text-center"><p class="text-slate-600">还没有课程。去首页输入你的学习目标，先生成一份课程计划。</p><a class="mt-4 inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white" href="/">去首页生成课程</a></div>)HTML" : cardsHtml)
+        + R"HTML(</section>
   </section>
 </main>)HTML";
-    return document("柳州市钢一中学2629班定制AI - 高中学习规划助手", body);
+    return document("我的课程 - 钢一定制AI", body);
 }
 
 std::string renderPhasePage(const std::string& courseId, const std::string& anonymousId,

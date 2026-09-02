@@ -286,8 +286,22 @@ int main() {
         return response;
     });
 
-    CROW_ROUTE(app, "/my-courses")([] {
-        crow::response response(gangyi::renderMyCoursesPage());
+    CROW_ROUTE(app, "/my-courses")([&db] {
+        auto courses = db.listCourses();
+        std::sort(courses.begin(), courses.end(), [](const gangyi::Course& a, const gangyi::Course& b) { return a.updatedAt > b.updatedAt; });
+        nlohmann::json list = nlohmann::json::array();
+        for (const auto& c : courses) {
+            int pct = 0;
+            if (const auto cp = db.findProgressByCourseId(c.id)) pct = cp->overallPercent;
+            const std::string status = pct >= 100 ? "completed" : pct > 0 ? "in_progress" : "not_started";
+            const std::string title = c.title.empty() ? (c.goal.empty() ? c.id : c.goal) : c.title;
+            list.push_back({{"courseId", c.id}, {"title", title}, {"goal", c.goal}, {"mode", c.mode},
+                {"source", c.source}, {"createdAt", c.createdAt}, {"updatedAt", c.updatedAt},
+                {"overallPercent", pct}, {"status", status},
+                {"learnHref", "/learn?courseId=" + c.id + "&phaseIndex=1&topicIndex=1"},
+                {"progressHref", "/progress?courseId=" + c.id}});
+        }
+        crow::response response(gangyi::renderMyCoursesPage({{"courses", list}}));
         response.set_header("Content-Type", "text/html; charset=utf-8");
         return response;
     });
