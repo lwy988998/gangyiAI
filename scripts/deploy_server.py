@@ -23,9 +23,9 @@ try:
         out, _ = run("ls -la /www/wwwroot/gangyiAI/build/gangyiAI | awk '{print $5}' && echo BUILD_OK")
         print(out.strip())
         # 重启 systemd 服务
-        out, _ = run("systemctl restart gangyiAI && sleep 2 && systemctl is-active gangyiAI && curl -s http://127.0.0.1:39003/health")
+        out, _ = run("systemctl restart gangyiAI && sleep 2 && systemctl is-active gangyiAI && curl -s http://127.0.0.1:39002/health")
         print(out)
-        # nginx 39002 已指向 39003，验证公网
+        # 验证 39002 端口
         out, _ = run("curl -s -o /dev/null -w '39002 via nginx: HTTP %{http_code}\\n' http://127.0.0.1:39002/")
         print(out)
 finally:

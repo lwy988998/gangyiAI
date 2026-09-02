@@ -13,7 +13,7 @@ cmake -B build
 cmake --build build -j4
 ```
 
-## systemd 服务（端口 39003）
+## systemd 服务（端口 39002）
 ```bash
 systemctl daemon-reload
 systemctl enable gangyiAI
@@ -24,7 +24,7 @@ systemctl status gangyiAI
 ## 环境变量
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| PORT | 39003 | 监听端口 |
+| PORT | 39002 | 监听端口 |
 | DATABASE_PATH | data/gangyiAI.db | SQLite 路径 |
 | AI_BASE_URL | (待配置) | AI API 地址 |
 | AI_API_KEY | (待配置) | AI 密钥 |
@@ -32,6 +32,6 @@ systemctl status gangyiAI
 
 ## 验证
 ```bash
-curl http://127.0.0.1:39003/health
+curl http://127.0.0.1:39002/health
 # => {"status":"healthy"}
 ```
