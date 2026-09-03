@@ -89,7 +89,7 @@ else()
 endif()
 
 add_executable(gangyiAI src/main.cpp src/db.cpp src/ai_client.cpp src/json_fix.cpp src/plan_generator.cpp src/learning_generator.cpp src/page_renderer.cpp
-    src/plan_cache.cpp src/plan_adapter.cpp src/search_client.cpp src/quality_gate.cpp src/course_service.cpp
+    src/plan_cache.cpp src/plan_adapter.cpp src/search_client.cpp src/quality_gate.cpp src/course_service.cpp src/auth_service.cpp
     src/progress_service.cpp src/phase_generator.cpp src/ask_generator.cpp src/image_goal_analyzer.cpp)
 
 target_include_directories(gangyiAI PRIVATE
@@ -110,20 +110,6 @@ if(WIN32)
     target_link_libraries(gangyiAI PRIVATE ws2_32 mswsock bcrypt crypt32 user32)
 endif()
 
-add_custom_command(TARGET gangyiAI POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_CURRENT_SOURCE_DIR}/public
-        $<TARGET_FILE_DIR:gangyiAI>/public
-)
-
-# 本机：复制 curl DLL 到可执行目录（运行时依赖）
-if(GANGYI_CURL_INCLUDE AND EXISTS ${CURL_MINGW_DIR}/bin/libcurl-x64.dll)
-    add_custom_command(TARGET gangyiAI POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CURL_MINGW_DIR}/bin/libcurl-x64.dll
-            $<TARGET_FILE_DIR:gangyiAI>/libcurl-x64.dll
-    )
-endif()
 
 add_custom_command(TARGET gangyiAI POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory

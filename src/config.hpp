@@ -11,6 +11,7 @@ struct Config {
     std::string ai_api_key;
     std::string ai_model = "gpt-4o-mini";
     std::string database_path = "gangyiAI.db";
+    std::string admin_emails;
 
     static Config from_environment() {
         Config config;
@@ -25,6 +26,7 @@ struct Config {
         if (const char* value = std::getenv("AI_API_KEY")) config.ai_api_key = value;
         if (const char* value = std::getenv("AI_MODEL")) config.ai_model = value;
         if (const char* value = std::getenv("DATABASE_PATH")) config.database_path = value;
+        if (const char* value = std::getenv("ADMIN_EMAILS")) config.admin_emails = value;
         return config;
     }
 };

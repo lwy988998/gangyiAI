@@ -14,6 +14,7 @@
 #include "phase_generator.hpp"
 #include "ask_generator.hpp"
 #include "image_goal_analyzer.hpp"
+#include "auth_service.hpp"
 
 #include <crow.h>
 #include <crow/multipart.h>
@@ -24,6 +25,9 @@
 #endif
 
 #include <filesystem>
+#include <algorithm>
+#include <cctype>
+#include <chrono>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -78,21 +82,27 @@ nlohmann::json planToJson(const gangyi::GeneratedPlan& plan) {
             {"mindMap", plan.mindMap}, {"resources", plan.resources}, {"projects", plan.projects}};
 }
 
-bool requesterCanReadCourse(const gangyi::Course& course, const crow::request& req) {
+bool requesterCanReadCourse(gangyi::Database& db, const gangyi::Course& course, const crow::request& req) {
     const char* anonymousId = req.url_params.get("anonymousId");
     const std::string requesterAnonymousId = anonymousId ? anonymousId : "";
-    if (course.userId && !course.userId->empty()) return false;
+    if (course.userId && !course.userId->empty()) {
+        const auto user = gangyi::currentUser(db, req);
+        return user && user->id == *course.userId;
+    }
     if (course.anonymousId && !course.anonymousId->empty()) {
         return *course.anonymousId == requesterAnonymousId;
     }
     return true;
 }
 
-bool anonymousCanAccessCourse(gangyi::Database& db, const std::string& courseId, const std::string& anonymousId) {
+bool requesterCanAccessCourse(gangyi::Database& db, const crow::request& req, const std::string& courseId, const std::string& anonymousId) {
     if (courseId.empty()) return true;
     const auto course = db.getCourse(courseId);
     if (!course || course->status != "active") return false;
-    if (course->userId && !course->userId->empty()) return false;
+    if (course->userId && !course->userId->empty()) {
+        const auto user = gangyi::currentUser(db, req);
+        return user && user->id == *course->userId;
+    }
     if (course->anonymousId && !course->anonymousId->empty()) return *course->anonymousId == anonymousId;
     return true;
 }
@@ -135,6 +145,19 @@ std::string encodeQueryValue(const std::string& value) {
         }
     }
     return encoded.str();
+}
+
+bool isAdmin(const gangyi::User& user, const gangyi::Config& config) {
+    std::string email = user.email;
+    std::transform(email.begin(), email.end(), email.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::istringstream values(config.admin_emails);
+    std::string item;
+    while (std::getline(values, item, ',')) {
+        item.erase(std::remove_if(item.begin(), item.end(), [](unsigned char c) { return std::isspace(c); }), item.end());
+        std::transform(item.begin(), item.end(), item.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (!item.empty() && item == email) return true;
+    }
+    return false;
 }
 
 }  // namespace
@@ -206,7 +229,7 @@ int main() {
         const std::string goal = goalP ? goalP : "";
         const std::string mode = modeP && *modeP ? modeP : "deep";
         nlohmann::json data = {{"ready", false}, {"courseTitle", courseId}};
-        if (!courseId.empty() && anonymousCanAccessCourse(db, courseId, anonymousId)) {
+        if (!courseId.empty() && requesterCanAccessCourse(db, req, courseId, anonymousId)) {
             if (const auto found = gangyi::getCourseWithSnapshot(db, courseId)) {
                 if (found->payload.is_object() && found->payload.contains("roadmap") && found->payload["roadmap"].is_array()) {
                     data["ready"] = true;
@@ -276,7 +299,7 @@ int main() {
         std::string phaseName = phaseNameP ? phaseNameP : "";
         nlohmann::json plan = nlohmann::json::object();
         nlohmann::json card = nlohmann::json::object();
-        if (!courseId.empty() && anonymousCanAccessCourse(db, courseId, anonymousId)) {
+        if (!courseId.empty() && requesterCanAccessCourse(db, req, courseId, anonymousId)) {
             if (const auto found = gangyi::getCourseWithSnapshot(db, courseId)) {
                 if (found->payload.is_object()) plan = found->payload;
                 if (goal.empty()) goal = found->course.goal;
@@ -302,6 +325,20 @@ int main() {
         return response;
     });
 
+    CROW_ROUTE(app, "/register")([] {
+        crow::response response(gangyi::renderRegisterPage());
+        response.set_header("Content-Type", "text/html; charset=utf-8");
+        return response;
+    });
+
+    CROW_ROUTE(app, "/admin")([&db, &config](const crow::request& req) {
+        const auto user = gangyi::currentUser(db, req);
+        const std::string state = !user ? "login" : (isAdmin(*user, config) ? "allowed" : "denied");
+        crow::response response(gangyi::renderAdminPage(state));
+        response.set_header("Content-Type", "text/html; charset=utf-8");
+        return response;
+    });
+
     CROW_ROUTE(app, "/ask")([](const crow::request& req) {
         const char* goal = req.url_params.get("goal");
         const char* question = req.url_params.get("question");
@@ -313,7 +350,8 @@ int main() {
 
     CROW_ROUTE(app, "/my-courses")([&db](const crow::request& req) {
         const std::string anonymousId = requestAnonymousId(req);
-        const auto courses = gangyi::listCoursesForIdentity(db, "", anonymousId, 100, 0);
+        const auto user = gangyi::currentUser(db, req);
+        const auto courses = gangyi::listCoursesForIdentity(db, user ? user->id : "", user ? "" : anonymousId, 100, 0);
         nlohmann::json list = nlohmann::json::array();
         int inProgress = 0, completed = 0;
         for (const auto& c : courses) {
@@ -331,7 +369,7 @@ int main() {
                 {"learnHref", "/learn?courseId=" + encodeQueryValue(c.id) + "&phaseIndex=1&topicIndex=1" + query},
                 {"progressHref", "/progress?courseId=" + encodeQueryValue(c.id) + query}});
         }
-        crow::response response(gangyi::renderMyCoursesPage({{"courses", list}, {"anonymousId", anonymousId},
+        crow::response response(gangyi::renderMyCoursesPage({{"courses", list}, {"anonymousId", user ? "" : anonymousId}, {"authenticated", static_cast<bool>(user)},
             {"stats", {{"total", static_cast<int>(courses.size())}, {"inProgress", inProgress}, {"completed", completed}}}}));
         response.set_header("Content-Type", "text/html; charset=utf-8");
         return response;
@@ -354,7 +392,7 @@ int main() {
             const char* retry = req.url_params.get("retry");
             const std::string safeCourseId = courseId ? courseId : "";
             const std::string safeAnonymousId = requestAnonymousId(req);
-            if (!anonymousCanAccessCourse(db, safeCourseId, safeAnonymousId)) {
+            if (!requesterCanAccessCourse(db, req, safeCourseId, safeAnonymousId)) {
                 return crow::response(404, nlohmann::json{{"error", "course not found"}}.dump());
             }
             int phaseIndex = 0, topicIndex = 0;
@@ -487,9 +525,103 @@ int main() {
         }
     });
 
-    CROW_ROUTE(app, "/api/auth/login").methods(crow::HTTPMethod::POST)([](const crow::request& req) {
-        const auto body = req.body;
-        return crow::response(200, nlohmann::json{{"ok", true}, {"message", "登录接口已接通"}, {"bodyLength", static_cast<int>(body.size())}}.dump());
+    CROW_ROUTE(app, "/api/auth/register").methods(crow::HTTPMethod::POST)([&db](const crow::request& req) {
+        try {
+            const auto body = nlohmann::json::parse(req.body);
+            const auto result = gangyi::registerUser(db, body.value("email", ""), body.value("name", ""),
+                body.value("password", ""), requestAnonymousId(req, &body));
+            crow::response response(result.ok ? 201 : 400, nlohmann::json{{"ok", result.ok},
+                {"error", result.error}, {"user", result.ok ? gangyi::publicUser(result.user) : nlohmann::json(nullptr)}}.dump());
+            if (result.ok) response.set_header("Set-Cookie", "ailines_session=" + result.token + "; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000");
+            return response;
+        } catch (...) { return crow::response(400, nlohmann::json{{"ok", false}, {"error", "请求内容无效"}}.dump()); }
+    });
+
+    CROW_ROUTE(app, "/api/auth/login").methods(crow::HTTPMethod::POST)([&db](const crow::request& req) {
+        try {
+            const auto body = nlohmann::json::parse(req.body);
+            const auto result = gangyi::loginUser(db, body.value("email", ""), body.value("password", ""), requestAnonymousId(req, &body));
+            crow::response response(result.ok ? 200 : 401, nlohmann::json{{"ok", result.ok},
+                {"error", result.error}, {"user", result.ok ? gangyi::publicUser(result.user) : nlohmann::json(nullptr)}}.dump());
+            if (result.ok) response.set_header("Set-Cookie", "ailines_session=" + result.token + "; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000");
+            return response;
+        } catch (...) { return crow::response(400, nlohmann::json{{"ok", false}, {"error", "请求内容无效"}}.dump()); }
+    });
+
+    CROW_ROUTE(app, "/api/auth/me")([&db](const crow::request& req) {
+        const auto user = gangyi::currentUser(db, req);
+        return crow::response(200, nlohmann::json{{"ok", static_cast<bool>(user)},
+            {"user", user ? gangyi::publicUser(*user) : nlohmann::json(nullptr)}}.dump());
+    });
+
+    CROW_ROUTE(app, "/api/auth/logout").methods(crow::HTTPMethod::POST)([&db](const crow::request& req) {
+        gangyi::logoutUser(db, req);
+        crow::response response(200, nlohmann::json{{"ok", true}}.dump());
+        response.set_header("Set-Cookie", "ailines_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0");
+        return response;
+    });
+
+    CROW_ROUTE(app, "/api/admin/overview")([&db, &config](const crow::request& req) {
+        const auto requester = gangyi::currentUser(db, req);
+        if (!requester || !isAdmin(*requester, config)) return crow::response(requester ? 403 : 401, nlohmann::json{{"error", requester ? "你没有访问管理员后台的权限。" : "请先登录管理员账号。"}}.dump());
+        int freeUsers = 0, proUsers = 0, maxUsers = 0, recentUsers = 0, recentCourses = 0;
+        const auto daysAgo = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now() - std::chrono::hours(24 * 7));
+        std::tm utc{};
+#ifdef _WIN32
+        gmtime_s(&utc, &daysAgo);
+#else
+        gmtime_r(&daysAgo, &utc);
+#endif
+        std::ostringstream date;
+        date << std::put_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
+        const auto users = db.listUsers();
+        const auto courses = db.listCourses();
+        for (const auto& user : users) {
+            if (user.membershipTier == "pro") ++proUsers; else if (user.membershipTier == "max") ++maxUsers; else ++freeUsers;
+            if (user.createdAt >= date.str()) ++recentUsers;
+        }
+        for (const auto& course : courses) if (course.createdAt >= date.str()) ++recentCourses;
+        return crow::response(200, nlohmann::json{{"stats", {{"totalUsers", static_cast<int>(users.size())}, {"freeUsers", freeUsers}, {"proUsers", proUsers}, {"maxUsers", maxUsers}, {"totalCourses", static_cast<int>(courses.size())}, {"recentUsers", recentUsers}, {"recentCourses", recentCourses}}}}.dump());
+    });
+
+    CROW_ROUTE(app, "/api/admin/users")([&db, &config](const crow::request& req) {
+        const auto requester = gangyi::currentUser(db, req);
+        if (!requester || !isAdmin(*requester, config)) return crow::response(requester ? 403 : 401, nlohmann::json{{"error", requester ? "你没有访问管理员后台的权限。" : "请先登录管理员账号。"}}.dump());
+        const std::string query = req.url_params.get("q") ? req.url_params.get("q") : "";
+        const std::string tier = req.url_params.get("tier") ? req.url_params.get("tier") : "";
+        nlohmann::json items = nlohmann::json::array();
+        for (const auto& user : db.listUsers()) {
+            if ((!query.empty() && user.email.find(query) == std::string::npos) || (!tier.empty() && user.membershipTier != tier)) continue;
+            int courseCount = 0;
+            for (const auto& course : db.listCourses()) if (course.userId.value_or("") == user.id) ++courseCount;
+            items.push_back({{"id", user.id}, {"email", user.email}, {"name", user.name.value_or("")}, {"tier", user.membershipTier}, {"membershipStatus", user.membershipStatus}, {"createdAt", user.createdAt}, {"updatedAt", user.updatedAt}, {"lastActiveAt", user.updatedAt}, {"courseCount", courseCount}});
+        }
+        return crow::response(200, nlohmann::json{{"users", items}}.dump());
+    });
+
+    CROW_ROUTE(app, "/api/admin/courses")([&db, &config](const crow::request& req) {
+        const auto requester = gangyi::currentUser(db, req);
+        if (!requester || !isAdmin(*requester, config)) return crow::response(requester ? 403 : 401, nlohmann::json{{"error", requester ? "你没有访问管理员后台的权限。" : "请先登录管理员账号。"}}.dump());
+        nlohmann::json items = nlohmann::json::array();
+        for (const auto& course : db.listCourses()) {
+            const auto owner = course.userId ? db.getUser(*course.userId) : std::nullopt;
+            items.push_back({{"id", course.id}, {"title", course.title}, {"goal", course.goal}, {"mode", course.mode}, {"status", course.status}, {"ownerEmail", owner ? nlohmann::json(owner->email) : nlohmann::json(nullptr)}, {"createdAt", course.createdAt}, {"updatedAt", course.updatedAt}, {"planUrl", "/plan?courseId=" + encodeQueryValue(course.id)}});
+        }
+        return crow::response(200, nlohmann::json{{"courses", items}}.dump());
+    });
+
+    CROW_ROUTE(app, "/api/admin/users/<string>/tier").methods(crow::HTTPMethod::POST)([&db, &config](const crow::request& req, std::string userId) {
+        const auto requester = gangyi::currentUser(db, req);
+        if (!requester || !isAdmin(*requester, config)) return crow::response(requester ? 403 : 401, nlohmann::json{{"error", requester ? "你没有访问管理员后台的权限。" : "请先登录管理员账号。"}}.dump());
+        try {
+            const std::string tier = nlohmann::json::parse(req.body).value("tier", "");
+            if (tier != "free" && tier != "pro" && tier != "max") return crow::response(400, nlohmann::json{{"error", "会员等级参数不正确。"}}.dump());
+            auto user = db.getUser(userId);
+            if (!user) return crow::response(404, nlohmann::json{{"error", "用户不存在。"}}.dump());
+            user->membershipTier = tier;
+            if (!db.update(*user)) return crow::response(500, nlohmann::json{{"error", "会员等级更新失败。"}}.dump());
+            return crow::response(200, nlohmann::json{{"user", gangyi::publicUser(*user)}}.dump());
+        } catch (...) { return crow::response(400, nlohmann::json{{"error", "请求内容无效"}}.dump()); }
     });
 
     CROW_ROUTE(app, "/api/ask").methods(crow::HTTPMethod::POST)([](const crow::request& req) {
@@ -621,7 +753,8 @@ int main() {
             const std::string summary = body.value("summary", "");
             const std::string source = body.value("source", "ai");
             const std::string anonymousId = requestAnonymousId(req, &body);
-            const std::string userId;
+            const auto user = gangyi::currentUser(db, req);
+            const std::string userId = user ? user->id : "";
 
             const auto gate = gangyi::validateCourseContent(body["payload"], goal, mode, title);
             if (!gate.valid) {
@@ -637,7 +770,7 @@ int main() {
                     {"message", "课程保存失败，但你可以重新生成或稍后重试。"}, {"canRetry", true}}.dump());
             }
             std::string href = "/plan?courseId=" + *courseId;
-            if (!anonymousId.empty()) href += "&anonymousId=" + anonymousId;
+            if (userId.empty() && !anonymousId.empty()) href += "&anonymousId=" + anonymousId;
             return crow::response(200, nlohmann::json{{"ok", true}, {"courseId", *courseId}, {"href", href}}.dump());
         } catch (const std::exception&) {
             return crow::response(500, nlohmann::json{{"ok", false}, {"error", "COURSE_SAVE_FAILED"},
@@ -656,11 +789,13 @@ int main() {
         if (limit < 1) limit = 1;
         if (limit > 100) limit = 100;
         try {
-            const auto courses = gangyi::listCoursesForIdentity(db, "", anonymousId ? anonymousId : "", limit, offset);
+            const auto user = gangyi::currentUser(db, req);
+            const std::string safeAnonymousId = user ? "" : (anonymousId ? anonymousId : "");
+            const auto courses = gangyi::listCoursesForIdentity(db, user ? user->id : "", safeAnonymousId, limit, offset);
             nlohmann::json arr = nlohmann::json::array();
             for (const auto& c : courses) {
                 std::string href = "/plan?courseId=" + c.id;
-                if (anonymousId) href += "&anonymousId=" + std::string(anonymousId);
+                if (!user && anonymousId) href += "&anonymousId=" + std::string(anonymousId);
                 arr.push_back({{"id", c.id}, {"goal", c.goal}, {"mode", c.mode}, {"title", c.title},
                     {"summary", c.summary ? nlohmann::json(*c.summary) : nlohmann::json(nullptr)},
                     {"createdAt", c.createdAt}, {"updatedAt", c.updatedAt}, {"href", href}});
@@ -672,10 +807,11 @@ int main() {
     });
 
     // GET /api/courses/<courseId> —— 恢复课程 + 最新快照
-    CROW_ROUTE(app, "/api/courses/<string>")([&db](const crow::request& req, std::string courseId) {
+    CROW_ROUTE(app, "/api/courses/<string>")([&db, &config](const crow::request& req, std::string courseId) {
         try {
             const auto found = gangyi::getCourseWithSnapshot(db, courseId);
-            if (!found || !requesterCanReadCourse(found->course, req)) {
+            const auto user = gangyi::currentUser(db, req);
+            if (!found || (!requesterCanReadCourse(db, found->course, req) && (!user || !isAdmin(*user, config)))) {
                 return crow::response(404, nlohmann::json{{"error", "course not found"}}.dump());
             }
             const nlohmann::json course = {{"id", found->course.id}, {"goal", found->course.goal},
@@ -692,7 +828,8 @@ int main() {
 
     CROW_ROUTE(app, "/api/my-courses/<string>").methods(crow::HTTPMethod::DELETE)([&db](const crow::request& req, std::string courseId) {
         const std::string anonymousId = requestAnonymousId(req);
-        if (!gangyi::deleteCourseForIdentity(db, courseId, "", anonymousId)) {
+        const auto user = gangyi::currentUser(db, req);
+        if (!gangyi::deleteCourseForIdentity(db, courseId, user ? user->id : "", user ? "" : anonymousId)) {
             return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
         }
         return crow::response(200, nlohmann::json{{"ok", true}}.dump());
@@ -706,7 +843,7 @@ int main() {
             auto body = nlohmann::json::parse(req.body);
             const std::string courseId = body.value("courseId", "");
             const std::string anonymousId = requestAnonymousId(req, &body);
-            if (!anonymousCanAccessCourse(db, courseId, anonymousId)) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+            if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
             if (!anonymousId.empty()) body["anonymousId"] = anonymousId;
             auto result = gangyi::saveLearningCardProgress(db, body);
             if (!result.ok) {
@@ -729,7 +866,7 @@ int main() {
         const char* goal = req.url_params.get("goal");
         const char* mode = req.url_params.get("mode");
         const char* phaseIndex = req.url_params.get("phaseIndex");
-        if (!anonymousCanAccessCourse(db, courseId ? courseId : "", anonymousId)) {
+        if (!requesterCanAccessCourse(db, req, courseId ? courseId : "", anonymousId)) {
             return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
         }
         int phase = 0;
@@ -753,7 +890,7 @@ int main() {
             auto body = nlohmann::json::parse(req.body);
             const std::string courseId = body.value("courseId", "");
             const std::string anonymousId = requestAnonymousId(req, &body);
-            if (!anonymousCanAccessCourse(db, courseId, anonymousId)) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+            if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
             if (!anonymousId.empty()) body["anonymousId"] = anonymousId;
             auto result = gangyi::saveLearningStepProgress(db, body);
             if (!result.ok) {
@@ -776,7 +913,7 @@ int main() {
         const char* goal = req.url_params.get("goal");
         const char* mode = req.url_params.get("mode");
         const char* phaseIndex = req.url_params.get("phaseIndex");
-        if (!anonymousCanAccessCourse(db, courseId ? courseId : "", anonymousId)) {
+        if (!requesterCanAccessCourse(db, req, courseId ? courseId : "", anonymousId)) {
             return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
         }
         int phase = 0;
@@ -800,7 +937,7 @@ int main() {
             auto body = nlohmann::json::parse(req.body);
             const std::string courseId = body.value("courseId", "");
             const std::string anonymousId = requestAnonymousId(req, &body);
-            if (!anonymousCanAccessCourse(db, courseId, anonymousId)) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+            if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
             if (!anonymousId.empty()) body["anonymousId"] = anonymousId;
             auto result = gangyi::saveTaskProgress(db, body);
             if (!result.ok) {
@@ -822,7 +959,7 @@ int main() {
             auto body = nlohmann::json::parse(req.body);
             const std::string courseId = body.value("courseId", "");
             const std::string anonymousId = requestAnonymousId(req, &body);
-            if (!anonymousCanAccessCourse(db, courseId, anonymousId)) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+            if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
             if (!anonymousId.empty()) body["anonymousId"] = anonymousId;
             const std::string goal = body.value("goal", "");
             const std::string mode = body.value("mode", "deep");
@@ -851,7 +988,7 @@ int main() {
             const std::string action = body.value("action", "recompute");
             const std::string courseId = body.value("courseId", "");
             const std::string anonymousId = requestAnonymousId(req, &body);
-            if (!anonymousCanAccessCourse(db, courseId, anonymousId)) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+            if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
             if (!anonymousId.empty()) body["anonymousId"] = anonymousId;
             const std::string goal = body.value("goal", "");
             const std::string mode = body.value("mode", "deep");
@@ -876,7 +1013,7 @@ int main() {
             const char* courseId = req.url_params.get("courseId");
             const char* anonymousId = req.url_params.get("anonymousId");
             if (!courseId || !*courseId) return crow::response(400, nlohmann::json{{"ok", false}, {"error", "courseId required"}}.dump());
-            if (!anonymousCanAccessCourse(db, courseId, anonymousId ? anonymousId : "")) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+            if (!requesterCanAccessCourse(db, req, courseId, anonymousId ? anonymousId : "")) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
             const auto progress = gangyi::recomputeCourseProgress(db, courseId, anonymousId ? anonymousId : "", "");
             return crow::response(200, nlohmann::json{{"ok", true}, {"progress", progress ? *progress : nlohmann::json::object()}}.dump());
         } catch (...) {
@@ -896,7 +1033,7 @@ int main() {
         try { if (phaseIndexP) phaseIndex = std::stoi(phaseIndexP); } catch (...) {}
         try { if (topicIndexP) topicIndex = std::stoi(topicIndexP); } catch (...) {}
         try {
-            if (!anonymousCanAccessCourse(db, courseId ? courseId : "", anonymousId ? anonymousId : "")) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+            if (!requesterCanAccessCourse(db, req, courseId ? courseId : "", anonymousId ? anonymousId : "")) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
             const auto session = gangyi::findLearningSession(db, courseId ? courseId : "",
                 anonymousId ? anonymousId : "", goal ? goal : "", mode ? mode : "deep", phaseIndex, topicIndex);
             if (!session) {
@@ -925,7 +1062,7 @@ int main() {
             const auto body = nlohmann::json::parse(req.body);
             const std::string courseId = body.value("courseId", "");
             const std::string anonymousId = requestAnonymousId(req, &body);
-            if (!anonymousCanAccessCourse(db, courseId, anonymousId)) {
+            if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) {
                 return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
             }
             const std::string goal = body.value("goal", "");
