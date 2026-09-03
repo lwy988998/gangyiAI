@@ -319,13 +319,23 @@ int main() {
         return response;
     });
 
-    CROW_ROUTE(app, "/login")([] {
+    CROW_ROUTE(app, "/login")([&db](const crow::request& req) {
+        if (gangyi::currentUser(db, req)) {
+            crow::response response;
+            response.redirect("/my-courses");
+            return response;
+        }
         crow::response response(gangyi::renderLoginPage());
         response.set_header("Content-Type", "text/html; charset=utf-8");
         return response;
     });
 
-    CROW_ROUTE(app, "/register")([] {
+    CROW_ROUTE(app, "/register")([&db](const crow::request& req) {
+        if (gangyi::currentUser(db, req)) {
+            crow::response response;
+            response.redirect("/my-courses");
+            return response;
+        }
         crow::response response(gangyi::renderRegisterPage());
         response.set_header("Content-Type", "text/html; charset=utf-8");
         return response;
