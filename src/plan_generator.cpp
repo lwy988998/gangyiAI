@@ -11,27 +11,15 @@ namespace {
 
 using json = nlohmann::json;
 
-const char* sharedSkeletonRules = R"(你是钢一定制AI的高中课程架构师，只服务普通高中学生。只输出严格 JSON，禁止 markdown、解释、代码块。不要 mock/fallback/demo/template。不要编造链接。
+const char* sharedSkeletonRules = R"(你是钢一定制AI的高中课程架构师，只服务普通高中学生。只输出严格 JSON，禁止 markdown、解释、代码块和编造链接。
 
-课程必须属于高中语文、数学、英语、物理、化学、生物、历史、地理、政治或信息技术；围绕教材知识点、题型、实验、阅读、写作、复习与考试设计。不要生成 Web 开发、网站制作、项目发布、职业技能、摄影、乐器等非高中课程。目标模糊时，按最接近的高中学科与知识点补全。
+课程只属于高中语文、数学、英语、物理、化学、生物、历史、地理、政治或信息技术；围绕教材知识点、题型、实验、阅读、写作、复习与考试设计。不要生成 Web 开发、网站制作、职业技能、摄影或乐器等非高中课程。目标模糊时，按最接近的高中学科与知识点补全。
 
-这是 Level 1：Plan Skeleton。只生成课程骨架，不生成整本教材、不生成长篇讲义、不生成完整课件、不生成完整测验。
-
-固定顶层字段：inferredDomain, learnerGoal, courseTitle, courseSummary, title, goal, durationWeeks, summary, courseIntro, overview, audience, prerequisites, outcome, learningOutcomes, phases, slides, mindMap, resources, projects。slides 必须为空数组或最多 1-2 张总览短卡；mindMap 只允许 root -> phase -> topic；resources 可为空数组；projects 只写 0-2 个最终产出项目。
-
-每个 phase 必须包含：name, durationWeeks, duration, objective, why, description, overview, topics, topicDescriptions, tasks, practice, checkpoint, output, commonMistakes, steps。topics 为 3-6 个短标题，topicDescriptions 与 topics 等长且简短；tasks 只写阶段级任务标题。steps 只能是 topic 的短映射，禁止长讲解。
-
-课程必须贴合用户真实目标：短目标要在 learnerGoal 中合理补全；具体目标必须保留时间、场景、输出成果和限制条件。每个 phase 的 name、topics、output、checkpoint 必须出现该领域的真实对象、动作、工具、材料、场景、作品或验收方式。
-
-禁止空泛句：深入学习相关知识、掌握基本概念、多加练习、提升综合能力、理解阶段目标、用练习把知识变成能力、复盘并形成阶段产出、关键抓手、不要只背名词、至少完成一次解释和练习、建立学习节奏、完成一次输出。deep 更深但不是更长，详细内容交给后续阶段。)";
+这是课程骨架，不生成教材、长讲义、完整课件或完整测验。固定顶层字段只有 inferredDomain、learnerGoal、courseTitle、courseSummary、title、goal、durationWeeks、phases。每个 phase 只需 name、durationWeeks、objective、topics、tasks、checkpoint、output、commonMistakes；topics 为 3-4 个短标题，tasks 为 2-3 个可执行任务。每个字段必须具体到高中知识点、题型、实验或学习产出，禁止空泛句。)";
 
 std::string modeRules(const std::string& mode) {
-    if (mode == "lite") return "mode=lite：快速规划骨架。durationWeeks 1-2；phases 3-4 个；每阶段 topics 3-4 个。输出短、直接、马上能开始。";
-    return "mode=deep：深度课程骨架。durationWeeks 6-10；phases 4-6 个；每阶段 topics 4-6 个。更系统，但仍然只生成目录、目标、产出和检查点。不要长文。";
-}
-
-std::string retrySuffix() {
-    return "\n\n上一次输出不是合法 JSON，或未通过结构质量检查。请重新生成，只输出一个完整、严格、未截断的 JSON 对象：不要 Markdown 代码块围栏，不要任何解释文字，不要注释，不要尾逗号，并确保 phases 数量符合模式要求。";
+    if (mode == "lite") return "mode=lite：快速规划骨架。durationWeeks 1-2；phases 3 个；每阶段 topics 3 个。输出短、直接、马上能开始。";
+    return "mode=deep：深度课程骨架。durationWeeks 6-8；phases 4 个；每阶段 topics 3-4 个。更系统，但仍然只生成目录、目标、产出和检查点。不要长文。";
 }
 
 std::string stringValue(const json& object, const char* key) {
@@ -130,7 +118,7 @@ void validate(const GeneratedPlan& plan, const std::string& mode) {
 ChatOptions options(const std::string& system, const std::string& user, const std::string& mode) {
     // 首页生成只走一次 DeepSeek，避免用户长时间停留在“准备生成”。
     return {{ {"system", system}, {"user", user} }, {}, 0.7,
-        mode == "lite" ? 4500 : 6000, "json_object", 60000, 1};
+        mode == "lite" ? 2600 : 3600, "json_object", mode == "lite" ? 30000 : 40000, 1};
 }
 
 }
@@ -145,19 +133,9 @@ GeneratedPlan PlanGenerator::generate(const std::string& goal, const std::string
     const std::string safeGoal = goal.substr(first, goal.find_last_not_of(" \t\r\n") - first + 1);
     const std::string system = std::string(sharedSkeletonRules) + "\n" + modeRules(mode);
     const std::string user = "学习目标：" + safeGoal + "\n模式：" + mode + "\n请生成 Level 1 Plan Skeleton 严格 JSON。先输出 inferredDomain 和 learnerGoal，再生成课程目录、阶段目标、topics、topicDescriptions、阶段产出和 checkpoint。";
-    std::string content = client_.chat(options(system, user, mode)).content;
-    for (int attempt = 0; attempt < 2; ++attempt) {
-        try {
-            GeneratedPlan plan = parsePlan(parseAIJson(content));
-            validate(plan, mode);
-            return plan;
-        } catch (const AIClientError& error) {
-            if (attempt == 1) throw;
-            const std::string retryUser = user + retrySuffix();
-            content = client_.chat(options(system, retryUser, mode)).content;
-        }
-    }
-    throw AIClientError("unknown", "plan generation failed");
+    const GeneratedPlan plan = parsePlan(parseAIJson(client_.chat(options(system, user, mode)).content));
+    validate(plan, mode);
+    return plan;
 }
 
 }
