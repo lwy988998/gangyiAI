@@ -77,7 +77,7 @@ std::string headerShell(const std::string& active) {
         navLink("/my-courses", "我的课程", is("my-courses")) +
         navLink("/ask", "问答", is("ask")) +
         navLink("/login", "登录", is("login")) +
-        R"HTML(</nav></details></div></header><script>fetch('/api/auth/me').then(r=>r.json()).then(d=>{const a=document.getElementById('account-link');if(a&&d.ok){a.href='/my-courses';a.textContent='我的课程'}}).catch(()=>{})</script>)HTML";
+        R"HTML(</nav></details></div></header><script>fetch('/api/auth/me').then(r=>r.json()).then(d=>{const a=document.getElementById('account-link');if(a&&d.ok){a.href='/my-courses';a.textContent='我的课程';const b=document.createElement('button');b.className='text-sm text-slate-500 hover:text-sky-700';b.textContent='退出';b.onclick=async()=>{await fetch('/api/auth/logout',{method:'POST'});location.href='/'};a.after(b)}}).catch(()=>{})</script>)HTML";
 }
 
 std::string loadingSpinner(const std::string& title, const std::string& subtitle) {
