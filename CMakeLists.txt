@@ -84,8 +84,9 @@ if(WIN32 AND CURL_MINGW_DIR AND EXISTS ${CURL_MINGW_DIR}/include/curl/curl.h)
     set(GANGYI_CURL_LINK ${GANGYI_CURL_LIB})
 else()
     find_package(CURL REQUIRED)
+    find_package(OpenSSL REQUIRED)
     set(GANGYI_CURL_INCLUDE "")
-    set(GANGYI_CURL_LINK CURL::libcurl)
+    set(GANGYI_CURL_LINK CURL::libcurl OpenSSL::Crypto)
 endif()
 
 add_executable(gangyiAI src/main.cpp src/db.cpp src/ai_client.cpp src/json_fix.cpp src/plan_generator.cpp src/learning_generator.cpp src/page_renderer.cpp
