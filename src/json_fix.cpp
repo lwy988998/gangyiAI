@@ -34,7 +34,11 @@ std::string repair(std::string value) {
     bool inString = false;
     for (size_t i = 0; i < value.size(); ++i) {
         const unsigned char c = static_cast<unsigned char>(value[i]);
-        if (c == '\n' && !inString) {
+        if (c == '\n' && inString) {
+            result += "\\n";
+            continue;
+        }
+        if (c == '\n') {
             size_t j = i + 1;
             while (j < value.size() && (value[j] == ' ' || value[j] == '\t')) ++j;
             if (value.compare(j, 2, "//") == 0) { i = value.find('\n', j); if (i == std::string::npos) break; }
@@ -88,6 +92,10 @@ nlohmann::json parseAIJson(const std::string& content) {
     std::string value = content;
     if (value.size() >= 3 && static_cast<unsigned char>(value[0]) == 0xEF && static_cast<unsigned char>(value[1]) == 0xBB && static_cast<unsigned char>(value[2]) == 0xBF) value.erase(0, 3);
     value = trim(value);
+    try {
+        const auto wrapped = nlohmann::json::parse(value);
+        if (wrapped.is_string()) value = trim(wrapped.get<std::string>());
+    } catch (...) {}
     if (value.rfind("```", 0) == 0) {
         const auto start = value.find('\n');
         const auto end = value.rfind("```");
