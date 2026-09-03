@@ -63,7 +63,7 @@ std::string navLink(const std::string& href, const std::string& label, bool acti
 
 std::string headerShell(const std::string& active) {
     const auto is = [&](const std::string& key) { return active == key; };
-    return std::string(R"HTML(<header class="sticky top-0 z-30 w-full max-w-full border-b border-slate-200/70 bg-white/92 backdrop-blur-xl"><div class="mx-auto flex min-h-13 w-full max-w-7xl items-center justify-between gap-2 px-3 py-2 sm:min-h-16 md:px-6 lg:px-8"><div class="flex min-w-0 items-center gap-2 sm:gap-3"><a class="shrink-0 whitespace-nowrap text-base font-semibold tracking-tight text-sky-900 md:text-lg" href="/">钢一定制AI</a><a class="inline-flex min-h-9 shrink-0 rounded-full border border-slate-200 bg-white/80 px-2.5 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700 focus:outline-none focus:ring-2 focus:ring-sky-300 sm:px-3" href="/login">登录</a></div><nav class="hidden min-w-0 flex-1 items-center justify-end gap-2 text-sm font-medium text-slate-600 md:flex lg:gap-4">)HTML") +
+    return std::string(R"HTML(<header class="sticky top-0 z-30 w-full max-w-full border-b border-slate-200/70 bg-white/92 backdrop-blur-xl"><div class="mx-auto flex min-h-13 w-full max-w-7xl items-center justify-between gap-2 px-3 py-2 sm:min-h-16 md:px-6 lg:px-8"><div class="flex min-w-0 items-center gap-2 sm:gap-3"><a class="shrink-0 whitespace-nowrap text-base font-semibold tracking-tight text-sky-900 md:text-lg" href="/">钢一定制AI</a><a id="account-link" class="inline-flex min-h-9 shrink-0 rounded-full border border-slate-200 bg-white/80 px-2.5 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700 focus:outline-none focus:ring-2 focus:ring-sky-300 sm:px-3" href="/login">登录</a></div><nav class="hidden min-w-0 flex-1 items-center justify-end gap-2 text-sm font-medium text-slate-600 md:flex lg:gap-4">)HTML") +
         navLink("/", "首页", is("home")) +
         navLink("/learn", "学习", is("learn")) +
         navLink("/progress", "进度", is("progress")) +
@@ -77,7 +77,7 @@ std::string headerShell(const std::string& active) {
         navLink("/my-courses", "我的课程", is("my-courses")) +
         navLink("/ask", "问答", is("ask")) +
         navLink("/login", "登录", is("login")) +
-        R"HTML(</nav></details></div></header>)HTML";
+        R"HTML(</nav></details></div></header><script>fetch('/api/auth/me').then(r=>r.json()).then(d=>{const a=document.getElementById('account-link');if(a&&d.ok){a.href='/my-courses';a.textContent='我的课程'}}).catch(()=>{})</script>)HTML";
 }
 
 std::string loadingSpinner(const std::string& title, const std::string& subtitle) {
