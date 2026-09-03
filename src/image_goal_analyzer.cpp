@@ -68,9 +68,9 @@ ImageGoalAnalysis ImageGoalAnalyzer::analyze(const std::string& prompt, const st
     options.responseFormat = "json_object";
     options.maxAttempts = 1;
     options.messages = {
-        {"system", u8"你是钢一定制AI的图片学习需求识别器。图片可能是题目、代码、报错、公式、界面或资料截图。识别真实核心问题，并结合文字提示生成可用于学习路线和资料搜索的目标。不要编造图片中不存在的信息，保持用户已选择的模式。只输出 JSON：{\"goal\":\"\",\"summary\":\"\",\"keywords\":[\"\"],\"suggestedSearchQuery\":\"\"}。"},
+        {"system", u8"你是钢一定制AI的高中学习需求识别器。图片只能按高中题目、试卷、教材、笔记、公式、实验图、阅读材料或作文材料理解。识别真实学科、知识点和题型，并结合文字提示生成可用于高中学习路线和资料搜索的目标。不要编造图片中不存在的信息，不生成 Web 开发、网站制作或职业技能内容。只输出 JSON：{\"goal\":\"\",\"summary\":\"\",\"keywords\":[\"\"],\"suggestedSearchQuery\":\"\"}。"},
         {"user", u8"用户文字提示：" + (trim(prompt).empty() ? u8"未提供" : trim(prompt)) +
-            u8"\n用户选择模式：" + safeMode + u8"。请根据图片和文字生成清晰、可执行的学习目标。", imageDataUrl},
+            u8"\n用户选择模式：" + safeMode + u8"。请根据图片和文字生成清晰、可执行的高中学习目标。", imageDataUrl},
     };
     const json raw = parseAIJson(client_.chat(options).content);
     if (!raw.is_object()) throw AIClientError("invalid_response", "图片识别内容结构不完整");

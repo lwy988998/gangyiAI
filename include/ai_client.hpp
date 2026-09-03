@@ -45,9 +45,6 @@ private:
     std::string model_;
     int timeoutMs_;
     int retryAttempts_;
-    std::string fallbackBaseUrl_;
-    std::string fallbackApiKey_;
-    std::string fallbackModel_;
     mutable int consecutiveFailures_ = 0;
     mutable long long circuitOpenedAtMs_ = 0;
 };

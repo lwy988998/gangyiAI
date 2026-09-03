@@ -253,12 +253,12 @@ std::vector<ChatMessage> createLearningPromptMessages(const std::string& goal,
     const std::string practiceCount = isLiteMode(mode) ? "2-3" : "3-5";
 
     json user = {
-        {"task", u8"根据学习目标、阶段和学习点，生成资料整合后的高质量微课程。"},
+        {"task", u8"根据高中学习目标、阶段和知识点，生成资料整合后的高质量微课程。"},
         {"teachingStyle", json::array({
              u8"通俗、具体、像老师在讲课",
-             u8"先从 goal/phaseName/topic 推断 inferredDomain",
-             u8"围绕 topic，不跑题，不套固定领域模板",
-             u8"适合目标人群，不拔高到不相关层级",
+             u8"只讲高中语文、数学、英语、物理、化学、生物、历史、地理、政治或信息技术",
+             u8"围绕 topic，不跑题，紧贴教材知识点、题型或实验",
+             u8"适合高中生，兼顾理解、练习和考试检查",
              u8"每段都要能帮助用户真正学会或完成练习",
          })},
         {"avoid", json::array({
@@ -271,7 +271,7 @@ std::vector<ChatMessage> createLearningPromptMessages(const std::string& goal,
              {"summary", u8"说明这节课解决什么问题、适合谁、学完能做什么。"},
              {"keyConcepts", u8"3-6 个核心概念；每个概念名称要具体，不要空泛。"},
              {"lessonSteps", stepRange + u8" 步，每步 explanation " + stepLength + u8" 字，必须包含 title/explanation/example/action/check；按“解释-例子-行动-检查”组织。"},
-             {"examples", u8"至少 1-2 个强相关示例；数学/考试类要有题目和分步解法；编程类要有代码或调试步骤；摄影/设计类要有场景案例。"},
+             {"examples", u8"至少 1-2 个强相关高中题目、文本、实验或材料示例；必须有分步分析或解法。"},
              {"practice", practiceCount + u8" 个练习，带难度梯度；task 要写清楚要做什么；check 要写可验证结果，可包含提示或参考答案。"},
              {"quiz", u8"3-5 道选择题；每题 4 个非空选项；answerIndex 必须唯一且和 explanation 一致；干扰项不能过于离谱。"},
              {"commonMistakes", u8"3-5 个常见误区，必须和 topic 强相关。"},
@@ -293,7 +293,7 @@ std::vector<ChatMessage> createLearningPromptMessages(const std::string& goal,
     }
 
     return {
-        {"system", u8"你是 钢一定制AI 通用学习导师。你已经拿到联网搜索资料摘要。你的能力不受预设领域限制：必须先理解用户目标、阶段和 topic，自行判断本节课所属 inferredDomain，再筛选、整合资料，用自己的教学语言生成一节完整微课程。topic 是什么就讲什么：例如 topic 是“咖啡奶泡打发”就讲奶泡打发，不要改讲“核心目标”。正文必须像老师讲课：为什么学 -> 是什么 -> 怎么用 -> 具体例子 -> 可执行练习 -> 小测验 -> 总结。不要直接复制资料，不要把搜索结果列表当正文，不要空泛鸡汤，不要只列大纲。references 必须只来自用户提供的 resources.url，且只放在最后参考资料。只输出严格 JSON。"},
+        {"system", u8"你是钢一定制AI高中学习导师，已经拿到联网搜索资料摘要。只讲高中语文、数学、英语、物理、化学、生物、历史、地理、政治或信息技术；围绕教材知识点、题型、实验、阅读与写作，整合资料生成一节完整微课程。正文必须像高中老师讲课：为什么学 -> 是什么 -> 怎样分析或解题 -> 具体例子 -> 可执行练习 -> 小测验 -> 总结。不要生成 Web 开发、网站制作、职业技能或无关内容。不要直接复制资料，不要把搜索结果列表当正文，不要空泛鸡汤，不要只列大纲。references 必须只来自用户提供的 resources.url，且只放在最后参考资料。只输出严格 JSON。"},
         {"user", std::move(userContent)},
     };
 }

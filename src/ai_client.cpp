@@ -136,8 +136,7 @@ AIClientError::AIClientError(const std::string& type, const std::string& message
 AIClient::AIClient()
     : baseUrl_(env("AI_BASE_URL", "https://api.deepseek.com/v1")), apiKey_(env("AI_API_KEY")),
       model_(env("AI_MODEL", "deepseek-chat")), timeoutMs_(envInt("AI_TIMEOUT_MS", 35000)),
-      retryAttempts_(envInt("AI_RETRY_ATTEMPTS", 2)), fallbackBaseUrl_(env("AI_BASE_URL_FALLBACK")),
-      fallbackApiKey_(env("AI_API_KEY_FALLBACK")), fallbackModel_(env("AI_MODEL_FALLBACK")) {
+      retryAttempts_(envInt("AI_RETRY_ATTEMPTS", 2)) {
     curl_global_init(CURL_GLOBAL_DEFAULT);
 }
 
@@ -150,19 +149,11 @@ AIResult AIClient::chat(const ChatOptions& options) const {
     if (circuitOpenedAtMs_) { circuitOpenedAtMs_ = 0; consecutiveFailures_ = 0; }
 
     const Endpoint primary{baseUrl_, apiKey_, model_};
-    const Endpoint fallback{fallbackBaseUrl_, fallbackApiKey_, fallbackModel_.empty() ? model_ : fallbackModel_};
     try {
         AIResult result = attempt(primary, options, timeout, attempts);
         consecutiveFailures_ = 0;
         return result;
     } catch (const AIClientError& primaryError) {
-        if (!fallback.url.empty() && !fallback.key.empty()) {
-            try {
-                AIResult result = attempt(fallback, options, timeout, attempts);
-                consecutiveFailures_ = 0;
-                return result;
-            } catch (const AIClientError&) {}
-        }
         if (++consecutiveFailures_ >= 3) circuitOpenedAtMs_ = nowMs();
         throw primaryError;
     }

@@ -11,9 +11,9 @@ namespace {
 
 using json = nlohmann::json;
 
-const char* sharedSkeletonRules = R"(你是 钢一定制AI 的通用课程架构师。只输出严格 JSON，禁止 markdown、解释、代码块。不要 mock/fallback/demo/template。不要编造链接。
+const char* sharedSkeletonRules = R"(你是钢一定制AI的高中课程架构师，只服务普通高中学生。只输出严格 JSON，禁止 markdown、解释、代码块。不要 mock/fallback/demo/template。不要编造链接。
 
-你的能力边界不是任何预设领域列表。用户输入任何学习目标，你都必须先理解目标、推断它所属的真实学习领域 inferredDomain，再按该领域的真实学习路径设计课程。小众目标也要生成可学习课程；不能套用固定领域模板，不能只输出通用教学框架。
+课程必须属于高中语文、数学、英语、物理、化学、生物、历史、地理、政治或信息技术；围绕教材知识点、题型、实验、阅读、写作、复习与考试设计。不要生成 Web 开发、网站制作、项目发布、职业技能、摄影、乐器等非高中课程。目标模糊时，按最接近的高中学科与知识点补全。
 
 这是 Level 1：Plan Skeleton。只生成课程骨架，不生成整本教材、不生成长篇讲义、不生成完整课件、不生成完整测验。
 
@@ -128,11 +128,9 @@ void validate(const GeneratedPlan& plan, const std::string& mode) {
 }
 
 ChatOptions options(const std::string& system, const std::string& user, const std::string& mode) {
-    // 计划生成专用参数：max_tokens 需覆盖 v4-flash 的完整骨架输出（lite 4800 会截断）；
-    // 单次超时对齐生成量（lite 100s / deep 150s，2 次 attempt + 退避构成总时长）
+    // 首页生成只走一次 DeepSeek，避免用户长时间停留在“准备生成”。
     return {{ {"system", system}, {"user", user} }, {}, 0.7,
-        mode == "lite" ? 6000 : 8000, "json_object",
-        mode == "lite" ? 100000 : 150000, 2};
+        mode == "lite" ? 4500 : 6000, "json_object", 60000, 1};
 }
 
 }

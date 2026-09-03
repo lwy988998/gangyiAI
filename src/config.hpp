@@ -7,9 +7,9 @@ namespace gangyi {
 
 struct Config {
     int port = 39002;
-    std::string ai_base_url = "https://api.openai.com/v1";
+    std::string ai_base_url = "https://api.deepseek.com/v1";
     std::string ai_api_key;
-    std::string ai_model = "gpt-4o-mini";
+    std::string ai_model = "deepseek-chat";
     std::string database_path = "gangyiAI.db";
     std::string admin_emails;
 
