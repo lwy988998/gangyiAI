@@ -1058,7 +1058,13 @@ int main() {
     // POST /api/learning-sessions —— 微课会话保存
     CROW_ROUTE(app, "/api/learning-sessions").methods(crow::HTTPMethod::POST)([&db](const crow::request& req) {
         try {
-            const auto body = nlohmann::json::parse(req.body);
+            auto body = nlohmann::json::parse(req.body);
+            const std::string courseId = body.value("courseId", "");
+            const std::string anonymousId = requestAnonymousId(req, &body);
+            if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) {
+                return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+            }
+            if (!anonymousId.empty()) body["anonymousId"] = anonymousId;
             const bool ok = gangyi::upsertLearningSession(db, body);
             return crow::response(ok ? 200 : 400, nlohmann::json{{"ok", ok}}.dump());
         } catch (...) {
