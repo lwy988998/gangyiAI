@@ -4,10 +4,4 @@
 .env
 .env.local
 
-# 第三方库自带的测试/文档（非本项目代码）
-third_party/Crow-1.2.0/tests/
-third_party/json-3.11.3/tests/
-third_party/json-3.11.3/benchmarks/
-
-# 第三方依赖（本地/服务器打包，不提交 git）
 third_party/
