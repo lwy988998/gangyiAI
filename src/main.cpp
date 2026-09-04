@@ -310,38 +310,6 @@ int main() {
         return response;
     });
 
-    /* 用户账号系统已移除。
-    CROW_ROUTE(app, "/login")([&db](const crow::request& req) {
-        if (gangyi::currentUser(db, req)) {
-            crow::response response;
-            response.redirect("/my-courses");
-            return response;
-        }
-        crow::response response(gangyi::renderLoginPage());
-        response.set_header("Content-Type", "text/html; charset=utf-8");
-        return response;
-    });
-
-    CROW_ROUTE(app, "/register")([&db](const crow::request& req) {
-        if (gangyi::currentUser(db, req)) {
-            crow::response response;
-            response.redirect("/my-courses");
-            return response;
-        }
-        crow::response response(gangyi::renderRegisterPage());
-        response.set_header("Content-Type", "text/html; charset=utf-8");
-        return response;
-    });
-
-    CROW_ROUTE(app, "/admin")([&db, &config](const crow::request& req) {
-        const auto user = gangyi::currentUser(db, req);
-        const std::string state = !user ? "login" : (isAdmin(*user, config) ? "allowed" : "denied");
-        crow::response response(gangyi::renderAdminPage(state));
-        response.set_header("Content-Type", "text/html; charset=utf-8");
-        return response;
-    });
-    */
-
     CROW_ROUTE(app, "/ask")([](const crow::request& req) {
         const char* question = req.url_params.get("question");
         crow::response response(gangyi::renderAskPage(question ? question : ""));
