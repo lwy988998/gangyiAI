@@ -3,21 +3,17 @@
 #include "ai_client.hpp"
 
 #include <string>
-#include <vector>
 
 namespace gangyi {
 
 struct AskAnswer {
-    std::string title;
-    std::vector<std::string> steps;
-    std::vector<std::string> commands;
-    std::vector<std::string> tips;
+    std::string content;
 };
 
 class AskGenerator {
 public:
     explicit AskGenerator(AIClient& client);
-    AskAnswer generate(const std::string& goal, const std::string& question, const std::string& mode) const;
+    AskAnswer generate(const std::string& question) const;
 
 private:
     AIClient& client_;

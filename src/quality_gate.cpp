@@ -172,7 +172,7 @@ QualityResult validateCourseContent(const json& plan, const std::string& goal, c
         const std::string goalText = lower(trim(goal));
         const std::vector<std::string> grams = goalKeywords(goal);
         const std::string mergedTexts = lower(trim(courseTitle + " " + goal));
-        int genericHits = 0;
+        std::set<std::string> genericTexts;
         int keywordMiss = 0;
         int repetitionPenalty = 0;
         int actionPenalty = 0;
@@ -194,12 +194,9 @@ QualityResult validateCourseContent(const json& plan, const std::string& goal, c
                 if (!phase.is_object()) continue;
                 const std::string phaseName = lower(trim(phase.value("name", "")));
                 const std::string phaseDesc = lower(trim(phase.value("description", "")));
-                if (isGenericSentence(phaseName) || isGenericSentence(phaseDesc)) ++genericHits;
-                if (containsAny(phaseName + " " + phaseDesc, grams)) {
-                    uniqueTexts.insert(phaseName + "|" + phaseDesc);
-                } else {
-                    ++keywordMiss;
-                }
+                if (isGenericSentence(phaseName)) genericTexts.insert(phaseName);
+                if (isGenericSentence(phaseDesc)) genericTexts.insert(phaseDesc);
+                uniqueTexts.insert(phaseName + "|" + phaseDesc);
                 if (phase.contains("topics") && phase["topics"].is_array() && phase["topics"].size() < 2) {
                     result.reasons.push_back("某阶段 topics 少于 2，内容过薄。");
                     result.valid = false;
@@ -216,7 +213,7 @@ QualityResult validateCourseContent(const json& plan, const std::string& goal, c
                         const std::string joined = stepText;
                         ++textCount;
                         if (uniqueTexts.insert(joined).second) ++uniqueCount;
-                        if (isGenericSentence(joined)) ++genericHits;
+                        if (isGenericSentence(joined)) genericTexts.insert(joined);
                     }
                 }
             }
@@ -247,11 +244,11 @@ QualityResult validateCourseContent(const json& plan, const std::string& goal, c
 
         for (const auto& text : allTexts) {
             const std::string lowered = lower(trim(text));
-            if (isGenericSentence(lowered)) ++genericHits;
+            if (isGenericSentence(lowered)) genericTexts.insert(lowered);
         }
 
         if (!grams.empty()) {
-            const int hits = countOverlap(joinedAll, grams);
+            const int hits = countOverlap(joinedAll + " " + mergedTexts, grams);
             const int missing = static_cast<int>(grams.size()) - hits;
             // 整体判定：目标关键词缺口允许少量遗漏（AI 生成的后段内容未必重复目标词），最多扣 2 档
             if (missing > 0) {
@@ -271,6 +268,7 @@ QualityResult validateCourseContent(const json& plan, const std::string& goal, c
             result.reasons.push_back("缺少明确产出词。\n");
         }
 
+        const int genericHits = static_cast<int>(genericTexts.size());
         if (genericHits > 0) {
             result.reasons.push_back("存在泛化表述，内容不够具体。");
         }

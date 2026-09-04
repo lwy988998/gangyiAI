@@ -22,10 +22,7 @@ std::string renderPhasePage(const std::string& courseId, const std::string& anon
                             const std::string& goal, const std::string& mode,
                             const std::string& phaseIndex, const std::string& phaseName,
                             const nlohmann::json& plan, const nlohmann::json& cardStatus);
-std::string renderLoginPage();
-std::string renderRegisterPage();
-std::string renderAskPage(const std::string& goal, const std::string& question = {}, const std::string& mode = "deep");
+std::string renderAskPage(const std::string& question = {});
 std::string renderMyCoursesPage(const nlohmann::json& data = {});
-std::string renderAdminPage(const std::string& state);
 
 }  // namespace gangyi

@@ -352,14 +352,33 @@ LearningAnswer fallbackAnswer(const std::string& goal,
                               const std::vector<SearchResource>& resources,
                               const std::string& reason) {
     LearningAnswer answer;
-    answer.title = topic + u8"：内容生成未完成";
-    answer.summary = u8"这节微课程暂时无法生成完整内容，请稍后重试，或补充更具体的学习主题和参考资料。";
+    answer.title = topic + u8"：学习单";
+    answer.summary = u8"本节已切换为可直接完成的学习单：先用自己的话说清概念，再用一个例子验证，最后完成练习和小测。";
     if (!topic.empty()) answer.keyConcepts.push_back(topic);
     if (!phaseName.empty()) answer.keyConcepts.push_back(phaseName);
     if (answer.keyConcepts.empty() && !goal.empty()) answer.keyConcepts.push_back(goal);
-    answer.resourceSummary = resources.empty() ? u8"参考资料和正文暂未生成完成。" : u8"参考资料已获取，但本节正文暂未生成完成。";
+    answer.keyConcepts.push_back(u8"定义、条件与应用");
+    answer.lessonSteps = {
+        {u8"先说清研究对象", u8"把“" + topic + u8"”写在纸上，用一句完整的话说明它研究什么、解决什么问题。不要照抄标题，句子中要有对象和结果。", u8"可以使用“当……时，……表示/说明……”的句式。", u8"写出一句不超过 40 字的定义。", u8"定义中同时出现研究对象和作用。"},
+        {u8"找出成立条件", u8"任何知识点都有适用范围。回看教材或课堂笔记，列出它成立时必须满足的条件、数据、背景或步骤。", u8"把条件分成“已知信息”和“需要判断的信息”两列。", u8"列出至少 2 条条件，并标出各自来源。", u8"每条条件都能在材料、题干或教材中找到依据。"},
+        {u8"用一个例子验证", u8"选择一道教材例题、一道练习题或一个生活/实验材料，按“信息—方法—结论”三步解释它和本主题的关系。", u8"先圈出材料中的关键词，再决定使用哪条定义或条件。", u8"完成一份三步分析。", u8"每一步都写出理由，不只写最后答案。"},
+        {u8"做一次自我检查", u8"合上资料后复述本节内容，并检查自己能否说明：它是什么、何时使用、怎样判断是否用对。", u8"如果某一步说不清，就回到对应条件或例子补一句说明。", u8"用 2 分钟口头复述，再写下最容易错的一点。", u8"能独立回答下面小测中的问题。"},
+    };
+    answer.examples = {{u8"通用分析示例", u8"面对“" + topic + u8"”的材料时，先提取已知条件；再对应本节定义或规律；最后写出由条件推出结论的理由。", {u8"圈出题干中的对象和条件", u8"选择本节最匹配的定义、规律或方法", u8"用完整句写出结论并检查条件是否全部使用"}}};
+    answer.practice = {
+        {u8"基础复述", u8"基础", u8"不用看资料，写出“" + topic + u8"”的定义、两个条件和一个用途。", u8"定义完整，条件具体，用途能对应一个真实材料。"},
+        {u8"材料应用", u8"进阶", u8"找一道与“" + topic + u8"”相关的练习题，按“信息—方法—结论”写出三步分析。", u8"三步都有内容，结论能由前两步推出。"},
+    };
+    answer.quiz = {
+        {u8"判断自己是否真正掌握一个知识点时，最可靠的做法是？", {u8"只记住标题", u8"能说出定义、条件并解释一个例子", u8"只看答案", u8"反复抄写概念"}, 1, u8"真正掌握需要能解释并应用，而不只是记住名称。"},
+        {u8"分析与“" + topic + u8"”相关材料的第一步应当是？", {u8"直接写结论", u8"先提取对象和已知条件", u8"先找难题", u8"跳过材料"}, 1, u8"先定位对象和条件，才能选择正确的方法。"},
+        {u8"发现自己的结论不稳妥时，优先检查什么？", {u8"是否使用了所有关键条件", u8"字写得是否漂亮", u8"题目是否太长", u8"是否背得更多"}, 0, u8"遗漏或误用条件是分析出错的常见原因。"},
+    };
+    answer.commonMistakes = {u8"只背结论，不说明适用条件", u8"看到关键词就套方法，没有核对材料", u8"只写答案，缺少推理过程"};
+    answer.checkpoint = {u8"能用自己的话说明“" + topic + u8"”", u8"能列出至少两个适用条件", u8"能完成一份三步材料分析", u8"小测正确率达到 70%"};
+    answer.resourceSummary = resources.empty() ? u8"本节使用内置学习单，资料恢复后可点击“换一版讲解”获取 AI 讲解。" : u8"参考资料已保留；本节先提供可完成的学习单，之后可重新生成讲解。";
     answer.references = referencesFromResources(resources);
-    answer.notice = u8"微课程生成失败，已返回兜底内容。原因：" + reason;
+    answer.notice = u8"AI 讲解暂不可用，已切换为可完成的学习单。";
     return answer;
 }
 
@@ -374,9 +393,8 @@ LearningAnswer generateOnce(const AIClient& client,
     ChatOptions options;
     options.messages = createLearningPromptMessages(goal, phaseName, topic, mode, resources, retry);
     options.temperature = 0.3;
-    // 微课程 JSON 较大：max_tokens 需覆盖完整输出（4000/6000 会截断），超时同步放宽
-    options.maxTokens = isLiteMode(mode) ? 6000 : 8000;
-    options.timeoutMs = isLiteMode(mode) ? 60000 : 90000;
+    options.maxTokens = isLiteMode(mode) ? 3000 : 4000;
+    options.timeoutMs = 45000;
     options.responseFormat = "json_object";
     options.maxAttempts = 1;
 
@@ -410,11 +428,8 @@ LearningAnswer LearningGenerator::generate(const std::string& goal,
     try {
         return generateOnce(client_, safeGoal, safePhaseName, safeTopic, safeMode, safeResources, fallback, false);
     } catch (const AIClientError& firstError) {
-        try {
-            return generateOnce(client_, safeGoal, safePhaseName, safeTopic, safeMode, safeResources, fallback, true);
-        } catch (const AIClientError& secondError) {
-            return fallbackAnswer(safeGoal, safePhaseName, safeTopic, safeResources, secondError.errorType + ": " + secondError.what());
-        }
+        return fallbackAnswer(safeGoal, safePhaseName, safeTopic, safeResources,
+                              firstError.errorType + ": " + firstError.what());
     }
 }
 

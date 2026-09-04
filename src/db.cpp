@@ -103,7 +103,7 @@ std::optional<CourseProgress> Database::findProgressByCourseId(const std::string
 // ---- CourseSnapshot ----
 static void bind_CourseSnapshot(Stmt&s,const CourseSnapshot&v){text(s,1,v.id);text(s,2,v.courseId);integer(s,3,v.version);text(s,4,v.payload);text(s,5,v.createdAt);}
 static CourseSnapshot map_CourseSnapshot(sqlite3_stmt*s){CourseSnapshot v;v.id=str(s,0);v.courseId=str(s,1);v.version=sqlite3_column_int(s,2);v.payload=str(s,3);v.createdAt=str(s,4);return v;}
-bool Database::insert(const CourseSnapshot&v){Stmt s(db_,"INSERT INTO CourseSnapshot(id,courseId,version,payload,createdAt) VALUES(?,?,?,?,?)");bind_CourseSnapshot(s,v);return done(s);}
+bool Database::insert(const CourseSnapshot&v){ if(v.id.empty()) { CourseSnapshot copy=v; copy.id=id(); return insert(copy); } Stmt s(db_,"INSERT INTO CourseSnapshot(id,courseId,version,payload,createdAt) VALUES(?,?,?,?,?)");bind_CourseSnapshot(s,v);return done(s);}
 std::optional<CourseSnapshot> Database::getCourseSnapshot(const std::string&key)const{Stmt s(db_,"SELECT id,courseId,version,payload,createdAt FROM CourseSnapshot WHERE id=?");text(s,1,key);if(sqlite3_step(s.p)!=SQLITE_ROW)return std::nullopt;return map_CourseSnapshot(s.p);}
 std::vector<CourseSnapshot> Database::listCourseSnapshots()const{std::vector<CourseSnapshot>r;Stmt s(db_,"SELECT id,courseId,version,payload,createdAt FROM CourseSnapshot ORDER BY id");while(sqlite3_step(s.p)==SQLITE_ROW)r.push_back(map_CourseSnapshot(s.p));return r;}
 bool Database::update(const CourseSnapshot&v){Stmt s(db_,"UPDATE CourseSnapshot SET courseId=?,version=?,payload=?,createdAt=? WHERE id=?");text(s,1,v.courseId);integer(s,2,v.version);text(s,3,v.payload);text(s,4,v.createdAt);text(s,5,v.id);return done(s);}

@@ -6,13 +6,6 @@
 .save-status { border-radius: 9999px; border: 1px solid #e0e7ef; background: #fff; padding: 0.35rem 0.9rem; font-size: 0.8rem; font-weight: 600; color: #475569; white-space: nowrap; }
 .save-status.warning { color: #b45309; border-color: #fde68a; background: #fffbeb; }
 
-.plan-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
-.plan-toolbar .plan-kicker { margin: 0; }
-.plan-toolbar strong { font-size: 1.05rem; color: #0f172a; }
-.view-switch { display: inline-flex; gap: 0.25rem; border-radius: 9999px; background: #eef2f7; padding: 0.25rem; }
-.view-button { border: 0; border-radius: 9999px; padding: 0.4rem 1rem; font-size: 0.85rem; font-weight: 600; color: #64748b; background: transparent; cursor: pointer; transition: all .15s ease; }
-.view-button.active { background: #0369a1; color: #fff; box-shadow: 0 1px 4px rgba(3,105,161,.35); }
-
 .plan-view { display: grid; gap: 1rem; }
 
 .plan-card { border: 1px solid #e0eaf5; background: #fff; border-radius: 1.25rem; padding: 1.25rem; box-shadow: 0 1px 3px rgba(15,23,42,.05); }
@@ -167,7 +160,6 @@
   .phase-grid { grid-template-columns: 1fr; }
   .phase-card { flex-direction: column; }
   .next-action { flex-direction: column; align-items: stretch; }
-  .plan-toolbar { flex-direction: column; align-items: flex-start; }
   .failure-actions { flex-direction: column; }
   .failure-actions .primary-action, .failure-actions .secondary-action { justify-content: center; }
 }

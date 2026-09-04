@@ -125,7 +125,8 @@ json adaptRoadmap(const json& plan) {
         const auto& phase = phases.at(index);
         if (!phase.is_object()) continue;
         const std::string phaseName = safeText(phase, "name", "阶段" + std::to_string(index + 1));
-        const std::string phaseDescription = safeText(phase, "description", safeText(phase, "overview", "完成关键知识学习、练习和阶段产出。"));
+        const std::string phaseDescription = safeText(phase, "description", safeText(phase, "overview",
+            safeText(phase, "objective", "完成关键知识学习、练习和阶段产出。")));
         const std::string duration = safeText(phase, "duration", numberText(numberValue(phase, "durationWeeks", 2.0)) + " 周");
         result.push_back({{"name", phaseName},
                           {"duration", duration},

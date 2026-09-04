@@ -98,6 +98,13 @@ json sanitizeObject(const json& value, int depth) {
         "learningOutcomes", "slides", "mindMap", "roadmap", "courseStructure", "resources", "projects"
     };
     json out = json::object();
+    if (depth > 0) {
+        for (const auto& item : value.items()) {
+            if (containsSensitiveKey(item.key())) continue;
+            out[item.key()] = sanitizeRecursive(item.value(), depth + 1);
+        }
+        return out;
+    }
     for (const auto& key : whitelist) {
         if (!value.contains(key)) continue;
         if (containsSensitiveKey(key)) continue;
