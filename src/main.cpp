@@ -453,6 +453,84 @@ int main() {
         }
     });
 
+    // 学习页进度接口：页面已经恢复，步骤和完成状态也必须能稳定保存。
+    CROW_ROUTE(app, "/api/learning-step-progress")([&db](const crow::request& req) {
+        const std::string courseId = req.url_params.get("courseId") ? req.url_params.get("courseId") : "";
+        const std::string anonymousId = requestAnonymousId(req);
+        if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) {
+            return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+        }
+        int phaseIndex = 0;
+        try { if (req.url_params.get("phaseIndex")) phaseIndex = std::stoi(req.url_params.get("phaseIndex")); } catch (...) {}
+        nlohmann::json items = nlohmann::json::array();
+        for (const auto& item : db.listLearningStepProgress()) {
+            if (item.courseId.value_or("") == courseId && item.phaseIndex == phaseIndex) {
+                items.push_back({{"stepIndex", item.stepIndex}, {"stepTitle", item.stepTitle}, {"status", item.status}});
+            }
+        }
+        return crow::response(200, nlohmann::json{{"ok", true}, {"items", items}}.dump());
+    });
+
+    CROW_ROUTE(app, "/api/learning-step-progress").methods(crow::HTTPMethod::POST)([&db](const crow::request& req) {
+        try {
+            auto body = nlohmann::json::parse(req.body);
+            const std::string courseId = body.value("courseId", "");
+            const std::string anonymousId = requestAnonymousId(req, &body);
+            if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) {
+                return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+            }
+            const auto course = courseId.empty() ? std::optional<gangyi::Course>{} : db.getCourse(courseId);
+            const int phaseIndex = body.value("phaseIndex", 0);
+            const int stepIndex = body.value("stepIndex", 0);
+            const auto old = db.findLearningStepProgress(courseId, phaseIndex, stepIndex);
+            gangyi::LearningStepProgress item;
+            item.id = old ? old->id : "step-" + courseId + "-" + std::to_string(phaseIndex) + "-" + std::to_string(stepIndex);
+            item.courseId = courseId.empty() ? std::nullopt : std::optional<std::string>(courseId);
+            item.anonymousId = anonymousId.empty() ? std::nullopt : std::optional<std::string>(anonymousId);
+            item.goal = body.value("goal", course ? course->goal : "");
+            item.mode = body.value("mode", course ? course->mode : "deep");
+            item.phaseIndex = phaseIndex;
+            item.phaseName = body.value("phaseName", "当前阶段");
+            item.stepIndex = stepIndex;
+            item.stepTitle = body.value("stepTitle", "学习步骤");
+            item.status = body.value("status", "unset");
+            const bool saved = old ? db.update(item) : db.insert(item);
+            return crow::response(saved ? 200 : 400, nlohmann::json{{"ok", saved}}.dump());
+        } catch (...) {
+            return crow::response(400, nlohmann::json{{"ok", false}, {"error", "INVALID_INPUT"}}.dump());
+        }
+    });
+
+    CROW_ROUTE(app, "/api/learn/progress").methods(crow::HTTPMethod::POST)([&db](const crow::request& req) {
+        try {
+            auto body = nlohmann::json::parse(req.body);
+            const std::string courseId = body.value("courseId", "");
+            const std::string anonymousId = requestAnonymousId(req, &body);
+            if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) {
+                return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+            }
+            const auto course = courseId.empty() ? std::optional<gangyi::Course>{} : db.getCourse(courseId);
+            const int phaseIndex = body.value("phaseIndex", 0);
+            const int topicIndex = body.value("topicIndex", 0);
+            const auto old = db.findLearningCardProgress(courseId, phaseIndex, topicIndex);
+            gangyi::LearningCardProgress item;
+            item.id = old ? old->id : "card-" + courseId + "-" + std::to_string(phaseIndex) + "-" + std::to_string(topicIndex);
+            item.courseId = courseId.empty() ? std::nullopt : std::optional<std::string>(courseId);
+            item.anonymousId = anonymousId.empty() ? std::nullopt : std::optional<std::string>(anonymousId);
+            item.goal = body.value("goal", course ? course->goal : "");
+            item.mode = body.value("mode", course ? course->mode : "deep");
+            item.phaseIndex = phaseIndex;
+            item.phaseName = body.value("phaseName", "当前阶段");
+            item.topicIndex = topicIndex;
+            item.topicTitle = body.value("topicTitle", "当前学习内容");
+            item.status = body.value("status", "completed");
+            const bool saved = old ? db.update(item) : db.insert(item);
+            return crow::response(saved ? 200 : 400, nlohmann::json{{"ok", saved}}.dump());
+        } catch (...) {
+            return crow::response(400, nlohmann::json{{"ok", false}, {"error", "INVALID_INPUT"}}.dump());
+        }
+    });
+
     CROW_ROUTE(app, "/ask")([](const crow::request& req) {
         const char* question = req.url_params.get("question");
         crow::response response(gangyi::renderAskPage(question ? question : ""));
