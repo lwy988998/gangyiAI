@@ -4,6 +4,7 @@
 #include <cctype>
 #include <chrono>
 #include <iomanip>
+#include <iostream>
 #include <limits>
 #include <sstream>
 #include <unordered_map>
@@ -48,11 +49,26 @@ bool containsSensitiveKey(const std::string& key) {
     return false;
 }
 
+std::string truncateUtf8(const std::string& value, size_t maxBytes) {
+    if (value.size() <= maxBytes) return value;
+    size_t end = 0;
+    while (end < value.size()) {
+        const unsigned char lead = static_cast<unsigned char>(value[end]);
+        size_t width = 1;
+        if ((lead & 0x80u) == 0) width = 1;
+        else if ((lead & 0xE0u) == 0xC0u) width = 2;
+        else if ((lead & 0xF0u) == 0xE0u) width = 3;
+        else if ((lead & 0xF8u) == 0xF0u) width = 4;
+        if (end + width > maxBytes || end + width > value.size()) break;
+        end += width;
+    }
+    return value.substr(0, end) + "…";
+}
+
 json clampString(const json& value, size_t maxLen) {
     if (!value.is_string()) return value;
     std::string str = value.get<std::string>();
-    if (str.size() > maxLen) str.resize(maxLen);
-    return str;
+    return truncateUtf8(str, maxLen);
 }
 
 std::string safeString(const json& value) {
@@ -216,7 +232,7 @@ std::optional<std::string> saveCourseSnapshot(Database& db, const std::string& a
             course.source = source;
             course.mode = mode;
             course.updatedAt = now;
-            if (!db.update(course)) return std::nullopt;
+            if (!db.update(course)) { std::cerr << "[course-save] update course failed" << std::endl; return std::nullopt; }
             int maxVersion = 0;
             for (const auto& snapshot : db.findSnapshotsByCourseId(course.id)) {
                 if (snapshot.version > maxVersion) maxVersion = snapshot.version;
@@ -227,7 +243,7 @@ std::optional<std::string> saveCourseSnapshot(Database& db, const std::string& a
             snapshot.version = maxVersion + 1;
             snapshot.payload = sanitized.dump();
             snapshot.createdAt = now;
-            if (!db.insert(snapshot)) return std::nullopt;
+            if (!db.insert(snapshot)) { std::cerr << "[course-save] insert snapshot failed for existing course" << std::endl; return std::nullopt; }
             return course.id;
         }
 
@@ -243,18 +259,22 @@ std::optional<std::string> saveCourseSnapshot(Database& db, const std::string& a
         course.status = "active";
         course.createdAt = now;
         course.updatedAt = now;
-        if (!db.insert(course)) return std::nullopt;
+        if (!db.insert(course)) { std::cerr << "[course-save] insert course failed" << std::endl; return std::nullopt; }
         const auto inserted = pickCourseByIdentity(db, anonymousId, userId, goal);
-        if (!inserted) return std::nullopt;
+        if (!inserted) { std::cerr << "[course-save] inserted course could not be reloaded" << std::endl; return std::nullopt; }
         CourseSnapshot snapshot;
         snapshot.id = "";
         snapshot.courseId = inserted->id;
         snapshot.version = 1;
         snapshot.payload = sanitized.dump();
         snapshot.createdAt = now;
-        if (!db.insert(snapshot)) return std::nullopt;
+        if (!db.insert(snapshot)) { std::cerr << "[course-save] insert snapshot failed for new course" << std::endl; return std::nullopt; }
         return inserted->id;
+    } catch (const std::exception& error) {
+        std::cerr << "[course-save] exception: " << error.what() << std::endl;
+        return std::nullopt;
     } catch (...) {
+        std::cerr << "[course-save] unknown exception" << std::endl;
         return std::nullopt;
     }
 }

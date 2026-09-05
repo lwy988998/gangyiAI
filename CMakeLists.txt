@@ -88,7 +88,7 @@ endif()
 
 add_executable(gangyiAI src/main.cpp src/db.cpp src/ai_client.cpp src/json_fix.cpp src/plan_generator.cpp src/page_renderer.cpp
     src/plan_cache.cpp src/plan_adapter.cpp src/search_client.cpp src/quality_gate.cpp src/course_service.cpp
-    src/phase_generator.cpp src/ask_generator.cpp src/image_goal_analyzer.cpp)
+    src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/image_goal_analyzer.cpp)
 
 target_include_directories(gangyiAI PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include

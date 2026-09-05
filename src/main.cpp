@@ -11,6 +11,7 @@
 #include "course_service.hpp"
 #include "phase_generator.hpp"
 #include "ask_generator.hpp"
+#include "learning_generator.hpp"
 #include "image_goal_analyzer.hpp"
 
 #include <crow.h>
@@ -367,10 +368,13 @@ int main() {
                 }
             }
             if (goal.empty()) goal = "你的学习目标";
-            int phaseIndex = 0;
-            int topicIndex = 0;
-            try { if (!value("phaseIndex").empty()) phaseIndex = std::max(0, std::stoi(value("phaseIndex"))); } catch (...) {}
-            try { if (!value("topicIndex").empty()) topicIndex = std::max(0, std::stoi(value("topicIndex"))); } catch (...) {}
+            // URL 对外统一使用 1-based 索引，数组访问时再转换为 0-based。
+            int phaseNumber = 1;
+            int topicNumber = 1;
+            try { if (!value("phaseIndex").empty()) phaseNumber = std::max(1, std::stoi(value("phaseIndex"))); } catch (...) {}
+            try { if (!value("topicIndex").empty()) topicNumber = std::max(1, std::stoi(value("topicIndex"))); } catch (...) {}
+            int phaseIndex = phaseNumber - 1;
+            int topicIndex = topicNumber - 1;
 
             const auto roadmap = plan.value("roadmap", nlohmann::json::array());
             nlohmann::json stage = nlohmann::json::object();
@@ -396,17 +400,40 @@ int main() {
             if (stage.contains("topics") && stage["topics"].is_array()) {
                 for (const auto& item : stage["topics"]) if (item.is_string()) topics.push_back(item);
             }
+            if (topics.empty() && stage.contains("steps") && stage["steps"].is_array()) {
+                for (const auto& item : stage["steps"]) {
+                    if (!item.is_object()) continue;
+                    const std::string title = item.value("title", item.value("name", ""));
+                    if (!title.empty()) topics.push_back(title);
+                }
+            }
             const std::string requestedTopic = value("topic");
+            if (requestedTopic.empty() && topics.empty()) {
+                return crow::response(400, nlohmann::json{{"ok", false}, {"type", "learning_context_missing"},
+                    {"error", "当前学习入口缺少具体主题，请返回课程页重新进入本节。"}, {"canRetry", false}}.dump());
+            }
             const std::string searchTopic = requestedTopic.empty()
                 ? (topics.empty() ? goal : topics[std::min(topicIndex, static_cast<int>(topics.size()) - 1)].get<std::string>())
                 : requestedTopic;
-            // 只把公开类别发送给搜索服务，不外传用户原始目标、阶段名或主题。
-            std::string publicSearchTopic = "公开学习资料 教程 练习";
-            const std::string categoryText = goal + " " + searchTopic;
-            if (categoryText.find("数学") != std::string::npos || categoryText.find("函数") != std::string::npos || categoryText.find("几何") != std::string::npos) publicSearchTopic += " 数学";
-            else if (categoryText.find("英语") != std::string::npos || categoryText.find("语言") != std::string::npos || categoryText.find("词汇") != std::string::npos) publicSearchTopic += " 英语";
-            else if (categoryText.find("编程") != std::string::npos || categoryText.find("代码") != std::string::npos || categoryText.find("Python") != std::string::npos) publicSearchTopic += " 编程";
-            else if (categoryText.find("人工智能") != std::string::npos || categoryText.find("AI") != std::string::npos || categoryText.find("模型") != std::string::npos) publicSearchTopic += " 人工智能";
+            const bool forceRegenerate = value("regenerate") == "1" || value("forceLearn") == "1" || value("retry") == "1";
+            if (!forceRegenerate && !courseId.empty()) {
+                if (const auto saved = db.findLearningSession(courseId, phaseNumber, topicNumber)) {
+                    if (saved->source == "ai" && saved->fallbackUsed == 0 && !saved->content.empty()) {
+                        try {
+                            auto cached = nlohmann::json::parse(saved->content);
+                            cached["ok"] = true;
+                            cached["cached"] = true;
+                            cached["goal"] = goal;
+                            cached["mode"] = mode;
+                            cached["phaseName"] = phaseName;
+                            cached["topicTitle"] = searchTopic;
+                            return crow::response(200, cached.dump());
+                        } catch (...) {}
+                    }
+                }
+            }
+            // 搜索词包含当前分支主题，确保 Bocha 返回的真实资料与本节内容相关。
+            const std::string publicSearchTopic = goal + " " + phaseName + " " + searchTopic + " 学习资料 教程 例题 练习";
             std::vector<gangyi::SearchResource> liveResources;
             std::string liveResourceProvider;
             try {
@@ -426,6 +453,55 @@ int main() {
                 }
                 return output;
             };
+
+            // 微课程正文必须由 DeepSeek 按当前分支主题实时生成；不再把课程快照中的通用步骤当作正文。
+            try {
+                gangyi::AIClient ai;
+                gangyi::LearningGenerator generator(ai);
+                const auto answer = generator.generate(goal, phaseName, searchTopic, topicIndex + 1, mode, liveResources);
+                const bool fallbackUsed = answer.value("_fallbackUsed", false);
+                nlohmann::json responseBody = answer;
+                responseBody.erase("_fallbackUsed");
+                responseBody["ok"] = true;
+                responseBody["goal"] = goal;
+                responseBody["mode"] = mode;
+                responseBody["phaseName"] = phaseName;
+                responseBody["topicTitle"] = searchTopic;
+                responseBody["topicIndex"] = topicIndex + 1;
+                responseBody["resourceProvider"] = liveResourceProvider;
+                // 引用只采用服务端实际搜索到的资料，避免模型编造链接。
+                responseBody["references"] = resourcesToJson(liveResources);
+                if (!courseId.empty()) {
+                    gangyi::LearningSession session;
+                    session.id = "learn-" + courseId + "-" + std::to_string(phaseNumber) + "-" + std::to_string(topicNumber);
+                    session.courseId = courseId;
+                    session.anonymousId = anonymousId;
+                    session.goal = goal;
+                    session.mode = mode;
+                    session.phaseIndex = phaseNumber;
+                    session.phaseName = phaseName;
+                    session.topicIndex = topicNumber;
+                    session.topicTitle = searchTopic;
+                    session.title = answer.value("title", searchTopic + "·微课程");
+                    session.summary = answer.value("summary", "");
+                    session.searchQuery = publicSearchTopic;
+                    session.content = responseBody.dump();
+                    session.references = responseBody["references"].dump();
+                    session.fallbackUsed = fallbackUsed ? 1 : 0;
+                    session.source = fallbackUsed ? "topic_fallback" : "ai";
+                    if (const auto existing = db.findLearningSession(courseId, phaseNumber, topicNumber)) {
+                        session.id = existing->id;
+                        db.update(session);
+                    } else {
+                        db.insert(session);
+                    }
+                }
+                return crow::response(200, responseBody.dump());
+            } catch (const gangyi::AIClientError& error) {
+                return crow::response(502, nlohmann::json{{"ok", false}, {"type", error.errorType},
+                    {"error", error.what()}, {"canRetry", true}, {"topic", searchTopic}}.dump());
+            }
+
             nlohmann::json rawSteps = stage.value("steps", nlohmann::json::array());
             nlohmann::json lessonSteps = nlohmann::json::array();
             if (rawSteps.is_array()) {
@@ -910,6 +986,58 @@ int main() {
             return crow::response(status, nlohmann::json{{"ok", false}, {"error", error.what()}, {"type", error.errorType}}.dump());
         } catch (...) {
             return crow::response(400, nlohmann::json{{"ok", false}, {"error", "INVALID_INPUT"}}.dump());
+        }
+    });
+
+    // 课堂内上下文对话：问题必须携带当前课程目标、阶段和主题，避免退化为全局闲聊。
+    CROW_ROUTE(app, "/api/learning-chat").methods(crow::HTTPMethod::POST)([](const crow::request& req) {
+        try {
+            const auto body = nlohmann::json::parse(req.body);
+            const std::string question = body.value("question", "");
+            if (question.find_first_not_of(" \t\r\n") == std::string::npos) {
+                return crow::response(400, nlohmann::json{{"ok", false}, {"type", "invalid_request"}, {"error", "请先输入问题"}}.dump());
+            }
+            nlohmann::json context = {
+                {"pageType", body.value("pageType", "learn")},
+                {"goal", body.value("goal", "")},
+                {"mode", body.value("mode", "deep")},
+                {"phaseName", body.value("phaseName", "")},
+                {"topic", body.value("topic", body.value("topicTitle", ""))},
+                {"contextTitle", body.value("contextTitle", "")},
+                {"contextSummary", body.value("contextSummary", "")}
+            };
+            std::vector<gangyi::ChatMessage> messages;
+            messages.push_back({"system", u8"你是钢一定制AI的课堂辅导老师。请严格结合给定的课程目标、阶段和当前主题回答问题；优先解释当前主题，必要时给出分步骤示例和练习提示。默认使用简体中文，不要编造资料，不要把无关主题的内容混进来。\n课堂上下文：" + context.dump(), ""});
+            if (body.contains("messages") && body["messages"].is_array()) {
+                const auto& history = body["messages"];
+                const size_t start = history.size() > 8 ? history.size() - 8 : 0;
+                for (size_t i = start; i < history.size(); ++i) {
+                    if (!history[i].is_object()) continue;
+                    const std::string role = history[i].value("role", "user");
+                    const std::string content = history[i].value("content", "");
+                    if ((role == "user" || role == "assistant") && !content.empty()) messages.push_back({role, content, ""});
+                }
+            }
+            messages.push_back({"user", question, ""});
+            gangyi::ChatOptions options;
+            options.messages = std::move(messages);
+            options.model = "deepseek-v4-flash";
+            options.temperature = 0.45;
+            options.maxTokens = 2500;
+            options.timeoutMs = 30000;
+            options.maxAttempts = 1;
+            gangyi::AIClient ai;
+            const auto result = ai.chat(options);
+            if (result.content.empty()) throw gangyi::AIClientError("invalid_response", "AI 没有返回课堂回答");
+            return crow::response(200, nlohmann::json{{"ok", true}, {"answer", result.content},
+                {"model", "deepseek-v4-flash"}}.dump());
+        } catch (const gangyi::AIClientError& error) {
+            const int status = error.errorType == "timeout" ? 504 : 502;
+            return crow::response(status, nlohmann::json{{"ok", false}, {"type", error.errorType},
+                {"error", error.what()}, {"canRetry", true}}.dump());
+        } catch (...) {
+            return crow::response(400, nlohmann::json{{"ok", false}, {"type", "invalid_request"},
+                {"error", "课堂问题格式不正确"}}.dump());
         }
     });
 
