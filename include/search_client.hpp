@@ -8,7 +8,7 @@
 
 namespace gangyi {
 
-// 联网资源搜索：领域检测 → 查询构造 → provider（主 tavily、备 bocha）→ 归一化 → 去重排序 → 7 天缓存。
+// 联网资源搜索：领域检测 → 查询构造 → provider（主 bocha、备 tavily）→ 归一化 → 去重排序 → 7 天缓存。
 // 对齐校园版 lib/search/ 的行为（searchResources.ts / searchProvider.ts / normalizeResource.ts / resourceCache.ts）。
 class SearchClient {
 public:
@@ -22,8 +22,8 @@ public:
     std::string lastProvider() const { return lastProvider_; }
 
 private:
-    std::string provider_;          // SEARCH_PROVIDER，默认 tavily
-    std::string fallbackProvider_;  // SEARCH_FALLBACK_PROVIDER，默认 bocha
+    std::string provider_;          // SEARCH_PROVIDER，默认 bocha
+    std::string fallbackProvider_;  // SEARCH_FALLBACK_PROVIDER，默认 tavily
     std::string cacheDir_;          // data/resource-search-cache
     mutable std::string lastProvider_;
     mutable bool fallbackUsed_ = false;

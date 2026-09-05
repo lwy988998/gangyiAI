@@ -384,6 +384,36 @@ int main() {
             if (stage.contains("topics") && stage["topics"].is_array()) {
                 for (const auto& item : stage["topics"]) if (item.is_string()) topics.push_back(item);
             }
+            const std::string requestedTopic = value("topic");
+            const std::string searchTopic = requestedTopic.empty()
+                ? (topics.empty() ? goal : topics[std::min(topicIndex, static_cast<int>(topics.size()) - 1)].get<std::string>())
+                : requestedTopic;
+            // 只把公开类别发送给搜索服务，不外传用户原始目标、阶段名或主题。
+            std::string publicSearchTopic = "公开学习资料 教程 练习";
+            const std::string categoryText = goal + " " + searchTopic;
+            if (categoryText.find("数学") != std::string::npos || categoryText.find("函数") != std::string::npos || categoryText.find("几何") != std::string::npos) publicSearchTopic += " 数学";
+            else if (categoryText.find("英语") != std::string::npos || categoryText.find("语言") != std::string::npos || categoryText.find("词汇") != std::string::npos) publicSearchTopic += " 英语";
+            else if (categoryText.find("编程") != std::string::npos || categoryText.find("代码") != std::string::npos || categoryText.find("Python") != std::string::npos) publicSearchTopic += " 编程";
+            else if (categoryText.find("人工智能") != std::string::npos || categoryText.find("AI") != std::string::npos || categoryText.find("模型") != std::string::npos) publicSearchTopic += " 人工智能";
+            std::vector<gangyi::SearchResource> liveResources;
+            std::string liveResourceProvider;
+            try {
+                gangyi::SearchClient search;
+                liveResources = search.search(publicSearchTopic, 8);
+                liveResourceProvider = search.lastProvider();
+            } catch (...) {}
+            const auto resourcesToJson = [](const std::vector<gangyi::SearchResource>& resources) {
+                nlohmann::json output = nlohmann::json::array();
+                for (const auto& resource : resources) {
+                    output.push_back({
+                        {"title", resource.title}, {"source", resource.source}, {"url", resource.url},
+                        {"type", resource.type}, {"description", resource.description},
+                        {"difficulty", resource.difficulty}, {"language", resource.language},
+                        {"free", resource.free}, {"reason", resource.reason}
+                    });
+                }
+                return output;
+            };
             nlohmann::json rawSteps = stage.value("steps", nlohmann::json::array());
             nlohmann::json lessonSteps = nlohmann::json::array();
             if (rawSteps.is_array()) {
@@ -399,24 +429,49 @@ int main() {
                 }
             }
             if (lessonSteps.empty()) {
-                const std::string topic = value("topic").empty()
-                    ? (topics.empty() ? goal : topics[std::min(topicIndex, static_cast<int>(topics.size()) - 1)].get<std::string>())
-                    : value("topic");
                 lessonSteps = nlohmann::json::array({
-                    {{"title", "理解" + topic}, {"explanation", "明确“" + topic + "”的定义、条件和解决的问题。"}, {"example", "从教材或练习中找一个“" + topic + "”的例子。"}, {"action", "写出定义、两个关键条件和一个应用场景。"}, {"check", "不看资料能准确解释核心概念。"}},
-                    {{"title", "练习" + topic}, {"explanation", "按已知信息、方法选择、结论检验三个步骤完成练习。"}, {"example", "圈出题目中的关键条件，再选择对应方法。"}, {"action", "完成一道题并记录每一步依据。"}, {"check", "每一步都有明确依据，结论符合条件。"}},
-                    {{"title", "复盘" + topic}, {"explanation", "整理本节的易错点，形成下一次可直接使用的检查清单。"}, {"example", "对比自己的首次思路与标准解法。"}, {"action", "记录至少两条错误原因和改进办法。"}, {"check", "能说明错误为什么发生以及如何避免。"}}
+                    {{"title", "理解" + searchTopic}, {"explanation", "明确“" + searchTopic + "”的定义、条件和解决的问题。"}, {"example", "从教材或练习中找一个“" + searchTopic + "”的例子。"}, {"action", "写出定义、两个关键条件和一个应用场景。"}, {"check", "不看资料能准确解释核心概念。"}},
+                    {{"title", "练习" + searchTopic}, {"explanation", "按已知信息、方法选择、结论检验三个步骤完成练习。"}, {"example", "圈出题目中的关键条件，再选择对应方法。"}, {"action", "完成一道题并记录每一步依据。"}, {"check", "每一步都有明确依据，结论符合条件。"}},
+                    {{"title", "复盘" + searchTopic}, {"explanation", "整理本节的易错点，形成下一次可直接使用的检查清单。"}, {"example", "对比自己的首次思路与标准解法。"}, {"action", "记录至少两条错误原因和改进办法。"}, {"check", "能说明错误为什么发生以及如何避免。"}}
                 });
+            }
+            // 课程快照通常只有 3 步，这里补齐为完整的五步学习闭环。
+            while (lessonSteps.size() < 5) {
+                const size_t index = lessonSteps.size();
+                if (index == 3) {
+                    lessonSteps.push_back({
+                        {"title", "迁移应用" + searchTopic},
+                        {"explanation", "把本节方法放到一个稍有变化的新情境中，确认你掌握的是方法而不是原题答案。"},
+                        {"example", "换一个数据、材料或应用场景，重新完成同一类分析。"},
+                        {"action", "写出新情境与原题的相同点、不同点和调整后的做法。"},
+                        {"check", "能够说明方法为什么仍然适用，或指出需要更换的方法。"}
+                    });
+                } else {
+                    lessonSteps.push_back({
+                        {"title", "自测与总结" + searchTopic},
+                        {"explanation", "用一句话总结本节结论，再用一个反例检验结论的边界。"},
+                        {"example", "找一个容易误用本方法的反例，说明它为什么不满足条件。"},
+                        {"action", "完成‘结论—条件—反例’三行总结。"},
+                        {"check", "能说清结论、条件和边界，而不是只背结论。"}
+                    });
+                }
             }
             topicIndex = std::min(topicIndex, static_cast<int>(lessonSteps.size()) - 1);
             const auto selectedStep = lessonSteps[std::max(0, topicIndex)];
-            const std::string topicTitle = value("topic").empty()
-                ? selectedStep.value("title", phaseName) : value("topic");
+            const std::string topicTitle = requestedTopic.empty()
+                ? selectedStep.value("title", phaseName) : requestedTopic;
 
             nlohmann::json examples = nlohmann::json::array();
             for (const auto& step : lessonSteps) {
                 if (step.value("example", "").empty()) continue;
                 examples.push_back({{"title", step.value("title", "示例")}, {"content", step.value("example", "")}, {"solution", step.value("check", "")}});
+            }
+            while (examples.size() < 5) {
+                examples.push_back({
+                    {"title", "资料对照示例" + std::to_string(examples.size() + 1)},
+                    {"content", "打开下方真实参考资料，找出其中一个与“" + searchTopic + "”相关的定义、步骤或案例，并用自己的话复述。"},
+                    {"solution", "复述时同时写出资料来源、适用条件和一个你自己的例子。"}
+                });
             }
             nlohmann::json practice = nlohmann::json::array();
             if (stage.contains("tasks") && stage["tasks"].is_array()) {
@@ -426,27 +481,44 @@ int main() {
                 }
             }
             if (practice.empty()) practice.push_back({{"title", "完成本节练习"}, {"task", "完成一道与“" + topicTitle + "”相关的练习并记录过程。"}, {"check", "能够复查步骤并说明结论依据。"}});
+            while (practice.size() < 4) {
+                const size_t index = practice.size();
+                practice.push_back({
+                    {"title", index == 1 ? "错题复盘" : index == 2 ? "资料提炼" : "迁移练习"},
+                    {"task", index == 1 ? "回看一次错误或卡住的过程，标出遗漏的条件和下一次的检查动作。" :
+                        index == 2 ? "从真实参考资料中摘录一个关键观点，注明来源并写出你的理解。" :
+                        "改变题目中的一个条件或应用场景，重新完成分析并解释调整原因。"},
+                    {"check", "过程可复查，结论有依据，并能说明与本节主题的关系。"}
+                });
+            }
             nlohmann::json quiz = nlohmann::json::array({
                 {{"question", "本节学习的第一步是什么？"}, {"options", {"明确概念与适用条件", "直接背答案", "跳过练习"}}, {"answerIndex", 0}, {"explanation", "先明确概念和条件，后续练习才有依据。"}},
-                {{"question", "完成练习后还需要做什么？"}, {"options", {"检查过程并记录错误", "不看过程只看分数", "直接进入下一节"}}, {"answerIndex", 0}, {"explanation", "复盘过程能发现遗漏条件和错误方法。"}}
+                {{"question", "完成练习后还需要做什么？"}, {"options", {"检查过程并记录错误", "不看过程只看分数", "直接进入下一节"}}, {"answerIndex", 0}, {"explanation", "复盘过程能发现遗漏条件和错误方法。"}},
+                {{"question", "如何判断方法是否适用于新情境？"}, {"options", {"核对关键条件是否满足", "只看题目长短", "直接套用原答案"}}, {"answerIndex", 0}, {"explanation", "先核对条件，再决定是否沿用方法。"}},
+                {{"question", "使用真实参考资料时最重要的动作是什么？"}, {"options", {"记录来源并用自己的话复述", "只收藏链接", "复制整段文字"}}, {"answerIndex", 0}, {"explanation", "注明来源并复述，才能把资料转化为自己的理解。"}}
             });
             nlohmann::json checkpoint = nlohmann::json::array();
             checkpoint.push_back(stage.value("checkpoint", "能解释核心概念并完成一份练习。"));
             checkpoint.push_back(stage.value("output", "形成一份可检查的阶段学习产出。"));
             nlohmann::json mistakes = stage.value("commonMistakes", nlohmann::json::array());
             if (!mistakes.is_array() || mistakes.empty()) mistakes = nlohmann::json::array({"只背结论，不核对适用条件", "只写答案，不记录推理过程"});
-            nlohmann::json references = nlohmann::json::array();
-            const auto resources = plan.value("resources", nlohmann::json::array());
-            if (resources.is_array()) for (const auto& item : resources) if (item.is_object()) references.push_back({
-                {"title", item.value("name", item.value("title", "参考资料"))}, {"source", item.value("type", "课程资料")},
-                {"url", item.value("href", item.value("url", ""))}, {"type", item.value("type", "参考资料")}});
+            nlohmann::json references = resourcesToJson(liveResources);
+            if (references.empty()) {
+                const auto resources = plan.value("resources", nlohmann::json::array());
+                if (resources.is_array()) for (const auto& item : resources) if (item.is_object()) references.push_back({
+                    {"title", item.value("name", item.value("title", "参考资料"))}, {"source", item.value("type", "课程资料")},
+                    {"url", item.value("href", item.value("url", ""))}, {"type", item.value("type", "参考资料")},
+                    {"description", item.value("description", "课程计划中的参考资料")}, {"difficulty", item.value("difficulty", "入门")}});
+            }
             return crow::response(200, nlohmann::json{
                 {"ok", true}, {"title", topicTitle + "·微课程"},
                 {"summary", stage.value("description", stage.value("goal", "围绕本节目标完成理解、练习和复盘。"))},
                 {"goal", goal}, {"mode", mode}, {"phaseName", phaseName}, {"topicTitle", topicTitle},
                 {"keyConcepts", topics}, {"lessonSteps", lessonSteps}, {"examples", examples},
                 {"practice", practice}, {"quiz", quiz}, {"checkpoint", checkpoint},
-                {"commonMistakes", mistakes}, {"references", references}
+                {"commonMistakes", mistakes},
+                {"resourceSummary", liveResources.empty() ? "暂无联网资料，先完成本节学习内容。" : "已补充 Bocha 联网真实学习资料"},
+                {"resourceProvider", liveResourceProvider}, {"references", references}
             }.dump());
         } catch (const std::exception& error) {
             return crow::response(500, nlohmann::json{{"ok", false}, {"error", error.what()}}.dump());

@@ -495,8 +495,9 @@ std::vector<SearchResource> fetchFromProvider(const std::string& provider, const
 }  // namespace
 
 SearchClient::SearchClient()
-    : provider_(envToLower("SEARCH_PROVIDER", "tavily")),
-      fallbackProvider_(envToLower("SEARCH_FALLBACK_PROVIDER", "bocha")),
+    // 微课程需要中文真实资料，默认优先使用 Bocha；仍支持通过环境变量切换。
+    : provider_(envToLower("SEARCH_PROVIDER", "bocha")),
+      fallbackProvider_(envToLower("SEARCH_FALLBACK_PROVIDER", "tavily")),
       cacheDir_(env("RESOURCE_SEARCH_CACHE_DIR", "data/resource-search-cache")) {
     if (provider_ != "bocha") provider_ = "tavily";
     if (fallbackProvider_ != "tavily") fallbackProvider_ = "bocha";
