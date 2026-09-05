@@ -1,14 +1,12 @@
 #pragma once
 
-#include "learning_generator.hpp"
+#include "resource_types.hpp"
 
 #include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
 namespace gangyi {
-
-// 复用 learning_generator.hpp 中的 SearchResource（已含搜索归一化扩展字段）。
 
 // 联网资源搜索：领域检测 → 查询构造 → provider（主 tavily、备 bocha）→ 归一化 → 去重排序 → 7 天缓存。
 // 对齐校园版 lib/search/ 的行为（searchResources.ts / searchProvider.ts / normalizeResource.ts / resourceCache.ts）。

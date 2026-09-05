@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ai_client.hpp"
-#include "learning_generator.hpp"
+#include "resource_types.hpp"
 
 #include <nlohmann/json.hpp>
 #include <optional>

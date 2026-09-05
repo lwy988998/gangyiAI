@@ -4,7 +4,6 @@
 #include "ai_client.hpp"
 #include "page_renderer.hpp"
 #include "plan_generator.hpp"
-#include "learning_generator.hpp"
 #include "plan_cache.hpp"
 #include "plan_adapter.hpp"
 #include "search_client.hpp"
@@ -179,34 +178,6 @@ int main() {
         return response;
     });
 
-    CROW_ROUTE(app, "/learn")([](const crow::request& req) {
-        const char* courseId = req.url_params.get("courseId");
-        const char* goal = req.url_params.get("goal");
-        const char* mode = req.url_params.get("mode");
-        const char* phaseName = req.url_params.get("phaseName");
-        const char* topic = req.url_params.get("topic");
-        const char* phaseIndex = req.url_params.get("phaseIndex");
-        const char* topicIndex = req.url_params.get("topicIndex");
-        const char* anonymousId = req.url_params.get("anonymousId");
-        const char* regenerate = req.url_params.get("regenerate");
-        const char* forceLearn = req.url_params.get("forceLearn");
-        const char* retry = req.url_params.get("retry");
-        crow::response response(gangyi::renderLearnPage(
-            courseId ? courseId : "",
-            goal ? goal : "",
-            mode ? mode : "deep",
-            phaseIndex ? phaseIndex : "1",
-            phaseName ? phaseName : "",
-            topicIndex ? topicIndex : "1",
-            topic ? topic : "",
-            anonymousId ? anonymousId : "",
-            regenerate ? regenerate : "",
-            forceLearn ? forceLearn : "",
-            retry ? retry : ""));
-        response.set_header("Content-Type", "text/html; charset=utf-8");
-        return response;
-    });
-
     CROW_ROUTE(app, "/progress")([&db](const crow::request& req) {
         const char* courseIdP = req.url_params.get("courseId");
         const char* anonymousIdP = req.url_params.get("anonymousId");
@@ -334,7 +305,6 @@ int main() {
             list.push_back({{"courseId", c.id}, {"title", title}, {"goal", c.goal}, {"mode", c.mode},
                 {"source", c.source}, {"createdAt", c.createdAt}, {"updatedAt", c.updatedAt},
                 {"overallPercent", pct}, {"status", status},
-                {"learnHref", "/learn?courseId=" + encodeQueryValue(c.id) + "&phaseIndex=1&topicIndex=1" + query},
                 {"progressHref", "/progress?courseId=" + encodeQueryValue(c.id) + query}});
         }
         crow::response response(gangyi::renderMyCoursesPage({{"courses", list}, {"anonymousId", anonymousId},
@@ -343,6 +313,7 @@ int main() {
         return response;
     });
 
+#if 0  // 微课程页面已移除，旧接口不再注册。
     CROW_ROUTE(app, "/api/learn")([&db](const crow::request& req) {
         try {
             gangyi::AIClient ai;
@@ -496,6 +467,7 @@ int main() {
             return crow::response(502, nlohmann::json{{"error", e.what()}}.dump());
         }
     });
+#endif
 
     /* 用户账号与管理员 API 已移除。
     CROW_ROUTE(app, "/api/auth/register").methods(crow::HTTPMethod::POST)([&db](const crow::request& req) {
@@ -806,6 +778,7 @@ int main() {
     });
 
     // ---- 阶段 B：学习体验 API ----
+#if 0  // 学习微课程页面已删除，这些接口不再对外提供。
 
     // POST /api/learning-card-progress —— 学习卡状态（写后自动重算）
     CROW_ROUTE(app, "/api/learning-card-progress").methods(crow::HTTPMethod::POST)([&db](const crow::request& req) {
@@ -876,6 +849,8 @@ int main() {
         }
     });
 
+#endif
+
     // GET /api/task-progress —— 恢复阶段展开任务的三态进度。
     CROW_ROUTE(app, "/api/task-progress")([&db](const crow::request& req) {
         const char* courseId = req.url_params.get("courseId");
@@ -923,6 +898,7 @@ int main() {
         }
     });
 
+#if 0  // 学习微课程页面已删除。
     // POST /api/learn/progress —— 三合一：学习卡 + 断点记录 + 全量重算
     CROW_ROUTE(app, "/api/learn/progress").methods(crow::HTTPMethod::POST)([&db](const crow::request& req) {
         try {
@@ -953,6 +929,8 @@ int main() {
             return crow::response(400, nlohmann::json{{"ok", false}, {"error", "INVALID_INPUT"}}.dump());
         }
     });
+
+#endif
 
     // POST /api/course-progress —— 全量重算 / 断点记录
     CROW_ROUTE(app, "/api/course-progress").methods(crow::HTTPMethod::POST)([&db](const crow::request& req) {
@@ -994,6 +972,7 @@ int main() {
         }
     });
 
+#if 0  // 学习微课程页面已删除。
     // GET /api/learning-sessions —— 微课会话查询（恢复优先）
     CROW_ROUTE(app, "/api/learning-sessions")([&db](const crow::request& req) {
         const char* courseId = req.url_params.get("courseId");
@@ -1034,6 +1013,8 @@ int main() {
             return crow::response(400, nlohmann::json{{"ok", false}, {"error", "INVALID_INPUT"}}.dump());
         }
     });
+
+#endif
 
     // POST /api/phase-expansion —— 阶段展开生成
     CROW_ROUTE(app, "/api/phase-expansion").methods(crow::HTTPMethod::POST)([&db](const crow::request& req) {
