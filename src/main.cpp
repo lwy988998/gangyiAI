@@ -697,7 +697,10 @@ int main() {
                 }
             }
             if (!fromCache) {
-                for (int attempt = 0; attempt < 3 && !qualityValid; ++attempt) {
+                // 质量重试最多两次，避免多层重试叠加后超过前端等待上限。
+                for (int attempt = 0; attempt < 2 && !qualityValid; ++attempt) {
+                    std::cerr << "[generate-plan] attempt=" << (attempt + 1)
+                              << " mode=" << mode << std::endl;
                     try {
                         const auto plan = generator.generate(goal, mode, feedback);
                         const auto raw = planToJson(plan);
@@ -705,16 +708,25 @@ int main() {
                         gate = gangyi::validateCourseContent(adapted, goal, mode,
                             adapted.value("title", goal));
                         qualityValid = gate.valid;
-                        if (!qualityValid) feedback = qualityFeedback(gate);
+                        if (!qualityValid) {
+                            feedback = qualityFeedback(gate);
+                            std::cerr << "[generate-plan] quality rejected attempt="
+                                      << (attempt + 1) << " feedback=" << feedback << std::endl;
+                        }
                     } catch (const gangyi::AIClientError& error) {
+                        std::cerr << "[generate-plan] AI error attempt=" << (attempt + 1)
+                                  << " type=" << error.errorType << " message=" << error.what() << std::endl;
                         feedback = "上一次模型输出无法使用：" + std::string(error.what()) +
                             "。请重新输出完整、严格符合字段结构的 JSON。";
                     } catch (const std::exception& error) {
+                        std::cerr << "[generate-plan] error attempt=" << (attempt + 1)
+                                  << " message=" << error.what() << std::endl;
                         feedback = "上一次生成结果解析失败：" + std::string(error.what()) +
                             "。请重新输出完整 JSON，不要输出解释文字。";
                     }
                 }
                 if (!qualityValid) {
+                    std::cerr << "[generate-plan] using deterministic fallback after quality retries" << std::endl;
                     adapted = fallbackCoursePlan(goal, mode);
                     gate = gangyi::validateCourseContent(adapted, goal, mode,
                         adapted.value("title", goal));
@@ -741,12 +753,15 @@ int main() {
 
             return crow::response(200, adapted.dump());
         } catch (const gangyi::AIClientError& e) {
+            std::cerr << "[generate-plan] unhandled AI error type=" << e.errorType
+                      << " message=" << e.what() << std::endl;
             // 错误→HTTP 映射（对齐 docs/ai-spec.md）：missing_config/auth_error→503，timeout→504，其余→502
             int code = 502;
             if (e.errorType == "missing_config" || e.errorType == "auth_error") code = 503;
             else if (e.errorType == "timeout") code = 504;
             return crow::response(code, nlohmann::json{{"error", e.what()}, {"type", e.errorType}}.dump());
         } catch (const std::exception& e) {
+            std::cerr << "[generate-plan] unhandled error message=" << e.what() << std::endl;
             return crow::response(502, nlohmann::json{{"error", e.what()}}.dump());
         }
     });
