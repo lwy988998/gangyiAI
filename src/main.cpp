@@ -328,6 +328,131 @@ int main() {
         return response;
     });
 
+    // /learn 微课程页：课程页和阶段页仍会生成此链接，必须保持与学习 API 配套注册。
+    CROW_ROUTE(app, "/learn")([&db](const crow::request& req) {
+        const auto value = [&req](const char* name) {
+            const char* item = req.url_params.get(name);
+            return std::string(item ? item : "");
+        };
+        const std::string anonymousId = requestAnonymousId(req);
+        crow::response response(gangyi::renderLearnPage(
+            value("courseId"), value("goal"), value("mode").empty() ? "deep" : value("mode"),
+            value("phaseIndex"), value("phaseName"), value("topicIndex"), value("topic"),
+            anonymousId, value("regenerate"), value("forceLearn"), value("retry")));
+        response.set_header("Content-Type", "text/html; charset=utf-8");
+        return response;
+    });
+
+    // GET /api/learn 微课程内容：从已生成课程快照构造可执行的单节学习内容。
+    CROW_ROUTE(app, "/api/learn")([&db](const crow::request& req) {
+        try {
+            const auto value = [&req](const char* name) {
+                const char* item = req.url_params.get(name);
+                return std::string(item ? item : "");
+            };
+            const std::string courseId = value("courseId");
+            const std::string anonymousId = requestAnonymousId(req);
+            if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) {
+                return crow::response(404, nlohmann::json{{"error", "course not found"}}.dump());
+            }
+            std::string goal = value("goal");
+            std::string mode = value("mode");
+            if (mode != "lite") mode = "deep";
+            nlohmann::json plan = nlohmann::json::object();
+            if (!courseId.empty()) {
+                if (const auto found = gangyi::getCourseWithSnapshot(db, courseId)) {
+                    plan = found->payload;
+                    if (goal.empty()) goal = found->course.goal;
+                    if (value("mode").empty()) mode = found->course.mode == "lite" ? "lite" : "deep";
+                }
+            }
+            if (goal.empty()) goal = "你的学习目标";
+            int phaseIndex = 0;
+            int topicIndex = 0;
+            try { if (!value("phaseIndex").empty()) phaseIndex = std::max(0, std::stoi(value("phaseIndex"))); } catch (...) {}
+            try { if (!value("topicIndex").empty()) topicIndex = std::max(0, std::stoi(value("topicIndex"))); } catch (...) {}
+
+            const auto roadmap = plan.value("roadmap", nlohmann::json::array());
+            nlohmann::json stage = nlohmann::json::object();
+            if (roadmap.is_array() && !roadmap.empty()) {
+                phaseIndex = std::min(phaseIndex, static_cast<int>(roadmap.size()) - 1);
+                stage = roadmap[phaseIndex];
+            }
+            const std::string phaseName = value("phaseName").empty()
+                ? stage.value("name", "当前阶段") : value("phaseName");
+            auto topics = nlohmann::json::array();
+            if (stage.contains("topics") && stage["topics"].is_array()) {
+                for (const auto& item : stage["topics"]) if (item.is_string()) topics.push_back(item);
+            }
+            nlohmann::json rawSteps = stage.value("steps", nlohmann::json::array());
+            nlohmann::json lessonSteps = nlohmann::json::array();
+            if (rawSteps.is_array()) {
+                for (const auto& item : rawSteps) {
+                    if (!item.is_object()) continue;
+                    lessonSteps.push_back({
+                        {"title", item.value("title", "理解本节核心概念")},
+                        {"explanation", item.value("explanation", "结合课程目标理解概念、条件和解题方法。")},
+                        {"example", item.value("example", "选择一道对应题目或一段教材材料进行分析。")},
+                        {"action", item.value("action", "写出关键条件，并完成一份具体练习。")},
+                        {"check", item.value("check", "能够用自己的话复述方法，并说明适用条件。")}
+                    });
+                }
+            }
+            if (lessonSteps.empty()) {
+                const std::string topic = value("topic").empty()
+                    ? (topics.empty() ? goal : topics[std::min(topicIndex, static_cast<int>(topics.size()) - 1)].get<std::string>())
+                    : value("topic");
+                lessonSteps = nlohmann::json::array({
+                    {{"title", "理解" + topic}, {"explanation", "明确“" + topic + "”的定义、条件和解决的问题。"}, {"example", "从教材或练习中找一个“" + topic + "”的例子。"}, {"action", "写出定义、两个关键条件和一个应用场景。"}, {"check", "不看资料能准确解释核心概念。"}},
+                    {{"title", "练习" + topic}, {"explanation", "按已知信息、方法选择、结论检验三个步骤完成练习。"}, {"example", "圈出题目中的关键条件，再选择对应方法。"}, {"action", "完成一道题并记录每一步依据。"}, {"check", "每一步都有明确依据，结论符合条件。"}},
+                    {{"title", "复盘" + topic}, {"explanation", "整理本节的易错点，形成下一次可直接使用的检查清单。"}, {"example", "对比自己的首次思路与标准解法。"}, {"action", "记录至少两条错误原因和改进办法。"}, {"check", "能说明错误为什么发生以及如何避免。"}}
+                });
+            }
+            topicIndex = std::min(topicIndex, static_cast<int>(lessonSteps.size()) - 1);
+            const auto selectedStep = lessonSteps[std::max(0, topicIndex)];
+            const std::string topicTitle = value("topic").empty()
+                ? selectedStep.value("title", phaseName) : value("topic");
+
+            nlohmann::json examples = nlohmann::json::array();
+            for (const auto& step : lessonSteps) {
+                if (step.value("example", "").empty()) continue;
+                examples.push_back({{"title", step.value("title", "示例")}, {"content", step.value("example", "")}, {"solution", step.value("check", "")}});
+            }
+            nlohmann::json practice = nlohmann::json::array();
+            if (stage.contains("tasks") && stage["tasks"].is_array()) {
+                for (const auto& task : stage["tasks"]) {
+                    if (task.is_string()) practice.push_back({{"title", "阶段任务"}, {"task", task.get<std::string>()}, {"check", "完成后记录过程和结果。"}});
+                    else if (task.is_object()) practice.push_back({{"title", task.value("title", "阶段任务")}, {"task", task.value("description", "完成本阶段练习。")}, {"check", task.value("output", "形成可检查的学习产出。")}});
+                }
+            }
+            if (practice.empty()) practice.push_back({{"title", "完成本节练习"}, {"task", "完成一道与“" + topicTitle + "”相关的练习并记录过程。"}, {"check", "能够复查步骤并说明结论依据。"}});
+            nlohmann::json quiz = nlohmann::json::array({
+                {{"question", "本节学习的第一步是什么？"}, {"options", {"明确概念与适用条件", "直接背答案", "跳过练习"}}, {"answerIndex", 0}, {"explanation", "先明确概念和条件，后续练习才有依据。"}},
+                {{"question", "完成练习后还需要做什么？"}, {"options", {"检查过程并记录错误", "不看过程只看分数", "直接进入下一节"}}, {"answerIndex", 0}, {"explanation", "复盘过程能发现遗漏条件和错误方法。"}}
+            });
+            nlohmann::json checkpoint = nlohmann::json::array();
+            checkpoint.push_back(stage.value("checkpoint", "能解释核心概念并完成一份练习。"));
+            checkpoint.push_back(stage.value("output", "形成一份可检查的阶段学习产出。"));
+            nlohmann::json mistakes = stage.value("commonMistakes", nlohmann::json::array());
+            if (!mistakes.is_array() || mistakes.empty()) mistakes = nlohmann::json::array({"只背结论，不核对适用条件", "只写答案，不记录推理过程"});
+            nlohmann::json references = nlohmann::json::array();
+            const auto resources = plan.value("resources", nlohmann::json::array());
+            if (resources.is_array()) for (const auto& item : resources) if (item.is_object()) references.push_back({
+                {"title", item.value("name", item.value("title", "参考资料"))}, {"source", item.value("type", "课程资料")},
+                {"url", item.value("href", item.value("url", ""))}, {"type", item.value("type", "参考资料")}});
+            return crow::response(200, nlohmann::json{
+                {"ok", true}, {"title", topicTitle + "·微课程"},
+                {"summary", stage.value("description", stage.value("goal", "围绕本节目标完成理解、练习和复盘。"))},
+                {"goal", goal}, {"mode", mode}, {"phaseName", phaseName}, {"topicTitle", topicTitle},
+                {"keyConcepts", topics}, {"lessonSteps", lessonSteps}, {"examples", examples},
+                {"practice", practice}, {"quiz", quiz}, {"checkpoint", checkpoint},
+                {"commonMistakes", mistakes}, {"references", references}
+            }.dump());
+        } catch (const std::exception& error) {
+            return crow::response(500, nlohmann::json{{"ok", false}, {"error", error.what()}}.dump());
+        }
+    });
+
     CROW_ROUTE(app, "/ask")([](const crow::request& req) {
         const char* question = req.url_params.get("question");
         crow::response response(gangyi::renderAskPage(question ? question : ""));

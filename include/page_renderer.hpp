@@ -15,6 +15,11 @@ std::string renderPhasePage(const std::string& courseId, const std::string& anon
                             const std::string& goal, const std::string& mode,
                             const std::string& phaseIndex, const std::string& phaseName,
                             const nlohmann::json& plan, const nlohmann::json& cardStatus);
+std::string renderLearnPage(const std::string& courseId, const std::string& goal, const std::string& mode,
+                            const std::string& phaseIndex, const std::string& phaseName,
+                            const std::string& topicIndex, const std::string& topic,
+                            const std::string& anonymousId, const std::string& regenerate = {},
+                            const std::string& forceLearn = {}, const std::string& retry = {});
 std::string renderAskPage(const std::string& question = {});
 std::string renderMyCoursesPage(const nlohmann::json& data = {});
 
