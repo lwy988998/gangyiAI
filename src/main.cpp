@@ -30,6 +30,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -77,6 +78,60 @@ nlohmann::json planToJson(const gangyi::GeneratedPlan& plan) {
             {"audience", plan.audience}, {"prerequisites", plan.prerequisites}, {"outcome", plan.outcome},
             {"learningOutcomes", plan.learningOutcomes}, {"phases", phases}, {"slides", slides},
             {"mindMap", plan.mindMap}, {"resources", plan.resources}, {"projects", plan.projects}};
+}
+
+nlohmann::json fallbackCoursePlan(const std::string& goal, const std::string& mode) {
+    const int phaseCount = mode == "lite" ? 3 : 4;
+    nlohmann::json roadmap = nlohmann::json::array();
+    nlohmann::json structure = nlohmann::json::array();
+    nlohmann::json slides = nlohmann::json::array();
+    for (int index = 1; index <= phaseCount; ++index) {
+        const std::string phaseName = goal + "·第" + std::to_string(index) + "阶段";
+        const std::vector<std::string> topics = {
+            phaseName + "核心概念", phaseName + "典型练习", phaseName + "应用检查"};
+        const std::vector<std::string> tasks = {
+            "完成「" + goal + "」核心概念练习并记录过程",
+            "提交一份「" + goal + "」阶段报告或作品"};
+        nlohmann::json steps = nlohmann::json::array();
+        for (size_t step = 0; step < topics.size(); ++step) {
+            steps.push_back({
+                {"title", topics[step]},
+                {"explanation", "围绕「" + topics[step] + "」整理定义、方法和一个具体例子。"},
+                {"action", "完成「" + topics[step] + "」练习并记录关键步骤。"},
+                {"check", "用自己的话解释「" + topics[step] + "」，并提交一份可检查的练习作品。"}});
+        }
+        roadmap.push_back({
+            {"name", phaseName}, {"duration", mode == "lite" ? "1 周" : "2 周"},
+            {"goal", "掌握「" + phaseName + "」的核心知识与方法"},
+            {"description", "从具体知识点出发，完成练习、复盘和阶段产出。"},
+            {"topics", topics}, {"tasks", tasks}, {"steps", steps},
+            {"output", "一份可检查的「" + goal + "」阶段作品或报告"},
+            {"checkpoint", "完成练习并提交阶段作品，能够说明关键步骤。"},
+            {"commonMistakes", nlohmann::json::array({"只看讲解不完成练习", "没有记录检查结果"})}});
+        structure.push_back({{"stage", phaseName}, {"topics", topics}});
+        slides.push_back({{"title", phaseName}, {"subtitle", goal},
+                          {"content", "本阶段围绕具体知识点、练习任务和阶段作品推进。"},
+                          {"bullets", topics}});
+    }
+    return {{"title", goal + (mode == "lite" ? "快速学习方案" : "系统学习方案")},
+            {"summary", "围绕你的目标生成可执行的阶段路线、练习和检查标准。"},
+            {"courseIntro", "每个阶段都有明确知识点、行动任务、阶段作品和检查点。"},
+            {"overview", "按阶段完成知识学习、练习、复盘和成果提交。"},
+            {"duration", mode == "lite" ? "3 周" : "8 周"}, {"roadmap", roadmap},
+            {"courseStructure", structure}, {"slides", slides},
+            {"mindMap", {{"title", "课程知识结构"}, {"nodes", nlohmann::json::array()}}},
+            {"resources", nlohmann::json::array()},
+            {"projects", nlohmann::json::array({{{"name", goal + "阶段作品"}, {"difficulty", "入门"},
+                {"duration", mode == "lite" ? "2 小时" : "4 小时"},
+                {"output", "一份可展示的" + goal + "作品"}}})}};
+}
+
+std::string qualityFeedback(const gangyi::QualityResult& result) {
+    std::ostringstream out;
+    out << "质量评分：" << result.score << "。问题：";
+    if (result.reasons.empty()) out << "课程结构或内容不完整。";
+    else for (const auto& reason : result.reasons) out << "\n- " << reason;
+    return out.str();
 }
 
 bool requesterCanReadCourse(gangyi::Database& db, const gangyi::Course& course, const crow::request& req) {
@@ -621,7 +676,10 @@ int main() {
             gangyi::PlanCache cache;
 
             nlohmann::json adapted;
+            gangyi::QualityResult gate;
+            std::string feedback;
             bool fromCache = false;
+            bool qualityValid = false;
             if (!bypassCache) {
                 if (auto cached = cache.read(goal, mode)) {
                     const auto& raw = *cached;
@@ -631,13 +689,38 @@ int main() {
                     } else {
                         adapted = gangyi::adaptGeneratedPlan(raw, mode);
                     }
-                    fromCache = true;
+                    gate = gangyi::validateCourseContent(adapted, goal, mode,
+                        adapted.value("title", goal));
+                    qualityValid = gate.valid;
+                    fromCache = qualityValid;
+                    if (!qualityValid) feedback = qualityFeedback(gate);
                 }
             }
             if (!fromCache) {
-                const auto plan = generator.generate(goal, mode);
-                const auto raw = planToJson(plan);
-                adapted = gangyi::adaptGeneratedPlan(raw, mode);
+                for (int attempt = 0; attempt < 3 && !qualityValid; ++attempt) {
+                    try {
+                        const auto plan = generator.generate(goal, mode, feedback);
+                        const auto raw = planToJson(plan);
+                        adapted = gangyi::adaptGeneratedPlan(raw, mode);
+                        gate = gangyi::validateCourseContent(adapted, goal, mode,
+                            adapted.value("title", goal));
+                        qualityValid = gate.valid;
+                        if (!qualityValid) feedback = qualityFeedback(gate);
+                    } catch (const gangyi::AIClientError& error) {
+                        feedback = "上一次模型输出无法使用：" + std::string(error.what()) +
+                            "。请重新输出完整、严格符合字段结构的 JSON。";
+                    } catch (const std::exception& error) {
+                        feedback = "上一次生成结果解析失败：" + std::string(error.what()) +
+                            "。请重新输出完整 JSON，不要输出解释文字。";
+                    }
+                }
+                if (!qualityValid) {
+                    adapted = fallbackCoursePlan(goal, mode);
+                    gate = gangyi::validateCourseContent(adapted, goal, mode,
+                        adapted.value("title", goal));
+                    qualityValid = gate.valid;
+                    adapted["qualityNotice"] = "模型结果已根据质量检查反馈自动重试；当前展示的是稳定可用的课程结构。";
+                }
                 cache.write(goal, mode, adapted);
             }
 

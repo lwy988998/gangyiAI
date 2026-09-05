@@ -116,23 +116,28 @@ void validate(const GeneratedPlan& plan, const std::string& mode) {
 }
 
 ChatOptions options(const std::string& system, const std::string& user, const std::string& mode) {
-    // 首页生成只走一次 DeepSeek，避免用户长时间停留在“准备生成”。
     return {{ {"system", system}, {"user", user} }, {}, 0.7,
-        mode == "lite" ? 2600 : 3600, "json_object", mode == "lite" ? 30000 : 40000, 1};
+        mode == "lite" ? 2600 : 3600, "json_object", mode == "lite" ? 30000 : 40000, 2};
 }
 
 }
 
 PlanGenerator::PlanGenerator(AIClient& client) : client_(client) {}
 
-GeneratedPlan PlanGenerator::generate(const std::string& goal, const std::string& mode) {
+GeneratedPlan PlanGenerator::generate(const std::string& goal, const std::string& mode,
+                                      const std::string& qualityFeedback) {
     if (mode != "lite" && mode != "deep") throw AIClientError("invalid_request", "mode must be lite or deep");
     const auto first = goal.find_first_not_of(" \t\r\n");
     if (first == std::string::npos) throw AIClientError("invalid_request", "goal must not be empty");
 
     const std::string safeGoal = goal.substr(first, goal.find_last_not_of(" \t\r\n") - first + 1);
     const std::string system = std::string(sharedSkeletonRules) + "\n" + modeRules(mode);
-    const std::string user = "学习目标：" + safeGoal + "\n模式：" + mode + "\n请生成 Level 1 Plan Skeleton 严格 JSON。先输出 inferredDomain 和 learnerGoal，再生成课程目录、阶段目标、topics、topicDescriptions、阶段产出和 checkpoint。";
+    std::string user = "学习目标：" + safeGoal + "\n模式：" + mode + "\n请生成 Level 1 Plan Skeleton 严格 JSON。先输出 inferredDomain 和 learnerGoal，再生成课程目录、阶段目标、topics、topicDescriptions、阶段产出和 checkpoint。";
+    if (!qualityFeedback.empty()) {
+        user += "\n\n上一次生成未通过质量检查，请根据下面的问题重新生成完整 JSON，不要只解释问题：\n";
+        user += qualityFeedback;
+        user += "\n修正要求：每个阶段都要有具体知识点、可执行任务、明确产出和检查点；不要复用空泛句；必须严格满足阶段数量和字段结构。";
+    }
     const GeneratedPlan plan = parsePlan(parseAIJson(client_.chat(options(system, user, mode)).content));
     validate(plan, mode);
     return plan;

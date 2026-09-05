@@ -70,7 +70,8 @@ class PlanGenerator {
 public:
     explicit PlanGenerator(AIClient& client);
 
-    GeneratedPlan generate(const std::string& goal, const std::string& mode);
+    GeneratedPlan generate(const std::string& goal, const std::string& mode,
+                           const std::string& qualityFeedback = {});
 
 private:
     AIClient& client_;
