@@ -9,7 +9,6 @@
 #include "search_client.hpp"
 #include "quality_gate.hpp"
 #include "course_service.hpp"
-#include "progress_service.hpp"
 #include "phase_generator.hpp"
 #include "ask_generator.hpp"
 #include "image_goal_analyzer.hpp"
@@ -178,6 +177,7 @@ int main() {
         return response;
     });
 
+#if 0  // 顶部进度页面已删除。
     CROW_ROUTE(app, "/progress")([&db](const crow::request& req) {
         const char* courseIdP = req.url_params.get("courseId");
         const char* anonymousIdP = req.url_params.get("anonymousId");
@@ -243,6 +243,7 @@ int main() {
         response.set_header("Content-Type", "text/html; charset=utf-8");
         return response;
     });
+#endif
 
     // /phase 阶段页：从 courseId 课程快照 SSR 渲染阶段与主题网格
     CROW_ROUTE(app, "/phase")([&db](const crow::request& req) {
@@ -265,15 +266,6 @@ int main() {
                 if (found->payload.is_object()) plan = found->payload;
                 if (goal.empty()) goal = found->course.goal;
                 if (mode.empty()) mode = found->course.mode;
-                int phase = 1;
-                try { phase = std::stoi(phaseIndex); if (phase < 1) phase = 1; } catch (...) {}
-                for (const auto& r : db.listLearningCardProgress()) {
-                    if (r.courseId.value_or("") == courseId &&
-                        (r.phaseIndex == phase || (phase == 1 && r.phaseIndex == 0)) &&
-                        (r.status == "completed" || r.status == "in_progress")) {
-                        card[std::to_string(r.topicIndex)] = r.status;
-                    }
-                }
             }
         }
         crow::response response(gangyi::renderPhasePage(courseId, anonymousId, goal, mode, phaseIndex, phaseName, plan, card));
@@ -292,23 +284,14 @@ int main() {
         const std::string anonymousId = requestAnonymousId(req);
         const auto courses = gangyi::listCoursesForIdentity(db, "", anonymousId, 100, 0);
         nlohmann::json list = nlohmann::json::array();
-        int inProgress = 0, completed = 0;
         for (const auto& c : courses) {
-            int pct = 0;
-            if (const auto cp = db.findProgressByCourseId(c.id)) pct = cp->overallPercent;
-            const std::string status = pct >= 100 ? "completed" : pct > 0 ? "in_progress" : "not_started";
-            if (status == "completed") ++completed;
-            else if (status == "in_progress") ++inProgress;
             const std::string title = c.title.empty() ? (c.goal.empty() ? c.id : c.goal) : c.title;
-            const std::string query = "&goal=" + encodeQueryValue(c.goal) + "&mode=" + encodeQueryValue(c.mode) +
-                (anonymousId.empty() ? "" : "&anonymousId=" + encodeQueryValue(anonymousId));
             list.push_back({{"courseId", c.id}, {"title", title}, {"goal", c.goal}, {"mode", c.mode},
                 {"source", c.source}, {"createdAt", c.createdAt}, {"updatedAt", c.updatedAt},
-                {"overallPercent", pct}, {"status", status},
-                {"progressHref", "/progress?courseId=" + encodeQueryValue(c.id) + query}});
+                {"status", "generated"}});
         }
         crow::response response(gangyi::renderMyCoursesPage({{"courses", list}, {"anonymousId", anonymousId},
-            {"stats", {{"total", static_cast<int>(courses.size())}, {"inProgress", inProgress}, {"completed", completed}}}}));
+            {"stats", {{"total", static_cast<int>(courses.size())}}}}));
         response.set_header("Content-Type", "text/html; charset=utf-8");
         return response;
     });
@@ -851,6 +834,7 @@ int main() {
 
 #endif
 
+#if 0  // 顶部进度功能已删除，相关进度接口不再注册。
     // GET /api/task-progress —— 恢复阶段展开任务的三态进度。
     CROW_ROUTE(app, "/api/task-progress")([&db](const crow::request& req) {
         const char* courseId = req.url_params.get("courseId");
@@ -1013,6 +997,8 @@ int main() {
             return crow::response(400, nlohmann::json{{"ok", false}, {"error", "INVALID_INPUT"}}.dump());
         }
     });
+
+#endif
 
 #endif
 

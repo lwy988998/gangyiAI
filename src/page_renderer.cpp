@@ -65,12 +65,10 @@ std::string headerShell(const std::string& active) {
     const auto is = [&](const std::string& key) { return active == key; };
     return std::string(R"HTML(<header class="sticky top-0 z-30 w-full max-w-full border-b border-slate-200/70 bg-white/92 backdrop-blur-xl"><div class="mx-auto flex min-h-13 w-full max-w-7xl items-center justify-between gap-2 px-3 py-2 sm:min-h-16 md:px-6 lg:px-8"><a class="shrink-0 whitespace-nowrap text-base font-semibold tracking-tight text-sky-900 md:text-lg" href="/">钢一定制AI</a><nav class="hidden min-w-0 flex-1 items-center justify-end gap-2 text-sm font-medium text-slate-600 md:flex lg:gap-4">)HTML") +
         navLink("/", "首页", is("home")) +
-        navLink("/progress", "进度", is("progress")) +
         navLink("/my-courses", "我的课程", is("my-courses")) +
         navLink("/ask", "AI 对话", is("ask")) +
         R"HTML(</nav><details class="group relative shrink-0 md:hidden"><summary class="list-none rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm marker:hidden focus:outline-none focus:ring-2 focus:ring-sky-300 [&::-webkit-details-marker]:hidden"><span class="inline-flex items-center gap-1.5"><span class="text-base leading-none">≡</span>菜单</span></summary><nav class="fixed left-3 right-3 top-14 mt-2 flex max-h-[calc(100dvh-4rem)] flex-col gap-1 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 text-sm font-medium text-slate-700 shadow-xl shadow-slate-900/10 sm:left-auto sm:right-4 sm:w-[min(18rem,calc(100vw-1.5rem))] md:absolute md:right-0 md:top-full">)HTML" +
         navLink("/", "首页", is("home")) +
-        navLink("/progress", "进度", is("progress")) +
         navLink("/my-courses", "我的课程", is("my-courses")) +
         navLink("/ask", "AI 对话", is("ask")) +
         R"HTML(</nav></details></div></header>)HTML";
@@ -168,6 +166,7 @@ std::string renderLearnPage(const std::string& courseId, const std::string& goal
     return document("学习中 - 钢一定制AI", body, bridge + identityBridge + script);
 }
 
+#if 0  // 顶部进度页面已删除。
 std::string renderProgressPage(const std::string& courseId, const std::string& anonymousId,
                                const nlohmann::json& data) {
     const auto str = [](const nlohmann::json& v) { return v.is_string() ? v.get<std::string>() : std::string(); };
@@ -221,6 +220,7 @@ std::string renderProgressPage(const std::string& courseId, const std::string& a
     const std::string resetScript = courseId.empty() ? "" : R"HTML(<script>(function(){const button=document.getElementById('reset-course-progress');if(!button)return;button.addEventListener('click',async()=>{if(!confirm('确定要清空这门课程的学习进度吗？课程内容不会删除。'))return;button.disabled=true;button.textContent='正在重置…';try{const response=await fetch('/api/course-progress',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'reset',courseId:)HTML" + jsString(courseId) + R"HTML(,anonymousId:)HTML" + jsString(anonymousId) + R"HTML(})});if(!response.ok)throw new Error();location.reload()}catch(_){button.disabled=false;button.textContent='重置失败，请重试'}})})();</script>)HTML";
     return document("学习进度 - 钢一定制AI", body, resetScript);
 }
+#endif
 
 std::string renderAskPage(const std::string& question) {
     const std::string body = headerShell("ask") + R"HTML(
@@ -240,27 +240,18 @@ std::string renderMyCoursesPage(const nlohmann::json& data) {
     const bool authenticated = data.value("authenticated", false);
     const auto stats = data.value("stats", nlohmann::json::object());
     const int total = num(stats.value("total", 0));
-    const int inProgress = num(stats.value("inProgress", 0));
-    const int completed = num(stats.value("completed", 0));
     std::string cardsHtml;
     for (const auto& c : data.value("courses", nlohmann::json::array())) {
         const std::string title = str(c.value("title", ""));
         const std::string goal = str(c.value("goal", ""));
         const std::string source = str(c.value("source", "ai"));
         const std::string createdAt = str(c.value("createdAt", ""));
-        const int pct = num(c.value("overallPercent", 0));
-        const std::string status = str(c.value("status", "not_started"));
-        const std::string statusLabel = status == "completed" ? "已完成" : status == "in_progress" ? "学习中" : "未开始";
-        const std::string statusCls = status == "completed" ? "bg-emerald-100 text-emerald-700" : status == "in_progress" ? "bg-sky-100 text-sky-800" : "bg-slate-100 text-slate-600";
-        const std::string progressHref = str(c.value("progressHref", "#"));
         const std::string courseId = str(c.value("courseId", ""));
         const std::string sourceLabel = source == "fallback" ? "应急内容" : (source == "mock" || source == "template" ? "示例" : "AI 生成");
         cardsHtml += R"HTML(<article class="rounded-3xl border border-sky-100 bg-white p-5 shadow-sm shadow-sky-900/5 sm:p-6">
-  <div class="flex flex-wrap items-center justify-between gap-2"><div class="min-w-0"><p class="text-xs font-semibold text-sky-700">)HTML" + htmlEscape(sourceLabel) + R"HTML(</p><h2 class="mt-1 break-words text-xl font-semibold text-slate-950">)HTML" + htmlEscape(title) + R"HTML(</h2></div><span class="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold )HTML" + statusCls + R"HTML(">)HTML" + statusLabel + R"HTML(</span></div>
+  <div class="flex flex-wrap items-center justify-between gap-2"><div class="min-w-0"><p class="text-xs font-semibold text-sky-700">)HTML" + htmlEscape(sourceLabel) + R"HTML(</p><h2 class="mt-1 break-words text-xl font-semibold text-slate-950">)HTML" + htmlEscape(title) + R"HTML(</h2></div></div>
   <p class="mt-3 break-words text-sm leading-7 text-slate-600">)HTML" + htmlEscape(goal) + R"HTML(</p>
-  <div class="mt-4 flex items-center justify-between text-xs text-slate-500"><span>完成度</span><span class="font-semibold text-slate-700">)HTML" + std::to_string(pct) + R"HTML(%</span></div>
-  <div class="mt-1 h-2 overflow-hidden rounded-full bg-slate-200"><div class="h-full rounded-full bg-sky-600" style="width: )HTML" + std::to_string(pct) + R"HTML(%"></div></div>
-  <div class="mt-4 flex flex-wrap gap-2"><a class="inline-flex min-h-10 items-center justify-center rounded-xl border border-sky-200 bg-sky-50 px-3 text-sm font-semibold text-sky-800 transition hover:bg-sky-100" href=")HTML" + htmlEscape(progressHref) + R"HTML(">查看进度</a><button type="button" class="delete-course inline-flex min-h-10 items-center justify-center rounded-xl px-3 text-sm font-semibold text-slate-500 transition hover:bg-rose-50 hover:text-rose-700" data-course-id=")HTML" + htmlEscape(courseId) + R"HTML(>删除</button></div>
+  <div class="mt-4 flex flex-wrap gap-2"><button type="button" class="delete-course inline-flex min-h-10 items-center justify-center rounded-xl px-3 text-sm font-semibold text-slate-500 transition hover:bg-rose-50 hover:text-rose-700" data-course-id=")HTML" + htmlEscape(courseId) + R"HTML(>删除</button></div>
   )HTML" + (createdAt.empty() ? "" : R"HTML(<p class="mt-3 text-xs text-slate-400">创建于 )HTML" + htmlEscape(createdAt) + "</p>") + R"HTML(
 </article>)HTML";
     }
@@ -271,7 +262,7 @@ std::string renderMyCoursesPage(const nlohmann::json& data) {
       <div><p class="text-sm font-semibold text-sky-700">我的课程</p><h1 class="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">我的课堂</h1><p class="mt-3 text-base leading-7 text-slate-600">继续学习已生成的课程，或生成一个新的学习计划。</p></div>
       <a class="inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white transition hover:bg-sky-800" href="/">+ 生成新课程</a>
     </div>
-    <section class="mt-6 grid gap-4 sm:grid-cols-3"><article class="rounded-2xl border border-sky-100 bg-white p-5"><p class="text-sm text-slate-500">全部课程</p><b class="mt-2 block text-3xl text-sky-700">)HTML" + std::to_string(total) + R"HTML(</b></article><article class="rounded-2xl border border-sky-100 bg-white p-5"><p class="text-sm text-slate-500">正在学习</p><b class="mt-2 block text-3xl">)HTML" + std::to_string(inProgress) + R"HTML(</b></article><article class="rounded-2xl border border-sky-100 bg-white p-5"><p class="text-sm text-slate-500">已完成</p><b class="mt-2 block text-3xl text-emerald-600">)HTML" + std::to_string(completed) + R"HTML(</b></article></section>
+    <section class="mt-6 grid gap-4 sm:grid-cols-3"><article class="rounded-2xl border border-sky-100 bg-white p-5"><p class="text-sm text-slate-500">全部课程</p><b class="mt-2 block text-3xl text-sky-700">)HTML" + std::to_string(total) + R"HTML(</b></article></section>
     <p id="course-message" class="mt-4 text-sm text-slate-600" aria-live="polite"></p>
     <section class="mt-6 grid gap-4 lg:grid-cols-2">)HTML"
         + (cardsHtml.empty() ? R"HTML(<div class="lg:col-span-2 rounded-3xl border border-dashed border-slate-200 bg-white p-8 text-center"><p class="text-slate-600">还没有课程。去首页输入你的学习目标，先生成一份课程计划。</p><a class="mt-4 inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white" href="/">去首页生成课程</a></div>)HTML" : cardsHtml)
