@@ -378,6 +378,18 @@ int main() {
                 phaseIndex = std::min(phaseIndex, static_cast<int>(roadmap.size()) - 1);
                 stage = roadmap[phaseIndex];
             }
+            // 课程快照可能只有 courseStructure，或 roadmap 的阶段字段不完整；补回学习卡片的分支信息。
+            const auto courseStructure = plan.value("courseStructure", nlohmann::json::array());
+            if (courseStructure.is_array() && phaseIndex >= 0 && phaseIndex < static_cast<int>(courseStructure.size()) && courseStructure[phaseIndex].is_object()) {
+                const auto& structureStage = courseStructure[phaseIndex];
+                if (!stage.is_object()) stage = nlohmann::json::object();
+                if (!stage.contains("name") || !stage["name"].is_string() || stage["name"].get<std::string>().empty()) {
+                    stage["name"] = structureStage.value("stage", "阶段" + std::to_string(phaseIndex + 1));
+                }
+                if (!stage.contains("topics") || !stage["topics"].is_array() || stage["topics"].empty()) {
+                    if (structureStage.contains("topics") && structureStage["topics"].is_array()) stage["topics"] = structureStage["topics"];
+                }
+            }
             const std::string phaseName = value("phaseName").empty()
                 ? stage.value("name", "当前阶段") : value("phaseName");
             auto topics = nlohmann::json::array();
