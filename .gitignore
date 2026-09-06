@@ -1,8 +1,10 @@
 ﻿build/
 build-windows/
+build-*/
 dist/
 *.db
 *.o
+*.obj
 .env
 .env.local
 

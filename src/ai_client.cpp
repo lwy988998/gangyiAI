@@ -3,6 +3,7 @@
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
@@ -56,6 +57,19 @@ std::string chatEndpoint(const std::string& baseUrl) {
     }
     return url;
 }
+
+std::string modelsEndpoint(const std::string& baseUrl) {
+    std::string url = baseUrl;
+    while (!url.empty() && url.back() == '/') url.pop_back();
+    constexpr const char* chatSuffix = "/chat/completions";
+    if (url.size() >= std::char_traits<char>::length(chatSuffix) &&
+        url.compare(url.size() - std::char_traits<char>::length(chatSuffix),
+            std::char_traits<char>::length(chatSuffix), chatSuffix) == 0) {
+        url.erase(url.size() - std::char_traits<char>::length(chatSuffix));
+    }
+    if (url.size() < 7 || url.compare(url.size() - 7, 7, "/models") != 0) url += "/models";
+    return url;
+}
 AIClientError errorFor(CURLcode code, long status, const std::string& message) {
     if (code == CURLE_OPERATION_TIMEDOUT) return AIClientError("timeout", message);
     if (code != CURLE_OK) return AIClientError("network_error", message);
@@ -86,8 +100,8 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
     if (!options.responseFormat.empty()) body["response_format"] = {{"type", options.responseFormat}};
 
     if (std::getenv("AI_DEBUG")) {
-        std::cerr << "[ai-debug] POST " << chatEndpoint(endpoint.url) << std::endl
-                  << "[ai-debug] body=" << body.dump().substr(0, 2000) << std::endl;
+        std::cerr << "[ai-debug] POST chat/completions" << std::endl
+                  << "[ai-debug] request body omitted" << std::endl;
     }
 
     std::string responseBody;
@@ -114,7 +128,7 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
     if (code != CURLE_OK || status < 200 || status >= 300) {
         if (std::getenv("AI_DEBUG")) {
             std::cerr << "[ai-debug] response status=" << status
-                      << " body=" << responseBody.substr(0, 2000) << std::endl;
+                      << " body omitted" << std::endl;
         }
         throw errorFor(code, status, code == CURLE_OK ? "AI provider returned HTTP " + std::to_string(status) : curl_easy_strerror(code));
     }
@@ -155,6 +169,50 @@ AIClient::AIClient(AIClientConfig config)
     curl_global_init(CURL_GLOBAL_DEFAULT);
 }
 
+std::vector<std::string> requestModels(const Endpoint& endpoint, int timeoutMs) {
+    if (endpoint.key.empty()) throw AIClientError("missing_config", "AI_API_KEY is not configured");
+    CURL* curl = curl_easy_init();
+    if (!curl) throw AIClientError("network_error", "unable to initialize curl");
+    std::string responseBody;
+    struct curl_slist* headers = nullptr;
+    const std::string authorization = "Authorization: Bearer " + endpoint.key;
+    headers = curl_slist_append(headers, authorization.c_str());
+    const std::string url = modelsEndpoint(endpoint.url);
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeBody);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseBody);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeoutMs));
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    CURLcode code = curl_easy_perform(curl);
+    long status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    curl_easy_cleanup(curl);
+    curl_slist_free_all(headers);
+    if (code != CURLE_OK || status < 200 || status >= 300) {
+        if (status == 404) throw AIClientError("models_unsupported", "provider does not expose /models");
+        throw errorFor(code, status, code == CURLE_OK ? "AI provider returned HTTP " + std::to_string(status) : curl_easy_strerror(code));
+    }
+    try {
+        const json parsed = json::parse(responseBody);
+        std::vector<std::string> models;
+        for (const auto& item : parsed.at("data")) {
+            if (item.contains("id") && item.at("id").is_string()) {
+                const auto id = item.at("id").get<std::string>();
+                if (!id.empty()) models.push_back(id);
+            }
+        }
+        std::sort(models.begin(), models.end());
+        models.erase(std::unique(models.begin(), models.end()), models.end());
+        if (models.empty()) throw AIClientError("invalid_response", "model list is empty");
+        return models;
+    } catch (const AIClientError&) {
+        throw;
+    } catch (const std::exception& error) {
+        throw AIClientError("invalid_response", error.what());
+    }
+}
+
 AIClient::~AIClient() {
     secureClear(apiKey_);
 }
@@ -176,5 +234,10 @@ AIResult AIClient::chat(const ChatOptions& options) const {
         if (++consecutiveFailures_ >= 3) circuitOpenedAtMs_ = nowMs();
         throw primaryError;
     }
+}
+
+std::vector<std::string> AIClient::listModels(int timeoutMs) const {
+    const Endpoint endpoint{baseUrl_, apiKey_, model_};
+    return requestModels(endpoint, timeoutMs > 0 ? timeoutMs : timeoutMs_);
 }
 }

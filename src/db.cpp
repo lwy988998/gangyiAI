@@ -1,4 +1,5 @@
 #include "db.hpp"
+#include "db_schema_version.hpp"
 
 #include <sqlite3.h>
 #include <chrono>
@@ -36,6 +37,14 @@ void Database::open(const std::string& path) { close(); check(sqlite3_open(path.
 void Database::close() { if (db_) { sqlite3_close(db_); db_ = nullptr; } }
 void Database::migrate() {
     if (!db_) throw std::runtime_error("database is not open");
+    sqlite3_stmt* versionStatement = nullptr;
+    check(sqlite3_prepare_v2(db_, "PRAGMA user_version", -1, &versionStatement, nullptr), db_, "read schema version");
+    const int versionResult = sqlite3_step(versionStatement);
+    const int currentVersion = versionResult == SQLITE_ROW ? sqlite3_column_int(versionStatement, 0) : -1;
+    sqlite3_finalize(versionStatement);
+    if (versionResult != SQLITE_ROW || currentVersion > kDatabaseSchemaVersion) {
+        throw std::runtime_error("database schema is newer than this application");
+    }
     exec(db_, R"SQL(
 CREATE TABLE IF NOT EXISTS Course(id TEXT PRIMARY KEY, anonymousId TEXT, userId TEXT, goal TEXT NOT NULL, mode TEXT NOT NULL, title TEXT NOT NULL, summary TEXT, source TEXT NOT NULL DEFAULT 'ai', status TEXT NOT NULL DEFAULT 'active', createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS User(id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT, passwordHash TEXT NOT NULL, membershipTier TEXT NOT NULL DEFAULT 'free', membershipStatus TEXT NOT NULL DEFAULT 'active', membershipStartedAt TEXT, membershipExpiresAt TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL);
@@ -50,6 +59,7 @@ CREATE TABLE IF NOT EXISTS LearningSession(id TEXT PRIMARY KEY, courseId TEXT, a
 CREATE INDEX IF NOT EXISTS Course_anonymousId_idx ON Course(anonymousId); CREATE INDEX IF NOT EXISTS Course_userId_idx ON Course(userId); CREATE INDEX IF NOT EXISTS Course_goal_idx ON Course(goal); CREATE INDEX IF NOT EXISTS Course_updatedAt_idx ON Course(updatedAt);
 CREATE INDEX IF NOT EXISTS UserSession_userId_idx ON UserSession(userId); CREATE INDEX IF NOT EXISTS UsageCounter_scope_idx ON UsageCounter(scopeId,scopeType); CREATE INDEX IF NOT EXISTS CourseProgress_anonymousId_idx ON CourseProgress(anonymousId); CREATE INDEX IF NOT EXISTS CourseProgress_userId_idx ON CourseProgress(userId); CREATE INDEX IF NOT EXISTS CourseProgress_updatedAt_idx ON CourseProgress(updatedAt); CREATE INDEX IF NOT EXISTS CourseSnapshot_courseId_idx ON CourseSnapshot(courseId); CREATE INDEX IF NOT EXISTS TaskProgress_courseId_idx ON TaskProgress(courseId); CREATE INDEX IF NOT EXISTS LearningStepProgress_courseId_idx ON LearningStepProgress(courseId); CREATE INDEX IF NOT EXISTS LearningCardProgress_courseId_idx ON LearningCardProgress(courseId); CREATE INDEX IF NOT EXISTS LearningSession_courseId_idx ON LearningSession(courseId);
 )SQL");
+    exec(db_, ("PRAGMA user_version=" + std::to_string(kDatabaseSchemaVersion)).c_str());
 }
 
 // Course and User are kept explicit below; the repeated progress tables use the same SQL shape.

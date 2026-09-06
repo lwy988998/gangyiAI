@@ -7,19 +7,27 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <bcrypt.h>
+#include <commdlg.h>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <wincred.h>
 
 #include "ai_client.hpp"
+#include "launcher_support.hpp"
+#include "version.hpp"
 #include "windows_resource.h"
 
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <cwctype>
+#include <ctime>
 #include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <mutex>
+#include <optional>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <utility>
@@ -36,6 +44,9 @@ constexpr UINT kServiceReady = WM_APP + 2;
 constexpr UINT kServiceFailed = WM_APP + 3;
 constexpr UINT kOpenBrowser = WM_APP + 4;
 constexpr UINT kConnectionTestComplete = WM_APP + 5;
+constexpr UINT kModelListComplete = WM_APP + 6;
+constexpr UINT kRestartTimer = 1;
+constexpr UINT kStableTimer = 2;
 
 constexpr int kBaseUrlEdit = 101;
 constexpr int kApiKeyEdit = 102;
@@ -44,14 +55,22 @@ constexpr int kAutoStartCheck = 104;
 constexpr int kSaveButton = 105;
 constexpr int kCancelButton = 106;
 constexpr int kTestButton = 107;
+constexpr int kProviderCombo = 108;
+constexpr int kFetchModelsButton = 109;
 constexpr int kMenuOpen = 201;
 constexpr int kMenuSettings = 202;
 constexpr int kMenuRestart = 203;
 constexpr int kMenuExit = 204;
+constexpr int kMenuViewLog = 205;
+constexpr int kMenuOpenData = 206;
+constexpr int kMenuBackup = 207;
+constexpr int kMenuRestore = 208;
+constexpr int kMenuDiagnostic = 209;
 
 struct Settings {
-    std::wstring baseUrl = L"https://api.deepseek.com/v1";
-    std::wstring model = L"deepseek-chat";
+    std::wstring baseUrl = L"https://api.deepseek.com";
+    std::wstring model = L"deepseek-v4-flash";
+    gangyi::launcher::AIProvider provider = gangyi::launcher::AIProvider::DeepSeek;
     bool autoStart = false;
 };
 
@@ -60,6 +79,8 @@ struct AppState {
     HWND baseUrlEdit = nullptr;
     HWND apiKeyEdit = nullptr;
     HWND modelEdit = nullptr;
+    HWND providerCombo = nullptr;
+    HWND fetchModelsButton = nullptr;
     HWND autoStartCheck = nullptr;
     HWND testButton = nullptr;
     HWND saveButton = nullptr;
@@ -68,12 +89,18 @@ struct AppState {
     HANDLE job = nullptr;
     std::thread healthThread;
     std::thread connectionTestThread;
+    std::thread modelListThread;
     std::atomic<bool> cancelHealth{false};
     std::atomic<bool> connectionTestRunning{false};
+    std::atomic<bool> modelListRunning{false};
     std::atomic<bool> shuttingDown{false};
     std::mutex connectionTestMutex;
     std::wstring connectionTestMessage;
     bool connectionTestSucceeded = false;
+    std::mutex modelListMutex;
+    std::wstring modelListMessage;
+    std::vector<std::wstring> availableModels;
+    bool modelListSucceeded = false;
     Settings settings;
     std::wstring installDir;
     std::wstring dataDir;
@@ -82,6 +109,9 @@ struct AppState {
     bool hasConfig = false;
     bool background = false;
     bool openWhenReady = true;
+    DWORD lastExitCode = 0;
+    gangyi::launcher::RestartPolicy restartPolicy;
+    std::filesystem::path pendingRestoreRollback;
 };
 
 AppState g;
@@ -180,8 +210,33 @@ Settings loadSettings() {
     Settings settings;
     settings.baseUrl = readRegistryString(L"AIBaseUrl", settings.baseUrl);
     settings.model = readRegistryString(L"AIModel", settings.model);
+    const std::wstring providerId = readRegistryString(L"AIProvider");
+    settings.provider = providerId.empty() ? gangyi::launcher::inferProvider(settings.baseUrl)
+                                           : gangyi::launcher::providerFromId(providerId);
+    if (settings.provider == gangyi::launcher::AIProvider::DeepSeek && settings.model == L"deepseek-chat") {
+        settings.model = L"deepseek-v4-flash";
+        writeRegistryString(L"AIModel", settings.model);
+    } else if (settings.provider == gangyi::launcher::AIProvider::DeepSeek && settings.model == L"deepseek-reasoner") {
+        settings.model = L"deepseek-v4-pro";
+        writeRegistryString(L"AIModel", settings.model);
+    }
     settings.autoStart = readRegistryDword(L"AutoStart", 0) != 0;
     return settings;
+}
+
+int providerIndex(gangyi::launcher::AIProvider provider) {
+    switch (provider) {
+    case gangyi::launcher::AIProvider::DeepSeek: return 0;
+    case gangyi::launcher::AIProvider::OpenAI: return 1;
+    default: return 2;
+    }
+}
+
+gangyi::launcher::AIProvider selectedProvider() {
+    const LRESULT index = SendMessageW(g.providerCombo, CB_GETCURSEL, 0, 0);
+    if (index == 0) return gangyi::launcher::AIProvider::DeepSeek;
+    if (index == 1) return gangyi::launcher::AIProvider::OpenAI;
+    return gangyi::launcher::AIProvider::Custom;
 }
 
 bool configureAutoStart(bool enabled) {
@@ -224,6 +279,15 @@ std::string toUtf8(const std::wstring& value) {
     std::string result(static_cast<size_t>(size), '\0');
     WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
         result.data(), size, nullptr, nullptr);
+    return result;
+}
+
+std::wstring toWide(const std::string& value) {
+    if (value.empty()) return {};
+    const int size = MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0);
+    if (size <= 0) return {};
+    std::wstring result(static_cast<size_t>(size), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), result.data(), size);
     return result;
 }
 
@@ -381,8 +445,13 @@ void stopService() {
     g.controlToken.clear();
 }
 
-bool startService(bool openWhenReady) {
+bool startService(bool openWhenReady, bool resetRestart = true) {
     stopService();
+    if (resetRestart) {
+        g.restartPolicy.reset();
+        KillTimer(g.window, kRestartTimer);
+        KillTimer(g.window, kStableTimer);
+    }
     g.settings = loadSettings();
     std::wstring apiKey = readApiKey();
     if (!validBaseUrl(g.settings.baseUrl) || g.settings.model.empty() || apiKey.empty()) return false;
@@ -427,6 +496,7 @@ bool startService(bool openWhenReady) {
 
     SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
     const std::filesystem::path logPath = logDir / L"gangyiAI.log";
+    gangyi::launcher::rotateLogFiles(logPath);
     HANDLE log = CreateFileW(logPath.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
         &security, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     HANDLE nullInput = INVALID_HANDLE_VALUE;
@@ -475,7 +545,9 @@ bool startService(bool openWhenReady) {
                 if (!g.cancelHealth) PostMessageW(g.window, kServiceReady, 0, 0);
                 while (!g.cancelHealth) {
                     if (WaitForSingleObject(g.process, 500) == WAIT_OBJECT_0) {
-                        if (!g.cancelHealth) PostMessageW(g.window, kServiceFailed, 0, 0);
+                        DWORD exitCode = 0;
+                        GetExitCodeProcess(g.process, &exitCode);
+                        if (!g.cancelHealth) PostMessageW(g.window, kServiceFailed, exitCode, 0);
                         return;
                     }
                 }
@@ -488,12 +560,157 @@ bool startService(bool openWhenReady) {
     return true;
 }
 
+void scheduleAutomaticRestart(DWORD exitCode) {
+    g.lastExitCode = exitCode;
+    stopService();
+    const auto delay = g.restartPolicy.recordFailure();
+    if (!delay) {
+        showFailure(L"本地服务连续三次恢复失败，已停止自动重启。请查看日志或导出诊断报告。");
+        return;
+    }
+    const std::wstring tip = L"钢一定制AI - " + std::to_wstring(*delay) + L" 秒后尝试恢复";
+    updateTrayTip(tip.c_str());
+    SetTimer(g.window, kRestartTimer, *delay * 1000, nullptr);
+}
+
+std::filesystem::path databasePath() {
+    return std::filesystem::path(g.dataDir) / L"data" / L"gangyiAI.db";
+}
+
+std::filesystem::path logPath() {
+    return std::filesystem::path(g.dataDir) / L"logs" / L"gangyiAI.log";
+}
+
+std::wstring timestampText() {
+    const std::time_t now = std::time(nullptr);
+    std::tm local{};
+    localtime_s(&local, &now);
+    std::wostringstream value;
+    value << std::put_time(&local, L"%Y%m%d-%H%M%S");
+    return value.str();
+}
+
+std::optional<std::filesystem::path> chooseFile(bool save, const wchar_t* title, const std::wstring& initialName,
+                                                const wchar_t* filter, const wchar_t* defaultExtension) {
+    std::vector<wchar_t> buffer(32768, L'\0');
+    std::copy_n(initialName.c_str(), std::min(initialName.size(), buffer.size() - 1), buffer.data());
+    OPENFILENAMEW dialog{};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = g.window;
+    dialog.lpstrFilter = filter;
+    dialog.lpstrFile = buffer.data();
+    dialog.nMaxFile = static_cast<DWORD>(buffer.size());
+    dialog.lpstrTitle = title;
+    dialog.lpstrDefExt = defaultExtension;
+    dialog.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR |
+        (save ? OFN_OVERWRITEPROMPT : OFN_FILEMUSTEXIST);
+    const BOOL selected = save ? GetSaveFileNameW(&dialog) : GetOpenFileNameW(&dialog);
+    if (!selected) return std::nullopt;
+    return std::filesystem::path(buffer.data());
+}
+
+void viewLog() {
+    std::error_code error;
+    std::filesystem::create_directories(logPath().parent_path(), error);
+    if (!std::filesystem::exists(logPath())) {
+        std::ofstream create(logPath());
+    }
+    ShellExecuteW(nullptr, L"open", logPath().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
+void openDataDirectory() {
+    std::error_code error;
+    std::filesystem::create_directories(std::filesystem::path(g.dataDir) / L"data", error);
+    ShellExecuteW(nullptr, L"open", g.dataDir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
+void backupCourseData() {
+    if (!std::filesystem::is_regular_file(databasePath())) {
+        MessageBoxW(g.window, L"尚未找到课程数据库，请先创建课程后再备份。", L"钢一定制AI", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    constexpr wchar_t databaseFilter[] = L"课程数据库 (*.db)\0*.db\0所有文件 (*.*)\0*.*\0";
+    const auto selected = chooseFile(true, L"备份课程数据", L"gangyiAI-backup-" + timestampText() + L".db",
+        databaseFilter, L"db");
+    if (!selected) return;
+    std::wstring error;
+    if (!gangyi::launcher::backupDatabase(databasePath(), *selected, error)) {
+        MessageBoxW(g.window, error.c_str(), L"钢一定制AI - 备份失败", MB_OK | MB_ICONERROR);
+        return;
+    }
+    MessageBoxW(g.window, (L"课程数据已备份到：\n" + selected->wstring()).c_str(),
+        L"钢一定制AI", MB_OK | MB_ICONINFORMATION);
+}
+
+void restoreCourseData() {
+    constexpr wchar_t databaseFilter[] = L"课程数据库 (*.db)\0*.db\0所有文件 (*.*)\0*.*\0";
+    const auto selected = chooseFile(false, L"恢复课程数据", L"", databaseFilter, L"db");
+    if (!selected) return;
+    std::wstring error;
+    if (!gangyi::launcher::validateDatabase(*selected, error)) {
+        MessageBoxW(g.window, error.c_str(), L"钢一定制AI - 无法恢复", MB_OK | MB_ICONERROR);
+        return;
+    }
+    if (MessageBoxW(g.window, L"恢复会替换当前课程数据，程序会自动保留恢复前副本。是否继续？",
+        L"钢一定制AI", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES) return;
+    stopService();
+    const auto rollbackDir = std::filesystem::path(g.dataDir) / L"backups";
+    std::error_code filesystemError;
+    std::filesystem::create_directories(rollbackDir, filesystemError);
+    const auto rollback = rollbackDir / (L"before-restore-" + timestampText() + L".db");
+    if (filesystemError || !gangyi::launcher::restoreDatabase(*selected, databasePath(), rollback, error)) {
+        MessageBoxW(g.window, error.c_str(), L"钢一定制AI - 恢复失败", MB_OK | MB_ICONERROR);
+        startService(false);
+        return;
+    }
+    g.pendingRestoreRollback = rollback;
+    if (!startService(false)) {
+        std::wstring rollbackError;
+        stopService();
+        gangyi::launcher::backupDatabase(rollback, databasePath(), rollbackError);
+        g.pendingRestoreRollback.clear();
+        startService(false);
+        MessageBoxW(g.window, L"新数据库无法启动，已尝试恢复原有数据。请查看日志。",
+            L"钢一定制AI - 已回滚", MB_OK | MB_ICONERROR);
+        return;
+    }
+    MessageBoxW(g.window, (L"课程数据恢复完成。恢复前副本位于：\n" + rollback.wstring()).c_str(),
+        L"钢一定制AI", MB_OK | MB_ICONINFORMATION);
+}
+
+void exportDiagnosticReport() {
+    constexpr wchar_t textFilter[] = L"文本文件 (*.txt)\0*.txt\0所有文件 (*.*)\0*.*\0";
+    const auto selected = chooseFile(true, L"导出诊断报告", L"gangyiAI-diagnostic-" + timestampText() + L".txt",
+        textFilter, L"txt");
+    if (!selected) return;
+    gangyi::launcher::DiagnosticInfo info;
+    info.version = toWide(gangyi::kVersion);
+    info.installDir = g.installDir;
+    info.dataDir = g.dataDir;
+    info.provider = gangyi::launcher::providerProfile(g.settings.provider).name;
+    info.baseUrl = g.settings.baseUrl;
+    info.model = g.settings.model;
+    info.serviceRunning = processRunning();
+    info.port = g.port;
+    info.exitCode = g.lastExitCode;
+    info.restartFailures = g.restartPolicy.failureCount();
+    std::wstring error;
+    if (!gangyi::launcher::writeDiagnosticReport(*selected, info, error)) {
+        MessageBoxW(g.window, error.c_str(), L"钢一定制AI - 导出失败", MB_OK | MB_ICONERROR);
+        return;
+    }
+    MessageBoxW(g.window, L"诊断报告已生成。报告不包含 API Key、课程内容或 AI 对话正文。",
+        L"钢一定制AI", MB_OK | MB_ICONINFORMATION);
+}
+
 void loadControls() {
     g.settings = loadSettings();
     std::wstring apiKey = readApiKey();
+    SendMessageW(g.providerCombo, CB_SETCURSEL, providerIndex(g.settings.provider), 0);
     SetWindowTextW(g.baseUrlEdit, g.settings.baseUrl.c_str());
     SetWindowTextW(g.apiKeyEdit, apiKey.c_str());
     SetWindowTextW(g.modelEdit, g.settings.model.c_str());
+    EnableWindow(g.baseUrlEdit, g.settings.provider == gangyi::launcher::AIProvider::Custom);
     SendMessageW(g.autoStartCheck, BM_SETCHECK, g.settings.autoStart ? BST_CHECKED : BST_UNCHECKED, 0);
     SecureZeroMemory(apiKey.data(), apiKey.size() * sizeof(wchar_t));
 }
@@ -507,6 +724,7 @@ void showSettingsWindow() {
 
 bool saveSettingsFromControls() {
     Settings settings;
+    settings.provider = selectedProvider();
     settings.baseUrl = controlText(g.baseUrlEdit);
     settings.model = controlText(g.modelEdit);
     settings.autoStart = SendMessageW(g.autoStartCheck, BM_GETCHECK, 0, 0) == BST_CHECKED;
@@ -518,6 +736,7 @@ bool saveSettingsFromControls() {
     }
     const bool saved = writeRegistryString(L"AIBaseUrl", settings.baseUrl) &&
         writeRegistryString(L"AIModel", settings.model) &&
+        writeRegistryString(L"AIProvider", gangyi::launcher::providerProfile(settings.provider).id) &&
         writeRegistryDword(L"AutoStart", settings.autoStart ? 1 : 0) &&
         writeApiKey(apiKey) && configureAutoStart(settings.autoStart);
     SecureZeroMemory(apiKey.data(), apiKey.size() * sizeof(wchar_t));
@@ -540,7 +759,70 @@ std::wstring connectionErrorMessage(const std::string& type) {
     if (type == "network_error") return L"无法连接 AI 接口，请检查网络和 API 地址。";
     if (type == "provider_5xx") return L"AI 服务暂时不可用，请稍后重试。";
     if (type == "invalid_response") return L"接口已连接，但返回格式不是兼容的 Chat Completions 响应。";
+    if (type == "models_unsupported") return L"该接口未提供模型列表，请手工填写模型名称。";
     return L"连接测试失败，请检查 API 地址和模型名称。";
+}
+
+void applyProviderSelection() {
+    const auto provider = selectedProvider();
+    const auto& profile = gangyi::launcher::providerProfile(provider);
+    const bool custom = provider == gangyi::launcher::AIProvider::Custom;
+    EnableWindow(g.baseUrlEdit, custom);
+    if (!custom) {
+        SetWindowTextW(g.baseUrlEdit, profile.baseUrl);
+        SetWindowTextW(g.modelEdit, profile.recommendedModel);
+    }
+    SetWindowTextW(g.apiKeyEdit, L"");
+    SetWindowTextW(g.statusLabel, L"服务商已切换，请填写对应的 API Key 并获取模型。");
+}
+
+void fetchModelsFromControls() {
+    if (g.modelListRunning.exchange(true)) return;
+    std::wstring baseUrl = controlText(g.baseUrlEdit);
+    std::wstring apiKey = controlText(g.apiKeyEdit);
+    std::wstring currentModel = controlText(g.modelEdit);
+    if (!validBaseUrl(baseUrl) || apiKey.empty()) {
+        g.modelListRunning = false;
+        SetWindowTextW(g.statusLabel, L"请先填写有效的 API 地址和 API Key。");
+        return;
+    }
+    if (g.modelListThread.joinable()) g.modelListThread.join();
+    EnableWindow(g.fetchModelsButton, FALSE);
+    EnableWindow(g.testButton, FALSE);
+    EnableWindow(g.saveButton, FALSE);
+    SetWindowTextW(g.statusLabel, L"正在获取可用模型，请稍候……");
+    g.modelListThread = std::thread([baseUrl = std::move(baseUrl), apiKey = std::move(apiKey),
+                                     currentModel = std::move(currentModel)]() mutable {
+        bool succeeded = false;
+        std::wstring message;
+        std::vector<std::wstring> models;
+        try {
+            gangyi::AIClientConfig config;
+            config.baseUrl = toUtf8(baseUrl);
+            config.apiKey = toUtf8(apiKey);
+            config.model = toUtf8(currentModel);
+            config.timeoutMs = 15000;
+            config.retryAttempts = 1;
+            SecureZeroMemory(apiKey.data(), apiKey.size() * sizeof(wchar_t));
+            gangyi::AIClient client(std::move(config));
+            for (const auto& model : client.listModels(15000)) models.push_back(toWide(model));
+            succeeded = !models.empty();
+            message = succeeded ? L"模型列表已更新，也可以继续手工输入模型名称。"
+                                : L"接口没有返回模型，请手工填写模型名称。";
+        } catch (const gangyi::AIClientError& error) {
+            message = connectionErrorMessage(error.errorType);
+        } catch (...) {
+            message = L"获取模型时发生未知错误，请手工填写模型名称。";
+        }
+        SecureZeroMemory(apiKey.data(), apiKey.size() * sizeof(wchar_t));
+        {
+            std::lock_guard<std::mutex> lock(g.modelListMutex);
+            g.availableModels = std::move(models);
+            g.modelListSucceeded = succeeded;
+            g.modelListMessage = std::move(message);
+        }
+        if (!g.shuttingDown && !PostMessageW(g.window, kModelListComplete, 0, 0)) g.modelListRunning = false;
+    });
 }
 
 void testConnectionFromControls() {
@@ -632,6 +914,13 @@ void showTrayMenu() {
     AppendMenuW(menu, MF_STRING, kMenuSettings, L"设置");
     AppendMenuW(menu, MF_STRING, kMenuRestart, L"重启服务");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, kMenuViewLog, L"查看日志");
+    AppendMenuW(menu, MF_STRING, kMenuOpenData, L"打开数据目录");
+    AppendMenuW(menu, MF_STRING, kMenuDiagnostic, L"导出诊断报告");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, kMenuBackup, L"备份课程数据");
+    AppendMenuW(menu, MF_STRING, kMenuRestore, L"恢复课程数据");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kMenuExit, L"退出");
     SetForegroundWindow(g.window);
     TrackPopupMenu(menu, TPM_RIGHTBUTTON, point.x, point.y, 0, g.window, nullptr);
@@ -647,25 +936,34 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     case WM_CREATE: {
         g.window = window;
         HFONT font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
-        createLabel(window, L"AI API 地址", 24, 24, 120);
-        createLabel(window, L"API Key", 24, 82, 120);
-        createLabel(window, L"模型名称", 24, 140, 120);
+        createLabel(window, L"AI 服务商", 24, 18, 120);
+        createLabel(window, L"AI API 地址", 24, 72, 120);
+        createLabel(window, L"API Key", 24, 126, 120);
+        createLabel(window, L"模型名称", 24, 180, 120);
+        g.providerCombo = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST,
+            24, 41, 456, 160, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kProviderCombo)), nullptr, nullptr);
+        SendMessageW(g.providerCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"DeepSeek"));
+        SendMessageW(g.providerCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"OpenAI"));
+        SendMessageW(g.providerCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"自定义 OpenAI 兼容接口"));
         g.baseUrlEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-            24, 47, 456, 26, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBaseUrlEdit)), nullptr, nullptr);
+            24, 95, 456, 26, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBaseUrlEdit)), nullptr, nullptr);
         g.apiKeyEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_PASSWORD,
-            24, 105, 456, 26, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kApiKeyEdit)), nullptr, nullptr);
-        g.modelEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-            24, 163, 456, 26, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kModelEdit)), nullptr, nullptr);
+            24, 149, 456, 26, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kApiKeyEdit)), nullptr, nullptr);
+        g.modelEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"COMBOBOX", L"",
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWN | CBS_AUTOHSCROLL,
+            24, 203, 346, 220, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kModelEdit)), nullptr, nullptr);
+        g.fetchModelsButton = CreateWindowW(L"BUTTON", L"获取模型", WS_CHILD | WS_VISIBLE,
+            378, 202, 102, 28, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kFetchModelsButton)), nullptr, nullptr);
         g.autoStartCheck = CreateWindowW(L"BUTTON", L"登录 Windows 后自动启动", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-            24, 202, 250, 24, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAutoStartCheck)), nullptr, nullptr);
+            24, 244, 250, 24, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAutoStartCheck)), nullptr, nullptr);
         g.testButton = CreateWindowW(L"BUTTON", L"测试连接", WS_CHILD | WS_VISIBLE,
-            180, 272, 96, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kTestButton)), nullptr, nullptr);
+            180, 314, 96, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kTestButton)), nullptr, nullptr);
         g.saveButton = CreateWindowW(L"BUTTON", L"保存并启动", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-            282, 272, 96, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSaveButton)), nullptr, nullptr);
+            282, 314, 96, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSaveButton)), nullptr, nullptr);
         CreateWindowW(L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE,
-            384, 272, 96, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCancelButton)), nullptr, nullptr);
+            384, 314, 96, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCancelButton)), nullptr, nullptr);
         g.statusLabel = CreateWindowW(L"STATIC", L"API Key 将安全保存在 Windows 凭据管理器中。", WS_CHILD | WS_VISIBLE,
-            24, 239, 456, 22, window, nullptr, nullptr, nullptr);
+            24, 278, 456, 24, window, nullptr, nullptr, nullptr);
         EnumChildWindows(window, [](HWND child, LPARAM value) -> BOOL {
             SendMessageW(child, WM_SETFONT, static_cast<WPARAM>(value), TRUE);
             return TRUE;
@@ -675,6 +973,10 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     }
     case WM_COMMAND:
         switch (LOWORD(wParam)) {
+        case kProviderCombo:
+            if (HIWORD(wParam) == CBN_SELCHANGE) applyProviderSelection();
+            return 0;
+        case kFetchModelsButton: fetchModelsFromControls(); return 0;
         case kTestButton: testConnectionFromControls(); return 0;
         case kSaveButton: saveSettingsFromControls(); return 0;
         case kCancelButton:
@@ -686,6 +988,11 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         case kMenuRestart:
             if (!startService(false)) showSettingsWindow();
             return 0;
+        case kMenuViewLog: viewLog(); return 0;
+        case kMenuOpenData: openDataDirectory(); return 0;
+        case kMenuBackup: backupCourseData(); return 0;
+        case kMenuRestore: restoreCourseData(); return 0;
+        case kMenuDiagnostic: exportDiagnosticReport(); return 0;
         case kMenuExit: DestroyWindow(window); return 0;
         }
         break;
@@ -695,11 +1002,41 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         return 0;
     case kServiceReady:
         updateTrayTip(L"钢一定制AI - 运行中");
+        g.pendingRestoreRollback.clear();
+        KillTimer(window, kStableTimer);
+        SetTimer(window, kStableTimer, 10 * 60 * 1000, nullptr);
         if (g.openWhenReady) openBrowser();
         return 0;
     case kServiceFailed:
-        showFailure(L"本地服务未能启动，请通过托盘菜单重试，并查看日志。\n\n日志位置：%LOCALAPPDATA%\\GangyiAI\\logs\\gangyiAI.log");
+        KillTimer(window, kStableTimer);
+        if (!g.pendingRestoreRollback.empty()) {
+            const auto rollback = g.pendingRestoreRollback;
+            g.pendingRestoreRollback.clear();
+            stopService();
+            std::wstring rollbackError;
+            if (gangyi::launcher::backupDatabase(rollback, databasePath(), rollbackError)) {
+                startService(false);
+                MessageBoxW(window, L"恢复后的数据库无法启动，已恢复到操作前数据。",
+                    L"钢一定制AI - 已自动回滚", MB_OK | MB_ICONWARNING);
+            } else {
+                showFailure(L"恢复后的数据库无法启动，自动回滚也失败。请保留数据目录并联系维护人员。");
+            }
+            return 0;
+        }
+        scheduleAutomaticRestart(static_cast<DWORD>(wParam));
         return 0;
+    case WM_TIMER:
+        if (wParam == kRestartTimer) {
+            KillTimer(window, kRestartTimer);
+            if (!startService(false, false)) scheduleAutomaticRestart(g.lastExitCode);
+            return 0;
+        }
+        if (wParam == kStableTimer) {
+            KillTimer(window, kStableTimer);
+            g.restartPolicy.reset();
+            return 0;
+        }
+        break;
     case kOpenBrowser:
         if (processRunning()) openBrowser(); else if (!startService(true)) showSettingsWindow();
         return 0;
@@ -720,6 +1057,36 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
             MB_OK | (succeeded ? MB_ICONINFORMATION : MB_ICONWARNING));
         return 0;
     }
+    case kModelListComplete: {
+        std::wstring message;
+        std::vector<std::wstring> models;
+        bool succeeded = false;
+        {
+            std::lock_guard<std::mutex> lock(g.modelListMutex);
+            message = g.modelListMessage;
+            models = g.availableModels;
+            succeeded = g.modelListSucceeded;
+        }
+        if (g.modelListThread.joinable()) g.modelListThread.join();
+        g.modelListRunning = false;
+        EnableWindow(g.fetchModelsButton, TRUE);
+        EnableWindow(g.testButton, TRUE);
+        EnableWindow(g.saveButton, TRUE);
+        if (succeeded) {
+            const std::wstring current = controlText(g.modelEdit);
+            SendMessageW(g.modelEdit, CB_RESETCONTENT, 0, 0);
+            int selected = -1;
+            for (size_t index = 0; index < models.size(); ++index) {
+                SendMessageW(g.modelEdit, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(models[index].c_str()));
+                if (models[index] == current) selected = static_cast<int>(index);
+            }
+            if (selected >= 0) SendMessageW(g.modelEdit, CB_SETCURSEL, selected, 0);
+            else if (!current.empty()) SetWindowTextW(g.modelEdit, current.c_str());
+        }
+        SetWindowTextW(g.statusLabel, message.c_str());
+        if (!succeeded) MessageBoxW(window, message.c_str(), L"钢一定制AI - 获取模型", MB_OK | MB_ICONWARNING);
+        return 0;
+    }
     case WM_CLOSE:
         SetWindowTextW(g.apiKeyEdit, L"");
         if (g.hasConfig) ShowWindow(window, SW_HIDE); else DestroyWindow(window);
@@ -727,6 +1094,9 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     case WM_DESTROY:
         g.shuttingDown = true;
         if (g.connectionTestThread.joinable()) g.connectionTestThread.join();
+        if (g.modelListThread.joinable()) g.modelListThread.join();
+        KillTimer(window, kRestartTimer);
+        KillTimer(window, kStableTimer);
         removeTrayIcon();
         stopService();
         PostQuitMessage(0);
@@ -804,7 +1174,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     if (!RegisterClassExW(&windowClass)) return 1;
 
     g.window = CreateWindowExW(0, kWindowClass, L"钢一定制AI 配置", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
-        CW_USEDEFAULT, CW_USEDEFAULT, 520, 350, nullptr, nullptr, instance, nullptr);
+        CW_USEDEFAULT, CW_USEDEFAULT, 520, 400, nullptr, nullptr, instance, nullptr);
     if (!g.window) return 1;
     if (g.hasConfig) {
         if (!startService(!g.background)) showSettingsWindow();

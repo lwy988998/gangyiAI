@@ -48,6 +48,7 @@ public:
     explicit AIClient(AIClientConfig config);
     ~AIClient();
     AIResult chat(const ChatOptions& options) const;
+    std::vector<std::string> listModels(int timeoutMs = 15000) const;
 
 private:
     std::string baseUrl_;

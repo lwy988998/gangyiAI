@@ -1,0 +1,98 @@
+name: 构建与发布验收
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装 MinGW 和 Inno Setup
+        shell: pwsh
+        run: |
+          choco install mingw --version=13.2.0 -y --no-progress
+          choco install innosetup --version=6.4.0 -y --no-progress
+          $compiler = Get-ChildItem C:\ProgramData\mingw64,C:\ProgramData\chocolatey\lib\mingw `
+            -Filter g++.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $compiler) { throw '未找到 MinGW g++' }
+          Split-Path -Parent $compiler.FullName | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: 验证标签与项目版本一致
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $text = Get-Content -Raw CMakeLists.txt
+          if ($text -notmatch 'project\(gangyiAI VERSION ([0-9.]+)') { throw '无法读取项目版本' }
+          if ("v$($Matches[1])" -ne '${{ github.ref_name }}') { throw '标签与项目版本不一致' }
+      - name: 构建、测试和打包
+        shell: pwsh
+        run: .\scripts\build_windows.ps1
+      - name: 验收安装包和免安装版
+        shell: pwsh
+        run: .\scripts\test_windows_release.ps1
+      - name: 保存 Windows 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: gangyiAI-windows-${{ github.run_id }}
+          path: |
+            dist/installer/gangyiAI-setup-*-x64.exe
+            dist/installer/gangyiAI-portable-*-x64.zip
+            dist/installer/SHA256SUMS.txt
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装系统依赖
+        run: sudo apt-get update && sudo apt-get install -y libasio-dev libcurl4-openssl-dev libsqlite3-dev libssl-dev
+      - name: 编译 Linux 服务
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON && cmake --build build --parallel 2
+      - name: 健康检查与优雅关闭
+        shell: bash
+        run: |
+          set -euo pipefail
+          HOST=127.0.0.1 PORT=39321 LOCAL_CONTROL_TOKEN=ci-linux-token \
+          DATABASE_PATH="$RUNNER_TEMP/gangyiAI.db" AI_BASE_URL=http://127.0.0.1:9/v1 \
+          AI_API_KEY=ci-placeholder AI_MODEL=ci-model ./build/gangyiAI >"$RUNNER_TEMP/gangyiAI.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 100); do
+            if curl --fail --silent http://127.0.0.1:39321/health >/dev/null; then break; fi
+            sleep 0.15
+          done
+          curl --fail --silent http://127.0.0.1:39321/health | grep healthy
+          curl --fail --silent -X POST -H 'X-Gangyi-Control-Token: ci-linux-token' \
+            http://127.0.0.1:39321/internal/shutdown | grep true
+          wait "$pid"
+          trap - EXIT
+
+  release-draft:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: gangyiAI-windows-${{ github.run_id }}
+          path: release-artifacts
+      - name: 创建草稿 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" release-artifacts/* \
+            --repo "${{ github.repository }}" --verify-tag --draft \
+            --title "钢一定制AI ${{ github.ref_name }}" \
+            --notes "部署可靠性版本：新增日志诊断、课程数据备份恢复、服务自动恢复、免安装版以及 AI 服务商预设和模型获取。安装包尚未签名，Windows SmartScreen 可能提示未知发布者。"
