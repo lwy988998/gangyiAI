@@ -122,6 +122,12 @@ if (-not $SkipInstaller) {
     $version = $Matches[1]
     & $isccPath "/DMyAppVersion=$version" (Join-Path $repoRoot 'installer\gangyiAI.iss')
     if ($LASTEXITCODE -ne 0) { throw 'Inno Setup 打包失败' }
+
+    $installerName = "gangyiAI-setup-v$version-x64.exe"
+    $installerPath = Join-Path $repoRoot "dist\installer\$installerName"
+    if (-not (Test-Path -LiteralPath $installerPath)) { throw "安装包未生成：$installerPath" }
+    $hash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    "$hash *$installerName" | Set-Content -LiteralPath (Join-Path $repoRoot 'dist\installer\SHA256SUMS.txt') -Encoding ascii
 }
 
 Write-Host '[完成] Windows 发布产物已生成。'

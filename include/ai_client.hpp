@@ -28,6 +28,14 @@ struct AIResult {
     int status = 0;
 };
 
+struct AIClientConfig {
+    std::string baseUrl;
+    std::string apiKey;
+    std::string model;
+    int timeoutMs = 35000;
+    int retryAttempts = 2;
+};
+
 class AIClientError : public std::runtime_error {
 public:
     AIClientError(const std::string& errorType, const std::string& message);
@@ -37,6 +45,8 @@ public:
 class AIClient {
 public:
     AIClient();
+    explicit AIClient(AIClientConfig config);
+    ~AIClient();
     AIResult chat(const ChatOptions& options) const;
 
 private:

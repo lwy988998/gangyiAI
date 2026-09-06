@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <thread>
+#include <utility>
 
 namespace gangyi {
 namespace {
@@ -20,6 +21,18 @@ std::string env(const char* name, const std::string& fallback = {}) {
 
 int envInt(const char* name, int fallback) {
     try { return std::stoi(env(name, std::to_string(fallback))); } catch (...) { return fallback; }
+}
+
+AIClientConfig configFromEnvironment() {
+    return {env("AI_BASE_URL", "https://api.deepseek.com/v1"), env("AI_API_KEY"),
+        env("AI_MODEL", "deepseek-chat"), envInt("AI_TIMEOUT_MS", 35000),
+        envInt("AI_RETRY_ATTEMPTS", 2)};
+}
+
+void secureClear(std::string& value) {
+    volatile char* data = value.empty() ? nullptr : value.data();
+    for (size_t index = 0; index < value.size(); ++index) data[index] = '\0';
+    value.clear();
 }
 
 size_t writeBody(char* data, size_t size, size_t count, void* user) {
@@ -133,11 +146,17 @@ AIResult attempt(const Endpoint& endpoint, const ChatOptions& options, int timeo
 AIClientError::AIClientError(const std::string& type, const std::string& message)
     : std::runtime_error(message), errorType(type) {}
 
-AIClient::AIClient()
-    : baseUrl_(env("AI_BASE_URL", "https://api.deepseek.com/v1")), apiKey_(env("AI_API_KEY")),
-      model_(env("AI_MODEL", "deepseek-chat")), timeoutMs_(envInt("AI_TIMEOUT_MS", 35000)),
-      retryAttempts_(envInt("AI_RETRY_ATTEMPTS", 2)) {
+AIClient::AIClient() : AIClient(configFromEnvironment()) {}
+
+AIClient::AIClient(AIClientConfig config)
+    : baseUrl_(std::move(config.baseUrl)), apiKey_(std::move(config.apiKey)),
+      model_(std::move(config.model)), timeoutMs_(config.timeoutMs),
+      retryAttempts_(config.retryAttempts) {
     curl_global_init(CURL_GLOBAL_DEFAULT);
+}
+
+AIClient::~AIClient() {
+    secureClear(apiKey_);
 }
 
 AIResult AIClient::chat(const ChatOptions& options) const {

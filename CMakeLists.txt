@@ -2,6 +2,16 @@ cmake_minimum_required(VERSION 3.20)
 
 project(gangyiAI VERSION 0.1.0 LANGUAGES C CXX)
 
+if(WIN32)
+    enable_language(RC)
+    configure_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/resources/windows/gangyiAI.rc.in
+        ${CMAKE_CURRENT_BINARY_DIR}/gangyiAI.rc
+        @ONLY
+    )
+    set(GANGYI_WINDOWS_RESOURCE ${CMAKE_CURRENT_BINARY_DIR}/gangyiAI.rc)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -73,7 +83,8 @@ endif()
 
 add_executable(gangyiAI src/main.cpp src/db.cpp src/ai_client.cpp src/json_fix.cpp src/plan_generator.cpp src/page_renderer.cpp
     src/plan_cache.cpp src/plan_adapter.cpp src/search_client.cpp src/quality_gate.cpp src/course_service.cpp
-    src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/image_goal_analyzer.cpp)
+    src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/image_goal_analyzer.cpp
+    ${GANGYI_WINDOWS_RESOURCE})
 
 target_include_directories(gangyiAI PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -94,11 +105,19 @@ if(WIN32)
 endif()
 
 if(WIN32)
-    add_executable(gangyiAI-launcher WIN32 src/windows_launcher.cpp)
+    add_executable(gangyiAI-launcher WIN32 src/windows_launcher.cpp src/ai_client.cpp ${GANGYI_WINDOWS_RESOURCE})
+    target_include_directories(gangyiAI-launcher PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${GANGYI_CURL_INCLUDE}
+    )
     target_compile_definitions(gangyiAI-launcher PRIVATE
         UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
     )
-    target_link_libraries(gangyiAI-launcher PRIVATE advapi32 bcrypt gdi32 shell32 ole32 ws2_32)
+    target_link_libraries(gangyiAI-launcher PRIVATE
+        nlohmann_json::nlohmann_json
+        ${GANGYI_CURL_LINK}
+        advapi32 bcrypt gdi32 shell32 ole32 ws2_32
+    )
 endif()
 
 if(MINGW)

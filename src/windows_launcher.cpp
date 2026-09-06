@@ -11,11 +11,15 @@
 #include <shlobj.h>
 #include <wincred.h>
 
+#include "ai_client.hpp"
+#include "windows_resource.h"
+
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <cwctype>
 #include <filesystem>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <utility>
@@ -31,6 +35,7 @@ constexpr UINT kTrayMessage = WM_APP + 1;
 constexpr UINT kServiceReady = WM_APP + 2;
 constexpr UINT kServiceFailed = WM_APP + 3;
 constexpr UINT kOpenBrowser = WM_APP + 4;
+constexpr UINT kConnectionTestComplete = WM_APP + 5;
 
 constexpr int kBaseUrlEdit = 101;
 constexpr int kApiKeyEdit = 102;
@@ -38,6 +43,7 @@ constexpr int kModelEdit = 103;
 constexpr int kAutoStartCheck = 104;
 constexpr int kSaveButton = 105;
 constexpr int kCancelButton = 106;
+constexpr int kTestButton = 107;
 constexpr int kMenuOpen = 201;
 constexpr int kMenuSettings = 202;
 constexpr int kMenuRestart = 203;
@@ -55,11 +61,19 @@ struct AppState {
     HWND apiKeyEdit = nullptr;
     HWND modelEdit = nullptr;
     HWND autoStartCheck = nullptr;
+    HWND testButton = nullptr;
+    HWND saveButton = nullptr;
     HWND statusLabel = nullptr;
     HANDLE process = nullptr;
     HANDLE job = nullptr;
     std::thread healthThread;
+    std::thread connectionTestThread;
     std::atomic<bool> cancelHealth{false};
+    std::atomic<bool> connectionTestRunning{false};
+    std::atomic<bool> shuttingDown{false};
+    std::mutex connectionTestMutex;
+    std::wstring connectionTestMessage;
+    bool connectionTestSucceeded = false;
     Settings settings;
     std::wstring installDir;
     std::wstring dataDir;
@@ -202,6 +216,17 @@ bool validBaseUrl(const std::wstring& value) {
     return startsWithIgnoreCase(value, L"https://") || startsWithIgnoreCase(value, L"http://");
 }
 
+std::string toUtf8(const std::wstring& value) {
+    if (value.empty()) return {};
+    const int size = WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
+        nullptr, 0, nullptr, nullptr);
+    if (size <= 0) return {};
+    std::string result(static_cast<size_t>(size), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
+        result.data(), size, nullptr, nullptr);
+    return result;
+}
+
 std::wstring controlText(HWND control) {
     const int length = GetWindowTextLengthW(control);
     std::vector<wchar_t> value(static_cast<size_t>(length) + 1, L'\0');
@@ -320,19 +345,19 @@ void updateTrayTip(const wchar_t* text) {
 }
 
 void showFailure(const wchar_t* message) {
-    updateTrayTip(L"gangyiAI - 启动失败");
+    updateTrayTip(L"钢一定制AI - 启动失败");
     if (g.background) {
         NOTIFYICONDATAW icon{};
         icon.cbSize = sizeof(icon);
         icon.hWnd = g.window;
         icon.uID = 1;
         icon.uFlags = NIF_INFO;
-        wcsncpy_s(icon.szInfoTitle, ARRAYSIZE(icon.szInfoTitle), L"gangyiAI 启动失败", _TRUNCATE);
+        wcsncpy_s(icon.szInfoTitle, ARRAYSIZE(icon.szInfoTitle), L"钢一定制AI 启动失败", _TRUNCATE);
         wcsncpy_s(icon.szInfo, ARRAYSIZE(icon.szInfo), message, _TRUNCATE);
         icon.dwInfoFlags = NIIF_ERROR;
         Shell_NotifyIconW(NIM_MODIFY, &icon);
     } else {
-        MessageBoxW(g.window, message, L"gangyiAI", MB_OK | MB_ICONERROR);
+        MessageBoxW(g.window, message, L"钢一定制AI", MB_OK | MB_ICONERROR);
     }
 }
 
@@ -428,7 +453,7 @@ bool startService(bool openWhenReady) {
     if (log != INVALID_HANDLE_VALUE) CloseHandle(log);
     if (nullInput != INVALID_HANDLE_VALUE) CloseHandle(nullInput);
     if (!created) {
-        showFailure(L"无法启动 gangyiAI 服务，请查看安装是否完整。");
+        showFailure(L"无法启动钢一定制AI服务，请查看安装是否完整。");
         return false;
     }
     CloseHandle(process.hThread);
@@ -442,7 +467,7 @@ bool startService(bool openWhenReady) {
     }
     g.openWhenReady = openWhenReady;
     g.cancelHealth = false;
-    updateTrayTip(L"gangyiAI - 正在启动");
+    updateTrayTip(L"钢一定制AI - 正在启动");
     g.healthThread = std::thread([] {
         for (int attempt = 0; attempt < 100 && !g.cancelHealth; ++attempt) {
             if (!processRunning()) break;
@@ -487,7 +512,7 @@ bool saveSettingsFromControls() {
     settings.autoStart = SendMessageW(g.autoStartCheck, BM_GETCHECK, 0, 0) == BST_CHECKED;
     std::wstring apiKey = controlText(g.apiKeyEdit);
     if (!validBaseUrl(settings.baseUrl) || settings.model.empty() || apiKey.empty()) {
-        MessageBoxW(g.window, L"请填写有效的 HTTP(S) API 地址、API Key 和模型名称。", L"gangyiAI", MB_OK | MB_ICONWARNING);
+        MessageBoxW(g.window, L"请填写有效的 HTTP(S) API 地址、API Key 和模型名称。", L"钢一定制AI", MB_OK | MB_ICONWARNING);
         SecureZeroMemory(apiKey.data(), apiKey.size() * sizeof(wchar_t));
         return false;
     }
@@ -498,13 +523,83 @@ bool saveSettingsFromControls() {
     SecureZeroMemory(apiKey.data(), apiKey.size() * sizeof(wchar_t));
     SetWindowTextW(g.apiKeyEdit, L"");
     if (!saved) {
-        MessageBoxW(g.window, L"配置保存失败，请检查当前用户权限。", L"gangyiAI", MB_OK | MB_ICONERROR);
+        MessageBoxW(g.window, L"配置保存失败，请检查当前用户权限。", L"钢一定制AI", MB_OK | MB_ICONERROR);
         return false;
     }
     g.settings = settings;
     g.hasConfig = true;
     ShowWindow(g.window, SW_HIDE);
     return startService(true);
+}
+
+std::wstring connectionErrorMessage(const std::string& type) {
+    if (type == "missing_config") return L"配置不完整，请填写 API 地址、API Key 和模型名称。";
+    if (type == "auth_error") return L"认证失败，请检查 API Key 是否正确或是否具有访问权限。";
+    if (type == "rate_limited") return L"接口请求过于频繁或余额不足，请稍后重试。";
+    if (type == "timeout") return L"连接超时，请检查网络、接口地址或代理设置。";
+    if (type == "network_error") return L"无法连接 AI 接口，请检查网络和 API 地址。";
+    if (type == "provider_5xx") return L"AI 服务暂时不可用，请稍后重试。";
+    if (type == "invalid_response") return L"接口已连接，但返回格式不是兼容的 Chat Completions 响应。";
+    return L"连接测试失败，请检查 API 地址和模型名称。";
+}
+
+void testConnectionFromControls() {
+    if (g.connectionTestRunning.exchange(true)) return;
+    std::wstring baseUrl = controlText(g.baseUrlEdit);
+    std::wstring apiKey = controlText(g.apiKeyEdit);
+    std::wstring model = controlText(g.modelEdit);
+    if (!validBaseUrl(baseUrl) || apiKey.empty() || model.empty()) {
+        g.connectionTestRunning = false;
+        SetWindowTextW(g.statusLabel, L"请先填写有效的 API 地址、API Key 和模型名称。");
+        return;
+    }
+    if (g.connectionTestThread.joinable()) g.connectionTestThread.join();
+    EnableWindow(g.testButton, FALSE);
+    EnableWindow(g.saveButton, FALSE);
+    SetWindowTextW(g.statusLabel, L"正在测试 AI 连接，请稍候……");
+    g.connectionTestThread = std::thread([baseUrl = std::move(baseUrl), apiKey = std::move(apiKey),
+                                         model = std::move(model)]() mutable {
+        bool succeeded = false;
+        std::wstring message;
+        try {
+            gangyi::AIClientConfig config;
+            config.baseUrl = toUtf8(baseUrl);
+            config.apiKey = toUtf8(apiKey);
+            config.model = toUtf8(model);
+            config.timeoutMs = 15000;
+            config.retryAttempts = 1;
+            SecureZeroMemory(apiKey.data(), apiKey.size() * sizeof(wchar_t));
+
+            gangyi::AIClient client(std::move(config));
+            gangyi::ChatOptions options;
+            options.messages = {{"user", "Reply with OK."}};
+            options.temperature = 0;
+            options.maxTokens = 16;
+            options.timeoutMs = 15000;
+            options.maxAttempts = 1;
+            const auto result = client.chat(options);
+            succeeded = result.status >= 200 && result.status < 300;
+            message = succeeded ? L"连接成功，API 地址、Key 和模型均可用。" : L"连接测试失败。";
+        } catch (const gangyi::AIClientError& error) {
+            message = connectionErrorMessage(error.errorType);
+        } catch (...) {
+            message = L"连接测试发生未知错误，请检查配置后重试。";
+        }
+        SecureZeroMemory(apiKey.data(), apiKey.size() * sizeof(wchar_t));
+        {
+            std::lock_guard<std::mutex> lock(g.connectionTestMutex);
+            g.connectionTestSucceeded = succeeded;
+            g.connectionTestMessage = std::move(message);
+        }
+        if (!g.shuttingDown && !PostMessageW(g.window, kConnectionTestComplete, 0, 0)) {
+            g.connectionTestRunning = false;
+        }
+    });
+}
+
+HICON appIcon() {
+    HICON icon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_GANGYI_AI));
+    return icon ? icon : LoadIconW(nullptr, IDI_APPLICATION);
 }
 
 void addTrayIcon() {
@@ -514,8 +609,8 @@ void addTrayIcon() {
     icon.uID = 1;
     icon.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     icon.uCallbackMessage = kTrayMessage;
-    icon.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
-    wcsncpy_s(icon.szTip, ARRAYSIZE(icon.szTip), L"gangyiAI", _TRUNCATE);
+    icon.hIcon = appIcon();
+    wcsncpy_s(icon.szTip, ARRAYSIZE(icon.szTip), L"钢一定制AI", _TRUNCATE);
     Shell_NotifyIconW(NIM_ADD, &icon);
     icon.uVersion = NOTIFYICON_VERSION_4;
     Shell_NotifyIconW(NIM_SETVERSION, &icon);
@@ -533,7 +628,7 @@ void showTrayMenu() {
     POINT point{};
     GetCursorPos(&point);
     HMENU menu = CreatePopupMenu();
-    AppendMenuW(menu, MF_STRING, kMenuOpen, L"打开 gangyiAI");
+    AppendMenuW(menu, MF_STRING, kMenuOpen, L"打开钢一定制AI");
     AppendMenuW(menu, MF_STRING, kMenuSettings, L"设置");
     AppendMenuW(menu, MF_STRING, kMenuRestart, L"重启服务");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
@@ -563,12 +658,14 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
             24, 163, 456, 26, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kModelEdit)), nullptr, nullptr);
         g.autoStartCheck = CreateWindowW(L"BUTTON", L"登录 Windows 后自动启动", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
             24, 202, 250, 24, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAutoStartCheck)), nullptr, nullptr);
-        CreateWindowW(L"BUTTON", L"保存并启动", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-            282, 234, 96, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSaveButton)), nullptr, nullptr);
+        g.testButton = CreateWindowW(L"BUTTON", L"测试连接", WS_CHILD | WS_VISIBLE,
+            180, 272, 96, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kTestButton)), nullptr, nullptr);
+        g.saveButton = CreateWindowW(L"BUTTON", L"保存并启动", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
+            282, 272, 96, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSaveButton)), nullptr, nullptr);
         CreateWindowW(L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE,
-            384, 234, 96, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCancelButton)), nullptr, nullptr);
+            384, 272, 96, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCancelButton)), nullptr, nullptr);
         g.statusLabel = CreateWindowW(L"STATIC", L"API Key 将安全保存在 Windows 凭据管理器中。", WS_CHILD | WS_VISIBLE,
-            24, 239, 250, 22, window, nullptr, nullptr, nullptr);
+            24, 239, 456, 22, window, nullptr, nullptr, nullptr);
         EnumChildWindows(window, [](HWND child, LPARAM value) -> BOOL {
             SendMessageW(child, WM_SETFONT, static_cast<WPARAM>(value), TRUE);
             return TRUE;
@@ -578,6 +675,7 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     }
     case WM_COMMAND:
         switch (LOWORD(wParam)) {
+        case kTestButton: testConnectionFromControls(); return 0;
         case kSaveButton: saveSettingsFromControls(); return 0;
         case kCancelButton:
             SetWindowTextW(g.apiKeyEdit, L"");
@@ -596,7 +694,7 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         else if (LOWORD(lParam) == WM_CONTEXTMENU || LOWORD(lParam) == WM_RBUTTONUP) showTrayMenu();
         return 0;
     case kServiceReady:
-        updateTrayTip(L"gangyiAI - 运行中");
+        updateTrayTip(L"钢一定制AI - 运行中");
         if (g.openWhenReady) openBrowser();
         return 0;
     case kServiceFailed:
@@ -605,11 +703,30 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     case kOpenBrowser:
         if (processRunning()) openBrowser(); else if (!startService(true)) showSettingsWindow();
         return 0;
+    case kConnectionTestComplete: {
+        std::wstring message;
+        bool succeeded = false;
+        {
+            std::lock_guard<std::mutex> lock(g.connectionTestMutex);
+            message = g.connectionTestMessage;
+            succeeded = g.connectionTestSucceeded;
+        }
+        if (g.connectionTestThread.joinable()) g.connectionTestThread.join();
+        g.connectionTestRunning = false;
+        EnableWindow(g.testButton, TRUE);
+        EnableWindow(g.saveButton, TRUE);
+        SetWindowTextW(g.statusLabel, message.c_str());
+        MessageBoxW(window, message.c_str(), L"钢一定制AI - 连接测试",
+            MB_OK | (succeeded ? MB_ICONINFORMATION : MB_ICONWARNING));
+        return 0;
+    }
     case WM_CLOSE:
         SetWindowTextW(g.apiKeyEdit, L"");
         if (g.hasConfig) ShowWindow(window, SW_HIDE); else DestroyWindow(window);
         return 0;
     case WM_DESTROY:
+        g.shuttingDown = true;
+        if (g.connectionTestThread.joinable()) g.connectionTestThread.join();
         removeTrayIcon();
         stopService();
         PostQuitMessage(0);
@@ -679,14 +796,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     windowClass.cbSize = sizeof(windowClass);
     windowClass.lpfnWndProc = windowProc;
     windowClass.hInstance = instance;
-    windowClass.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    windowClass.hIcon = appIcon();
+    windowClass.hIconSm = appIcon();
     windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     windowClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
     windowClass.lpszClassName = kWindowClass;
     if (!RegisterClassExW(&windowClass)) return 1;
 
-    g.window = CreateWindowExW(0, kWindowClass, L"gangyiAI 配置", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
-        CW_USEDEFAULT, CW_USEDEFAULT, 520, 310, nullptr, nullptr, instance, nullptr);
+    g.window = CreateWindowExW(0, kWindowClass, L"钢一定制AI 配置", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
+        CW_USEDEFAULT, CW_USEDEFAULT, 520, 350, nullptr, nullptr, instance, nullptr);
     if (!g.window) return 1;
     if (g.hasConfig) {
         if (!startService(!g.background)) showSettingsWindow();
