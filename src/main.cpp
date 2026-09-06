@@ -42,6 +42,10 @@ std::string content_type_for(const std::filesystem::path& path) {
     if (extension == ".css") return "text/css; charset=utf-8";
     if (extension == ".js") return "application/javascript; charset=utf-8";
     if (extension == ".json") return "application/json; charset=utf-8";
+    if (extension == ".png") return "image/png";
+    if (extension == ".jpg" || extension == ".jpeg") return "image/jpeg";
+    if (extension == ".svg") return "image/svg+xml";
+    if (extension == ".ico") return "image/x-icon";
     return "application/octet-stream";
 }
 
