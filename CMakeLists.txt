@@ -62,23 +62,8 @@ if(WIN32)
 endif()
 if(WIN32 AND CURL_MINGW_DIR AND EXISTS ${CURL_MINGW_DIR}/include/curl/curl.h)
     set(GANGYI_CURL_INCLUDE ${CURL_MINGW_DIR}/include)
-    # MinGW 需要动态导入库以匹配 curl 头文件中的 __imp_ 符号。
-    set(GANGYI_CURL_LIB
-        ${CURL_MINGW_DIR}/lib/libcurl.dll.a
-        ${CURL_MINGW_DIR}/lib/libssl.a
-        ${CURL_MINGW_DIR}/lib/libcrypto.a
-        ${CURL_MINGW_DIR}/lib/libz.a
-        ${CURL_MINGW_DIR}/lib/libzstd.a
-        ${CURL_MINGW_DIR}/lib/libssh2.a
-        ${CURL_MINGW_DIR}/lib/libnghttp2.a
-        ${CURL_MINGW_DIR}/lib/libpsl.a
-        ${CURL_MINGW_DIR}/lib/libbrotlidec.a
-        ${CURL_MINGW_DIR}/lib/libbrotlicommon.a
-        ${CURL_MINGW_DIR}/lib/libnghttp3.a
-        ${CURL_MINGW_DIR}/lib/libngtcp2.a
-        ${CURL_MINGW_DIR}/lib/libngtcp2_crypto_libressl.a
-    )
-    set(GANGYI_CURL_LINK ${GANGYI_CURL_LIB})
+    # 官方 Windows 包的 libcurl DLL 已静态包含传输层依赖，这里只链接导入库。
+    set(GANGYI_CURL_LINK ${CURL_MINGW_DIR}/lib/libcurl.dll.a)
 else()
     find_package(CURL REQUIRED)
     find_package(OpenSSL REQUIRED)
@@ -108,6 +93,18 @@ if(WIN32)
     target_link_libraries(gangyiAI PRIVATE ws2_32 mswsock bcrypt crypt32 user32)
 endif()
 
+if(WIN32)
+    add_executable(gangyiAI-launcher WIN32 src/windows_launcher.cpp)
+    target_compile_definitions(gangyiAI-launcher PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
+    )
+    target_link_libraries(gangyiAI-launcher PRIVATE advapi32 bcrypt gdi32 shell32 ole32 ws2_32)
+endif()
+
+if(MINGW)
+    target_link_options(gangyiAI PRIVATE -static-libgcc -static-libstdc++)
+    target_link_options(gangyiAI-launcher PRIVATE -municode -static-libgcc -static-libstdc++)
+endif()
 
 add_custom_command(TARGET gangyiAI POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -122,4 +119,11 @@ if(GANGYI_CURL_INCLUDE AND EXISTS ${CURL_MINGW_DIR}/bin/libcurl-x64.dll)
             ${CURL_MINGW_DIR}/bin/libcurl-x64.dll
             $<TARGET_FILE_DIR:gangyiAI>/libcurl-x64.dll
     )
+    if(EXISTS ${CURL_MINGW_DIR}/bin/curl-ca-bundle.crt)
+        add_custom_command(TARGET gangyiAI POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${CURL_MINGW_DIR}/bin/curl-ca-bundle.crt
+                $<TARGET_FILE_DIR:gangyiAI>/curl-ca-bundle.crt
+        )
+    endif()
 endif()

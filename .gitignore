@@ -1,4 +1,6 @@
 ﻿build/
+build-windows/
+dist/
 *.db
 *.o
 .env

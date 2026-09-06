@@ -31,6 +31,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -209,7 +210,7 @@ int main() {
     gangyi::Database db;
     // 自动创建数据库所在目录（首次部署时 data/ 可能不存在，避免 sqlite 打开失败）
     try {
-        const std::filesystem::path dbPath(config.database_path);
+        const std::filesystem::path dbPath = std::filesystem::u8path(config.database_path);
         if (dbPath.has_parent_path()) std::filesystem::create_directories(dbPath.parent_path());
     } catch (...) {}
     db.open(config.database_path);
@@ -1586,6 +1587,21 @@ int main() {
         response.end(body.str());
     });
 
-    std::cout << "gangyiAI " << gangyi::kVersion << " listening on 0.0.0.0:" << config.port << '\n';
-    app.port(config.port).multithreaded().run();
+    if (!config.local_control_token.empty() && config.host == "127.0.0.1") {
+        app.route_dynamic("/internal/shutdown")
+            .methods(crow::HTTPMethod::POST)
+            ([&app, token = config.local_control_token](const crow::request& req) {
+                if (req.get_header_value("X-Gangyi-Control-Token") != token) {
+                    return crow::response(403, nlohmann::json{{"ok", false}}.dump());
+                }
+                std::thread([&app] {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    app.stop();
+                }).detach();
+                return crow::response(200, nlohmann::json{{"ok", true}}.dump());
+            });
+    }
+
+    std::cout << "gangyiAI " << gangyi::kVersion << " listening on " << config.host << ':' << config.port << '\n';
+    app.bindaddr(config.host).port(config.port).multithreaded().run();
 }
