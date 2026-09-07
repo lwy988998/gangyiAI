@@ -129,7 +129,7 @@ Copy-Item -LiteralPath (Join-Path $repoRoot 'public') -Destination $distDir -Rec
 $requiredFiles = @(
     'gangyiAI.exe', 'gangyiAI-launcher.exe', 'libcurl-x64.dll',
     'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll',
-    'public\styles.css', 'public\school-logo.png'
+    'public\styles.css', 'public\school-logo.png', 'public\campus-background.jpg'
 )
 foreach ($required in $requiredFiles) {
     if (-not (Test-Path -LiteralPath (Join-Path $distDir $required))) { throw "发布文件缺失：$required" }

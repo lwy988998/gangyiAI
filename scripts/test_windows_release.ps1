@@ -61,6 +61,8 @@ try {
         if (-not $healthy) { throw '免安装版服务健康检查失败' }
         $logo = Invoke-WebRequest "http://127.0.0.1:$port/school-logo.png" -UseBasicParsing
         if ($logo.Headers.'Content-Type' -ne 'image/png') { throw '校徽 MIME 类型错误' }
+        $background = Invoke-WebRequest "http://127.0.0.1:$port/campus-background.jpg" -UseBasicParsing
+        if ($background.Headers.'Content-Type' -ne 'image/jpeg') { throw '校园背景图 MIME 类型错误' }
         Invoke-WebRequest "http://127.0.0.1:$port/internal/shutdown" -Method Post `
             -Headers @{'X-Gangyi-Control-Token'='ci-control-token'} -UseBasicParsing | Out-Null
         if (-not $service.WaitForExit(5000)) { throw '服务未能优雅退出' }

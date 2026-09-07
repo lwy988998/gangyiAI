@@ -4681,3 +4681,134 @@ button, input, select, textarea {
 }
 
 /*# sourceMappingURL=%5Broot-of-the-server%5D__0cbk-n2._.css.map*/
+
+/* 首页校园背景与玻璃面板。仅容器背景半透明，文字和校徽保持完整不透明度。 */
+.home-page {
+  min-height: 100vh;
+  background-color: #dcebf4;
+  background-image:
+    linear-gradient(180deg, rgba(225, 242, 252, .28) 0%, rgba(234, 246, 252, .14) 52%, rgba(9, 31, 45, .28) 100%),
+    url("/campus-background.jpg");
+  background-position: center center;
+  background-size: cover;
+  background-attachment: fixed;
+}
+
+.home-site-header {
+  background: rgba(255, 255, 255, .66) !important;
+  border-color: rgba(255, 255, 255, .58) !important;
+  box-shadow: 0 8px 24px rgba(15, 39, 71, .08);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+  backdrop-filter: blur(18px) saturate(130%);
+}
+
+.home-site-header details summary,
+.home-site-header details nav {
+  background: rgba(255, 255, 255, .78) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+  backdrop-filter: blur(18px) saturate(130%);
+}
+
+.home-school-logo {
+  width: 80px;
+  height: 80px;
+  opacity: 1;
+  filter: drop-shadow(0 8px 16px rgba(8, 47, 73, .22));
+}
+
+.home-intro,
+.home-goal-form,
+.home-feature-card,
+#goal-examples .goal-example {
+  border-color: rgba(255, 255, 255, .62) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(128%);
+  backdrop-filter: blur(18px) saturate(128%);
+}
+
+.home-intro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: .5rem;
+  padding: .55rem 1rem .7rem;
+  border: 1px solid rgba(255, 255, 255, .62);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, .58);
+  box-shadow: 0 12px 32px rgba(11, 45, 68, .1);
+}
+
+.home-goal-form {
+  background: rgba(255, 255, 255, .64) !important;
+  box-shadow: 0 18px 48px rgba(8, 38, 59, .2) !important;
+}
+
+.home-goal-surface {
+  background: rgba(255, 255, 255, .7) !important;
+  border-color: rgba(255, 255, 255, .56) !important;
+}
+
+.home-goal-modes {
+  background: rgba(241, 248, 252, .48) !important;
+  border-color: rgba(255, 255, 255, .54) !important;
+}
+
+.home-mode-panel,
+.home-secondary-button,
+#goal-examples .goal-example,
+#image-preview,
+#goal-message {
+  background: rgba(255, 255, 255, .62) !important;
+}
+
+.home-mode-panel.bg-sky-700 {
+  color: #fff !important;
+  background: rgba(3, 105, 161, .88) !important;
+}
+
+.home-mode-panel.bg-sky-700 b {
+  color: #fff !important;
+}
+
+#goal-examples .goal-example {
+  box-shadow: 0 8px 18px rgba(8, 38, 59, .1);
+}
+
+.home-feature-card {
+  background: rgba(255, 255, 255, .64) !important;
+  box-shadow: 0 14px 34px rgba(8, 38, 59, .14) !important;
+}
+
+@media (min-width: 640px) {
+  .home-school-logo {
+    width: 112px;
+    height: 112px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .home-school-logo {
+    width: 128px;
+    height: 128px;
+  }
+}
+
+@media (max-width: 639px) {
+  .home-page {
+    background-position: 36% center;
+    background-attachment: scroll;
+  }
+
+  .home-hero {
+    padding-top: .75rem !important;
+  }
+
+  .home-intro {
+    padding: .45rem .75rem .55rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-page {
+    background-attachment: scroll;
+  }
+}

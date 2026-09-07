@@ -283,7 +283,8 @@ bool writeDiagnosticReport(const std::filesystem::path& destination, const Diagn
            << L"最近退出码: " << info.exitCode << L"\r\n"
            << L"连续重启次数: " << info.restartFailures << L"\r\n";
     for (const auto* name : {L"gangyiAI.exe", L"gangyiAI-launcher.exe", L"libcurl-x64.dll",
-                              L"public\\school-logo.png", L"public\\styles.css"}) {
+                              L"public\\school-logo.png", L"public\\campus-background.jpg",
+                              L"public\\styles.css"}) {
         const auto path = info.installDir / name;
         std::error_code filesystemError;
         report << L"文件 " << name << L": " << (std::filesystem::is_regular_file(path, filesystemError) ? L"存在" : L"缺失");

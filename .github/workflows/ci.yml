@@ -21,7 +21,7 @@ jobs:
         shell: pwsh
         run: |
           choco install mingw --version=13.2.0 -y --no-progress
-          choco install innosetup --version=6.4.0 -y --no-progress
+          choco install innosetup --version=6.7.1 -y --no-progress
           $compiler = Get-ChildItem C:\ProgramData\mingw64,C:\ProgramData\chocolatey\lib\mingw `
             -Filter g++.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $compiler) { throw '未找到 MinGW g++' }
