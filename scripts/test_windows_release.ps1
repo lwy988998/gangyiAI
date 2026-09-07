@@ -19,7 +19,7 @@ foreach ($path in @($installer, $portable, $checksumFile)) {
 $checksums = Get-Content -LiteralPath $checksumFile
 foreach ($artifact in @($installer, $portable)) {
     $name = Split-Path -Leaf $artifact
-    $expectedLine = $checksums | Where-Object { ($_ -split ' ', 2)[1] -eq "*$name" }
+    $expectedLine = $checksums | Where-Object { ($_ -split ' ', 2)[1] -ceq "*$name" }
     if (-not $expectedLine) { throw "SHA256SUMS.txt 缺少：$name" }
     $expected = ($expectedLine -split ' ')[0]
     $actual = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant()

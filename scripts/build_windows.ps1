@@ -186,10 +186,11 @@ $checksums = @()
 if (-not $SkipInstaller) {
     $installerName = "gangyiAI-setup-v$version-x64.exe"
     $installerPath = Join-Path $repoRoot "dist\installer\$installerName"
-    $checksums += "$(Get-FileHash -LiteralPath $installerPath -Algorithm SHA256 | Select-Object -ExpandProperty Hash) *$installerName"
+    $installerHash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $checksums += "$installerHash *$installerName"
 }
-$checksums += "$(Get-FileHash -LiteralPath $portablePath -Algorithm SHA256 | Select-Object -ExpandProperty Hash) *$portableName"
-$checksums | ForEach-Object { $_.ToLowerInvariant() } |
-    Set-Content -LiteralPath (Join-Path $repoRoot 'dist\installer\SHA256SUMS.txt') -Encoding ascii
+$portableHash = (Get-FileHash -LiteralPath $portablePath -Algorithm SHA256).Hash.ToLowerInvariant()
+$checksums += "$portableHash *$portableName"
+$checksums | Set-Content -LiteralPath (Join-Path $repoRoot 'dist\installer\SHA256SUMS.txt') -Encoding ascii
 
 Write-Host '[完成] Windows 发布产物已生成。'
