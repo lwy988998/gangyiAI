@@ -32,7 +32,7 @@ int imageTimeoutMs() {
             if (timeout > 0) return timeout;
         }
     } catch (...) {}
-    return 25000;
+    return 45000;
 }
 
 std::vector<std::string> strings(const json& value) {
@@ -63,7 +63,7 @@ ImageGoalAnalysis ImageGoalAnalyzer::analyze(const std::string& prompt, const st
     ChatOptions options;
     options.model = visionModel();
     options.temperature = 0.2;
-    options.maxTokens = 700;
+    options.maxTokens = 1600;
     options.timeoutMs = imageTimeoutMs();
     options.responseFormat = "json_object";
     options.maxAttempts = 1;

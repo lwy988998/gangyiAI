@@ -5,14 +5,14 @@ gangyiAI 是一个使用 C++17、Crow 和 SQLite 构建的本地 AI 学习平台
 ## Windows 安装包
 
 普通用户可前往 [GitHub Releases](https://github.com/lwy988998/gangyiAI/releases/latest) 下载
-`gangyiAI-setup-v0.2.0-x64.exe`，也可下载 `gangyiAI-portable-v0.2.0-x64.zip` 解压免安装使用。
+`gangyiAI-setup-v0.2.1-x64.exe`，也可下载 `gangyiAI-portable-v0.2.1-x64.zip` 解压免安装使用。
 首次启动可选择 DeepSeek、OpenAI 或自定义兼容接口，填写 API Key 后自动获取模型或手工输入模型名称。
 首次发布版本尚未进行代码签名，Windows SmartScreen 可能显示未知发布者提示。
 
 安装包同页提供 `SHA256SUMS.txt`，可使用以下命令校验下载文件：
 
 ```powershell
-Get-FileHash .\gangyiAI-setup-v0.2.0-x64.exe -Algorithm SHA256
+Get-FileHash .\gangyiAI-setup-v0.2.1-x64.exe -Algorithm SHA256
 ```
 
 ### 发布构建
@@ -26,8 +26,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
 脚本会下载固定版本的构建依赖、编译服务和原生 Win32 托盘启动器，并生成：
 
 ```text
-dist\installer\gangyiAI-setup-v0.2.0-x64.exe
-dist\installer\gangyiAI-portable-v0.2.0-x64.zip
+dist\installer\gangyiAI-setup-v0.2.1-x64.exe
+dist\installer\gangyiAI-portable-v0.2.1-x64.zip
 dist\installer\SHA256SUMS.txt
 ```
 

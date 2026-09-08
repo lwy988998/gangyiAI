@@ -84,7 +84,8 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
     CURL* curl = curl_easy_init();
     if (!curl) throw AIClientError("network_error", "unable to initialize curl");
 
-    json body{{"model", options.model.empty() ? endpoint.model : options.model},
+    const std::string selectedModel = options.model.empty() ? endpoint.model : options.model;
+    json body{{"model", selectedModel},
               {"temperature", options.temperature}, {"max_tokens", options.maxTokens}};
     body["messages"] = json::array();
     for (const auto& message : options.messages) {
@@ -135,7 +136,9 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
     try {
         const json parsed = json::parse(responseBody);
         const auto& choice = parsed.at("choices").at(0).at("message");
-        return {choice.at("content").get<std::string>(), parsed.value("model", ""), static_cast<int>(status)};
+        std::string responseModel = parsed.value("model", selectedModel);
+        if (responseModel.empty()) responseModel = selectedModel;
+        return {choice.at("content").get<std::string>(), responseModel, static_cast<int>(status)};
     } catch (const std::exception& error) {
         throw AIClientError("invalid_response", error.what());
     }
@@ -148,7 +151,8 @@ AIResult attempt(const Endpoint& endpoint, const ChatOptions& options, int timeo
         catch (const AIClientError& error) {
             last = error;
             const bool retryable = error.errorType == "timeout" || error.errorType == "network_error" ||
-                error.errorType == "rate_limited" || error.errorType == "provider_5xx";
+                error.errorType == "rate_limited" || error.errorType == "provider_5xx" ||
+                error.errorType == "invalid_response";
             if (!retryable || i + 1 == attempts) throw;
             std::this_thread::sleep_for(std::chrono::milliseconds(800 * (1 << i)));
         }

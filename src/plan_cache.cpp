@@ -73,10 +73,6 @@ std::string normalizeMode(const std::string& mode) {
     return lowered == "lite" ? "lite" : "deep";
 }
 
-std::string normalizeGoalText(const std::string& goal) {
-    return lowerAscii(collapseWhitespace(trim(goal)));
-}
-
 std::string trimGoalText(const std::string& goal) {
     return trim(goal);
 }
@@ -224,11 +220,6 @@ bool validProject(const json& project) {
     return project.is_object() && trim(project.value("name", "")).size() > 0 && trim(project.value("difficulty", "")).size() > 0 &&
            project.contains("estimatedHours") && project["estimatedHours"].is_number() && trim(project.value("output", "")).size() > 0 &&
            project.contains("acceptanceCriteria") && hasStringArray(project["acceptanceCriteria"]);
-}
-
-std::string cachePath(const std::string& dir, const std::string& key) {
-    fs::path path = fs::path(dir) / (key + ".json");
-    return path.string();
 }
 
 }  // namespace

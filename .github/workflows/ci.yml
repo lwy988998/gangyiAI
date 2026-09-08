@@ -51,13 +51,30 @@ jobs:
 
   linux:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: 安装系统依赖
         run: sudo apt-get update && sudo apt-get install -y libasio-dev libcurl4-openssl-dev libsqlite3-dev libssl-dev
       - name: 编译 Linux 服务
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON && cmake --build build --parallel 2
+        run: >-
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          -DCMAKE_CXX_FLAGS="-Wall -Wextra -Wpedantic -Werror"
+          && cmake --build build --parallel 2
+      - name: 运行 Linux 单元测试
+        run: ctest --test-dir build --output-on-failure
+      - name: 验收 Linux 运行时接口
+        run: python3 scripts/test_linux_runtime.py ./build/gangyiAI
+      - name: 编译并运行 Sanitizer 测试
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1
+        run: |
+          cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+          cmake --build build-sanitize --parallel 2
+          ctest --test-dir build-sanitize --output-on-failure
       - name: 健康检查与优雅关闭
         shell: bash
         run: |
@@ -95,4 +112,4 @@ jobs:
           gh release create "${{ github.ref_name }}" release-artifacts/* \
             --repo "${{ github.repository }}" --verify-tag --draft \
             --title "钢一定制AI ${{ github.ref_name }}" \
-            --notes "部署可靠性版本：新增日志诊断、课程数据备份恢复、服务自动恢复、免安装版以及 AI 服务商预设和模型获取。安装包尚未签名，Windows SmartScreen 可能提示未知发布者。"
+            --notes "v0.2.1 验收修复版：修复 AI 模型配置未在全部生成链路生效、任务与课程进度无法保存，以及部分中文文案问题；并补充模型、进度和页面回归测试。安装包尚未签名，Windows SmartScreen 可能提示未知发布者。"

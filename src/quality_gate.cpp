@@ -27,15 +27,6 @@ std::string lower(std::string value) {
     return value;
 }
 
-int chineseChars(const std::string& value) {
-    int count = 0;
-    for (size_t i = 0; i < value.size(); ++i) {
-        const unsigned char c = static_cast<unsigned char>(value[i]);
-        if (c >= 0xE4) ++count;
-    }
-    return count;
-}
-
 std::vector<std::string> goalKeywords(const std::string& goal) {
     // 按 UTF-8 字符切分（中文 3 字节/字符、英文 1 字节/字符），避免把汉字切半
     std::vector<std::string> chars;
@@ -98,19 +89,6 @@ int countOverlap(const std::string& text, const std::vector<std::string>& grams)
         if (!gram.empty() && text.find(gram) != std::string::npos) ++count;
     }
     return count;
-}
-
-std::string joinStrings(const json& array, const char* sep = "；") {
-    if (!array.is_array()) return {};
-    std::ostringstream out;
-    bool first = true;
-    for (const auto& item : array) {
-        if (!item.is_string()) continue;
-        if (!first) out << sep;
-        out << item.get<std::string>();
-        first = false;
-    }
-    return out.str();
 }
 
 std::vector<std::string> collectTexts(const json& plan) {

@@ -216,8 +216,8 @@ std::string validationFeedback(const nlohmann::json& answer, const std::string& 
                 break;
             }
         }
-        for (const std::string& generic : {"理解本节核心概念", "完成本节练习并记录过程", "暂无内容"}) {
-            if (containsText(all, generic)) errors.push_back("不能使用空泛模板句：" + generic);
+        for (const char* generic : {"理解本节核心概念", "完成本节练习并记录过程", "暂无内容"}) {
+            if (containsText(all, generic)) errors.push_back(std::string("不能使用空泛模板句：") + generic);
         }
         if (answer.contains("quiz") && answer["quiz"].is_array()) {
             for (const auto& item : answer["quiz"]) {
@@ -264,12 +264,10 @@ nlohmann::json LearningGenerator::generate(const std::string& goal, const std::s
     if (safeTopic.empty()) throw AIClientError("invalid_request", "学习主题不能为空");
     std::string feedback;
     std::string lastErrorType = "quality_rejected";
-    std::string lastErrorMessage = "微课程未通过质量校验";
     for (int attempt = 0; attempt < 3; ++attempt) {
-        std::cerr << "[learning] attempt=" << (attempt + 1) << " model=deepseek-v4-flash topic=" << safeTopic << std::endl;
+        std::cerr << "[learning] attempt=" << (attempt + 1) << std::endl;
         ChatOptions options;
         options.messages = buildPrompt(goal, phaseName, safeTopic, topicIndex, mode, resources, feedback);
-        options.model = "deepseek-v4-flash";
         options.temperature = attempt == 0 ? 0.25 : 0.1;
         options.maxTokens = mode == "lite" ? 2800 : 3400;
         options.responseFormat = "json_object";
@@ -280,31 +278,27 @@ nlohmann::json LearningGenerator::generate(const std::string& goal, const std::s
             completeRequiredFields(result, goal, phaseName, safeTopic, resources);
             feedback = validationFeedback(result, safeTopic);
             if (feedback.empty()) {
-                std::cerr << "[learning] quality=passed topic=" << safeTopic << std::endl;
+                std::cerr << "[learning] quality=passed" << std::endl;
                 return result;
             }
             lastErrorType = "quality_rejected";
-            lastErrorMessage = feedback;
-            std::cerr << "[learning] quality=rejected topic=" << safeTopic << " reason=" << feedback << std::endl;
+            std::cerr << "[learning] quality=rejected" << std::endl;
         } catch (const AIClientError& error) {
             feedback = error.what();
             lastErrorType = error.errorType;
-            lastErrorMessage = error.what();
-            std::cerr << "[learning] ai_error type=" << error.errorType << " topic=" << safeTopic << std::endl;
+            std::cerr << "[learning] ai_error type=" << error.errorType << std::endl;
         } catch (const std::exception& error) {
             feedback = error.what();
             lastErrorType = "invalid_response";
-            lastErrorMessage = error.what();
-            std::cerr << "[learning] exception topic=" << safeTopic << std::endl;
+            std::cerr << "[learning] exception" << std::endl;
         }
         feedback = "上一次输出未通过校验：" + feedback + "。请重新生成更短但完整的 JSON，逐项修正问题，不要省略字段，不要使用模板内容。";
     }
     nlohmann::json stable;
     completeRequiredFields(stable, goal, phaseName, safeTopic, resources);
     stable["_fallbackUsed"] = true;
-    stable["qualityNotice"] = "DeepSeek 连续三次未返回完整结构，系统已按当前主题补齐可学习内容；下次进入会继续尝试 AI。";
-    std::cerr << "[learning] stable_fallback topic=" << safeTopic << " last_type=" << lastErrorType
-              << " message=" << lastErrorMessage << std::endl;
+    stable["qualityNotice"] = "AI 连续三次未返回完整结构，系统已按当前主题补齐可学习内容；下次进入会继续尝试生成。";
+    std::cerr << "[learning] stable_fallback last_type=" << lastErrorType << std::endl;
     return stable;
 }
 

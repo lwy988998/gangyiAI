@@ -5,6 +5,8 @@ dist/
 *.db
 *.o
 *.obj
+__pycache__/
+*.pyc
 .env
 .env.local
 

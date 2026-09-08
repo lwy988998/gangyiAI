@@ -95,7 +95,7 @@ int main() {
     expect(std::filesystem::exists(root / "gangyiAI.log.1"), "保留第一份历史日志");
 
     DiagnosticInfo diagnostic;
-    diagnostic.version = L"v0.2.0";
+    diagnostic.version = L"v0.2.1";
     diagnostic.installDir = root;
     diagnostic.dataDir = root;
     diagnostic.provider = L"自定义";

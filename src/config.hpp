@@ -1,8 +1,7 @@
 #pragma once
 
-#include <codecvt>
 #include <cstdlib>
-#include <locale>
+#include <filesystem>
 #include <string>
 
 namespace gangyi {
@@ -32,8 +31,7 @@ struct Config {
         if (const char* value = std::getenv("AI_MODEL")) config.ai_model = value;
 #ifdef _WIN32
         if (const wchar_t* value = _wgetenv(L"DATABASE_PATH")) {
-            std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
-            config.database_path = converter.to_bytes(value);
+            config.database_path = std::filesystem::path(value).u8string();
         }
 #else
         if (const char* value = std::getenv("DATABASE_PATH")) config.database_path = value;

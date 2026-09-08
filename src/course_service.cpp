@@ -71,13 +71,6 @@ json clampString(const json& value, size_t maxLen) {
     return truncateUtf8(str, maxLen);
 }
 
-std::string safeString(const json& value) {
-    if (!value.is_string()) return {};
-    std::string str = trim(value.get<std::string>());
-    if (str.size() > 10000) str.resize(10000);
-    return str;
-}
-
 json sanitizeRecursive(const json& value, int depth);
 
 json sanitizeArray(const json& value, int depth) {
@@ -92,7 +85,7 @@ json sanitizeArray(const json& value, int depth) {
     return out;
 }
 
-json sanitizeResourceItem(const json& value, int depth) {
+json sanitizeResourceItem(const json& value) {
     if (!value.is_object()) return json::object();
     json out;
     out["name"] = clampString(value.value("name", ""), 300);
@@ -137,7 +130,7 @@ json sanitizeObject(const json& value, int depth) {
                 if (resource.contains("href") && resource["href"].is_string()) hrefText = trim(resource["href"].get<std::string>());
                 if (hrefText.empty() && resource.contains("url") && resource["url"].is_string()) hrefText = trim(resource["url"].get<std::string>());
                 if (nameText.empty() || hrefText.empty()) continue;
-                resources.push_back(sanitizeResourceItem(resource, depth + 1));
+                resources.push_back(sanitizeResourceItem(resource));
                 ++count;
             }
             out[key] = resources;
@@ -200,10 +193,6 @@ std::optional<Course> pickCourseByIdentity(Database& db, const std::string& anon
         if (!found || course.updatedAt > found->updatedAt) found = course;
     }
     return found;
-}
-
-std::string courseIdFromSnapshot(const std::optional<Course>& course) {
-    return course ? course->id : std::string{};
 }
 
 }  // namespace
@@ -270,8 +259,8 @@ std::optional<std::string> saveCourseSnapshot(Database& db, const std::string& a
         snapshot.createdAt = now;
         if (!db.insert(snapshot)) { std::cerr << "[course-save] insert snapshot failed for new course" << std::endl; return std::nullopt; }
         return inserted->id;
-    } catch (const std::exception& error) {
-        std::cerr << "[course-save] exception: " << error.what() << std::endl;
+    } catch (const std::exception&) {
+        std::cerr << "[course-save] exception" << std::endl;
         return std::nullopt;
     } catch (...) {
         std::cerr << "[course-save] unknown exception" << std::endl;

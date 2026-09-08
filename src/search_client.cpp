@@ -133,39 +133,6 @@ std::string sha256Hex(const std::string& input) {
     return out.str();
 }
 
-std::vector<std::string> splitWords(const std::string& text) {
-    std::vector<std::string> out;
-    std::string current;
-    for (char ch : text) {
-        if (std::isalnum(static_cast<unsigned char>(ch)) || static_cast<unsigned char>(ch) >= 0x80) {
-            current.push_back(ch);
-        } else if (!current.empty()) {
-            out.push_back(current);
-            current.clear();
-        }
-    }
-    if (!current.empty()) out.push_back(current);
-    return out;
-}
-
-std::vector<std::string> buildNgrams(const std::string& goal) {
-    const std::string compact = lower(trim(goal));
-    std::vector<std::string> grams;
-    const std::vector<std::string> words = splitWords(compact);
-    for (const auto& word : words) {
-        if (word.size() >= 2) grams.push_back(word.substr(0, std::min<size_t>(4, word.size())));
-        if (word.size() >= 3) grams.push_back(word.substr(0, std::min<size_t>(3, word.size())));
-        if (word.size() >= 4) grams.push_back(word.substr(0, 2));
-    }
-    if (grams.empty() && compact.size() >= 2) {
-        grams.push_back(compact.substr(0, std::min<size_t>(4, compact.size())));
-    }
-    std::sort(grams.begin(), grams.end());
-    grams.erase(std::unique(grams.begin(), grams.end()), grams.end());
-    if (grams.size() > 6) grams.resize(6);
-    return grams;
-}
-
 std::string hostFromUrl(const std::string& url) {
     std::string value = lower(url);
     const auto scheme = value.find("://");
@@ -236,7 +203,7 @@ double inferScore(double score, const std::string& title, const std::string& des
     return score;
 }
 
-std::string recommendReason(const std::string& domain, const std::string& type, const std::string& source) {
+std::string recommendReason(const std::string& domain) {
     if (domain == "programming") return "适合作为编程学习的真实参考资料，覆盖实现、文档和练习。";
     if (domain == "math") return "适合数学学习，便于理解概念、观看推导和做题。";
     if (domain == "language") return "适合语言学习，兼顾输入、练习和真实语境。";
@@ -288,7 +255,7 @@ std::string detectDomain(const std::string& goal) {
 
 struct HttpResult { long status = 0; std::string body; };
 
-HttpResult postJson(const std::string& url, const std::string& key, const json& body, long timeoutMs, bool bearer = true) {
+HttpResult postJson(const std::string& url, const std::string& key, const json& body, long timeoutMs) {
     HttpResult result;
     CURL* curl = curl_easy_init();
     if (!curl) return result;
@@ -377,7 +344,7 @@ std::vector<SearchResource> normalizeResources(std::vector<SearchResource> resou
         resource.language = inferLanguage(resource.title, resource.description);
         resource.free = inferFree(resource.source, resource.description);
         resource.score = inferScore(resource.score, resource.title, resource.description);
-        resource.reason = recommendReason(domain, resource.type, resource.source);
+        resource.reason = recommendReason(domain);
         out.push_back(std::move(resource));
     }
     std::sort(out.begin(), out.end(), [](const SearchResource& a, const SearchResource& b) {
@@ -483,7 +450,7 @@ std::vector<SearchResource> fetchFromProvider(const std::string& provider, const
         }
         // 与校园版一致：资源搜索超时后静默降级，不能拖慢课程或阶段内容生成。
         const long timeoutMs = static_cast<long>(env_ll("RESOURCE_SEARCH_TIMEOUT_MS", 8000LL));
-        const HttpResult response = postJson(url, key, body, std::max(1000L, timeoutMs), provider != "bocha");
+        const HttpResult response = postJson(url, key, body, std::max(1000L, timeoutMs));
         if (response.status < 200 || response.status >= 300) continue;
         std::vector<SearchResource> parsed = provider == "bocha" ? parseBocha(response.body) : parseTavily(response.body);
         collected.insert(collected.end(), parsed.begin(), parsed.end());

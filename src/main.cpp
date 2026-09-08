@@ -9,6 +9,7 @@
 #include "search_client.hpp"
 #include "quality_gate.hpp"
 #include "course_service.hpp"
+#include "progress_service.hpp"
 #include "phase_generator.hpp"
 #include "ask_generator.hpp"
 #include "learning_generator.hpp"
@@ -29,6 +30,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -140,7 +142,28 @@ std::string qualityFeedback(const gangyi::QualityResult& result) {
     return out.str();
 }
 
-bool requesterCanReadCourse(gangyi::Database& db, const gangyi::Course& course, const crow::request& req) {
+std::string qualityIssueCodes(const gangyi::QualityResult& result) {
+    std::set<std::string> codes;
+    for (const auto& reason : result.reasons) {
+        if (reason.find("阶段数") != std::string::npos) codes.insert("phase_count");
+        else if (reason.find("topics") != std::string::npos) codes.insert("topics");
+        else if (reason.find("重复") != std::string::npos) codes.insert("repetition");
+        else if (reason.find("相关性") != std::string::npos) codes.insert("relevance");
+        else if (reason.find("动作词") != std::string::npos) codes.insert("action");
+        else if (reason.find("产出词") != std::string::npos) codes.insert("output");
+        else if (reason.find("泛化") != std::string::npos) codes.insert("generic");
+        else if (reason.find("roadmap") != std::string::npos) codes.insert("roadmap");
+        else codes.insert("other");
+    }
+    std::ostringstream output;
+    for (const auto& code : codes) {
+        if (output.tellp() > 0) output << ',';
+        output << code;
+    }
+    return output.str();
+}
+
+bool requesterCanReadCourse(gangyi::Database&, const gangyi::Course& course, const crow::request& req) {
     const char* anonymousId = req.url_params.get("anonymousId");
     const std::string requesterAnonymousId = anonymousId ? anonymousId : "";
     if (course.userId && !course.userId->empty()) return false;
@@ -150,7 +173,8 @@ bool requesterCanReadCourse(gangyi::Database& db, const gangyi::Course& course, 
     return true;
 }
 
-bool requesterCanAccessCourse(gangyi::Database& db, const crow::request& req, const std::string& courseId, const std::string& anonymousId) {
+bool requesterCanAccessCourse(gangyi::Database& db, const crow::request&, const std::string& courseId,
+                              const std::string& anonymousId) {
     if (courseId.empty()) return true;
     const auto course = db.getCourse(courseId);
     if (!course || course->status != "active") return false;
@@ -192,19 +216,25 @@ std::string requestAnonymousId(const crow::request& req, const nlohmann::json* b
     return queryValueFromUrl(referer, "anonymousId");
 }
 
-std::string encodeQueryValue(const std::string& value) {
-    std::ostringstream encoded;
-    encoded << std::uppercase << std::hex << std::setfill('0');
-    for (const unsigned char character : value) {
-        if ((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
-            (character >= '0' && character <= '9') || character == '-' || character == '_' ||
-            character == '.' || character == '~') {
-            encoded << character;
-        } else {
-            encoded << '%' << std::setw(2) << static_cast<int>(character) << std::setw(0);
-        }
-    }
-    return encoded.str();
+int aiHttpStatus(const gangyi::AIClientError& error) {
+    if (error.errorType == "invalid_request") return 400;
+    if (error.errorType == "rate_limited") return 429;
+    if (error.errorType == "missing_config" || error.errorType == "auth_error") return 503;
+    if (error.errorType == "timeout") return 504;
+    return 502;
+}
+
+std::string publicAIErrorMessage(const gangyi::AIClientError& error) {
+    if (error.errorType == "invalid_request") return error.what();
+    if (error.errorType == "missing_config") return "AI 服务尚未完成配置，请先在启动器中填写配置。";
+    if (error.errorType == "auth_error") return "AI 服务认证失败，请检查 API Key 和模型权限。";
+    if (error.errorType == "rate_limited") return "AI 服务请求过于频繁或余额不足，请稍后重试。";
+    if (error.errorType == "timeout") return "AI 服务响应超时，请检查网络后重试。";
+    if (error.errorType == "network_error") return "暂时无法连接 AI 服务，请检查网络和接口地址。";
+    if (error.errorType == "provider_5xx") return "AI 服务暂时不可用，请稍后重试。";
+    if (error.errorType == "invalid_response" || error.errorType == "json_parse_error" ||
+        error.errorType == "quality_rejected") return "AI 返回的内容格式不完整，请重新生成。";
+    return "AI 服务暂时不可用，请稍后重试。";
 }
 
 }  // namespace
@@ -220,6 +250,8 @@ int main() {
     db.open(config.database_path);
     db.migrate();
     crow::SimpleApp app;
+    // 访问路径可能包含用户填写的学习目标，避免将其写入信息级访问日志。
+    app.loglevel(crow::LogLevel::Warning);
 
     CROW_ROUTE(app, "/")([] {
         crow::response response(gangyi::renderHomePage());
@@ -359,7 +391,7 @@ int main() {
             const std::string courseId = value("courseId");
             const std::string anonymousId = requestAnonymousId(req);
             if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) {
-                return crow::response(404, nlohmann::json{{"error", "course not found"}}.dump());
+                return crow::response(404, nlohmann::json{{"error", "课程不存在或无权访问。"}}.dump());
             }
             std::string goal = value("goal");
             std::string mode = value("mode");
@@ -459,7 +491,7 @@ int main() {
                 return output;
             };
 
-            // 微课程正文必须由 DeepSeek 按当前分支主题实时生成；不再把课程快照中的通用步骤当作正文。
+            // 微课程正文由当前配置的模型按分支主题实时生成，不把课程快照中的通用步骤当作正文。
             try {
                 gangyi::AIClient ai;
                 gangyi::LearningGenerator generator(ai);
@@ -503,8 +535,8 @@ int main() {
                 }
                 return crow::response(200, responseBody.dump());
             } catch (const gangyi::AIClientError& error) {
-                return crow::response(502, nlohmann::json{{"ok", false}, {"type", error.errorType},
-                    {"error", error.what()}, {"canRetry", true}, {"topic", searchTopic}}.dump());
+                return crow::response(aiHttpStatus(error), nlohmann::json{{"ok", false}, {"type", error.errorType},
+                    {"error", publicAIErrorMessage(error)}, {"canRetry", true}, {"topic", searchTopic}}.dump());
             }
 
             nlohmann::json rawSteps = stage.value("steps", nlohmann::json::array());
@@ -614,7 +646,8 @@ int main() {
                 {"resourceProvider", liveResourceProvider}, {"references", references}
             }.dump());
         } catch (const std::exception& error) {
-            return crow::response(500, nlohmann::json{{"ok", false}, {"error", error.what()}}.dump());
+            std::cerr << "[learn] unexpected error" << std::endl;
+            return crow::response(500, nlohmann::json{{"ok", false}, {"error", "微课程读取失败，请稍后重试。"}}.dump());
         }
     });
 
@@ -623,7 +656,7 @@ int main() {
         const std::string courseId = req.url_params.get("courseId") ? req.url_params.get("courseId") : "";
         const std::string anonymousId = requestAnonymousId(req);
         if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) {
-            return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+            return crow::response(404, nlohmann::json{{"ok", false}, {"error", "课程不存在或无权访问。"}}.dump());
         }
         int phaseIndex = 0;
         try { if (req.url_params.get("phaseIndex")) phaseIndex = std::stoi(req.url_params.get("phaseIndex")); } catch (...) {}
@@ -642,7 +675,7 @@ int main() {
             const std::string courseId = body.value("courseId", "");
             const std::string anonymousId = requestAnonymousId(req, &body);
             if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) {
-                return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+                return crow::response(404, nlohmann::json{{"ok", false}, {"error", "课程不存在或无权访问。"}}.dump());
             }
             const auto course = courseId.empty() ? std::optional<gangyi::Course>{} : db.getCourse(courseId);
             const int phaseIndex = body.value("phaseIndex", 0);
@@ -658,11 +691,14 @@ int main() {
             item.phaseName = body.value("phaseName", "当前阶段");
             item.stepIndex = stepIndex;
             item.stepTitle = body.value("stepTitle", "学习步骤");
-            item.status = body.value("status", "unset");
+            item.status = gangyi::normalizeStepStatus(body.value("status", "unset"));
             const bool saved = old ? db.update(item) : db.insert(item);
-            return crow::response(saved ? 200 : 400, nlohmann::json{{"ok", saved}}.dump());
+            const auto progress = saved ? gangyi::recomputeCourseProgress(db, courseId, anonymousId, item.goal)
+                                        : std::optional<nlohmann::json>{};
+            return crow::response(saved ? 200 : 400, nlohmann::json{{"ok", saved},
+                {"progress", progress ? *progress : nlohmann::json::object()}}.dump());
         } catch (...) {
-            return crow::response(400, nlohmann::json{{"ok", false}, {"error", "INVALID_INPUT"}}.dump());
+            return crow::response(400, nlohmann::json{{"ok", false}, {"error", "请求内容格式不正确。"}}.dump());
         }
     });
 
@@ -672,7 +708,7 @@ int main() {
             const std::string courseId = body.value("courseId", "");
             const std::string anonymousId = requestAnonymousId(req, &body);
             if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) {
-                return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+                return crow::response(404, nlohmann::json{{"ok", false}, {"error", "课程不存在或无权访问。"}}.dump());
             }
             const auto course = courseId.empty() ? std::optional<gangyi::Course>{} : db.getCourse(courseId);
             const int phaseIndex = body.value("phaseIndex", 0);
@@ -688,11 +724,18 @@ int main() {
             item.phaseName = body.value("phaseName", "当前阶段");
             item.topicIndex = topicIndex;
             item.topicTitle = body.value("topicTitle", "当前学习内容");
-            item.status = body.value("status", "completed");
+            item.status = gangyi::normalizeCardStatus(body.value("status", "completed"));
             const bool saved = old ? db.update(item) : db.insert(item);
-            return crow::response(saved ? 200 : 400, nlohmann::json{{"ok", saved}}.dump());
+            if (saved && body.contains("lastVisitedUrl")) {
+                gangyi::updateLastVisited(db, courseId, anonymousId, item.goal,
+                    item.mode.value_or("deep"), body);
+            }
+            const auto progress = saved ? gangyi::recomputeCourseProgress(db, courseId, anonymousId, item.goal)
+                                        : std::optional<nlohmann::json>{};
+            return crow::response(saved ? 200 : 400, nlohmann::json{{"ok", saved},
+                {"progress", progress ? *progress : nlohmann::json::object()}}.dump());
         } catch (...) {
-            return crow::response(400, nlohmann::json{{"ok", false}, {"error", "INVALID_INPUT"}}.dump());
+            return crow::response(400, nlohmann::json{{"ok", false}, {"error", "请求内容格式不正确。"}}.dump());
         }
     });
 
@@ -738,7 +781,7 @@ int main() {
             const std::string safeCourseId = courseId ? courseId : "";
             const std::string safeAnonymousId = requestAnonymousId(req);
             if (!requesterCanAccessCourse(db, req, safeCourseId, safeAnonymousId)) {
-                return crow::response(404, nlohmann::json{{"error", "course not found"}}.dump());
+                return crow::response(404, nlohmann::json{{"error", "课程不存在或无权访问。"}}.dump());
             }
             int phaseIndex = 0, topicIndex = 0;
             try { if (phaseIndexP) phaseIndex = std::stoi(phaseIndexP); } catch (...) {}
@@ -868,9 +911,9 @@ int main() {
             int code = 502;
             if (e.errorType == "missing_config" || e.errorType == "auth_error") code = 503;
             else if (e.errorType == "timeout") code = 504;
-            return crow::response(code, nlohmann::json{{"error", e.what()}, {"type", e.errorType}}.dump());
-        } catch (const std::exception& e) {
-            return crow::response(502, nlohmann::json{{"error", e.what()}}.dump());
+            return crow::response(code, nlohmann::json{{"error", publicAIErrorMessage(e)}, {"type", e.errorType}}.dump());
+        } catch (const std::exception&) {
+            return crow::response(502, nlohmann::json{{"error", "微课程生成失败，请稍后重试。"}}.dump());
         }
     });
 #endif
@@ -983,14 +1026,12 @@ int main() {
             gangyi::AskGenerator generator(ai);
             const auto answer = generator.generate(body.value("question", ""));
             return crow::response(200, nlohmann::json{{"ok", true}, {"answer", answer.content},
-                {"model", "deepseek-v4-flash"}}.dump());
+                {"model", answer.model}}.dump());
         } catch (const gangyi::AIClientError& error) {
-            const int status = error.errorType == "invalid_request" ? 400 :
-                (error.errorType == "missing_config" || error.errorType == "auth_error" ? 503 :
-                (error.errorType == "timeout" ? 504 : 502));
-            return crow::response(status, nlohmann::json{{"ok", false}, {"error", error.what()}, {"type", error.errorType}}.dump());
+            return crow::response(aiHttpStatus(error), nlohmann::json{{"ok", false},
+                {"error", publicAIErrorMessage(error)}, {"type", error.errorType}}.dump());
         } catch (...) {
-            return crow::response(400, nlohmann::json{{"ok", false}, {"error", "INVALID_INPUT"}}.dump());
+            return crow::response(400, nlohmann::json{{"ok", false}, {"error", "请求内容格式不正确。"}}.dump());
         }
     });
 
@@ -1026,20 +1067,18 @@ int main() {
             messages.push_back({"user", question, ""});
             gangyi::ChatOptions options;
             options.messages = std::move(messages);
-            options.model = "deepseek-v4-flash";
             options.temperature = 0.45;
-            options.maxTokens = 2500;
-            options.timeoutMs = 30000;
-            options.maxAttempts = 1;
+            options.maxTokens = 3500;
+            options.timeoutMs = 45000;
+            options.maxAttempts = 2;
             gangyi::AIClient ai;
             const auto result = ai.chat(options);
             if (result.content.empty()) throw gangyi::AIClientError("invalid_response", "AI 没有返回课堂回答");
             return crow::response(200, nlohmann::json{{"ok", true}, {"answer", result.content},
-                {"model", "deepseek-v4-flash"}}.dump());
+                {"model", result.model}}.dump());
         } catch (const gangyi::AIClientError& error) {
-            const int status = error.errorType == "timeout" ? 504 : 502;
-            return crow::response(status, nlohmann::json{{"ok", false}, {"type", error.errorType},
-                {"error", error.what()}, {"canRetry", true}}.dump());
+            return crow::response(aiHttpStatus(error), nlohmann::json{{"ok", false}, {"type", error.errorType},
+                {"error", publicAIErrorMessage(error)}, {"canRetry", true}}.dump());
         } catch (...) {
             return crow::response(400, nlohmann::json{{"ok", false}, {"type", "invalid_request"},
                 {"error", "课堂问题格式不正确"}}.dump());
@@ -1089,7 +1128,7 @@ int main() {
             const bool bypassCache = body.value("bypassCache", false) ||
                 body.value("forcePlan", false) || body.contains("retry");
             if (goal.empty()) {
-                return crow::response(400, nlohmann::json{{"error", "goal 不能为空"}}.dump());
+                return crow::response(400, nlohmann::json{{"error", "请填写学习目标。"}}.dump());
             }
             gangyi::AIClient ai;
             gangyi::PlanGenerator generator(ai);
@@ -1131,16 +1170,16 @@ int main() {
                         if (!qualityValid) {
                             feedback = qualityFeedback(gate);
                             std::cerr << "[generate-plan] quality rejected attempt="
-                                      << (attempt + 1) << " feedback=" << feedback << std::endl;
+                                      << (attempt + 1) << " score=" << gate.score
+                                      << " issues=" << qualityIssueCodes(gate) << std::endl;
                         }
                     } catch (const gangyi::AIClientError& error) {
                         std::cerr << "[generate-plan] AI error attempt=" << (attempt + 1)
-                                  << " type=" << error.errorType << " message=" << error.what() << std::endl;
+                                  << " type=" << error.errorType << std::endl;
                         feedback = "上一次模型输出无法使用：" + std::string(error.what()) +
                             "。请重新输出完整、严格符合字段结构的 JSON。";
                     } catch (const std::exception& error) {
-                        std::cerr << "[generate-plan] error attempt=" << (attempt + 1)
-                                  << " message=" << error.what() << std::endl;
+                        std::cerr << "[generate-plan] error attempt=" << (attempt + 1) << std::endl;
                         feedback = "上一次生成结果解析失败：" + std::string(error.what()) +
                             "。请重新输出完整 JSON，不要输出解释文字。";
                     }
@@ -1173,16 +1212,15 @@ int main() {
 
             return crow::response(200, adapted.dump());
         } catch (const gangyi::AIClientError& e) {
-            std::cerr << "[generate-plan] unhandled AI error type=" << e.errorType
-                      << " message=" << e.what() << std::endl;
+            std::cerr << "[generate-plan] unhandled AI error type=" << e.errorType << std::endl;
             // 错误→HTTP 映射（对齐 docs/ai-spec.md）：missing_config/auth_error→503，timeout→504，其余→502
             int code = 502;
             if (e.errorType == "missing_config" || e.errorType == "auth_error") code = 503;
             else if (e.errorType == "timeout") code = 504;
-            return crow::response(code, nlohmann::json{{"error", e.what()}, {"type", e.errorType}}.dump());
+            return crow::response(code, nlohmann::json{{"error", publicAIErrorMessage(e)}, {"type", e.errorType}}.dump());
         } catch (const std::exception& e) {
-            std::cerr << "[generate-plan] unhandled error message=" << e.what() << std::endl;
-            return crow::response(502, nlohmann::json{{"error", e.what()}}.dump());
+            std::cerr << "[generate-plan] unhandled error" << std::endl;
+            return crow::response(502, nlohmann::json{{"error", "课程规划生成失败，请稍后重试。"}}.dump());
         }
     });
 
@@ -1256,7 +1294,7 @@ int main() {
         try {
             const auto found = gangyi::getCourseWithSnapshot(db, courseId);
             if (!found || !requesterCanReadCourse(db, found->course, req)) {
-                return crow::response(404, nlohmann::json{{"error", "course not found"}}.dump());
+                return crow::response(404, nlohmann::json{{"error", "课程不存在或无权访问。"}}.dump());
             }
             const nlohmann::json course = {{"id", found->course.id}, {"goal", found->course.goal},
                 {"mode", found->course.mode}, {"title", found->course.title},
@@ -1266,14 +1304,14 @@ int main() {
             return crow::response(200, nlohmann::json{{"course", course},
                 {"snapshot", {{"payload", found->payload}}}}.dump());
         } catch (...) {
-            return crow::response(500, nlohmann::json{{"error", "course load failed"}}.dump());
+            return crow::response(500, nlohmann::json{{"error", "课程读取失败，请稍后重试。"}}.dump());
         }
     });
 
     CROW_ROUTE(app, "/api/my-courses/<string>").methods(crow::HTTPMethod::DELETE)([&db](const crow::request& req, std::string courseId) {
         const std::string anonymousId = requestAnonymousId(req);
         if (!gangyi::deleteCourseForIdentity(db, courseId, "", anonymousId)) {
-            return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+            return crow::response(404, nlohmann::json{{"ok", false}, {"error", "课程不存在或无权访问。"}}.dump());
         }
         return crow::response(200, nlohmann::json{{"ok", true}}.dump());
     });
@@ -1287,11 +1325,11 @@ int main() {
             auto body = nlohmann::json::parse(req.body);
             const std::string courseId = body.value("courseId", "");
             const std::string anonymousId = requestAnonymousId(req, &body);
-            if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+            if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "课程不存在或无权访问。"}}.dump());
             if (!anonymousId.empty()) body["anonymousId"] = anonymousId;
             auto result = gangyi::saveLearningCardProgress(db, body);
             if (!result.ok) {
-                return crow::response(400, nlohmann::json{{"ok", false}, {"error", "INVALID_INPUT"}}.dump());
+                return crow::response(400, nlohmann::json{{"ok", false}, {"error", "请求内容格式不正确。"}}.dump());
             }
             if (body.contains("courseId") && body["courseId"].is_string() && !body["courseId"].get<std::string>().empty()) {
                 gangyi::recomputeCourseProgress(db, body["courseId"].get<std::string>(),
@@ -1299,7 +1337,7 @@ int main() {
             }
             return crow::response(200, nlohmann::json{{"ok", true}, {"item", result.item}}.dump());
         } catch (...) {
-            return crow::response(400, nlohmann::json{{"ok", false}, {"error", "INVALID_INPUT"}}.dump());
+            return crow::response(400, nlohmann::json{{"ok", false}, {"error", "请求内容格式不正确。"}}.dump());
         }
     });
 
@@ -1311,7 +1349,7 @@ int main() {
         const char* mode = req.url_params.get("mode");
         const char* phaseIndex = req.url_params.get("phaseIndex");
         if (!requesterCanAccessCourse(db, req, courseId ? courseId : "", anonymousId)) {
-            return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+            return crow::response(404, nlohmann::json{{"ok", false}, {"error", "课程不存在或无权访问。"}}.dump());
         }
         int phase = 0;
         try { if (phaseIndex) phase = std::stoi(phaseIndex); } catch (...) {}
@@ -1334,11 +1372,11 @@ int main() {
             auto body = nlohmann::json::parse(req.body);
             const std::string courseId = body.value("courseId", "");
             const std::string anonymousId = requestAnonymousId(req, &body);
-            if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+            if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "课程不存在或无权访问。"}}.dump());
             if (!anonymousId.empty()) body["anonymousId"] = anonymousId;
             auto result = gangyi::saveLearningStepProgress(db, body);
             if (!result.ok) {
-                return crow::response(400, nlohmann::json{{"ok", false}, {"error", "INVALID_INPUT"}}.dump());
+                return crow::response(400, nlohmann::json{{"ok", false}, {"error", "请求内容格式不正确。"}}.dump());
             }
             if (body.contains("courseId") && body["courseId"].is_string() && !body["courseId"].get<std::string>().empty()) {
                 gangyi::recomputeCourseProgress(db, body["courseId"].get<std::string>(),
@@ -1346,13 +1384,13 @@ int main() {
             }
             return crow::response(200, nlohmann::json{{"ok", true}, {"item", result.item}}.dump());
         } catch (...) {
-            return crow::response(400, nlohmann::json{{"ok", false}, {"error", "INVALID_INPUT"}}.dump());
+            return crow::response(400, nlohmann::json{{"ok", false}, {"error", "请求内容格式不正确。"}}.dump());
         }
     });
 
 #endif
 
-#if 0  // 顶部进度功能已删除，相关进度接口不再注册。
+    // 阶段页仍使用任务进度，课程页仍使用总体进度与重置接口。
     // GET /api/task-progress —— 恢复阶段展开任务的三态进度。
     CROW_ROUTE(app, "/api/task-progress")([&db](const crow::request& req) {
         const char* courseId = req.url_params.get("courseId");
@@ -1361,7 +1399,7 @@ int main() {
         const char* mode = req.url_params.get("mode");
         const char* phaseIndex = req.url_params.get("phaseIndex");
         if (!requesterCanAccessCourse(db, req, courseId ? courseId : "", anonymousId)) {
-            return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+            return crow::response(404, nlohmann::json{{"ok", false}, {"error", "课程不存在或无权访问。"}}.dump());
         }
         int phase = 0;
         try { if (phaseIndex) phase = std::stoi(phaseIndex); } catch (...) {}
@@ -1384,11 +1422,11 @@ int main() {
             auto body = nlohmann::json::parse(req.body);
             const std::string courseId = body.value("courseId", "");
             const std::string anonymousId = requestAnonymousId(req, &body);
-            if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+            if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "课程不存在或无权访问。"}}.dump());
             if (!anonymousId.empty()) body["anonymousId"] = anonymousId;
             auto result = gangyi::saveTaskProgress(db, body);
             if (!result.ok) {
-                return crow::response(400, nlohmann::json{{"ok", false}, {"error", "INVALID_INPUT"}}.dump());
+                return crow::response(400, nlohmann::json{{"ok", false}, {"error", "请求内容格式不正确。"}}.dump());
             }
             if (body.contains("courseId") && body["courseId"].is_string() && !body["courseId"].get<std::string>().empty()) {
                 gangyi::recomputeCourseProgress(db, body["courseId"].get<std::string>(),
@@ -1396,7 +1434,7 @@ int main() {
             }
             return crow::response(200, nlohmann::json{{"ok", true}, {"item", result.item}}.dump());
         } catch (...) {
-            return crow::response(400, nlohmann::json{{"ok", false}, {"error", "INVALID_INPUT"}}.dump());
+            return crow::response(400, nlohmann::json{{"ok", false}, {"error", "请求内容格式不正确。"}}.dump());
         }
     });
 
@@ -1407,7 +1445,7 @@ int main() {
             auto body = nlohmann::json::parse(req.body);
             const std::string courseId = body.value("courseId", "");
             const std::string anonymousId = requestAnonymousId(req, &body);
-            if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+            if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "课程不存在或无权访问。"}}.dump());
             if (!anonymousId.empty()) body["anonymousId"] = anonymousId;
             const std::string goal = body.value("goal", "");
             const std::string mode = body.value("mode", "deep");
@@ -1428,7 +1466,7 @@ int main() {
             if (!progress) progress = nlohmann::json{{"overallPercent", 0}, {"completedCount", 0}, {"totalCount", 0}};
             return crow::response(200, nlohmann::json{{"ok", true}, {"progress", *progress}}.dump());
         } catch (...) {
-            return crow::response(400, nlohmann::json{{"ok", false}, {"error", "INVALID_INPUT"}}.dump());
+            return crow::response(400, nlohmann::json{{"ok", false}, {"error", "请求内容格式不正确。"}}.dump());
         }
     });
 
@@ -1441,7 +1479,7 @@ int main() {
             const std::string action = body.value("action", "recompute");
             const std::string courseId = body.value("courseId", "");
             const std::string anonymousId = requestAnonymousId(req, &body);
-            if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+            if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "课程不存在或无权访问。"}}.dump());
             if (!anonymousId.empty()) body["anonymousId"] = anonymousId;
             const std::string goal = body.value("goal", "");
             const std::string mode = body.value("mode", "deep");
@@ -1457,7 +1495,7 @@ int main() {
             if (!progress) progress = nlohmann::json{{"overallPercent", 0}, {"completedCount", 0}, {"totalCount", 0}};
             return crow::response(200, nlohmann::json{{"ok", true}, {"progress", *progress}}.dump());
         } catch (...) {
-            return crow::response(400, nlohmann::json{{"ok", false}, {"error", "INVALID_INPUT"}}.dump());
+            return crow::response(400, nlohmann::json{{"ok", false}, {"error", "请求内容格式不正确。"}}.dump());
         }
     });
 
@@ -1465,12 +1503,12 @@ int main() {
         try {
             const char* courseId = req.url_params.get("courseId");
             const char* anonymousId = req.url_params.get("anonymousId");
-            if (!courseId || !*courseId) return crow::response(400, nlohmann::json{{"ok", false}, {"error", "courseId required"}}.dump());
-            if (!requesterCanAccessCourse(db, req, courseId, anonymousId ? anonymousId : "")) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+            if (!courseId || !*courseId) return crow::response(400, nlohmann::json{{"ok", false}, {"error", "缺少课程编号。"}}.dump());
+            if (!requesterCanAccessCourse(db, req, courseId, anonymousId ? anonymousId : "")) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "课程不存在或无权访问。"}}.dump());
             const auto progress = gangyi::recomputeCourseProgress(db, courseId, anonymousId ? anonymousId : "", "");
             return crow::response(200, nlohmann::json{{"ok", true}, {"progress", progress ? *progress : nlohmann::json::object()}}.dump());
         } catch (...) {
-            return crow::response(500, nlohmann::json{{"ok", false}, {"error", "progress load failed"}}.dump());
+            return crow::response(500, nlohmann::json{{"ok", false}, {"error", "课程进度读取失败，请稍后重试。"}}.dump());
         }
     });
 
@@ -1487,7 +1525,7 @@ int main() {
         try { if (phaseIndexP) phaseIndex = std::stoi(phaseIndexP); } catch (...) {}
         try { if (topicIndexP) topicIndex = std::stoi(topicIndexP); } catch (...) {}
         try {
-            if (!requesterCanAccessCourse(db, req, courseId ? courseId : "", anonymousId ? anonymousId : "")) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+            if (!requesterCanAccessCourse(db, req, courseId ? courseId : "", anonymousId ? anonymousId : "")) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "课程不存在或无权访问。"}}.dump());
             const auto session = gangyi::findLearningSession(db, courseId ? courseId : "",
                 anonymousId ? anonymousId : "", goal ? goal : "", mode ? mode : "deep", phaseIndex, topicIndex);
             if (!session) {
@@ -1495,7 +1533,7 @@ int main() {
             }
             return crow::response(200, nlohmann::json{{"ok", true}, {"session", *session}}.dump());
         } catch (...) {
-            return crow::response(500, nlohmann::json{{"ok", false}, {"error", "session load failed"}}.dump());
+            return crow::response(500, nlohmann::json{{"ok", false}, {"error", "学习记录读取失败，请稍后重试。"}}.dump());
         }
     });
 
@@ -1506,17 +1544,15 @@ int main() {
             const std::string courseId = body.value("courseId", "");
             const std::string anonymousId = requestAnonymousId(req, &body);
             if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) {
-                return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+                return crow::response(404, nlohmann::json{{"ok", false}, {"error", "课程不存在或无权访问。"}}.dump());
             }
             if (!anonymousId.empty()) body["anonymousId"] = anonymousId;
             const bool ok = gangyi::upsertLearningSession(db, body);
             return crow::response(ok ? 200 : 400, nlohmann::json{{"ok", ok}}.dump());
         } catch (...) {
-            return crow::response(400, nlohmann::json{{"ok", false}, {"error", "INVALID_INPUT"}}.dump());
+            return crow::response(400, nlohmann::json{{"ok", false}, {"error", "请求内容格式不正确。"}}.dump());
         }
     });
-
-#endif
 
 #endif
 
@@ -1527,7 +1563,7 @@ int main() {
             const std::string courseId = body.value("courseId", "");
             const std::string anonymousId = requestAnonymousId(req, &body);
             if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) {
-                return crow::response(404, nlohmann::json{{"ok", false}, {"error", "course not found"}}.dump());
+                return crow::response(404, nlohmann::json{{"ok", false}, {"error", "课程不存在或无权访问。"}}.dump());
             }
             const std::string goal = body.value("goal", "");
             const std::string mode = body.value("mode", "deep");
@@ -1538,7 +1574,7 @@ int main() {
                 for (const auto& t : body["topics"]) if (t.is_string()) topics.push_back(t.get<std::string>());
             }
             if (goal.empty()) {
-                return crow::response(400, nlohmann::json{{"ok", false}, {"error", "goal 不能为空"}}.dump());
+                return crow::response(400, nlohmann::json{{"ok", false}, {"error", "请填写学习目标。"}}.dump());
             }
             std::vector<gangyi::SearchResource> resources;
             try {
@@ -1560,12 +1596,11 @@ int main() {
             }
             return crow::response(200, nlohmann::json{{"ok", true}, {"phase", *result}, {"resources", resourceItems}}.dump());
         } catch (const gangyi::AIClientError& e) {
-            int code = 502;
-            if (e.errorType == "missing_config" || e.errorType == "auth_error") code = 503;
-            else if (e.errorType == "timeout") code = 504;
-            return crow::response(code, nlohmann::json{{"error", e.what()}, {"type", e.errorType}}.dump());
+            return crow::response(aiHttpStatus(e), nlohmann::json{{"error", publicAIErrorMessage(e)},
+                {"type", e.errorType}}.dump());
         } catch (const std::exception& e) {
-            return crow::response(502, nlohmann::json{{"error", e.what()}}.dump());
+            std::cerr << "[phase-expansion] unexpected error" << std::endl;
+            return crow::response(502, nlohmann::json{{"error", "阶段内容生成失败，请稍后重试。"}}.dump());
         }
     });
 

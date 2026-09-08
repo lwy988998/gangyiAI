@@ -86,6 +86,30 @@ std::string closeTruncated(const std::string& value) {
     while (!stack.empty()) { result += stack.back(); stack.pop_back(); }
     return result;
 }
+
+std::vector<std::string> completeObjects(const std::string& value) {
+    std::vector<std::string> objects;
+    size_t start = std::string::npos;
+    int depth = 0;
+    bool inString = false, escaped = false;
+    for (size_t index = 0; index < value.size(); ++index) {
+        const char character = value[index];
+        if (inString) {
+            if (escaped) escaped = false;
+            else if (character == '\\') escaped = true;
+            else if (character == '"') inString = false;
+            continue;
+        }
+        if (character == '"') inString = true;
+        else if (character == '{') {
+            if (depth++ == 0) start = index;
+        } else if (character == '}' && depth > 0 && --depth == 0 && start != std::string::npos) {
+            objects.push_back(value.substr(start, index - start + 1));
+            start = std::string::npos;
+        }
+    }
+    return objects;
+}
 }
 
 nlohmann::json parseAIJson(const std::string& content) {
@@ -106,6 +130,10 @@ nlohmann::json parseAIJson(const std::string& content) {
     const std::string repaired = repair(value);
     for (const auto& candidate : {value, repaired, closeTruncated(repaired)}) {
         try { return nlohmann::json::parse(candidate); } catch (...) {}
+    }
+    const auto objects = completeObjects(repaired);
+    for (auto item = objects.rbegin(); item != objects.rend(); ++item) {
+        try { return nlohmann::json::parse(repair(*item)); } catch (...) {}
     }
     int attempts = 0;
     for (size_t end = repaired.size(); end > 0 && attempts < 60; --end) {

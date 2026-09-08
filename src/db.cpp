@@ -2,8 +2,6 @@
 #include "db_schema_version.hpp"
 
 #include <sqlite3.h>
-#include <chrono>
-#include <ctime>
 #include <iomanip>
 #include <random>
 #include <sstream>
@@ -14,13 +12,6 @@ namespace {
 void check(int rc, sqlite3* db, const char* action) { if (rc != SQLITE_OK && rc != SQLITE_DONE && rc != SQLITE_ROW) throw std::runtime_error(std::string(action) + ": " + sqlite3_errmsg(db)); }
 void exec(sqlite3* db, const char* sql) { char* error = nullptr; const int rc = sqlite3_exec(db, sql, nullptr, nullptr, &error); if (rc != SQLITE_OK) { std::string message = error ? error : sqlite3_errmsg(db); sqlite3_free(error); throw std::runtime_error(message); } }
 std::string id() { static std::mt19937_64 rng(std::random_device{}()); std::ostringstream out; out << std::hex << std::setfill('0'); for (int i = 0; i < 2; ++i) out << std::setw(16) << rng(); return out.str(); }
-std::string now() { const auto time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()); std::tm tm{}; 
-#ifdef _WIN32
-    gmtime_s(&tm, &time);
-#else
-    gmtime_r(&time, &tm);
-#endif
-    std::ostringstream out; out << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ"); return out.str(); }
 struct Stmt { sqlite3_stmt* p = nullptr; sqlite3* db; Stmt(sqlite3* d, const char* sql) : db(d) { check(sqlite3_prepare_v2(db, sql, -1, &p, nullptr), db, "prepare"); } ~Stmt() { sqlite3_finalize(p); } };
 void text(Stmt& s, int n, const std::string& v) { check(sqlite3_bind_text(s.p, n, v.c_str(), -1, SQLITE_TRANSIENT), s.db, "bind"); }
 void opt(Stmt& s, int n, const std::optional<std::string>& v) { if (v) text(s, n, *v); else check(sqlite3_bind_null(s.p, n), s.db, "bind"); }

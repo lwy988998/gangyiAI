@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(gangyiAI VERSION 0.2.0 LANGUAGES C CXX)
+project(gangyiAI VERSION 0.2.1 LANGUAGES C CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -96,7 +96,7 @@ endif()
 
 add_executable(gangyiAI src/main.cpp src/db.cpp src/ai_client.cpp src/json_fix.cpp src/plan_generator.cpp src/page_renderer.cpp
     src/plan_cache.cpp src/plan_adapter.cpp src/search_client.cpp src/quality_gate.cpp src/course_service.cpp
-    src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/image_goal_analyzer.cpp
+    src/progress_service.cpp src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/image_goal_analyzer.cpp
     ${GANGYI_SERVICE_RESOURCE})
 
 target_include_directories(gangyiAI PRIVATE
@@ -142,7 +142,8 @@ endif()
 include(CTest)
 if(BUILD_TESTING)
     find_package(Threads REQUIRED)
-    add_executable(ai-client-tests tests/ai_client_tests.cpp src/ai_client.cpp)
+    add_executable(ai-client-tests tests/ai_client_tests.cpp src/ai_client.cpp src/ask_generator.cpp
+        src/json_fix.cpp src/plan_generator.cpp)
     target_include_directories(ai-client-tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${GANGYI_CURL_INCLUDE}
@@ -153,6 +154,16 @@ if(BUILD_TESTING)
         target_link_libraries(ai-client-tests PRIVATE ws2_32)
     endif()
     add_test(NAME ai-client COMMAND ai-client-tests)
+
+    add_executable(progress-service-tests tests/progress_service_tests.cpp src/db.cpp src/progress_service.cpp)
+    target_include_directories(progress-service-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_link_libraries(progress-service-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_SQLITE_LIB})
+    add_test(NAME progress-service COMMAND progress-service-tests)
+
+    add_executable(page-renderer-tests tests/page_renderer_tests.cpp src/page_renderer.cpp)
+    target_include_directories(page-renderer-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_link_libraries(page-renderer-tests PRIVATE nlohmann_json::nlohmann_json)
+    add_test(NAME page-renderer COMMAND page-renderer-tests)
 endif()
 if(BUILD_TESTING AND WIN32)
     add_executable(launcher-support-tests tests/launcher_support_tests.cpp src/launcher_support.cpp)

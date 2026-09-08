@@ -51,7 +51,7 @@ ChatOptions options(const std::string& system, const std::string& user, const st
     return {{{"system", system}, {"user", user}}, {}, 0.3, mode == "lite" ? 2500 : 3500, "json_object", 45000, 1};
 }
 
-json fallbackPhase(const std::string& goal, const std::string& stage, const std::vector<std::string>& topics) {
+json fallbackPhase(const std::string& stage, const std::vector<std::string>& topics) {
     const std::string topic = topics.empty() ? stage : topics.front();
     return {
         {"objective", u8"围绕“" + stage + u8"”，掌握核心概念、适用条件和一个典型应用。"},
@@ -90,7 +90,7 @@ std::optional<json> PhaseGenerator::generate(const std::string& goal, const std:
         const json output = normalize(parseAIJson(client_.chat(options(system, user, mode)).content));
         if (validate(output)) return output;
     } catch (...) {}
-    return fallbackPhase(goal, stage, topics);
+    return fallbackPhase(stage, topics);
 }
 
 } // namespace gangyi

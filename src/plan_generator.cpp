@@ -15,7 +15,7 @@ const char* sharedSkeletonRules = R"(你是钢一定制AI的高中课程架构�
 
 课程只属于高中语文、数学、英语、物理、化学、生物、历史、地理、政治或信息技术；围绕教材知识点、题型、实验、阅读、写作、复习与考试设计。不要生成 Web 开发、网站制作、职业技能、摄影或乐器等非高中课程。目标模糊时，按最接近的高中学科与知识点补全。
 
-这是课程骨架，不生成教材、长讲义、完整课件或完整测验。固定顶层字段只有 inferredDomain、learnerGoal、courseTitle、courseSummary、title、goal、durationWeeks、phases。每个 phase 只需 name、durationWeeks、objective、topics、tasks、checkpoint、output、commonMistakes；topics 为 3-4 个短标题，tasks 为 2-3 个可执行任务。每个字段必须具体到高中知识点、题型、实验或学习产出，禁止空泛句。)";
+这是课程骨架，不生成教材、长讲义、完整课件或完整测验。固定顶层字段只有 inferredDomain、learnerGoal、courseTitle、courseSummary、durationWeeks、phases，不要重复输出 title 或 goal。每个 phase 只需 name、durationWeeks、objective、topics、tasks、checkpoint、output、commonMistakes；topics 为 3-4 个短标题，tasks 为 2-3 个可执行任务。每个字段必须具体到高中知识点、题型、实验或学习产出，禁止空泛句。)";
 
 std::string modeRules(const std::string& mode) {
     if (mode == "lite") return "mode=lite：快速规划骨架。durationWeeks 1-2；phases 3 个；每阶段 topics 3 个。输出短、直接、马上能开始。";
@@ -84,6 +84,10 @@ GeneratedPlan parsePlan(const json& value) {
     plan.courseSummary = stringValue(value, "courseSummary");
     plan.title = stringValue(value, "title");
     plan.goal = stringValue(value, "goal");
+    if (plan.title.empty()) plan.title = plan.courseTitle;
+    if (plan.courseTitle.empty()) plan.courseTitle = plan.title;
+    if (plan.goal.empty()) plan.goal = plan.learnerGoal;
+    if (plan.learnerGoal.empty()) plan.learnerGoal = plan.goal;
     plan.durationWeeks = intValue(value, "durationWeeks");
     plan.summary = stringValue(value, "summary");
     plan.courseIntro = stringValue(value, "courseIntro");
@@ -111,13 +115,15 @@ GeneratedPlan parsePlan(const json& value) {
 void validate(const GeneratedPlan& plan, const std::string& mode) {
     const size_t minimum = mode == "lite" ? 3 : 4;
     const size_t maximum = mode == "lite" ? 5 : 6;
-    if (plan.title.empty() || plan.goal.empty() || plan.phases.size() < minimum || plan.phases.size() > maximum)
-        throw AIClientError("quality_rejected", "generated plan failed quality gate");
+    if (plan.title.empty()) throw AIClientError("quality_rejected", "课程标题缺失");
+    if (plan.goal.empty()) throw AIClientError("quality_rejected", "学习目标缺失");
+    if (plan.phases.size() < minimum || plan.phases.size() > maximum)
+        throw AIClientError("quality_rejected", "课程阶段数量不符合当前模式要求");
 }
 
 ChatOptions options(const std::string& system, const std::string& user, const std::string& mode) {
     return {{ {"system", system}, {"user", user} }, {}, 0.7,
-        mode == "lite" ? 1800 : 2400, "json_object", mode == "lite" ? 30000 : 50000, 1};
+        3600, "json_object", mode == "lite" ? 45000 : 75000, 1};
 }
 
 }
@@ -126,13 +132,13 @@ PlanGenerator::PlanGenerator(AIClient& client) : client_(client) {}
 
 GeneratedPlan PlanGenerator::generate(const std::string& goal, const std::string& mode,
                                       const std::string& qualityFeedback) {
-    if (mode != "lite" && mode != "deep") throw AIClientError("invalid_request", "mode must be lite or deep");
+    if (mode != "lite" && mode != "deep") throw AIClientError("invalid_request", "课程模式只能是快速规划或深度规划");
     const auto first = goal.find_first_not_of(" \t\r\n");
-    if (first == std::string::npos) throw AIClientError("invalid_request", "goal must not be empty");
+    if (first == std::string::npos) throw AIClientError("invalid_request", "请填写学习目标");
 
     const std::string safeGoal = goal.substr(first, goal.find_last_not_of(" \t\r\n") - first + 1);
     const std::string system = std::string(sharedSkeletonRules) + "\n" + modeRules(mode);
-    std::string user = "学习目标：" + safeGoal + "\n模式：" + mode + "\n请生成 Level 1 Plan Skeleton 严格 JSON。先输出 inferredDomain 和 learnerGoal，再生成课程目录、阶段目标、topics、topicDescriptions、阶段产出和 checkpoint。";
+    std::string user = "学习目标：" + safeGoal + "\n模式：" + mode + "\n请生成 Level 1 Plan Skeleton 严格 JSON。只使用规定字段，先输出 inferredDomain 和 learnerGoal，再生成课程标题、摘要、阶段目标、topics、tasks、阶段产出和 checkpoint。";
     if (!qualityFeedback.empty()) {
         user += "\n\n上一次生成未通过质量检查，请根据下面的问题重新生成完整 JSON，不要只解释问题：\n";
         user += qualityFeedback;

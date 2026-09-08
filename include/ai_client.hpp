@@ -2,6 +2,7 @@
 
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace gangyi {
@@ -10,6 +11,10 @@ struct ChatMessage {
     std::string role;
     std::string content;
     std::string imageDataUrl;
+
+    ChatMessage(std::string roleValue, std::string contentValue, std::string imageDataUrlValue = {})
+        : role(std::move(roleValue)), content(std::move(contentValue)),
+          imageDataUrl(std::move(imageDataUrlValue)) {}
 };
 
 struct ChatOptions {

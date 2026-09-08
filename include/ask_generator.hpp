@@ -8,6 +8,7 @@ namespace gangyi {
 
 struct AskAnswer {
     std::string content;
+    std::string model;
 };
 
 class AskGenerator {
