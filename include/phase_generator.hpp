@@ -17,7 +17,7 @@ class PhaseGenerator {
 public:
     explicit PhaseGenerator(AIClient& client);
 
-    // 生成阶段展开内容；AI 失败或质量不过返回 nullopt（调用方降级展示）。
+    // 生成阶段展开内容；最多调用 AI 三次，失败或质量不过时抛出可重试错误。
     // resources 最多取前 5 条作为参考。
     std::optional<nlohmann::json> generate(const std::string& goal, const std::string& mode,
                                            int phaseIndex, const std::string& stage,

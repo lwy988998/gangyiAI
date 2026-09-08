@@ -144,7 +144,9 @@ GeneratedPlan PlanGenerator::generate(const std::string& goal, const std::string
         user += qualityFeedback;
         user += "\n修正要求：每个阶段都要有具体知识点、可执行任务、明确产出和检查点；不要复用空泛句；必须严格满足阶段数量和字段结构。";
     }
-    const GeneratedPlan plan = parsePlan(parseAIJson(client_.chat(options(system, user, mode)).content));
+    const AIResult response = client_.chat(options(system, user, mode));
+    GeneratedPlan plan = parsePlan(parseAIJson(response.content));
+    plan.generationModel = response.model;
     validate(plan, mode);
     return plan;
 }
