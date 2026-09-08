@@ -145,7 +145,7 @@ std::string validate(const std::string& block, const json& output, const std::st
     if (!containsText(serialized, goal)) errors.push_back("内容必须明确回应用户目标“" + goal + "”");
     if (!containsText(serialized, phaseName)) errors.push_back("内容必须明确对应当前阶段“" + phaseName + "”");
     if (!containsText(serialized, topic)) errors.push_back("内容必须明确围绕当前主题“" + topic + "”");
-    for (const std::string& generic : {"理解本节核心概念", "完成本节练习并记录过程", "暂无内容"})
+    for (const std::string generic : {"理解本节核心概念", "完成本节练习并记录过程", "暂无内容"})
         if (containsText(serialized, generic)) errors.push_back("包含通用模板句：“" + generic + "”");
 
     std::ostringstream feedback;

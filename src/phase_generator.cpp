@@ -50,7 +50,7 @@ std::string validate(const json& output, const std::string& goal, const std::str
     const std::string serialized = output.dump();
     if (!goal.empty() && serialized.find(goal) == std::string::npos) errors.push_back("内容必须明确回应用户目标");
     if (!stage.empty() && serialized.find(stage) == std::string::npos) errors.push_back("内容必须明确围绕当前阶段");
-    for (const std::string& generic : {"明确本阶段问题", "完成一次材料分析", "复盘并纠错"})
+    for (const std::string generic : {"明确本阶段问题", "完成一次材料分析", "复盘并纠错"})
         if (serialized.find(generic) != std::string::npos) errors.push_back("包含阶段模板句");
     std::ostringstream result;
     for (size_t i = 0; i < errors.size(); ++i) { if (i) result << "；"; result << errors[i]; }
