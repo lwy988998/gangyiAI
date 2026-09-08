@@ -14,10 +14,13 @@ class LearningGenerator {
 public:
     explicit LearningGenerator(AIClient& client);
 
-    nlohmann::json generate(const std::string& goal, const std::string& phaseName,
-                            const std::string& topic, int topicIndex,
-                            const std::string& mode,
-                            const std::vector<SearchResource>& resources) const;
+    // 每次只生成一个课堂板块。只有通过完整性与主题质量检查的 AI 输出才会返回。
+    nlohmann::json generateBlock(const std::string& goal, const nlohmann::json& coursePlan,
+                                 const std::string& phaseName, const std::string& topic,
+                                 int topicIndex, const std::string& mode,
+                                 const std::string& block,
+                                 const nlohmann::json& previousBlocks,
+                                 const std::vector<SearchResource>& resources) const;
 
 private:
     AIClient& client_;

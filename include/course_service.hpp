@@ -40,7 +40,7 @@ bool deleteCourseForIdentity(Database& db, const std::string& courseId, const st
 // 入库前脱敏（对齐校园版 sanitizeCoursePayload + stripUnsafeKeys）：
 // 深度 ≤8；剔除键名含 apikey/api_key/secret/token/authorization/base64/image/rawerror/stack 的字段；
 // 字符串截 10,000；白名单重排 title,duration,summary,courseIntro,overview,audience,prerequisites,
-// outcome,learningOutcomes,slides,mindMap,roadmap,courseStructure,resources,projects；
+// outcome,learningOutcomes,slides,mindMap,roadmap,courseStructure,resources,projects、generation、phaseExpansions；
 // resources 每项 name≤300/description≤500/href≤1000 且最多 12 条（过滤无 name 或 href 者）；
 // 总 JSON > 900,000 时裁剪 slides≤20/roadmap≤12/resources≤8/projects≤12。
 nlohmann::json sanitizeCoursePayload(const nlohmann::json& payload);

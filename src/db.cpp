@@ -50,6 +50,10 @@ CREATE TABLE IF NOT EXISTS LearningSession(id TEXT PRIMARY KEY, courseId TEXT, a
 CREATE INDEX IF NOT EXISTS Course_anonymousId_idx ON Course(anonymousId); CREATE INDEX IF NOT EXISTS Course_userId_idx ON Course(userId); CREATE INDEX IF NOT EXISTS Course_goal_idx ON Course(goal); CREATE INDEX IF NOT EXISTS Course_updatedAt_idx ON Course(updatedAt);
 CREATE INDEX IF NOT EXISTS UserSession_userId_idx ON UserSession(userId); CREATE INDEX IF NOT EXISTS UsageCounter_scope_idx ON UsageCounter(scopeId,scopeType); CREATE INDEX IF NOT EXISTS CourseProgress_anonymousId_idx ON CourseProgress(anonymousId); CREATE INDEX IF NOT EXISTS CourseProgress_userId_idx ON CourseProgress(userId); CREATE INDEX IF NOT EXISTS CourseProgress_updatedAt_idx ON CourseProgress(updatedAt); CREATE INDEX IF NOT EXISTS CourseSnapshot_courseId_idx ON CourseSnapshot(courseId); CREATE INDEX IF NOT EXISTS TaskProgress_courseId_idx ON TaskProgress(courseId); CREATE INDEX IF NOT EXISTS LearningStepProgress_courseId_idx ON LearningStepProgress(courseId); CREATE INDEX IF NOT EXISTS LearningCardProgress_courseId_idx ON LearningCardProgress(courseId); CREATE INDEX IF NOT EXISTS LearningSession_courseId_idx ON LearningSession(courseId);
 )SQL");
+    if (currentVersion < 3) {
+        exec(db_, "UPDATE LearningSession SET fallbackUsed=1, source='legacy' "
+            "WHERE source<>'ai' OR fallbackUsed<>0 OR content NOT LIKE '%\"promptVersion\":\"ai-block-v1\"%'");
+    }
     exec(db_, ("PRAGMA user_version=" + std::to_string(kDatabaseSchemaVersion)).c_str());
 }
 

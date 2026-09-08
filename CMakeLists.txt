@@ -155,6 +155,20 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME ai-client COMMAND ai-client-tests)
 
+    add_executable(ai-content-generation-tests tests/ai_content_generation_tests.cpp
+        src/learning_generator.cpp src/phase_generator.cpp src/ai_client.cpp src/json_fix.cpp)
+    target_include_directories(ai-content-generation-tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${GANGYI_CURL_INCLUDE}
+    )
+    target_link_libraries(ai-content-generation-tests PRIVATE
+        nlohmann_json::nlohmann_json ${GANGYI_CURL_LINK} Threads::Threads)
+    if(WIN32)
+        target_compile_definitions(ai-content-generation-tests PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+        target_link_libraries(ai-content-generation-tests PRIVATE ws2_32)
+    endif()
+    add_test(NAME ai-content-generation COMMAND ai-content-generation-tests)
+
     add_executable(progress-service-tests tests/progress_service_tests.cpp src/db.cpp src/progress_service.cpp)
     target_include_directories(progress-service-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
     target_link_libraries(progress-service-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_SQLITE_LIB})

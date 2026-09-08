@@ -3,94 +3,143 @@
 #include "json_fix.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <ctime>
+#include <cstdlib>
+#include <iomanip>
+#include <iostream>
 #include <sstream>
+#include <utility>
 
 namespace gangyi {
 namespace {
 using json = nlohmann::json;
 
 std::string value(const json& object, const char* key) {
-    if (!object.is_object() || !object.contains(key) || object[key].is_null()) return {};
-    return object[key].is_string() ? object[key].get<std::string>() : object[key].dump();
+    if (!object.is_object() || !object.contains(key) || !object[key].is_string()) return {};
+    return object[key].get<std::string>();
 }
 
-bool validString(const json& object, const char* key) { return !value(object, key).empty(); }
-
-json normalize(const json& input) {
-    json output = json::object();
-    output["objective"] = value(input, "objective");
-    output["overview"] = value(input, "overview");
-    output["steps"] = json::array();
-    if (input.contains("steps") && input["steps"].is_array()) for (const auto& item : input["steps"]) {
-        if (!item.is_object()) continue;
-        output["steps"].push_back({{"title", value(item, "title")}, {"explanation", value(item, "explanation")},
-            {"example", value(item, "example")}, {"action", value(item, "action")}, {"check", value(item, "check")} });
-    }
-    output["tasks"] = json::array();
-    if (input.contains("tasks") && input["tasks"].is_array()) for (const auto& item : input["tasks"]) {
-        if (!item.is_object()) continue;
-        json actionSteps = item.contains("actionSteps") && item["actionSteps"].is_array() ? item["actionSteps"] : json::array();
-        json checklist = item.contains("checklist") && item["checklist"].is_array() ? item["checklist"] : json::array();
-        output["tasks"].push_back({{"title", value(item, "title")}, {"description", value(item, "description")},
-            {"duration", value(item, "duration")}, {"output", value(item, "output")},
-            {"actionSteps", actionSteps}, {"checklist", checklist} });
-    }
-    output["checklist"] = input.contains("checklist") && input["checklist"].is_array() ? input["checklist"] : json::array();
-    output["commonMistakes"] = input.contains("commonMistakes") && input["commonMistakes"].is_array() ? input["commonMistakes"] : json::array();
-    return output;
-}
-
-bool validate(const json& output) {
-    if (!validString(output, "objective") || !validString(output, "overview") || !output["steps"].is_array() || output["steps"].empty() || !output["tasks"].is_array() || output["tasks"].empty()) return false;
-    for (const auto& step : output["steps"]) if (!validString(step,"title") || !validString(step,"explanation") || !validString(step,"action") || !validString(step,"check")) return false;
-    for (const auto& task : output["tasks"]) if (!validString(task,"title") || !validString(task,"description") || !validString(task,"duration") || !validString(task,"output")) return false;
+bool validStringArray(const json& value, size_t minimum) {
+    if (!value.is_array() || value.size() < minimum) return false;
+    for (const auto& item : value) if (!item.is_string() || item.get<std::string>().empty()) return false;
     return true;
 }
 
+std::string validate(const json& output, const std::string& goal, const std::string& stage) {
+    std::vector<std::string> errors;
+    if (!output.is_object()) return "顶层必须是 JSON 对象";
+    if (value(output, "objective").empty()) errors.push_back("objective 不能为空");
+    if (value(output, "overview").empty()) errors.push_back("overview 不能为空");
+    if (!output.contains("steps") || !output["steps"].is_array() || output["steps"].size() < 5) errors.push_back("steps 至少需要 5 项");
+    else for (const auto& step : output["steps"])
+        for (const char* key : {"title", "explanation", "example", "action", "check"})
+            if (value(step, key).empty()) errors.push_back(std::string("steps 缺少 ") + key);
+    if (!output.contains("tasks") || !output["tasks"].is_array() || output["tasks"].size() < 3) errors.push_back("tasks 至少需要 3 项");
+    else for (const auto& task : output["tasks"])
+        for (const char* key : {"title", "description", "duration", "output"})
+            if (value(task, key).empty()) errors.push_back(std::string("tasks 缺少 ") + key);
+    if (output.contains("tasks") && output["tasks"].is_array()) {
+        for (const auto& task : output["tasks"]) {
+            if (!task.contains("actionSteps") || !validStringArray(task["actionSteps"], 2)) errors.push_back("tasks.actionSteps 至少需要 2 项");
+            if (!task.contains("checklist") || !validStringArray(task["checklist"], 1)) errors.push_back("tasks.checklist 至少需要 1 项");
+        }
+    }
+    if (!output.contains("checklist") || !validStringArray(output["checklist"], 3)) errors.push_back("checklist 至少需要 3 项");
+    if (!output.contains("commonMistakes") || !validStringArray(output["commonMistakes"], 2)) errors.push_back("commonMistakes 至少需要 2 项");
+    const std::string serialized = output.dump();
+    if (!goal.empty() && serialized.find(goal) == std::string::npos) errors.push_back("内容必须明确回应用户目标");
+    if (!stage.empty() && serialized.find(stage) == std::string::npos) errors.push_back("内容必须明确围绕当前阶段");
+    for (const std::string& generic : {"明确本阶段问题", "完成一次材料分析", "复盘并纠错"})
+        if (serialized.find(generic) != std::string::npos) errors.push_back("包含阶段模板句");
+    std::ostringstream result;
+    for (size_t i = 0; i < errors.size(); ++i) { if (i) result << "；"; result << errors[i]; }
+    return result.str();
+}
+
 ChatOptions options(const std::string& system, const std::string& user, const std::string& mode) {
-    return {{{"system", system}, {"user", user}}, {}, 0.3, mode == "lite" ? 2500 : 3500, "json_object", 45000, 1};
+    return {{{"system", system}, {"user", user}}, {}, 0.25,
+        mode == "lite" ? 2500 : 3500, "json_object", 60000, 1};
 }
 
-json fallbackPhase(const std::string& stage, const std::vector<std::string>& topics) {
-    const std::string topic = topics.empty() ? stage : topics.front();
-    return {
-        {"objective", u8"围绕“" + stage + u8"”，掌握核心概念、适用条件和一个典型应用。"},
-        {"overview", u8"本阶段使用可直接执行的学习单推进：解释概念、分析材料、完成练习并记录错误。"},
-        {"steps", json::array({
-            {{"title", u8"明确本阶段问题"}, {"explanation", u8"用自己的话写出“" + topic + u8"”研究什么，以及完成本阶段后能解决什么问题。"}, {"example", u8"把教材中的一个例题或材料作为验证对象。"}, {"action", u8"写出定义、两个条件和一个用途。"}, {"check", u8"不看资料也能完整复述。"}},
-            {{"title", u8"完成一次材料分析"}, {"explanation", u8"按“已知信息—使用方法—得出结论”拆解一道典型题或材料。"}, {"example", u8"先圈出关键词，再对应本阶段的定义或规律。"}, {"action", u8"完成一份三步分析并标注依据。"}, {"check", u8"每一步都有材料或概念依据。"}},
-            {{"title", u8"复盘并纠错"}, {"explanation", u8"把易混概念、遗漏条件和错误结论分别记下来，形成下次可复用的检查表。"}, {"example", u8"对比正确解法与自己的首次思路。"}, {"action", u8"记录至少两条易错点。"}, {"check", u8"能说明每条错误为什么会发生。"}}
-        })},
-        {"tasks", json::array({
-            {{"title", u8"概念卡片"}, {"description", u8"整理“" + topic + u8"”的定义、条件和用途。"}, {"duration", u8"20 分钟"}, {"output", u8"一张可复习的概念卡片"}, {"actionSteps", json::array({u8"写定义", u8"列条件", u8"补一个例子"})}, {"checklist", json::array({u8"定义完整", u8"条件具体", u8"例子相关"})}},
-            {{"title", u8"典型题分析"}, {"description", u8"选择一道与本阶段相关的练习题，完整写出推理过程。"}, {"duration", u8"30 分钟"}, {"output", u8"一份三步分析与错误记录"}, {"actionSteps", json::array({u8"提取信息", u8"选择方法", u8"检验结论"})}, {"checklist", json::array({u8"使用全部关键条件", u8"过程可复查"})}}
-        })},
-        {"checklist", json::array({u8"能复述核心概念", u8"能列出适用条件", u8"能完成一道典型题分析", u8"已记录易错点"})},
-        {"commonMistakes", json::array({u8"只背结论，不核对条件", u8"只写答案，缺少推理过程", u8"看到关键词就机械套用方法"})}
-    };
+std::string nowIso8601() {
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t time = std::chrono::system_clock::to_time_t(now);
+    std::tm utc{};
+#ifdef _WIN32
+    gmtime_s(&utc, &time);
+#else
+    gmtime_r(&time, &utc);
+#endif
+    std::ostringstream out;
+    out << std::put_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
+    return out.str();
 }
 
-} // namespace
+}  // namespace
 
 PhaseGenerator::PhaseGenerator(AIClient& client) : client_(client) {}
 
 std::optional<json> PhaseGenerator::generate(const std::string& goal, const std::string& mode, int phaseIndex,
                                               const std::string& stage, const std::vector<std::string>& topics,
                                               const std::vector<SearchResource>& resources) const {
-    try {
-        std::ostringstream topicText;
-        for (size_t i = 0; i < topics.size(); ++i) { if (i) topicText << "、"; topicText << topics[i]; }
-        std::ostringstream resourceText;
-        for (size_t i = 0; i < std::min<size_t>(5, resources.size()); ++i)
-            resourceText << "\n- " << resources[i].title << " | " << resources[i].source << " | " << resources[i].description;
-        const std::string system = "你是钢一定制AI的课程阶段导师。只输出严格 JSON，禁止 Markdown、代码块、注释和解释文字。";
-        const std::string user = "学习目标：" + goal + "\n模式：" + mode + "\n阶段序号：" + std::to_string(phaseIndex) +
+    std::ostringstream topicText;
+    for (size_t i = 0; i < topics.size(); ++i) { if (i) topicText << "、"; topicText << topics[i]; }
+    std::ostringstream resourceText;
+    for (size_t i = 0; i < std::min<size_t>(5, resources.size()); ++i)
+        resourceText << "\n- " << resources[i].title << " | " << resources[i].source << " | " << resources[i].description;
+
+    std::string feedback;
+    std::string lastType = "quality_rejected";
+    std::string lastMessage = "阶段内容未通过质量检查";
+    for (int attempt = 1; attempt <= 3; ++attempt) {
+        const std::string system = "你是钢一定制AI的课程阶段导师。只输出严格 JSON，禁止 Markdown、代码块、注释、解释文字和通用模板内容。";
+        std::string user = "学习目标：" + goal + "\n模式：" + mode + "\n阶段序号：" + std::to_string(phaseIndex) +
             "\n阶段名：" + stage + "\ntopics：" + topicText.str() + "\n参考资源摘要：" + resourceText.str() +
-            "\n请输出严格 JSON：{objective, overview, steps[5-8条，每条含title/explanation/example/action/check], tasks[3-5条，每条含title/description/duration/output/actionSteps/checklist], checklist[3-6条], commonMistakes[2-4条]}。objective和overview必须非空，steps和tasks必须非空。";
-        const json output = normalize(parseAIJson(client_.chat(options(system, user, mode)).content));
-        if (validate(output)) return output;
-    } catch (...) {}
-    return fallbackPhase(stage, topics);
+            "\n请根据目标、阶段与具体 topics 生成严格 JSON：{objective, overview, steps[5-8条，每条含title/explanation/example/action/check], tasks[3-5条，每条含title/description/duration/output/actionSteps/checklist], checklist[3-6条], commonMistakes[2-4条]}。";
+        if (!feedback.empty()) user += "\n上一次输出未通过检查：" + feedback + "。请完整重新生成并逐项修正。";
+        try {
+            const AIResult response = client_.chat(options(system, user, mode));
+            json output = parseAIJson(response.content);
+            feedback = validate(output, goal, stage);
+            if (feedback.empty()) {
+                json normalized = {{"objective", output.at("objective")}, {"overview", output.at("overview")},
+                    {"checklist", output.at("checklist")}, {"commonMistakes", output.at("commonMistakes")},
+                    {"steps", json::array()}, {"tasks", json::array()}};
+                for (const auto& step : output.at("steps")) {
+                    json clean;
+                    for (const char* key : {"title", "explanation", "example", "action", "check"}) clean[key] = step.at(key);
+                    normalized["steps"].push_back(std::move(clean));
+                }
+                for (const auto& task : output.at("tasks")) {
+                    json clean;
+                    for (const char* key : {"title", "description", "duration", "output", "actionSteps", "checklist"}) clean[key] = task.at(key);
+                    normalized["tasks"].push_back(std::move(clean));
+                }
+                const char* configuredModel = std::getenv("AI_MODEL");
+                normalized["_generation"] = {{"source", "ai"},
+                    {"model", response.model.empty() && configuredModel ? configuredModel : response.model},
+                    {"generatedAt", nowIso8601()}, {"attempts", attempt}, {"promptVersion", "ai-phase-v1"}};
+                std::cerr << "[phase] phase=" << phaseIndex << " attempt=" << attempt << " quality=passed\n";
+                return normalized;
+            }
+            lastType = "quality_rejected";
+            lastMessage = feedback;
+            std::cerr << "[phase] phase=" << phaseIndex << " attempt=" << attempt
+                      << " quality=rejected reason=" << feedback << '\n';
+        } catch (const AIClientError& error) {
+            lastType = error.errorType;
+            lastMessage = error.what();
+            feedback = "AI 调用失败：" + std::string(error.what());
+            std::cerr << "[phase] phase=" << phaseIndex << " attempt=" << attempt
+                      << " ai_error=" << error.errorType << '\n';
+        } catch (const std::exception& error) {
+            lastType = "invalid_response";
+            lastMessage = error.what();
+            feedback = "AI 输出无法解析：" + std::string(error.what());
+        }
+    }
+    throw AIClientError(lastType, lastMessage);
 }
 
-} // namespace gangyi
+}  // namespace gangyi

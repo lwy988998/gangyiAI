@@ -1,6 +1,7 @@
 #include "db.hpp"
 #include "progress_service.hpp"
 
+#include <sqlite3.h>
 #include <filesystem>
 #include <iostream>
 
@@ -110,6 +111,32 @@ int main() {
     expect(database.listTaskProgress().empty() && database.listLearningStepProgress().empty() &&
         database.listLearningCardProgress().empty(), "重置应清理三类学习进度");
 
+    gangyi::LearningSession legacy;
+    legacy.id = "legacy-session";
+    legacy.courseId = course.id;
+    legacy.goal = course.goal;
+    legacy.mode = "deep";
+    legacy.phaseIndex = 1;
+    legacy.phaseName = "基础阶段";
+    legacy.topicIndex = 1;
+    legacy.topicTitle = "旧模板主题";
+    legacy.title = "旧模板课堂";
+    legacy.content = "{}";
+    expect(database.insert(legacy), "应创建待迁移的旧课堂记录");
+
+    database.close();
+    sqlite3* raw = nullptr;
+    expect(sqlite3_open(path.u8string().c_str(), &raw) == SQLITE_OK, "应打开迁移测试数据库");
+    if (raw) {
+        expect(sqlite3_exec(raw, "PRAGMA user_version=2", nullptr, nullptr, nullptr) == SQLITE_OK,
+            "应模拟旧数据库版本");
+        sqlite3_close(raw);
+    }
+    database.open(path.u8string());
+    database.migrate();
+    const auto migrated = database.getLearningSession(legacy.id);
+    expect(migrated && migrated->source == "legacy" && migrated->fallbackUsed == 1,
+        "旧课堂正文应标记为待重新生成");
     database.close();
     std::filesystem::remove(path, filesystemError);
     return failures == 0 ? 0 : 1;

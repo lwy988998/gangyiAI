@@ -104,7 +104,8 @@ json sanitizeResourceItem(const json& value) {
 json sanitizeObject(const json& value, int depth) {
     static const std::vector<std::string> whitelist = {
         "title", "duration", "summary", "courseIntro", "overview", "audience", "prerequisites", "outcome",
-        "learningOutcomes", "slides", "mindMap", "roadmap", "courseStructure", "resources", "projects"
+        "learningOutcomes", "slides", "mindMap", "roadmap", "courseStructure", "resources", "projects",
+        "generation", "phaseExpansions"
     };
     json out = json::object();
     if (depth > 0) {

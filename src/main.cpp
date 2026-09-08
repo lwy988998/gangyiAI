@@ -4,7 +4,6 @@
 #include "ai_client.hpp"
 #include "page_renderer.hpp"
 #include "plan_generator.hpp"
-#include "plan_cache.hpp"
 #include "plan_adapter.hpp"
 #include "search_client.hpp"
 #include "quality_gate.hpp"
@@ -27,6 +26,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -88,50 +88,18 @@ nlohmann::json planToJson(const gangyi::GeneratedPlan& plan) {
             {"mindMap", plan.mindMap}, {"resources", plan.resources}, {"projects", plan.projects}};
 }
 
-nlohmann::json fallbackCoursePlan(const std::string& goal, const std::string& mode) {
-    const int phaseCount = mode == "lite" ? 3 : 4;
-    nlohmann::json roadmap = nlohmann::json::array();
-    nlohmann::json structure = nlohmann::json::array();
-    nlohmann::json slides = nlohmann::json::array();
-    for (int index = 1; index <= phaseCount; ++index) {
-        const std::string phaseName = goal + "·第" + std::to_string(index) + "阶段";
-        const std::vector<std::string> topics = {
-            phaseName + "核心概念", phaseName + "典型练习", phaseName + "应用检查"};
-        const std::vector<std::string> tasks = {
-            "完成「" + goal + "」核心概念练习并记录过程",
-            "提交一份「" + goal + "」阶段报告或作品"};
-        nlohmann::json steps = nlohmann::json::array();
-        for (size_t step = 0; step < topics.size(); ++step) {
-            steps.push_back({
-                {"title", topics[step]},
-                {"explanation", "围绕「" + topics[step] + "」整理定义、方法和一个具体例子。"},
-                {"action", "完成「" + topics[step] + "」练习并记录关键步骤。"},
-                {"check", "用自己的话解释「" + topics[step] + "」，并提交一份可检查的练习作品。"}});
-        }
-        roadmap.push_back({
-            {"name", phaseName}, {"duration", mode == "lite" ? "1 周" : "2 周"},
-            {"goal", "掌握「" + phaseName + "」的核心知识与方法"},
-            {"description", "从具体知识点出发，完成练习、复盘和阶段产出。"},
-            {"topics", topics}, {"tasks", tasks}, {"steps", steps},
-            {"output", "一份可检查的「" + goal + "」阶段作品或报告"},
-            {"checkpoint", "完成练习并提交阶段作品，能够说明关键步骤。"},
-            {"commonMistakes", nlohmann::json::array({"只看讲解不完成练习", "没有记录检查结果"})}});
-        structure.push_back({{"stage", phaseName}, {"topics", topics}});
-        slides.push_back({{"title", phaseName}, {"subtitle", goal},
-                          {"content", "本阶段围绕具体知识点、练习任务和阶段作品推进。"},
-                          {"bullets", topics}});
-    }
-    return {{"title", goal + (mode == "lite" ? "快速学习方案" : "系统学习方案")},
-            {"summary", "围绕你的目标生成可执行的阶段路线、练习和检查标准。"},
-            {"courseIntro", "每个阶段都有明确知识点、行动任务、阶段作品和检查点。"},
-            {"overview", "按阶段完成知识学习、练习、复盘和成果提交。"},
-            {"duration", mode == "lite" ? "3 周" : "8 周"}, {"roadmap", roadmap},
-            {"courseStructure", structure}, {"slides", slides},
-            {"mindMap", {{"title", "课程知识结构"}, {"nodes", nlohmann::json::array()}}},
-            {"resources", nlohmann::json::array()},
-            {"projects", nlohmann::json::array({{{"name", goal + "阶段作品"}, {"difficulty", "入门"},
-                {"duration", mode == "lite" ? "2 小时" : "4 小时"},
-                {"output", "一份可展示的" + goal + "作品"}}})}};
+std::string nowIso8601() {
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t time = std::chrono::system_clock::to_time_t(now);
+    std::tm utc{};
+#ifdef _WIN32
+    gmtime_s(&utc, &time);
+#else
+    gmtime_r(&time, &utc);
+#endif
+    std::ostringstream out;
+    out << std::put_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
+    return out.str();
 }
 
 std::string qualityFeedback(const gangyi::QualityResult& result) {
@@ -381,7 +349,7 @@ int main() {
         return response;
     });
 
-    // GET /api/learn 微课程内容：从已生成课程快照构造可执行的单节学习内容。
+    // GET /api/learn —— 按板块生成、校验并保存真实 AI 微课堂内容。
     CROW_ROUTE(app, "/api/learn")([&db](const crow::request& req) {
         try {
             const auto value = [&req](const char* name) {
@@ -391,11 +359,11 @@ int main() {
             const std::string courseId = value("courseId");
             const std::string anonymousId = requestAnonymousId(req);
             if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) {
-                return crow::response(404, nlohmann::json{{"error", "课程不存在或无权访问。"}}.dump());
+                return crow::response(404, nlohmann::json{{"ok", false}, {"error", "课程不存在或无权访问。"}}.dump());
             }
+
             std::string goal = value("goal");
-            std::string mode = value("mode");
-            if (mode != "lite") mode = "deep";
+            std::string mode = value("mode") == "lite" ? "lite" : "deep";
             nlohmann::json plan = nlohmann::json::object();
             if (!courseId.empty()) {
                 if (const auto found = gangyi::getCourseWithSnapshot(db, courseId)) {
@@ -403,254 +371,134 @@ int main() {
                     if (goal.empty()) goal = found->course.goal;
                     if (value("mode").empty()) mode = found->course.mode == "lite" ? "lite" : "deep";
                 }
+                const auto provenance = plan.value("generation", nlohmann::json::object());
+                if (provenance.value("source", "") != "ai" || provenance.value("promptVersion", "") != "ai-plan-v1") {
+                    return crow::response(409, nlohmann::json{{"ok", false}, {"type", "course_regeneration_required"},
+                        {"error", "该课程来自旧生成链路，请重新生成课程后进入学习。"}, {"canRetry", false}}.dump());
+                }
             }
-            if (goal.empty()) goal = "你的学习目标";
-            // URL 对外统一使用 1-based 索引，数组访问时再转换为 0-based。
-            int phaseNumber = 1;
-            int topicNumber = 1;
+            if (goal.empty()) return crow::response(400, nlohmann::json{{"ok", false}, {"type", "learning_context_missing"}, {"error", "缺少学习目标"}}.dump());
+
+            int phaseNumber = 1, topicNumber = 1;
             try { if (!value("phaseIndex").empty()) phaseNumber = std::max(1, std::stoi(value("phaseIndex"))); } catch (...) {}
             try { if (!value("topicIndex").empty()) topicNumber = std::max(1, std::stoi(value("topicIndex"))); } catch (...) {}
-            int phaseIndex = phaseNumber - 1;
-            int topicIndex = topicNumber - 1;
-
-            const auto roadmap = plan.value("roadmap", nlohmann::json::array());
+            const int phaseIndex = phaseNumber - 1;
+            const int topicIndex = topicNumber - 1;
             nlohmann::json stage = nlohmann::json::object();
-            if (roadmap.is_array() && !roadmap.empty()) {
-                phaseIndex = std::min(phaseIndex, static_cast<int>(roadmap.size()) - 1);
-                stage = roadmap[phaseIndex];
+            const auto roadmap = plan.value("roadmap", nlohmann::json::array());
+            if (roadmap.is_array() && phaseIndex < static_cast<int>(roadmap.size())) stage = roadmap[phaseIndex];
+            const auto structure = plan.value("courseStructure", nlohmann::json::array());
+            if (structure.is_array() && phaseIndex < static_cast<int>(structure.size()) && structure[phaseIndex].is_object()) {
+                if (stage.empty()) stage = nlohmann::json::object();
+                if (!stage.contains("topics")) stage["topics"] = structure[phaseIndex].value("topics", nlohmann::json::array());
+                if (!stage.contains("name")) stage["name"] = structure[phaseIndex].value("stage", "");
             }
-            // 课程快照可能只有 courseStructure，或 roadmap 的阶段字段不完整；补回学习卡片的分支信息。
-            const auto courseStructure = plan.value("courseStructure", nlohmann::json::array());
-            if (courseStructure.is_array() && phaseIndex >= 0 && phaseIndex < static_cast<int>(courseStructure.size()) && courseStructure[phaseIndex].is_object()) {
-                const auto& structureStage = courseStructure[phaseIndex];
-                if (!stage.is_object()) stage = nlohmann::json::object();
-                if (!stage.contains("name") || !stage["name"].is_string() || stage["name"].get<std::string>().empty()) {
-                    stage["name"] = structureStage.value("stage", "阶段" + std::to_string(phaseIndex + 1));
-                }
-                if (!stage.contains("topics") || !stage["topics"].is_array() || stage["topics"].empty()) {
-                    if (structureStage.contains("topics") && structureStage["topics"].is_array()) stage["topics"] = structureStage["topics"];
-                }
-            }
-            const std::string phaseName = value("phaseName").empty()
-                ? stage.value("name", "当前阶段") : value("phaseName");
-            auto topics = nlohmann::json::array();
-            if (stage.contains("topics") && stage["topics"].is_array()) {
-                for (const auto& item : stage["topics"]) if (item.is_string()) topics.push_back(item);
-            }
-            if (topics.empty() && stage.contains("steps") && stage["steps"].is_array()) {
-                for (const auto& item : stage["steps"]) {
-                    if (!item.is_object()) continue;
-                    const std::string title = item.value("title", item.value("name", ""));
-                    if (!title.empty()) topics.push_back(title);
-                }
-            }
-            const std::string requestedTopic = value("topic");
-            if (requestedTopic.empty() && topics.empty()) {
+            const std::string phaseName = value("phaseName").empty() ? stage.value("name", "") : value("phaseName");
+            std::string topic = value("topic");
+            const auto topics = stage.value("topics", nlohmann::json::array());
+            if (topic.empty() && topics.is_array() && topicIndex < static_cast<int>(topics.size()) && topics[topicIndex].is_string()) topic = topics[topicIndex].get<std::string>();
+            if (phaseName.empty() || topic.empty()) {
                 return crow::response(400, nlohmann::json{{"ok", false}, {"type", "learning_context_missing"},
-                    {"error", "当前学习入口缺少具体主题，请返回课程页重新进入本节。"}, {"canRetry", false}}.dump());
+                    {"error", "当前课程缺少 AI 生成的阶段或主题，请重新生成课程。"}, {"canRetry", false}}.dump());
             }
-            const std::string searchTopic = requestedTopic.empty()
-                ? (topics.empty() ? goal : topics[std::min(topicIndex, static_cast<int>(topics.size()) - 1)].get<std::string>())
-                : requestedTopic;
-            const bool forceRegenerate = value("regenerate") == "1" || value("forceLearn") == "1" || value("retry") == "1";
-            if (!forceRegenerate && !courseId.empty()) {
-                if (const auto saved = db.findLearningSession(courseId, phaseNumber, topicNumber)) {
-                    if (saved->source == "ai" && saved->fallbackUsed == 0 && !saved->content.empty()) {
-                        try {
-                            auto cached = nlohmann::json::parse(saved->content);
-                            cached["ok"] = true;
-                            cached["cached"] = true;
-                            cached["goal"] = goal;
-                            cached["mode"] = mode;
-                            cached["phaseName"] = phaseName;
-                            cached["topicTitle"] = searchTopic;
-                            return crow::response(200, cached.dump());
-                        } catch (...) {}
-                    }
-                }
+
+            nlohmann::json stored = {{"schemaVersion", 2}, {"promptVersion", "ai-block-v1"},
+                {"blocks", nlohmann::json::object()}, {"generations", nlohmann::json::object()},
+                {"references", nlohmann::json::array()}};
+            std::optional<gangyi::LearningSession> existing;
+            if (!courseId.empty()) existing = db.findLearningSession(courseId, phaseNumber, topicNumber);
+            if (existing && existing->source == "ai" && existing->fallbackUsed == 0) {
+                try {
+                    const auto parsed = nlohmann::json::parse(existing->content);
+                    if (parsed.value("promptVersion", "") == "ai-block-v1" && parsed.value("blocks", nlohmann::json()).is_object()) stored = parsed;
+                } catch (...) {}
+
             }
-            // 搜索词包含当前分支主题，确保 Bocha 返回的真实资料与本节内容相关。
-            const std::string publicSearchTopic = goal + " " + phaseName + " " + searchTopic + " 学习资料 教程 例题 练习";
-            std::vector<gangyi::SearchResource> liveResources;
-            std::string liveResourceProvider;
+
+            const std::string block = value("block");
+            const std::vector<std::string> allowed = {"overview", "steps", "examples", "practice", "quiz", "assessment"};
+            if (block.empty()) {
+                return crow::response(200, nlohmann::json{{"ok", true}, {"cached", true}, {"goal", goal},
+                    {"phaseName", phaseName}, {"topicTitle", topic}, {"blocks", stored["blocks"]},
+                    {"generations", stored["generations"]}, {"references", stored["references"]}}.dump());
+            }
+            if (std::find(allowed.begin(), allowed.end(), block) == allowed.end()) {
+                return crow::response(400, nlohmann::json{{"ok", false}, {"type", "invalid_request"}, {"error", "未知课堂板块"}}.dump());
+            }
+
+            const bool regenerateAll = value("regenerate") == "1";
+            const bool retryBlock = value("retry") == "1";
+            if (regenerateAll && block == "overview") {
+                stored["blocks"] = nlohmann::json::object();
+                stored["generations"] = nlohmann::json::object();
+                stored["references"] = nlohmann::json::array();
+            }
+            if (!regenerateAll && !retryBlock && stored["blocks"].contains(block)) {
+                return crow::response(200, nlohmann::json{{"ok", true}, {"cached", true}, {"block", block},
+                    {"content", stored["blocks"][block]}, {"generation", stored["generations"].value(block, nlohmann::json::object())},
+                    {"references", stored["references"]}}.dump());
+            }
+
+            std::vector<gangyi::SearchResource> resources;
             try {
                 gangyi::SearchClient search;
-                liveResources = search.search(publicSearchTopic, 8);
-                liveResourceProvider = search.lastProvider();
+                resources = search.search(goal + " " + phaseName + " " + topic + " 高中 学习资料 例题", 8);
             } catch (...) {}
-            const auto resourcesToJson = [](const std::vector<gangyi::SearchResource>& resources) {
-                nlohmann::json output = nlohmann::json::array();
-                for (const auto& resource : resources) {
-                    output.push_back({
-                        {"title", resource.title}, {"source", resource.source}, {"url", resource.url},
-                        {"type", resource.type}, {"description", resource.description},
-                        {"difficulty", resource.difficulty}, {"language", resource.language},
-                        {"free", resource.free}, {"reason", resource.reason}
-                    });
-                }
-                return output;
-            };
 
-            // 微课程正文由当前配置的模型按分支主题实时生成，不把课程快照中的通用步骤当作正文。
-            try {
-                gangyi::AIClient ai;
-                gangyi::LearningGenerator generator(ai);
-                const auto answer = generator.generate(goal, phaseName, searchTopic, topicIndex + 1, mode, liveResources);
-                const bool fallbackUsed = answer.value("_fallbackUsed", false);
-                nlohmann::json responseBody = answer;
-                responseBody.erase("_fallbackUsed");
-                responseBody["ok"] = true;
-                responseBody["goal"] = goal;
-                responseBody["mode"] = mode;
-                responseBody["phaseName"] = phaseName;
-                responseBody["topicTitle"] = searchTopic;
-                responseBody["topicIndex"] = topicIndex + 1;
-                responseBody["resourceProvider"] = liveResourceProvider;
-                // 引用只采用服务端实际搜索到的资料，避免模型编造链接。
-                responseBody["references"] = resourcesToJson(liveResources);
-                if (!courseId.empty()) {
-                    gangyi::LearningSession session;
-                    session.id = "learn-" + courseId + "-" + std::to_string(phaseNumber) + "-" + std::to_string(topicNumber);
-                    session.courseId = courseId;
-                    session.anonymousId = anonymousId;
-                    session.goal = goal;
-                    session.mode = mode;
-                    session.phaseIndex = phaseNumber;
-                    session.phaseName = phaseName;
-                    session.topicIndex = topicNumber;
-                    session.topicTitle = searchTopic;
-                    session.title = answer.value("title", searchTopic + "·微课程");
-                    session.summary = answer.value("summary", "");
-                    session.searchQuery = publicSearchTopic;
-                    session.content = responseBody.dump();
-                    session.references = responseBody["references"].dump();
-                    session.fallbackUsed = fallbackUsed ? 1 : 0;
-                    session.source = fallbackUsed ? "topic_fallback" : "ai";
-                    if (const auto existing = db.findLearningSession(courseId, phaseNumber, topicNumber)) {
-                        session.id = existing->id;
-                        db.update(session);
-                    } else {
-                        db.insert(session);
-                    }
-                }
-                return crow::response(200, responseBody.dump());
-            } catch (const gangyi::AIClientError& error) {
-                return crow::response(aiHttpStatus(error), nlohmann::json{{"ok", false}, {"type", error.errorType},
-                    {"error", publicAIErrorMessage(error)}, {"canRetry", true}, {"topic", searchTopic}}.dump());
+            gangyi::AIClient ai;
+            gangyi::LearningGenerator generator(ai);
+            nlohmann::json generated = generator.generateBlock(goal, plan, phaseName, topic, topicNumber,
+                mode, block, stored["blocks"], resources);
+            const nlohmann::json metadata = generated.value("_generation", nlohmann::json::object());
+            if (metadata.value("source", "") != "ai") throw gangyi::AIClientError("invalid_response", "AI 生成来源校验失败");
+            generated.erase("_generation");
+            stored["blocks"][block] = generated;
+            stored["generations"][block] = metadata;
+
+            if (!resources.empty()) {
+                stored["references"] = nlohmann::json::array();
+                for (const auto& resource : resources) stored["references"].push_back({
+                    {"title", resource.title}, {"source", resource.source}, {"url", resource.url},
+                    {"type", resource.type}, {"description", resource.description},
+                    {"difficulty", resource.difficulty}, {"language", resource.language}, {"free", resource.free}});
             }
 
-            nlohmann::json rawSteps = stage.value("steps", nlohmann::json::array());
-            nlohmann::json lessonSteps = nlohmann::json::array();
-            if (rawSteps.is_array()) {
-                for (const auto& item : rawSteps) {
-                    if (!item.is_object()) continue;
-                    lessonSteps.push_back({
-                        {"title", item.value("title", "理解本节核心概念")},
-                        {"explanation", item.value("explanation", "结合课程目标理解概念、条件和解题方法。")},
-                        {"example", item.value("example", "选择一道对应题目或一段教材材料进行分析。")},
-                        {"action", item.value("action", "写出关键条件，并完成一份具体练习。")},
-                        {"check", item.value("check", "能够用自己的话复述方法，并说明适用条件。")}
-                    });
-                }
+            if (!courseId.empty()) {
+                const auto overview = stored["blocks"].value("overview", nlohmann::json::object());
+                gangyi::LearningSession session;
+                session.id = existing ? existing->id : "learn-" + courseId + "-" + std::to_string(phaseNumber) + "-" + std::to_string(topicNumber);
+                session.courseId = courseId;
+                session.anonymousId = anonymousId;
+                session.goal = goal;
+                session.mode = mode;
+                session.phaseIndex = phaseNumber;
+                session.phaseName = phaseName;
+                session.topicIndex = topicNumber;
+                session.topicTitle = topic;
+                session.title = overview.value("title", topic);
+                session.summary = overview.value("summary", "");
+                session.searchQuery = goal + " " + phaseName + " " + topic;
+                session.content = stored.dump();
+                session.references = stored["references"].dump();
+                session.fallbackUsed = 0;
+                session.source = "ai";
+                const bool saved = existing ? db.update(session) : db.insert(session);
+                if (!saved) throw std::runtime_error("课堂板块保存失败");
             }
-            if (lessonSteps.empty()) {
-                lessonSteps = nlohmann::json::array({
-                    {{"title", "理解" + searchTopic}, {"explanation", "明确“" + searchTopic + "”的定义、条件和解决的问题。"}, {"example", "从教材或练习中找一个“" + searchTopic + "”的例子。"}, {"action", "写出定义、两个关键条件和一个应用场景。"}, {"check", "不看资料能准确解释核心概念。"}},
-                    {{"title", "练习" + searchTopic}, {"explanation", "按已知信息、方法选择、结论检验三个步骤完成练习。"}, {"example", "圈出题目中的关键条件，再选择对应方法。"}, {"action", "完成一道题并记录每一步依据。"}, {"check", "每一步都有明确依据，结论符合条件。"}},
-                    {{"title", "复盘" + searchTopic}, {"explanation", "整理本节的易错点，形成下一次可直接使用的检查清单。"}, {"example", "对比自己的首次思路与标准解法。"}, {"action", "记录至少两条错误原因和改进办法。"}, {"check", "能说明错误为什么发生以及如何避免。"}}
-                });
-            }
-            // 课程快照通常只有 3 步，这里补齐为完整的五步学习闭环。
-            while (lessonSteps.size() < 5) {
-                const size_t index = lessonSteps.size();
-                if (index == 3) {
-                    lessonSteps.push_back({
-                        {"title", "迁移应用" + searchTopic},
-                        {"explanation", "把本节方法放到一个稍有变化的新情境中，确认你掌握的是方法而不是原题答案。"},
-                        {"example", "换一个数据、材料或应用场景，重新完成同一类分析。"},
-                        {"action", "写出新情境与原题的相同点、不同点和调整后的做法。"},
-                        {"check", "能够说明方法为什么仍然适用，或指出需要更换的方法。"}
-                    });
-                } else {
-                    lessonSteps.push_back({
-                        {"title", "自测与总结" + searchTopic},
-                        {"explanation", "用一句话总结本节结论，再用一个反例检验结论的边界。"},
-                        {"example", "找一个容易误用本方法的反例，说明它为什么不满足条件。"},
-                        {"action", "完成‘结论—条件—反例’三行总结。"},
-                        {"check", "能说清结论、条件和边界，而不是只背结论。"}
-                    });
-                }
-            }
-            topicIndex = std::min(topicIndex, static_cast<int>(lessonSteps.size()) - 1);
-            const auto selectedStep = lessonSteps[std::max(0, topicIndex)];
-            const std::string topicTitle = requestedTopic.empty()
-                ? selectedStep.value("title", phaseName) : requestedTopic;
-
-            nlohmann::json examples = nlohmann::json::array();
-            for (const auto& step : lessonSteps) {
-                if (step.value("example", "").empty()) continue;
-                examples.push_back({{"title", step.value("title", "示例")}, {"content", step.value("example", "")}, {"solution", step.value("check", "")}});
-            }
-            while (examples.size() < 5) {
-                examples.push_back({
-                    {"title", "资料对照示例" + std::to_string(examples.size() + 1)},
-                    {"content", "打开下方真实参考资料，找出其中一个与“" + searchTopic + "”相关的定义、步骤或案例，并用自己的话复述。"},
-                    {"solution", "复述时同时写出资料来源、适用条件和一个你自己的例子。"}
-                });
-            }
-            nlohmann::json practice = nlohmann::json::array();
-            if (stage.contains("tasks") && stage["tasks"].is_array()) {
-                for (const auto& task : stage["tasks"]) {
-                    if (task.is_string()) practice.push_back({{"title", "阶段任务"}, {"task", task.get<std::string>()}, {"check", "完成后记录过程和结果。"}});
-                    else if (task.is_object()) practice.push_back({{"title", task.value("title", "阶段任务")}, {"task", task.value("description", "完成本阶段练习。")}, {"check", task.value("output", "形成可检查的学习产出。")}});
-                }
-            }
-            if (practice.empty()) practice.push_back({{"title", "完成本节练习"}, {"task", "完成一道与“" + topicTitle + "”相关的练习并记录过程。"}, {"check", "能够复查步骤并说明结论依据。"}});
-            while (practice.size() < 4) {
-                const size_t index = practice.size();
-                practice.push_back({
-                    {"title", index == 1 ? "错题复盘" : index == 2 ? "资料提炼" : "迁移练习"},
-                    {"task", index == 1 ? "回看一次错误或卡住的过程，标出遗漏的条件和下一次的检查动作。" :
-                        index == 2 ? "从真实参考资料中摘录一个关键观点，注明来源并写出你的理解。" :
-                        "改变题目中的一个条件或应用场景，重新完成分析并解释调整原因。"},
-                    {"check", "过程可复查，结论有依据，并能说明与本节主题的关系。"}
-                });
-            }
-            nlohmann::json quiz = nlohmann::json::array({
-                {{"question", "本节学习的第一步是什么？"}, {"options", {"明确概念与适用条件", "直接背答案", "跳过练习"}}, {"answerIndex", 0}, {"explanation", "先明确概念和条件，后续练习才有依据。"}},
-                {{"question", "完成练习后还需要做什么？"}, {"options", {"检查过程并记录错误", "不看过程只看分数", "直接进入下一节"}}, {"answerIndex", 0}, {"explanation", "复盘过程能发现遗漏条件和错误方法。"}},
-                {{"question", "如何判断方法是否适用于新情境？"}, {"options", {"核对关键条件是否满足", "只看题目长短", "直接套用原答案"}}, {"answerIndex", 0}, {"explanation", "先核对条件，再决定是否沿用方法。"}},
-                {{"question", "使用真实参考资料时最重要的动作是什么？"}, {"options", {"记录来源并用自己的话复述", "只收藏链接", "复制整段文字"}}, {"answerIndex", 0}, {"explanation", "注明来源并复述，才能把资料转化为自己的理解。"}}
-            });
-            nlohmann::json checkpoint = nlohmann::json::array();
-            checkpoint.push_back(stage.value("checkpoint", "能解释核心概念并完成一份练习。"));
-            checkpoint.push_back(stage.value("output", "形成一份可检查的阶段学习产出。"));
-            nlohmann::json mistakes = stage.value("commonMistakes", nlohmann::json::array());
-            if (!mistakes.is_array() || mistakes.empty()) mistakes = nlohmann::json::array({"只背结论，不核对适用条件", "只写答案，不记录推理过程"});
-            nlohmann::json references = resourcesToJson(liveResources);
-            if (references.empty()) {
-                const auto resources = plan.value("resources", nlohmann::json::array());
-                if (resources.is_array()) for (const auto& item : resources) if (item.is_object()) references.push_back({
-                    {"title", item.value("name", item.value("title", "参考资料"))}, {"source", item.value("type", "课程资料")},
-                    {"url", item.value("href", item.value("url", ""))}, {"type", item.value("type", "参考资料")},
-                    {"description", item.value("description", "课程计划中的参考资料")}, {"difficulty", item.value("difficulty", "入门")}});
-            }
-            return crow::response(200, nlohmann::json{
-                {"ok", true}, {"title", topicTitle + "·微课程"},
-                {"summary", stage.value("description", stage.value("goal", "围绕本节目标完成理解、练习和复盘。"))},
-                {"goal", goal}, {"mode", mode}, {"phaseName", phaseName}, {"topicTitle", topicTitle},
-                {"keyConcepts", topics}, {"lessonSteps", lessonSteps}, {"examples", examples},
-                {"practice", practice}, {"quiz", quiz}, {"checkpoint", checkpoint},
-                {"commonMistakes", mistakes},
-                {"resourceSummary", liveResources.empty() ? "暂无联网资料，先完成本节学习内容。" : "已补充 Bocha 联网真实学习资料"},
-                {"resourceProvider", liveResourceProvider}, {"references", references}
-            }.dump());
+            std::cerr << "[learning-block] saved course=" << courseId << " phase=" << phaseNumber
+                      << " topic=" << topicNumber << " block=" << block << '\n';
+            return crow::response(200, nlohmann::json{{"ok", true}, {"cached", false}, {"block", block},
+                {"content", generated}, {"generation", metadata}, {"references", stored["references"]}}.dump());
+        } catch (const gangyi::AIClientError& error) {
+            return crow::response(aiHttpStatus(error), nlohmann::json{{"ok", false}, {"type", error.errorType},
+                {"error", publicAIErrorMessage(error)}, {"canRetry", true}, {"attempts", 3}}.dump());
         } catch (const std::exception& error) {
-            std::cerr << "[learn] unexpected error" << std::endl;
-            return crow::response(500, nlohmann::json{{"ok", false}, {"error", "微课程读取失败，请稍后重试。"}}.dump());
+            std::cerr << "[learning-block] internal_error=" << error.what() << '\n';
+            return crow::response(500, nlohmann::json{{"ok", false}, {"type", "internal_error"},
+                {"error", "课堂内容保存失败，请稍后重试。"}, {"canRetry", true}}.dump());
+
         }
     });
-
     // 学习页进度接口：页面已经恢复，步骤和完成状态也必须能稳定保存。
     CROW_ROUTE(app, "/api/learning-step-progress")([&db](const crow::request& req) {
         const std::string courseId = req.url_params.get("courseId") ? req.url_params.get("courseId") : "";
@@ -1119,81 +967,63 @@ int main() {
         return response;
     });
 
-    // POST /api/generate-plan —— 课程规划生成（缓存 → 生成 → 适配 MockPlan 形状 → 搜索补充资源）
+    // POST /api/generate-plan —— 每门课程首次均由 AI 生成；课程保存后由快照负责复用。
     CROW_ROUTE(app, "/api/generate-plan").methods(crow::HTTPMethod::POST)([](const crow::request& req) {
         try {
             const auto body = nlohmann::json::parse(req.body);
             const std::string goal = body.value("goal", "");
             const std::string mode = body.value("mode", "deep");
-            const bool bypassCache = body.value("bypassCache", false) ||
-                body.value("forcePlan", false) || body.contains("retry");
             if (goal.empty()) {
                 return crow::response(400, nlohmann::json{{"error", "请填写学习目标。"}}.dump());
             }
             gangyi::AIClient ai;
             gangyi::PlanGenerator generator(ai);
-            gangyi::PlanCache cache;
 
             nlohmann::json adapted;
             gangyi::QualityResult gate;
             std::string feedback;
-            bool fromCache = false;
             bool qualityValid = false;
-            if (!bypassCache) {
-                if (auto cached = cache.read(goal, mode)) {
-                    const auto& raw = *cached;
-                    // 缓存内容可能是适配后的 MockPlan 形状（roadmap/courseStructure）或原始 GeneratedPlan 形状
-                    if (raw.contains("roadmap") && raw.contains("courseStructure")) {
-                        adapted = raw;
-                    } else {
-                        adapted = gangyi::adaptGeneratedPlan(raw, mode);
-                    }
-                    gate = gangyi::validateCourseContent(adapted, goal, mode,
-                        adapted.value("title", goal));
-                    qualityValid = gate.valid;
-                    fromCache = qualityValid;
-                    if (!qualityValid) feedback = qualityFeedback(gate);
-                }
-            }
-            if (!fromCache) {
-                // 质量重试最多两次，避免多层重试叠加后超过前端等待上限。
-                for (int attempt = 0; attempt < 2 && !qualityValid; ++attempt) {
+            int successfulAttempt = 0;
+            std::string generatedModel;
+            std::string lastErrorType = "quality_rejected";
+            for (int attempt = 0; attempt < 3 && !qualityValid; ++attempt) {
                     std::cerr << "[generate-plan] attempt=" << (attempt + 1)
                               << " mode=" << mode << std::endl;
                     try {
                         const auto plan = generator.generate(goal, mode, feedback);
+                        generatedModel = plan.generationModel;
                         const auto raw = planToJson(plan);
                         adapted = gangyi::adaptGeneratedPlan(raw, mode);
                         gate = gangyi::validateCourseContent(adapted, goal, mode,
                             adapted.value("title", goal));
                         qualityValid = gate.valid;
+                        if (qualityValid) successfulAttempt = attempt + 1;
                         if (!qualityValid) {
+                            lastErrorType = "quality_rejected";
                             feedback = qualityFeedback(gate);
                             std::cerr << "[generate-plan] quality rejected attempt="
                                       << (attempt + 1) << " score=" << gate.score
                                       << " issues=" << qualityIssueCodes(gate) << std::endl;
                         }
                     } catch (const gangyi::AIClientError& error) {
+                        lastErrorType = error.errorType;
                         std::cerr << "[generate-plan] AI error attempt=" << (attempt + 1)
                                   << " type=" << error.errorType << std::endl;
                         feedback = "上一次模型输出无法使用：" + std::string(error.what()) +
                             "。请重新输出完整、严格符合字段结构的 JSON。";
                     } catch (const std::exception& error) {
-                        std::cerr << "[generate-plan] error attempt=" << (attempt + 1) << std::endl;
+                        lastErrorType = "invalid_response";
+                        std::cerr << "[generate-plan] error attempt=" << (attempt + 1)
+                                  << " message=" << error.what() << std::endl;
+
                         feedback = "上一次生成结果解析失败：" + std::string(error.what()) +
                             "。请重新输出完整 JSON，不要输出解释文字。";
                     }
-                }
-                if (!qualityValid) {
-                    std::cerr << "[generate-plan] using deterministic fallback after quality retries" << std::endl;
-                    adapted = fallbackCoursePlan(goal, mode);
-                    gate = gangyi::validateCourseContent(adapted, goal, mode,
-                        adapted.value("title", goal));
-                    qualityValid = gate.valid;
-                    adapted["qualityNotice"] = "模型结果已根据质量检查反馈自动重试；当前展示的是稳定可用的课程结构。";
-                }
-                cache.write(goal, mode, adapted);
             }
+            if (!qualityValid) throw gangyi::AIClientError(lastErrorType, feedback.empty() ? "AI 连续三次未生成合格课程结构" : feedback);
+            const char* configuredModel = std::getenv("AI_MODEL");
+            adapted["generation"] = {{"source", "ai"}, {"model", generatedModel.empty() ? (configuredModel ? configuredModel : "") : generatedModel},
+                {"generatedAt", nowIso8601()}, {"attempts", successfulAttempt}, {"promptVersion", "ai-plan-v1"}};
 
             // 联网搜索补充真实资源（失败静默降级，不阻断主流程）
             try {
@@ -1217,7 +1047,8 @@ int main() {
             int code = 502;
             if (e.errorType == "missing_config" || e.errorType == "auth_error") code = 503;
             else if (e.errorType == "timeout") code = 504;
-            return crow::response(code, nlohmann::json{{"error", publicAIErrorMessage(e)}, {"type", e.errorType}}.dump());
+            return crow::response(code, nlohmann::json{{"ok", false}, {"error", publicAIErrorMessage(e)},
+                {"type", e.errorType}, {"canRetry", true}, {"attempts", 3}}.dump());
         } catch (const std::exception& e) {
             std::cerr << "[generate-plan] unhandled error" << std::endl;
             return crow::response(502, nlohmann::json{{"error", "课程规划生成失败，请稍后重试。"}}.dump());
@@ -1239,6 +1070,13 @@ int main() {
             const std::string source = body.value("source", "ai");
             const std::string anonymousId = requestAnonymousId(req, &body);
             const std::string userId;
+
+            const auto generation = body["payload"].value("generation", nlohmann::json::object());
+            if (source != "ai" || generation.value("source", "") != "ai" ||
+                generation.value("promptVersion", "") != "ai-plan-v1") {
+                return crow::response(400, nlohmann::json{{"ok", false}, {"error", "COURSE_AI_PROVENANCE_REQUIRED"},
+                    {"message", "课程必须由当前 AI 生成链路创建，请重新生成。"}, {"canRetry", true}}.dump());
+            }
 
             const auto gate = gangyi::validateCourseContent(body["payload"], goal, mode, title);
             if (!gate.valid) {
@@ -1556,7 +1394,8 @@ int main() {
 
 #endif
 
-    // POST /api/phase-expansion —— 阶段展开生成
+    // POST /api/phase-expansion —— 首次由 AI 生成并保存，后续复用课程快照。
+
     CROW_ROUTE(app, "/api/phase-expansion").methods(crow::HTTPMethod::POST)([&db](const crow::request& req) {
         try {
             const auto body = nlohmann::json::parse(req.body);
@@ -1565,45 +1404,91 @@ int main() {
             if (!requesterCanAccessCourse(db, req, courseId, anonymousId)) {
                 return crow::response(404, nlohmann::json{{"ok", false}, {"error", "课程不存在或无权访问。"}}.dump());
             }
-            const std::string goal = body.value("goal", "");
-            const std::string mode = body.value("mode", "deep");
-            const int phaseIndex = body.value("phaseIndex", 1);
-            const std::string stage = body.value("stage", "");
+            std::string goal = body.value("goal", "");
+            std::string mode = body.value("mode", "deep");
+            const int phaseIndex = std::max(1, body.value("phaseIndex", 1));
+            std::string stage = body.value("stage", "");
+            nlohmann::json plan = nlohmann::json::object();
+            if (!courseId.empty()) {
+                if (const auto found = gangyi::getCourseWithSnapshot(db, courseId)) {
+                    plan = found->payload;
+                    if (goal.empty()) goal = found->course.goal;
+                    if (body.value("mode", "").empty()) mode = found->course.mode;
+                }
+                const auto provenance = plan.value("generation", nlohmann::json::object());
+                if (provenance.value("source", "") != "ai" || provenance.value("promptVersion", "") != "ai-plan-v1") {
+                    return crow::response(409, nlohmann::json{{"ok", false}, {"type", "course_regeneration_required"},
+                        {"error", "该课程来自旧生成链路，请重新生成课程。"}, {"canRetry", false}}.dump());
+                }
+            }
+            if (goal.empty()) return crow::response(400, nlohmann::json{{"ok", false}, {"error", "goal 不能为空"}}.dump());
+
+            const std::string phaseKey = std::to_string(phaseIndex);
+            const bool regenerate = body.value("regenerate", false);
+            const auto expansions = plan.value("phaseExpansions", nlohmann::json::object());
+            if (!regenerate && expansions.is_object() && expansions.contains(phaseKey)) {
+                const auto cached = expansions[phaseKey];
+                if (cached.value("generation", nlohmann::json::object()).value("source", "") == "ai") {
+                    return crow::response(200, nlohmann::json{{"ok", true}, {"cached", true},
+                        {"phase", cached.value("content", nlohmann::json::object())},
+                        {"generation", cached.value("generation", nlohmann::json::object())},
+                        {"resources", cached.value("resources", nlohmann::json::array())}}.dump());
+                }
+            }
+
             std::vector<std::string> topics;
-            if (body.contains("topics") && body["topics"].is_array()) {
-                for (const auto& t : body["topics"]) if (t.is_string()) topics.push_back(t.get<std::string>());
+            if (body.contains("topics") && body["topics"].is_array())
+                for (const auto& topic : body["topics"]) if (topic.is_string()) topics.push_back(topic.get<std::string>());
+            const auto roadmap = plan.value("roadmap", nlohmann::json::array());
+            if (roadmap.is_array() && phaseIndex <= static_cast<int>(roadmap.size()) && roadmap[phaseIndex - 1].is_object()) {
+                const auto& phase = roadmap[phaseIndex - 1];
+                if (stage.empty()) stage = phase.value("name", "");
+                if (topics.empty() && phase.contains("topics") && phase["topics"].is_array())
+                    for (const auto& topic : phase["topics"]) if (topic.is_string()) topics.push_back(topic.get<std::string>());
+
             }
-            if (goal.empty()) {
-                return crow::response(400, nlohmann::json{{"ok", false}, {"error", "请填写学习目标。"}}.dump());
-            }
+            if (stage.empty() || topics.empty()) return crow::response(400, nlohmann::json{{"ok", false},
+                {"type", "phase_context_missing"}, {"error", "课程缺少 AI 生成的阶段或主题"}}.dump());
+
             std::vector<gangyi::SearchResource> resources;
-            try {
-                gangyi::SearchClient search;
-                resources = search.search(goal + " " + stage, 8);
-            } catch (...) {}
+            try { gangyi::SearchClient search; resources = search.search(goal + " " + stage, 8); } catch (...) {}
             gangyi::AIClient ai;
             gangyi::PhaseGenerator generator(ai);
-            const auto result = generator.generate(goal, mode, phaseIndex, stage, topics, resources);
-            if (!result) {
-                return crow::response(200, nlohmann::json{{"ok", false},
-                    {"message", "阶段内容暂未生成完成，请稍后重试。"}}.dump());
-            }
+            auto generated = *generator.generate(goal, mode, phaseIndex, stage, topics, resources);
+            const auto metadata = generated.value("_generation", nlohmann::json::object());
+            if (metadata.value("source", "") != "ai") throw gangyi::AIClientError("invalid_response", "阶段生成来源校验失败");
+            generated.erase("_generation");
+
             nlohmann::json resourceItems = nlohmann::json::array();
-            for (const auto& resource : resources) {
-                resourceItems.push_back({{"title", resource.title}, {"description", resource.description},
-                    {"url", resource.url}, {"source", resource.source}, {"type", resource.type},
-                    {"difficulty", resource.difficulty}, {"free", resource.free}});
+            for (const auto& resource : resources) resourceItems.push_back({
+                {"title", resource.title}, {"description", resource.description}, {"url", resource.url},
+                {"source", resource.source}, {"type", resource.type}, {"difficulty", resource.difficulty}, {"free", resource.free}});
+
+            if (!courseId.empty()) {
+                auto snapshots = db.findSnapshotsByCourseId(courseId);
+                if (!snapshots.empty()) {
+                    auto latest = std::max_element(snapshots.begin(), snapshots.end(),
+                        [](const auto& left, const auto& right) { return left.version < right.version; });
+                    auto payload = nlohmann::json::parse(latest->payload);
+                    if (!payload.contains("phaseExpansions") || !payload["phaseExpansions"].is_object()) payload["phaseExpansions"] = nlohmann::json::object();
+                    payload["phaseExpansions"][phaseKey] = {{"content", generated}, {"generation", metadata}, {"resources", resourceItems}};
+                    latest->payload = payload.dump();
+                    if (!db.update(*latest)) throw std::runtime_error("阶段内容保存失败");
+                }
             }
-            return crow::response(200, nlohmann::json{{"ok", true}, {"phase", *result}, {"resources", resourceItems}}.dump());
-        } catch (const gangyi::AIClientError& e) {
-            return crow::response(aiHttpStatus(e), nlohmann::json{{"error", publicAIErrorMessage(e)},
-                {"type", e.errorType}}.dump());
-        } catch (const std::exception& e) {
-            std::cerr << "[phase-expansion] unexpected error" << std::endl;
-            return crow::response(502, nlohmann::json{{"error", "阶段内容生成失败，请稍后重试。"}}.dump());
+            std::cerr << "[phase] saved course=" << courseId << " phase=" << phaseIndex << '\n';
+            return crow::response(200, nlohmann::json{{"ok", true}, {"cached", false},
+                {"phase", generated}, {"generation", metadata}, {"resources", resourceItems}}.dump());
+        } catch (const gangyi::AIClientError& error) {
+            return crow::response(aiHttpStatus(error), nlohmann::json{{"ok", false}, {"error", publicAIErrorMessage(error)},
+                {"type", error.errorType}, {"canRetry", true}, {"attempts", 3}}.dump());
+        } catch (const std::exception& error) {
+            std::cerr << "[phase] internal_error=" << error.what() << '\n';
+            return crow::response(502, nlohmann::json{{"ok", false},
+                {"error", "阶段内容保存失败，请稍后重试。"}, {"canRetry", true}}.dump());
+
         }
     });
-
     CROW_ROUTE(app, "/<path>")([](const crow::request&, crow::response& response, std::string path) {
         const auto public_root = std::filesystem::weakly_canonical("public");
         const auto requested = std::filesystem::weakly_canonical(public_root / path);

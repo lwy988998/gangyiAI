@@ -45,6 +45,7 @@ struct Slide {
 };
 
 struct GeneratedPlan {
+    std::string generationModel;
     std::string inferredDomain;
     std::string learnerGoal;
     std::string courseTitle;

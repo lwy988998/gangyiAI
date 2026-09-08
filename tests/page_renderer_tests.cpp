@@ -43,6 +43,21 @@ int main() {
     expect(home.find("class=\"home-page ") != std::string::npos, "首页应包含校园背景容器");
     expect(home.find("home-goal-surface") != std::string::npos, "首页应包含学习目标对话框");
 
+    const std::string learn = gangyi::renderLearnPage("course-1", "掌握函数单调性", "deep",
+        "1", "基础阶段", "1", "函数单调性", "anonymous-1", "", "", "");
+    expect(learn.find("order=['overview','steps','examples','practice','quiz','assessment']") != std::string::npos,
+        "微课堂应按六个 AI 板块逐块生成");
+    expect(learn.find("已自动尝试 3 次，仍未生成") != std::string::npos,
+        "板块失败后应明确显示三次重试结果");
+    expect(learn.find("data-retry-block") != std::string::npos,
+        "失败板块应提供独立重试入口");
+    expect(learn.find("block='+encodeURIComponent(block)") != std::string::npos,
+        "每次请求应携带具体板块参数");
+
+    const std::string planPage = gangyi::renderPlanPage("掌握函数单调性", "deep", "", "anonymous-1");
+    expect(planPage.find("250000") != std::string::npos,
+        "主线课程三次 AI 尝试应有足够的前端等待时间");
+
     nlohmann::json courses = {
         {"anonymousId", "anonymous-1"}, {"authenticated", false},
         {"stats", {{"total", 1}}},
