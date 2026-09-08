@@ -2,6 +2,7 @@
 """在隔离目录中验收 Linux 服务，不接触正式数据库。"""
 
 import http.client
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 
@@ -17,6 +19,49 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 BINARY = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else REPO_ROOT / "build" / "gangyiAI"
 PORT = int(os.environ.get("GANGYI_TEST_PORT", "39421"))
 CONTROL_TOKEN = "acceptance-control-token"
+
+
+class MockAIHandler(BaseHTTPRequestHandler):
+    """返回可通过质量门禁的模型响应，验证运行时确实经过 AI HTTP 链路。"""
+
+    def do_POST(self):
+        request = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
+        user = next((item.get("content", "") for item in request.get("messages", [])
+                     if item.get("role") == "user"), "")
+        goal = user.split("学习目标：", 1)[-1].splitlines()[0] or "高中数学函数单调性验收"
+        names = ("函数定义域与增减区间", "图像与导数综合判定", "参数函数单调性验收")
+        phases = []
+        for index, name in enumerate(names, 1):
+            phases.append({
+                "name": name,
+                "durationWeeks": 1,
+                "objective": f"围绕{goal}，独立完成{name}的判定与书面说明",
+                "topics": [f"{name}概念辨析", f"{name}典型题", f"{name}错因复盘"],
+                "tasks": [f"完成第{index}组{name}分层练习", f"提交第{index}份{name}解题报告"],
+                "checkpoint": f"正确说明{name}的判定依据并完成验算",
+                "output": f"一份{name}解题报告",
+                "commonMistakes": [f"忽略{name}的定义域", f"未检查{name}的端点"],
+            })
+        content = json.dumps({
+            "inferredDomain": "高中数学",
+            "learnerGoal": goal,
+            "courseTitle": f"{goal}快速提升课程",
+            "courseSummary": f"通过三组递进任务完成{goal}并提交可检查的解题报告",
+            "durationWeeks": 2,
+            "phases": phases,
+        }, ensure_ascii=False)
+        response = json.dumps({
+            "model": request.get("model", "acceptance-model"),
+            "choices": [{"message": {"content": content}}],
+        }, ensure_ascii=False).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(response)))
+        self.end_headers()
+        self.wfile.write(response)
+
+    def log_message(self, *_):
+        pass
 
 
 def request(path, method="GET", payload=None, headers=None, expected=200, timeout=180):
@@ -74,6 +119,9 @@ def main():
     with tempfile.TemporaryDirectory(prefix="gangyiAI-runtime-") as temporary:
         work = Path(temporary)
         log_path = work / "service.log"
+        ai_server = ThreadingHTTPServer(("127.0.0.1", 0), MockAIHandler)
+        ai_thread = threading.Thread(target=ai_server.serve_forever, daemon=True)
+        ai_thread.start()
         environment = os.environ.copy()
         environment.update(
             {
@@ -83,11 +131,11 @@ def main():
                 "DATABASE_PATH": str(work / "gangyiAI.db"),
                 "AI_PLAN_CACHE_DIR": str(work / "plan-cache"),
                 "RESOURCE_SEARCH_CACHE_DIR": str(work / "search-cache"),
+                "AI_BASE_URL": f"http://127.0.0.1:{ai_server.server_port}/v1",
+                "AI_API_KEY": "acceptance-placeholder-key",
+                "AI_MODEL": "acceptance-model",
             }
         )
-        environment.setdefault("AI_BASE_URL", "http://127.0.0.1:9/v1")
-        environment.setdefault("AI_API_KEY", "acceptance-placeholder-key")
-        environment.setdefault("AI_MODEL", "acceptance-model")
 
         with log_path.open("wb") as log_file:
             process = subprocess.Popen(
@@ -135,6 +183,8 @@ def main():
                 assert plan.get("title")
                 assert len(plan.get("roadmap", [])) >= 3
                 assert plan.get("courseStructure")
+                assert plan["generation"]["source"] == "ai"
+                assert plan["generation"]["model"] == "acceptance-model"
                 saved = request_json(
                     "/api/courses", "POST",
                     {
@@ -142,7 +192,7 @@ def main():
                         "title": plan["title"],
                         "summary": plan.get("summary", ""),
                         "mode": "lite",
-                        "source": "acceptance",
+                        "source": "ai",
                         "anonymousId": "acceptance-user",
                         "payload": plan,
                     },
@@ -243,6 +293,8 @@ def main():
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait(timeout=3)
+                ai_server.shutdown()
+                ai_thread.join(timeout=3)
 
     print("[通过] Linux 运行时验收完成。")
 
