@@ -205,13 +205,13 @@ json LearningGenerator::generateBlock(const std::string& goal, const json& cours
 
         ChatOptions options;
         options.messages = {
-            {"system", u8"你是钢一定制AI的专业高中教师。你正在生成一节课程中的单个板块。只输出严格 JSON，禁止 Markdown、代码块、解释文字和虚构链接。必须根据用户目标、AI课程主线、当前阶段、当前主题和前置板块生成具体教学内容；输出正文必须原样出现输入中的 goal、phase、topic 三个字符串；不得把字段名或通用学习方法当作正文。输出结构：" + schema->second},
+            {"system", u8"你是钢一定制AI的专业高中教师。你正在生成一节课程中的单个板块。只输出一个完整严格 JSON 对象，禁止 Markdown、代码块、解释文字、字段省略、输出截断和虚构链接。必须根据用户目标、AI课程主线、当前阶段、当前主题和前置板块生成具体教学内容；输出正文必须原样出现输入中的 goal、phase、topic 三个字符串；每个说明控制在1-3句话，不得把字段名或通用学习方法当作正文。输出结构：" + schema->second},
             {"user", input.dump()}
         };
         options.temperature = attempt == 1 ? 0.3 : 0.15;
-        options.maxTokens = mode == "lite" ? 1800 : 2600;
+        options.maxTokens = mode == "lite" ? 3000 : 4200;
         options.responseFormat = "json_object";
-        options.timeoutMs = 60000;
+        options.timeoutMs = 90000;
         options.maxAttempts = 1;
         try {
             const AIResult response = client_.chat(options);

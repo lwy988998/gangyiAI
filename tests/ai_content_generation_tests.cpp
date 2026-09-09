@@ -136,6 +136,8 @@ int main() {
         expect(server.requests().find("previousBlocks") != std::string::npos, "请求必须携带已生成前置板块");
         expect(server.requests().find("原样出现输入中的 goal、phase、topic") != std::string::npos,
             "提示词必须与目标、阶段、主题的质量门禁一致");
+        expect(server.requests().find("\"max_tokens\":4200") != std::string::npos,
+            "深度板块必须预留完整 JSON 输出空间");
         expect(server.requests().find(std::string(299, 'a') + "…") != std::string::npos,
             "资源摘要截断不得破坏 UTF-8，且必须继续调用 AI");
     }
@@ -166,6 +168,10 @@ int main() {
         }
         server.wait();
         expect(server.count() == 3, "阶段生成失败必须自动尝试三次");
+        expect(server.requests().find("禁止省略任何字段") != std::string::npos,
+            "阶段提示词必须禁止截断或省略字段");
+        expect(server.requests().find("\"max_tokens\":6000") != std::string::npos,
+            "深度阶段必须预留完整 JSON 输出空间");
     }
 #ifdef _WIN32
     WSACleanup();

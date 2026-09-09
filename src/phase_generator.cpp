@@ -59,7 +59,7 @@ std::string validate(const json& output, const std::string& goal, const std::str
 
 ChatOptions options(const std::string& system, const std::string& user, const std::string& mode) {
     return {{{"system", system}, {"user", user}}, {}, 0.25,
-        mode == "lite" ? 2500 : 3500, "json_object", 60000, 1};
+        mode == "lite" ? 4500 : 6000, "json_object", 90000, 1};
 }
 
 std::string nowIso8601() {
@@ -93,10 +93,14 @@ std::optional<json> PhaseGenerator::generate(const std::string& goal, const std:
     std::string lastType = "quality_rejected";
     std::string lastMessage = "阶段内容未通过质量检查";
     for (int attempt = 1; attempt <= 3; ++attempt) {
-        const std::string system = "你是钢一定制AI的课程阶段导师。只输出严格 JSON，禁止 Markdown、代码块、注释、解释文字和通用模板内容。";
+        const std::string system = "你是钢一定制AI的课程阶段导师。只输出一个完整严格 JSON 对象，禁止 Markdown、代码块、注释、解释文字和通用模板内容。所有规定字段必须一次性完整输出，不得截断或省略。";
         std::string user = "学习目标：" + goal + "\n模式：" + mode + "\n阶段序号：" + std::to_string(phaseIndex) +
             "\n阶段名：" + stage + "\ntopics：" + topicText.str() + "\n参考资源摘要：" + resourceText.str() +
-            "\n请根据目标、阶段与具体 topics 生成严格 JSON：{objective, overview, steps[5-8条，每条含title/explanation/example/action/check], tasks[3-5条，每条含title/description/duration/output/actionSteps/checklist], checklist[3-6条], commonMistakes[2-4条]}。";
+            "\n请生成严格 JSON，字段顺序固定为：objective、overview、tasks、checklist、commonMistakes、steps。"
+            "objective 和 overview 必须原样包含学习目标“" + goal + "”与阶段名“" + stage + "”。"
+            "tasks 恰好3条，每条含title/description/duration/output/actionSteps(恰好2条)/checklist(恰好1条)；"
+            "checklist 恰好3条；commonMistakes 恰好2条；steps 恰好5条，每条含title/explanation/example/action/check。"
+            "每个说明控制在1-2句话，总长度不超过6000个汉字；禁止省略任何字段。";
         if (!feedback.empty()) user += "\n上一次输出未通过检查：" + feedback + "。请完整重新生成并逐项修正。";
         try {
             const AIResult response = client_.chat(options(system, user, mode));
