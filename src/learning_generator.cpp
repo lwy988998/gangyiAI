@@ -1,6 +1,7 @@
 #include "learning_generator.hpp"
 
 #include "json_fix.hpp"
+#include "text_utils.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -55,7 +56,7 @@ json resourceContext(const std::vector<SearchResource>& resources) {
     for (size_t i = 0; i < resources.size() && i < 5; ++i) {
         const auto& item = resources[i];
         result.push_back({{"title", item.title}, {"source", item.source},
-            {"description", item.description.substr(0, 300)}});
+            {"description", truncateUtf8(item.description, 300)}});
     }
     return result;
 }

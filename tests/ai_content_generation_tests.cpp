@@ -123,8 +123,10 @@ int main() {
         MockServer server(providerResponse(content), 1);
         auto client = clientFor(server);
         gangyi::LearningGenerator generator(client);
+        gangyi::SearchResource resource;
+        resource.description = std::string(299, 'a') + "中";
         const auto result = generator.generateBlock(goal, plan, phase,
-            topic, 1, "deep", "overview", nlohmann::json::object(), {});
+            topic, 1, "deep", "overview", nlohmann::json::object(), {resource});
         server.wait();
         expect(result["_generation"].value("source", "") == "ai", "成功板块必须记录 AI 来源");
         expect(result["_generation"].value("model", "") == "configured-model", "必须记录实际返回模型");
@@ -132,6 +134,8 @@ int main() {
         expect(server.requests().find("deepseek-v4-flash") == std::string::npos, "不得硬模型");
         expect(server.requests().find("coursePlan") != std::string::npos, "请求必须携带已保存课程主线");
         expect(server.requests().find("previousBlocks") != std::string::npos, "请求必须携带已生成前置板块");
+        expect(server.requests().find(std::string(299, 'a') + "…") != std::string::npos,
+            "资源摘要截断不得破坏 UTF-8，且必须继续调用 AI");
     }
     {
         MockServer server(providerResponse({{"title", topic}}), 3);
