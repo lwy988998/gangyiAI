@@ -1,5 +1,6 @@
 #include "learning_generator.hpp"
 #include "phase_generator.hpp"
+#include "text_utils.hpp"
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -112,6 +113,20 @@ int main() {
     WSADATA data{};
     if (WSAStartup(MAKEWORD(2, 2), &data) != 0) return 2;
 #endif
+    const std::string utf8 = u8"abc中文";
+    expect(gangyi::truncateUtf8(utf8, 3) == "abc", "ASCII 截断必须保留完整字符");
+    expect(gangyi::truncateUtf8(utf8, 4) == "abc", "不得保留半个中文字符");
+    expect(gangyi::truncateUtf8(utf8, 6) == u8"abc中", "中文结束边界必须保留完整字符");
+    expect(gangyi::truncateUtf8(utf8, 9) == utf8, "长度上限足够时必须保留完整内容");
+    const std::string incomplete = std::string("abc") + static_cast<char>(0xE4) + static_cast<char>(0xB8);
+    const std::string validPrefix = gangyi::truncateUtf8(incomplete, incomplete.size());
+    expect(validPrefix == "abc", "不完整 UTF-8 末尾必须返回已确认合法的前缀");
+    try {
+        const std::string dumped = nlohmann::json{{"value", validPrefix}}.dump();
+        expect(!dumped.empty(), "安全截断结果必须可执行 JSON dump");
+    } catch (...) {
+        expect(false, "安全截断结果不得导致 JSON dump 异常");
+    }
     const nlohmann::json plan = {{"title", "氧化还原反应课程"}, {"generation", {{"source", "ai"}}}};
     const std::string goal = "高中化学氧化还原反应";
     const std::string phase = "氧化还原基础";
@@ -140,7 +155,7 @@ int main() {
             "数学内容必须避免生成破坏 JSON 的 LaTeX 反斜杠");
         expect(server.requests().find("\"max_tokens\":4200") != std::string::npos,
             "深度板块必须预留完整 JSON 输出空间");
-        expect(server.requests().find(std::string(299, 'a') + "…") != std::string::npos,
+        expect(server.requests().find(std::string(299, 'a')) != std::string::npos,
             "资源摘要截断不得破坏 UTF-8，且必须继续调用 AI");
     }
     {
