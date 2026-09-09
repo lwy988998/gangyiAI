@@ -1008,7 +1008,7 @@ int main() {
                     } catch (const gangyi::AIClientError& error) {
                         lastErrorType = error.errorType;
                         std::cerr << "[generate-plan] AI error attempt=" << (attempt + 1)
-                                  << " type=" << error.errorType << std::endl;
+                                  << " type=" << error.errorType << " reason=" << error.what() << std::endl;
                         feedback = "上一次模型输出无法使用：" + std::string(error.what()) +
                             "。请重新输出完整、严格符合字段结构的 JSON。";
                     } catch (const std::exception& error) {
