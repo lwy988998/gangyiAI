@@ -170,6 +170,8 @@ int main() {
         expect(server.count() == 3, "阶段生成失败必须自动尝试三次");
         expect(server.requests().find("禁止省略任何字段") != std::string::npos,
             "阶段提示词必须禁止截断或省略字段");
+        expect(server.requests().find("所有数组必须使用 JSON 数组") != std::string::npos,
+            "阶段提示词必须明确嵌套数组类型");
         expect(server.requests().find("\"max_tokens\":6000") != std::string::npos,
             "深度阶段必须预留完整 JSON 输出空间");
     }
