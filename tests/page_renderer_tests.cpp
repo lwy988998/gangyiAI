@@ -46,13 +46,15 @@ int main() {
     const std::string learn = gangyi::renderLearnPage("course-1", "掌握函数单调性", "deep",
         "1", "基础阶段", "1", "函数单调性", "anonymous-1", "", "", "");
     expect(learn.find("order=['overview','steps','examples','practice','quiz','assessment']") != std::string::npos,
-        "微课堂应按六个 AI 板块逐块生成");
-    expect(learn.find("已自动尝试 3 次，仍未生成") != std::string::npos,
-        "板块失败后应明确显示三次重试结果");
-    expect(learn.find("data-retry-block") != std::string::npos,
-        "失败板块应提供独立重试入口");
-    expect(learn.find("block='+encodeURIComponent(block)") != std::string::npos,
-        "每次请求应携带具体板块参数");
+        "微课堂必须校验六个 AI 板块全部存在");
+    expect(learn.find("&block=all") != std::string::npos,
+        "进入微课堂必须请求服务端生成全部 AI 板块");
+    expect(learn.find("data-retry-lesson") != std::string::npos,
+        "失败后应提供整节课程重试入口");
+    expect(learn.find("data-retry-block") == std::string::npos,
+        "页面不得要求用户逐板块重试");
+    expect(learn.find("$('learn-content').classList.add('hidden')") != std::string::npos,
+        "全部 AI 板块完成前必须隐藏课程正文");
 
     const std::string planPage = gangyi::renderPlanPage("掌握函数单调性", "deep", "", "anonymous-1");
     expect(planPage.find("250000") != std::string::npos,
