@@ -351,6 +351,7 @@ int main() {
 
     // GET /api/learn —— 按板块生成、校验并保存真实 AI 微课堂内容。
     CROW_ROUTE(app, "/api/learn")([&db](const crow::request& req) {
+        std::string activeBlock;
         try {
             const auto value = [&req](const char* name) {
                 const char* item = req.url_params.get(name);
@@ -417,26 +418,46 @@ int main() {
 
             const std::string block = value("block");
             const std::vector<std::string> allowed = {"overview", "steps", "examples", "practice", "quiz", "assessment"};
+            const bool generateAll = block == "all";
+            const auto hasAiBlock = [](const nlohmann::json& content, const std::string& name) {
+                if (!content.value("blocks", nlohmann::json()).is_object() ||
+                    !content["blocks"].contains(name) ||
+                    !content.value("generations", nlohmann::json()).is_object() ||
+                    !content["generations"].contains(name) ||
+                    !content["generations"][name].is_object()) return false;
+                const auto& generation = content["generations"][name];
+                return generation.value("source", "") == "ai" &&
+                    generation.value("promptVersion", "") == "ai-block-v1" &&
+                    !generation.value("model", "").empty();
+            };
             if (block.empty()) {
                 return crow::response(200, nlohmann::json{{"ok", true}, {"cached", true}, {"goal", goal},
                     {"phaseName", phaseName}, {"topicTitle", topic}, {"blocks", stored["blocks"]},
                     {"generations", stored["generations"]}, {"references", stored["references"]}}.dump());
             }
-            if (std::find(allowed.begin(), allowed.end(), block) == allowed.end()) {
+            if (!generateAll && std::find(allowed.begin(), allowed.end(), block) == allowed.end()) {
                 return crow::response(400, nlohmann::json{{"ok", false}, {"type", "invalid_request"}, {"error", "未知课堂板块"}}.dump());
             }
 
             const bool regenerateAll = value("regenerate") == "1";
             const bool retryBlock = value("retry") == "1";
-            if (regenerateAll && block == "overview") {
-                stored["blocks"] = nlohmann::json::object();
-                stored["generations"] = nlohmann::json::object();
-                stored["references"] = nlohmann::json::array();
+            if (generateAll && !regenerateAll && std::all_of(allowed.begin(), allowed.end(),
+                    [&](const std::string& name) { return hasAiBlock(stored, name); })) {
+                return crow::response(200, nlohmann::json{{"ok", true}, {"cached", true},
+                    {"phaseName", phaseName}, {"topicTitle", topic}, {"blocks", stored["blocks"]},
+                    {"generations", stored["generations"]}, {"references", stored["references"]}}.dump());
             }
-            if (!regenerateAll && !retryBlock && stored["blocks"].contains(block)) {
+            if (!generateAll && !regenerateAll && !retryBlock && hasAiBlock(stored, block)) {
                 return crow::response(200, nlohmann::json{{"ok", true}, {"cached", true}, {"block", block},
                     {"content", stored["blocks"][block]}, {"generation", stored["generations"].value(block, nlohmann::json::object())},
                     {"references", stored["references"]}}.dump());
+            }
+
+            nlohmann::json working = stored;
+            if (generateAll && regenerateAll) {
+                working["blocks"] = nlohmann::json::object();
+                working["generations"] = nlohmann::json::object();
+                working["references"] = nlohmann::json::array();
             }
 
             std::vector<gangyi::SearchResource> resources;
@@ -445,26 +466,17 @@ int main() {
                 resources = search.search(goal + " " + phaseName + " " + topic + " 高中 学习资料 例题", 8);
             } catch (...) {}
 
-            gangyi::AIClient ai;
-            gangyi::LearningGenerator generator(ai);
-            nlohmann::json generated = generator.generateBlock(goal, plan, phaseName, topic, topicNumber,
-                mode, block, stored["blocks"], resources);
-            const nlohmann::json metadata = generated.value("_generation", nlohmann::json::object());
-            if (metadata.value("source", "") != "ai") throw gangyi::AIClientError("invalid_response", "AI 生成来源校验失败");
-            generated.erase("_generation");
-            stored["blocks"][block] = generated;
-            stored["generations"][block] = metadata;
-
             if (!resources.empty()) {
-                stored["references"] = nlohmann::json::array();
-                for (const auto& resource : resources) stored["references"].push_back({
+                working["references"] = nlohmann::json::array();
+                for (const auto& resource : resources) working["references"].push_back({
                     {"title", resource.title}, {"source", resource.source}, {"url", resource.url},
                     {"type", resource.type}, {"description", resource.description},
                     {"difficulty", resource.difficulty}, {"language", resource.language}, {"free", resource.free}});
             }
 
-            if (!courseId.empty()) {
-                const auto overview = stored["blocks"].value("overview", nlohmann::json::object());
+            const auto persist = [&](const nlohmann::json& content) {
+                if (courseId.empty()) return;
+                const auto overview = content["blocks"].value("overview", nlohmann::json::object());
                 gangyi::LearningSession session;
                 session.id = existing ? existing->id : "learn-" + courseId + "-" + std::to_string(phaseNumber) + "-" + std::to_string(topicNumber);
                 session.courseId = courseId;
@@ -478,20 +490,55 @@ int main() {
                 session.title = overview.value("title", topic);
                 session.summary = overview.value("summary", "");
                 session.searchQuery = goal + " " + phaseName + " " + topic;
-                session.content = stored.dump();
-                session.references = stored["references"].dump();
+                session.content = content.dump();
+                session.references = content["references"].dump();
                 session.fallbackUsed = 0;
                 session.source = "ai";
                 const bool saved = existing ? db.update(session) : db.insert(session);
                 if (!saved) throw std::runtime_error("课堂板块保存失败");
+                existing = session;
+            };
+
+            gangyi::AIClient ai;
+            gangyi::LearningGenerator generator(ai);
+            const auto generate = [&](const std::string& name) {
+                activeBlock = name;
+                nlohmann::json generated = generator.generateBlock(goal, plan, phaseName, topic, topicNumber,
+                    mode, name, working["blocks"], resources);
+                const nlohmann::json metadata = generated.value("_generation", nlohmann::json::object());
+                if (metadata.value("source", "") != "ai") throw gangyi::AIClientError("invalid_response", "AI 生成来源校验失败");
+                generated.erase("_generation");
+                working["blocks"][name] = generated;
+                working["generations"][name] = metadata;
+                if (!generateAll || !regenerateAll) persist(working);
+                std::cerr << "[learning-block] saved course=" << courseId << " phase=" << phaseNumber
+                          << " topic=" << topicNumber << " block=" << name << '\n';
+                return std::pair<nlohmann::json, nlohmann::json>{std::move(generated), metadata};
+            };
+
+            if (generateAll) {
+                bool generatedAny = false;
+                for (const auto& name : allowed) {
+                    if (!regenerateAll && hasAiBlock(working, name)) continue;
+                    generate(name);
+                    generatedAny = true;
+                }
+                if (regenerateAll) persist(working);
+                activeBlock.clear();
+                return crow::response(200, nlohmann::json{{"ok", true}, {"cached", !generatedAny},
+                    {"phaseName", phaseName}, {"topicTitle", topic}, {"blocks", working["blocks"]},
+                    {"generations", working["generations"]}, {"references", working["references"]}}.dump());
             }
-            std::cerr << "[learning-block] saved course=" << courseId << " phase=" << phaseNumber
-                      << " topic=" << topicNumber << " block=" << block << '\n';
+
+            auto [generated, metadata] = generate(block);
+            activeBlock.clear();
             return crow::response(200, nlohmann::json{{"ok", true}, {"cached", false}, {"block", block},
-                {"content", generated}, {"generation", metadata}, {"references", stored["references"]}}.dump());
+                {"content", generated}, {"generation", metadata}, {"references", working["references"]}}.dump());
         } catch (const gangyi::AIClientError& error) {
-            return crow::response(aiHttpStatus(error), nlohmann::json{{"ok", false}, {"type", error.errorType},
-                {"error", publicAIErrorMessage(error)}, {"canRetry", true}, {"attempts", 3}}.dump());
+            nlohmann::json response = {{"ok", false}, {"type", error.errorType},
+                {"error", publicAIErrorMessage(error)}, {"canRetry", true}, {"attempts", 3}};
+            if (!activeBlock.empty()) response["failedBlock"] = activeBlock;
+            return crow::response(aiHttpStatus(error), response.dump());
         } catch (const std::exception& error) {
             std::cerr << "[learning-block] internal_error=" << error.what() << '\n';
             return crow::response(500, nlohmann::json{{"ok", false}, {"type", "internal_error"},
@@ -1008,7 +1055,7 @@ int main() {
                     } catch (const gangyi::AIClientError& error) {
                         lastErrorType = error.errorType;
                         std::cerr << "[generate-plan] AI error attempt=" << (attempt + 1)
-                                  << " type=" << error.errorType << std::endl;
+                                  << " type=" << error.errorType << " reason=" << error.what() << std::endl;
                         feedback = "上一次模型输出无法使用：" + std::string(error.what()) +
                             "。请重新输出完整、严格符合字段结构的 JSON。";
                     } catch (const std::exception& error) {

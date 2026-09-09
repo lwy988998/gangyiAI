@@ -31,6 +31,7 @@ struct AIResult {
     std::string content;
     std::string model;
     int status = 0;
+    std::string finishReason;
 };
 
 struct AIClientConfig {

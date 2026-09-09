@@ -1,5 +1,6 @@
 #include "learning_generator.hpp"
 #include "phase_generator.hpp"
+#include "text_utils.hpp"
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -112,6 +113,20 @@ int main() {
     WSADATA data{};
     if (WSAStartup(MAKEWORD(2, 2), &data) != 0) return 2;
 #endif
+    const std::string utf8 = u8"abc中文";
+    expect(gangyi::truncateUtf8(utf8, 3) == "abc", "ASCII 截断必须保留完整字符");
+    expect(gangyi::truncateUtf8(utf8, 4) == "abc", "不得保留半个中文字符");
+    expect(gangyi::truncateUtf8(utf8, 6) == u8"abc中", "中文结束边界必须保留完整字符");
+    expect(gangyi::truncateUtf8(utf8, 9) == utf8, "长度上限足够时必须保留完整内容");
+    const std::string incomplete = std::string("abc") + static_cast<char>(0xE4) + static_cast<char>(0xB8);
+    const std::string validPrefix = gangyi::truncateUtf8(incomplete, incomplete.size());
+    expect(validPrefix == "abc", "不完整 UTF-8 末尾必须返回已确认合法的前缀");
+    try {
+        const std::string dumped = nlohmann::json{{"value", validPrefix}}.dump();
+        expect(!dumped.empty(), "安全截断结果必须可执行 JSON dump");
+    } catch (...) {
+        expect(false, "安全截断结果不得导致 JSON dump 异常");
+    }
     const nlohmann::json plan = {{"title", "氧化还原反应课程"}, {"generation", {{"source", "ai"}}}};
     const std::string goal = "高中化学氧化还原反应";
     const std::string phase = "氧化还原基础";
@@ -123,8 +138,10 @@ int main() {
         MockServer server(providerResponse(content), 1);
         auto client = clientFor(server);
         gangyi::LearningGenerator generator(client);
+        gangyi::SearchResource resource;
+        resource.description = std::string(299, 'a') + "中";
         const auto result = generator.generateBlock(goal, plan, phase,
-            topic, 1, "deep", "overview", nlohmann::json::object(), {});
+            topic, 1, "deep", "overview", nlohmann::json::object(), {resource});
         server.wait();
         expect(result["_generation"].value("source", "") == "ai", "成功板块必须记录 AI 来源");
         expect(result["_generation"].value("model", "") == "configured-model", "必须记录实际返回模型");
@@ -132,6 +149,14 @@ int main() {
         expect(server.requests().find("deepseek-v4-flash") == std::string::npos, "不得硬模型");
         expect(server.requests().find("coursePlan") != std::string::npos, "请求必须携带已保存课程主线");
         expect(server.requests().find("previousBlocks") != std::string::npos, "请求必须携带已生成前置板块");
+        expect(server.requests().find("原样出现输入中的 goal、phase、topic") != std::string::npos,
+            "提示词必须与目标、阶段、主题的质量门禁一致");
+        expect(server.requests().find("禁止使用反斜杠或 LaTeX 命令") != std::string::npos,
+            "数学内容必须避免生成破坏 JSON 的 LaTeX 反斜杠");
+        expect(server.requests().find("\"max_tokens\":4200") != std::string::npos,
+            "深度板块必须预留完整 JSON 输出空间");
+        expect(server.requests().find(std::string(299, 'a')) != std::string::npos,
+            "资源摘要截断不得破坏 UTF-8，且必须继续调用 AI");
     }
     {
         MockServer server(providerResponse({{"title", topic}}), 3);
@@ -160,6 +185,12 @@ int main() {
         }
         server.wait();
         expect(server.count() == 3, "阶段生成失败必须自动尝试三次");
+        expect(server.requests().find("禁止省略任何字段") != std::string::npos,
+            "阶段提示词必须禁止截断或省略字段");
+        expect(server.requests().find("所有数组必须使用 JSON 数组") != std::string::npos,
+            "阶段提示词必须明确嵌套数组类型");
+        expect(server.requests().find("\"max_tokens\":6000") != std::string::npos,
+            "深度阶段必须预留完整 JSON 输出空间");
     }
 #ifdef _WIN32
     WSACleanup();

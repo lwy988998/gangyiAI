@@ -123,7 +123,7 @@ void validate(const GeneratedPlan& plan, const std::string& mode) {
 
 ChatOptions options(const std::string& system, const std::string& user, const std::string& mode) {
     return {{ {"system", system}, {"user", user} }, {}, 0.7,
-        3600, "json_object", mode == "lite" ? 45000 : 75000, 1};
+        mode == "lite" ? 4500 : 6000, "json_object", 90000, 1};
 }
 
 }
@@ -138,7 +138,13 @@ GeneratedPlan PlanGenerator::generate(const std::string& goal, const std::string
 
     const std::string safeGoal = goal.substr(first, goal.find_last_not_of(" \t\r\n") - first + 1);
     const std::string system = std::string(sharedSkeletonRules) + "\n" + modeRules(mode);
-    std::string user = "学习目标：" + safeGoal + "\n模式：" + mode + "\n请生成 Level 1 Plan Skeleton 严格 JSON。只使用规定字段，先输出 inferredDomain 和 learnerGoal，再生成课程标题、摘要、阶段目标、topics、tasks、阶段产出和 checkpoint。";
+    const int phaseCount = mode == "lite" ? 3 : 4;
+    std::string user = "学习目标：" + safeGoal + "\n模式：" + mode +
+        "\n请生成 Level 1 Plan Skeleton 完整严格 JSON。只使用规定字段，字段顺序固定为 inferredDomain、learnerGoal、courseTitle、courseSummary、durationWeeks、phases。"
+        "learnerGoal 必须原样等于学习目标；phases 必须恰好 " + std::to_string(phaseCount) +
+        " 项。每个 phase 必须依次包含 name、durationWeeks、objective、topics、tasks、checkpoint、output、commonMistakes；"
+        "topics 恰好3项，tasks 恰好2项，commonMistakes 恰好2项，全部使用 JSON 数组。"
+        "每个字符串不超过80个汉字，courseSummary 不超过150个汉字，总长度不超过4500个汉字；禁止省略字段、增加字段或输出截断。";
     if (!qualityFeedback.empty()) {
         user += "\n\n上一次生成未通过质量检查，请根据下面的问题重新生成完整 JSON，不要只解释问题：\n";
         user += qualityFeedback;

@@ -1,6 +1,7 @@
 #include "image_goal_analyzer.hpp"
 
 #include "json_fix.hpp"
+#include "text_utils.hpp"
 
 #include <crow/utility.h>
 
@@ -41,7 +42,7 @@ std::vector<std::string> strings(const json& value) {
     for (const auto& item : value) {
         if (item.is_string()) {
             const std::string text = trim(item.get<std::string>());
-            if (!text.empty()) result.push_back(text.substr(0, 200));
+            if (!text.empty()) result.push_back(truncateUtf8(text, 200));
         }
         if (result.size() == 8) break;
     }

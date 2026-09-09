@@ -259,6 +259,10 @@ int main() {
         expect(plan.title == "函数单调性课程", "课程标题应兼容 courseTitle 字段");
         expect(plan.goal == "掌握函数单调性", "学习目标应兼容 learnerGoal 字段");
         expect(plan.phases.size() == 3, "快速规划应保留三个阶段");
+        expect(server.request().find("\"max_tokens\":4500") != std::string::npos,
+            "快速规划必须预留完整 JSON 输出空间");
+        expect(server.request().find("phases 必须恰好 3 项") != std::string::npos,
+            "课程规划提示词必须明确阶段精确数量");
     }
 #ifdef _WIN32
     WSACleanup();
