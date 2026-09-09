@@ -57,6 +57,10 @@ int main() {
         "全部 AI 板块完成前必须隐藏课程正文");
     expect(learn.find("params.delete('regenerate')") != std::string::npos,
         "整课重新生成成功后必须清除一次性参数并恢复缓存复用");
+    expect(learn.find("setInterval(pollProgress,2500)") != std::string::npos,
+        "全课生成期间必须显示已持久化的真实 AI 板块进度");
+    expect(learn.find("data.generations?.[block]?.source==='ai'") != std::string::npos,
+        "进度只能统计具有真实 AI 来源元数据的板块");
 
     const std::string planPage = gangyi::renderPlanPage("掌握函数单调性", "deep", "", "anonymous-1");
     expect(planPage.find("250000") != std::string::npos,
