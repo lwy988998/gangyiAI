@@ -55,6 +55,8 @@ int main() {
         "页面不得要求用户逐板块重试");
     expect(learn.find("$('learn-content').classList.add('hidden')") != std::string::npos,
         "全部 AI 板块完成前必须隐藏课程正文");
+    expect(learn.find("params.delete('regenerate')") != std::string::npos,
+        "整课重新生成成功后必须清除一次性参数并恢复缓存复用");
 
     const std::string planPage = gangyi::renderPlanPage("掌握函数单调性", "deep", "", "anonymous-1");
     expect(planPage.find("250000") != std::string::npos,

@@ -419,6 +419,17 @@ int main() {
             const std::string block = value("block");
             const std::vector<std::string> allowed = {"overview", "steps", "examples", "practice", "quiz", "assessment"};
             const bool generateAll = block == "all";
+            const auto hasAiBlock = [](const nlohmann::json& content, const std::string& name) {
+                if (!content.value("blocks", nlohmann::json()).is_object() ||
+                    !content["blocks"].contains(name) ||
+                    !content.value("generations", nlohmann::json()).is_object() ||
+                    !content["generations"].contains(name) ||
+                    !content["generations"][name].is_object()) return false;
+                const auto& generation = content["generations"][name];
+                return generation.value("source", "") == "ai" &&
+                    generation.value("promptVersion", "") == "ai-block-v1" &&
+                    !generation.value("model", "").empty();
+            };
             if (block.empty()) {
                 return crow::response(200, nlohmann::json{{"ok", true}, {"cached", true}, {"goal", goal},
                     {"phaseName", phaseName}, {"topicTitle", topic}, {"blocks", stored["blocks"]},
@@ -431,12 +442,12 @@ int main() {
             const bool regenerateAll = value("regenerate") == "1";
             const bool retryBlock = value("retry") == "1";
             if (generateAll && !regenerateAll && std::all_of(allowed.begin(), allowed.end(),
-                    [&](const std::string& name) { return stored["blocks"].contains(name); })) {
+                    [&](const std::string& name) { return hasAiBlock(stored, name); })) {
                 return crow::response(200, nlohmann::json{{"ok", true}, {"cached", true},
                     {"phaseName", phaseName}, {"topicTitle", topic}, {"blocks", stored["blocks"]},
                     {"generations", stored["generations"]}, {"references", stored["references"]}}.dump());
             }
-            if (!generateAll && !regenerateAll && !retryBlock && stored["blocks"].contains(block)) {
+            if (!generateAll && !regenerateAll && !retryBlock && hasAiBlock(stored, block)) {
                 return crow::response(200, nlohmann::json{{"ok", true}, {"cached", true}, {"block", block},
                     {"content", stored["blocks"][block]}, {"generation", stored["generations"].value(block, nlohmann::json::object())},
                     {"references", stored["references"]}}.dump());
@@ -508,7 +519,7 @@ int main() {
             if (generateAll) {
                 bool generatedAny = false;
                 for (const auto& name : allowed) {
-                    if (!regenerateAll && working["blocks"].contains(name)) continue;
+                    if (!regenerateAll && hasAiBlock(working, name)) continue;
                     generate(name);
                     generatedAny = true;
                 }
