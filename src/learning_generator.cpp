@@ -211,7 +211,7 @@ json LearningGenerator::generateBlock(const std::string& goal, const json& cours
             {"user", input.dump()}
         };
         options.temperature = attempt == 1 ? 0.3 : 0.15;
-        options.maxTokens = mode == "lite" ? 3000 : 4200;
+        options.maxTokens = mode == "lite" ? 4200 : 6000;
         options.responseFormat = "json_object";
         options.timeoutMs = 90000;
         options.maxAttempts = 1;
