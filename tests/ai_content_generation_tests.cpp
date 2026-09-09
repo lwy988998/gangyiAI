@@ -134,6 +134,8 @@ int main() {
         expect(server.requests().find("deepseek-v4-flash") == std::string::npos, "不得硬模型");
         expect(server.requests().find("coursePlan") != std::string::npos, "请求必须携带已保存课程主线");
         expect(server.requests().find("previousBlocks") != std::string::npos, "请求必须携带已生成前置板块");
+        expect(server.requests().find("原样出现输入中的 goal、phase、topic") != std::string::npos,
+            "提示词必须与目标、阶段、主题的质量门禁一致");
         expect(server.requests().find(std::string(299, 'a') + "…") != std::string::npos,
             "资源摘要截断不得破坏 UTF-8，且必须继续调用 AI");
     }
