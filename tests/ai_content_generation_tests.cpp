@@ -136,6 +136,8 @@ int main() {
         expect(server.requests().find("previousBlocks") != std::string::npos, "请求必须携带已生成前置板块");
         expect(server.requests().find("原样出现输入中的 goal、phase、topic") != std::string::npos,
             "提示词必须与目标、阶段、主题的质量门禁一致");
+        expect(server.requests().find("禁止使用反斜杠或 LaTeX 命令") != std::string::npos,
+            "数学内容必须避免生成破坏 JSON 的 LaTeX 反斜杠");
         expect(server.requests().find("\"max_tokens\":4200") != std::string::npos,
             "深度板块必须预留完整 JSON 输出空间");
         expect(server.requests().find(std::string(299, 'a') + "…") != std::string::npos,

@@ -198,6 +198,8 @@ json LearningGenerator::generateBlock(const std::string& goal, const json& cours
     std::string lastType = "quality_rejected";
     std::string lastMessage = "AI 课堂板块未通过质量检查";
     for (int attempt = 1; attempt <= 3; ++attempt) {
+        size_t responseBytes = 0;
+        std::string finishReason;
         json input = {{"goal", goal}, {"coursePlan", coursePlan}, {"phase", phaseName},
             {"topic", safeTopic}, {"topicIndex", topicIndex}, {"mode", mode}, {"block", block},
             {"previousBlocks", previousBlocks}, {"resources", resourceContext(resources)}};
@@ -205,7 +207,7 @@ json LearningGenerator::generateBlock(const std::string& goal, const json& cours
 
         ChatOptions options;
         options.messages = {
-            {"system", u8"你是钢一定制AI的专业高中教师。你正在生成一节课程中的单个板块。只输出一个完整严格 JSON 对象，禁止 Markdown、代码块、解释文字、字段省略、输出截断和虚构链接。必须根据用户目标、AI课程主线、当前阶段、当前主题和前置板块生成具体教学内容；输出正文必须原样出现输入中的 goal、phase、topic 三个字符串；每个说明控制在1-3句话，不得把字段名或通用学习方法当作正文。输出结构：" + schema->second},
+            {"system", u8"你是钢一定制AI的专业高中教师。你正在生成一节课程中的单个板块。只输出一个完整严格 JSON 对象，禁止 Markdown、代码块、解释文字、字段省略、输出截断和虚构链接。字符串正文禁止使用反斜杠或 LaTeX 命令，数学公式必须改用 Unicode 符号或普通文本。必须根据用户目标、AI课程主线、当前阶段、当前主题和前置板块生成具体教学内容；输出正文必须原样出现输入中的 goal、phase、topic 三个字符串；每个说明控制在1-3句话，不得把字段名或通用学习方法当作正文。输出结构：" + schema->second},
             {"user", input.dump()}
         };
         options.temperature = attempt == 1 ? 0.3 : 0.15;
@@ -215,6 +217,8 @@ json LearningGenerator::generateBlock(const std::string& goal, const json& cours
         options.maxAttempts = 1;
         try {
             const AIResult response = client_.chat(options);
+            responseBytes = response.content.size();
+            finishReason = response.finishReason;
             json output = parseAIJson(response.content);
             feedback = validate(block, output, goal, phaseName, safeTopic);
             if (feedback.empty()) {
@@ -235,7 +239,8 @@ json LearningGenerator::generateBlock(const std::string& goal, const json& cours
             lastMessage = error.what();
             feedback = "上一次 AI 调用失败：" + std::string(error.what());
             std::cerr << "[learning-block] block=" << block << " attempt=" << attempt
-                      << " ai_error=" << error.errorType << '\n';
+                      << " ai_error=" << error.errorType << " response_bytes=" << responseBytes
+                      << " finish_reason=" << (finishReason.empty() ? "unknown" : finishReason) << '\n';
         } catch (const std::exception& error) {
             lastType = "invalid_response";
             lastMessage = error.what();
