@@ -20,6 +20,46 @@ namespace {
 
 using json = nlohmann::json;
 
+std::string safeTrim(const std::string& value, size_t maxBytes = 200) {
+    if (value.size() <= maxBytes) return value;
+    size_t pos = maxBytes;
+    while (pos > 0 && (value[pos] & 0xC0) == 0x80) --pos;
+    return value.substr(0, pos) + u8"…";
+}
+
+json trimmedPreviousBlocks(const json& previousBlocks) {
+    if (!previousBlocks.is_object()) return json::object();
+    json trimmed = json::object();
+    for (const auto& [key, block] : previousBlocks.items()) {
+        if (!block.is_object()) continue;
+        json summary = json::object();
+        if (block.contains("title") && block["title"].is_string()) {
+            summary["title"] = safeTrim(block["title"].get<std::string>(), 60);
+        }
+        if (block.contains("summary") && block["summary"].is_string()) {
+            summary["summary"] = safeTrim(block["summary"].get<std::string>(), 120);
+        }
+        if (block.contains("lessonSteps") && block["lessonSteps"].is_array()) {
+            const auto& steps = block["lessonSteps"];
+            summary["stepCount"] = steps.size();
+            if (!steps.empty() && steps[0].is_object() && steps[0].contains("title")) {
+                summary["firstStepTitle"] = safeTrim(steps[0]["title"].get<std::string>(), 60);
+            }
+        }
+        if (block.contains("examples") && block["examples"].is_array()) {
+            summary["exampleCount"] = block["examples"].size();
+        }
+        if (block.contains("practice") && block["practice"].is_array()) {
+            summary["practiceCount"] = block["practice"].size();
+        }
+        if (block.contains("quiz") && block["quiz"].is_array()) {
+            summary["quizCount"] = block["quiz"].size();
+        }
+        trimmed[key] = summary;
+    }
+    return trimmed;
+}
+
 std::string trim(std::string value) {
     const auto first = value.find_first_not_of(" \t\r\n");
     if (first == std::string::npos) return {};
@@ -202,7 +242,7 @@ json LearningGenerator::generateBlock(const std::string& goal, const json& cours
         std::string finishReason;
         json input = {{"goal", goal}, {"coursePlan", coursePlan}, {"phase", phaseName},
             {"topic", safeTopic}, {"topicIndex", topicIndex}, {"mode", mode}, {"block", block},
-            {"previousBlocks", previousBlocks}, {"resources", resourceContext(resources)}};
+            {"previousBlocks", trimmedPreviousBlocks(previousBlocks)}, {"resources", resourceContext(resources)}};
         if (!feedback.empty()) input["qualityFeedback"] = feedback;
 
         ChatOptions options;
