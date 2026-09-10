@@ -25,6 +25,7 @@ constexpr Socket kInvalidSocket = -1;
 #include <iostream>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -45,28 +46,36 @@ void closeSocket(Socket socket) {
 class MockServer {
 public:
     MockServer(std::string body, int expected) : expected_(expected) {
-        response_ = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " +
-            std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n" + body;
+        responses_.assign(static_cast<size_t>(expected), std::move(body));
+        start();
+    }
+
+    explicit MockServer(std::vector<std::string> bodies) : responses_(std::move(bodies)), expected_(static_cast<int>(responses_.size())) {
+        start();
+    }
+
+private:
+    void start() {
         server_ = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
         sockaddr_in address{};
         address.sin_family = AF_INET;
         address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         address.sin_port = 0;
         if (server_ == kInvalidSocket || bind(server_, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0 ||
-            listen(server_, expected) != 0) throw std::runtime_error("无法启动模拟 AI 服务");
+            listen(server_, expected_) != 0) throw std::runtime_error("无法启动模拟 AI 服务");
         SocketLength length = sizeof(address);
         getsockname(server_, reinterpret_cast<sockaddr*>(&address), &length);
         port_ = ntohs(address.sin_port);
         worker_ = std::thread([this] { serve(); });
     }
 
+public:
     ~MockServer() { if (worker_.joinable()) worker_.join(); closeSocket(server_); }
     int port() const { return port_; }
     int count() const { return count_; }
     const std::string& requests() const { return requests_; }
     void wait() { if (worker_.joinable()) worker_.join(); }
 
-private:
     void serve() {
         for (int index = 0; index < expected_; ++index) {
             sockaddr_in clientAddress{};
@@ -82,7 +91,22 @@ private:
             }
             requests_ += request;
             ++count_;
-            send(client, response_.data(), static_cast<int>(response_.size()), 0);
+            const std::string& body = responses_[static_cast<size_t>(index)];
+            std::string response = "HTTP/1.1 200 OK";
+            const auto newline = [&response] {
+                response.push_back(static_cast<char>(13));
+                response.push_back(static_cast<char>(10));
+            };
+            newline();
+            response += "Content-Type: application/json";
+            newline();
+            response += "Content-Length: " + std::to_string(body.size());
+            newline();
+            response += "Connection: close";
+            newline();
+            newline();
+            response += body;
+            send(client, response.data(), static_cast<int>(response.size()), 0);
             closeSocket(client);
         }
     }
@@ -90,7 +114,7 @@ private:
     Socket server_ = kInvalidSocket;
     int port_ = 0;
     int expected_ = 0;
-    std::string response_;
+    std::vector<std::string> responses_;
     std::thread worker_;
     std::atomic<int> count_{0};
     std::string requests_;
@@ -171,6 +195,40 @@ int main() {
         }
         server.wait();
         expect(server.count() == 3, "板块生成失败必须自动尝试三次");
+    }
+    {
+        const std::string lengthResponse = nlohmann::json{{"model", "configured-model"},
+            {"choices", nlohmann::json::array({{{"message", {{"content", ""}, {"reasoning_content", "内部推理"}}},
+                {"finish_reason", "length"}}})}}.dump();
+        const nlohmann::json content = {{"title", topic + "入门"},
+            {"summary", "围绕" + goal + "，在" + phase + "阶段学习" + topic}, {"inferredDomain", "高中化学"},
+            {"keyConcepts", {topic, "氧化剂", "还原剂"}}};
+        MockServer server(std::vector<std::string>{lengthResponse, providerResponse(content)});
+        auto client = clientFor(server);
+        gangyi::LearningGenerator generator(client);
+        const auto result = generator.generateBlock(goal, plan, phase,
+            topic, 1, "deep", "overview", nlohmann::json::object(), {});
+        server.wait();
+        expect(result["_generation"].value("attempts", 0) == 2, "length 后必须重新调用真实 AI 并记录第二次成功");
+        expect(server.count() == 2, "第一次 length、第二次成功必须恰好调用两次真实 AI");
+        expect(server.requests().find("上一次输出达到长度限制") != std::string::npos,
+            "length 后的真实 AI 重试必须携带专门的长度反馈");
+    }
+    {
+        const nlohmann::json content = {{"title", topic + "入门"},
+            {"summary", "围绕" + goal + "，在" + phase + "阶段学习" + topic}, {"inferredDomain", "高中化学"},
+            {"keyConcepts", {topic, "氧化剂", "还原剂"}}};
+        MockServer server(providerResponse(content), 1);
+        auto client = clientFor(server);
+        gangyi::LearningGenerator generator(client);
+        nlohmann::json previous = nlohmann::json::object();
+        previous["steps"] = {{"lessonSteps", nlohmann::json::array({{{"title", "前置步骤"},
+            {"explanation", std::string(30000, 'x')}, {"example", std::string(30000, 'y')},
+            {"action", std::string(30000, 'z')}, {"check", "检查"}}})}};
+        (void)generator.generateBlock(goal, plan, phase,
+            topic, 1, "deep", "overview", previous, {});
+        server.wait();
+        expect(server.requests().size() < 20000, "后续板块不得重复发送全部前置正文");
     }
     {
         MockServer server(providerResponse({{"objective", "氧化还原基础"}}), 3);

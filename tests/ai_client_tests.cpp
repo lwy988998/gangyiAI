@@ -251,6 +251,22 @@ int main() {
         expect(server.requestCount() == 2, "无效聊天响应应仅按配置重试一次");
     }
     {
+        MockServer server(response(200,
+            R"({"model":"provider-model","choices":[{"message":{"content":"","reasoning_content":"内部推理"},"finish_reason":"length"}]})"));
+        auto client = clientFor(server, "/v1", "configured-model");
+        gangyi::ChatOptions options;
+        options.messages = {{"user", "测试长度耗尽"}};
+        options.maxAttempts = 1;
+        try {
+            (void)client.chat(options);
+            expect(false, "finish_reason=length 不得作为空成功返回");
+        } catch (const gangyi::AIClientError& error) {
+            expect(error.errorType == "output_length", "长度耗尽必须使用独立错误类型");
+        }
+        server.wait();
+        expect(server.requestCount() == 1, "长度耗尽应交给上层携带反馈后重新调用真实 AI");
+    }
+    {
         MockServer server(response(200, R"({"choices":[{"message":{"content":"{\"inferredDomain\":\"数学\",\"learnerGoal\":\"掌握函数单调性\",\"courseTitle\":\"函数单调性课程\",\"courseSummary\":\"分阶段掌握定义和题型\",\"durationWeeks\":2,\"phases\":[{\"name\":\"概念\",\"durationWeeks\":1,\"objective\":\"理解单调性定义\",\"topics\":[\"增函数\",\"减函数\",\"定义域\"],\"tasks\":[\"完成定义练习\",\"整理错题\"],\"checkpoint\":\"能用定义判断\",\"output\":\"定义题练习报告\",\"commonMistakes\":[\"忽略定义域\"]},{\"name\":\"图像\",\"durationWeeks\":1,\"objective\":\"结合图像判断\",\"topics\":[\"图像趋势\",\"区间\",\"端点\"],\"tasks\":[\"完成图像练习\",\"标注区间\"],\"checkpoint\":\"能读图判断\",\"output\":\"图像题练习报告\",\"commonMistakes\":[\"看错区间\"]},{\"name\":\"综合\",\"durationWeeks\":1,\"objective\":\"解决综合题\",\"topics\":[\"参数题\",\"证明题\",\"应用题\"],\"tasks\":[\"完成综合练习\",\"复盘错题\"],\"checkpoint\":\"能独立解题\",\"output\":\"综合题练习报告\",\"commonMistakes\":[\"步骤不完整\"]}]}"}}],"model":"configured-plan-model"})"));
         auto client = clientFor(server, "/v1", "configured-plan-model");
         gangyi::PlanGenerator generator(client);

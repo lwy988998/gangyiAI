@@ -237,7 +237,12 @@ json LearningGenerator::generateBlock(const std::string& goal, const json& cours
         } catch (const AIClientError& error) {
             lastType = error.errorType;
             lastMessage = error.what();
-            feedback = "上一次 AI 调用失败：" + std::string(error.what());
+            if (error.errorType == "output_length") {
+                feedback = "上一次输出达到长度限制。" + std::string(error.what()) + 
+                    " 请在下一次生成时进一步压缩：每个字段不超过60个汉字，数组不超过3项。";
+            } else {
+                feedback = "上一次 AI 调用失败：" + std::string(error.what());
+            }
             std::cerr << "[learning-block] block=" << block << " attempt=" << attempt
                       << " ai_error=" << error.errorType << " response_bytes=" << responseBytes
                       << " finish_reason=" << (finishReason.empty() ? "unknown" : finishReason) << '\n';

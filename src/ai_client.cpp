@@ -139,8 +139,19 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
         const auto& message = choice.at("message");
         std::string responseModel = parsed.value("model", selectedModel);
         if (responseModel.empty()) responseModel = selectedModel;
-        return {message.at("content").get<std::string>(), responseModel, static_cast<int>(status),
-            choice.value("finish_reason", "")};
+        const std::string finishReason = choice.value("finish_reason", "");
+        const std::string content = message.at("content").get<std::string>();
+        const std::string reasoning = message.value("reasoning_content", "");
+        if (finishReason == "length") {
+            const std::string detail = content.empty()
+                ? "模型输出达到长度限制（reasoning=" + std::to_string(reasoning.size()) + " bytes）"
+                : "模型输出达到长度限制（content=" + std::to_string(content.size()) + " bytes, reasoning=" + std::to_string(reasoning.size()) + " bytes）";
+            throw AIClientError("output_length", detail);
+        }
+        if (content.empty()) throw AIClientError("invalid_response", "AI returned empty content");
+        return {content, responseModel, static_cast<int>(status), finishReason};
+    } catch (const AIClientError&) {
+        throw;
     } catch (const std::exception& error) {
         throw AIClientError("invalid_response", error.what());
     }
