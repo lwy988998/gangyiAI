@@ -1550,12 +1550,34 @@ int main() {
             return;
         }
 
-        std::ifstream file(requested, std::ios::binary);
-        std::ostringstream body;
-        body << file.rdbuf();
-        response.set_header("Content-Type", content_type_for(requested));
-        response.code = 200;
-        response.end(body.str());
+        const auto file_size = std::filesystem::file_size(requested);
+        constexpr size_t kLargeFileThreshold = 200 * 1024;
+        
+        if (file_size > kLargeFileThreshold) {
+            std::ifstream file(requested, std::ios::binary);
+            if (!file) {
+                response.code = 500;
+                response.end("Internal server error");
+                return;
+            }
+            response.set_header("Content-Type", content_type_for(requested));
+            response.set_header("Content-Length", std::to_string(file_size));
+            response.code = 200;
+            
+            constexpr size_t kChunkSize = 64 * 1024;
+            std::vector<char> buffer(kChunkSize);
+            while (file.read(buffer.data(), kChunkSize) || file.gcount() > 0) {
+                response.write(std::string(buffer.data(), static_cast<size_t>(file.gcount())));
+            }
+            response.end();
+        } else {
+            std::ifstream file(requested, std::ios::binary);
+            std::ostringstream body;
+            body << file.rdbuf();
+            response.set_header("Content-Type", content_type_for(requested));
+            response.code = 200;
+            response.end(body.str());
+        }
     });
 
     if (!config.local_control_token.empty() && config.host == "127.0.0.1") {

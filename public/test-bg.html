@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>背景图测试</title>
+<style>
+.test-page {
+  min-height: 100vh;
+  background-color: #dcebf4;
+  background-image:
+    linear-gradient(180deg, rgba(225, 242, 252, .28) 0%, rgba(234, 246, 252, .14) 52%, rgba(9, 31, 45, .28) 100%),
+    url("/campus-background.jpg");
+  background-position: center center;
+  background-size: cover;
+  background-attachment: fixed;
+}
+</style>
+</head>
+<body class="test-page">
+<div style="padding:2rem;background:rgba(255,255,255,0.9);margin:2rem;border-radius:1rem;">
+<h1>背景图加载测试</h1>
+<p>如果看到校园背景图，说明CSS正常。</p>
+<p>如果只有蓝色渐变，说明图片路径或加载有问题。</p>
+<img src="/campus-background.jpg" style="max-width:200px;border:2px solid red;" onerror="this.alt='图片加载失败'" alt="背景图预览">
+<script>
+const img = new Image();
+img.onload = () => console.log('✓ campus-background.jpg 加载成功', img.width, 'x', img.height);
+img.onerror = () => console.error('✗ campus-background.jpg 加载失败');
+img.src = '/campus-background.jpg';
+</script>
+</div>
+</body>
+</html>
