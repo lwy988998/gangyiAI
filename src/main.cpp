@@ -1567,7 +1567,7 @@ int main() {
             constexpr size_t kChunkSize = 64 * 1024;
             std::vector<char> buffer(kChunkSize);
             while (file.read(buffer.data(), kChunkSize) || file.gcount() > 0) {
-                response.write(std::string_view(buffer.data(), static_cast<size_t>(file.gcount())));
+                response.write(std::string(buffer.data(), static_cast<size_t>(file.gcount())));
             }
             response.end();
         } else {
