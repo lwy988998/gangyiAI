@@ -112,4 +112,4 @@ jobs:
           gh release create "${{ github.ref_name }}" release-artifacts/* \
             --repo "${{ github.repository }}" --verify-tag --draft \
             --title "钢一定制AI ${{ github.ref_name }}" \
-            --notes "v0.2.1 验收修复版：修复 AI 模型配置未在全部生成链路生效、任务与课程进度无法保存，以及部分中文文案问题；并补充模型、进度和页面回归测试。安装包尚未签名，Windows SmartScreen 可能提示未知发布者。"
+            --generate-notes

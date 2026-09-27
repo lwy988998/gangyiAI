@@ -92,7 +92,7 @@ if (-not $SkipDependencies) {
 
 $cmakeArgs = @('-S', $repoRoot, '-B', $buildDir, '-G', 'MinGW Makefiles', '-DCMAKE_BUILD_TYPE=Release')
 $curlCa = Get-ChildItem -LiteralPath (Join-Path $thirdParty 'curl') -Filter 'curl-ca-bundle.crt' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($curlCa) { $cmakeArgs += "-DCMAKE_TLS_CAINFO=$($curlCa.FullName)" }
+if ($curlCa) { $cmakeArgs += "-DCMAKE_TLS_CAINFO=$($curlCa.FullName.Replace('\', '/'))" }
 cmake @cmakeArgs
 if ($LASTEXITCODE -ne 0) { throw 'CMake 配置失败' }
 cmake --build $buildDir --parallel
