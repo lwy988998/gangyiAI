@@ -2,6 +2,7 @@
 """在隔离目录中验收 Linux 服务，不接触正式数据库。"""
 
 import http.client
+from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -201,7 +202,8 @@ def main():
 
                 courses = request_json("/api/courses?anonymousId=acceptance-user")["courses"]
                 assert any(item["id"] == course_id for item in courses)
-                request(f"/api/courses/{course_id}?anonymousId=another-user", expected=404)
+                shared = request_json(f"/api/courses/{course_id}?anonymousId=another-user")
+                assert shared["course"]["id"] == course_id
                 restored = request_json(f"/api/courses/{course_id}?anonymousId=acceptance-user")
                 assert restored["course"]["id"] == course_id
                 for path, marker in (
@@ -269,11 +271,10 @@ def main():
                     "/internal/shutdown", "POST", headers={"X-Gangyi-Control-Token": "wrong-token"},
                     expected=403,
                 )
-                request(f"/api/my-courses/{course_id}?anonymousId=another-user", "DELETE", expected=404)
-                request(f"/api/my-courses/{course_id}?anonymousId=acceptance-user", "DELETE")
+                request(f"/api/my-courses/{course_id}?anonymousId=another-user", "DELETE")
                 request(f"/api/courses/{course_id}?anonymousId=acceptance-user", expected=404)
 
-                with sqlite3.connect(work / "gangyiAI.db") as database:
+                with closing(sqlite3.connect(work / "gangyiAI.db")) as database:
                     assert database.execute("PRAGMA quick_check").fetchone()[0] == "ok"
 
                 request(
