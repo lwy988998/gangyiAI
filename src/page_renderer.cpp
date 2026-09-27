@@ -247,8 +247,6 @@ std::string renderAskPage(const std::string& question) {
 std::string renderMyCoursesPage(const nlohmann::json& data) {
     const auto str = [](const nlohmann::json& v) { return v.is_string() ? v.get<std::string>() : std::string(); };
     const auto num = [](const nlohmann::json& v) { return v.is_number() ? v.get<int>() : 0; };
-    const std::string anonymousId = str(data.value("anonymousId", ""));
-    const bool authenticated = data.value("authenticated", false);
     const auto stats = data.value("stats", nlohmann::json::object());
     const int total = num(stats.value("total", 0));
     std::string cardsHtml;
