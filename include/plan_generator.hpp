@@ -72,7 +72,8 @@ public:
     explicit PlanGenerator(AIClient& client);
 
     GeneratedPlan generate(const std::string& goal, const std::string& mode,
-                           const std::string& qualityFeedback = {});
+                           const std::string& qualityFeedback = {},
+                           const std::string& profileContext = {});
 
 private:
     AIClient& client_;

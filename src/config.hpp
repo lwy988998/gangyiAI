@@ -7,7 +7,7 @@
 namespace gangyi {
 
 struct Config {
-    std::string host = "0.0.0.0";
+    std::string host = "127.0.0.1";
     int port = 39002;
     std::string ai_base_url = "https://api.deepseek.com/v1";
     std::string ai_api_key;
@@ -18,7 +18,9 @@ struct Config {
 
     static Config from_environment() {
         Config config;
-        if (const char* value = std::getenv("HOST")) config.host = value;
+        if (const char* value = std::getenv("HOST")) {
+            if (std::string(value) == "127.0.0.1") config.host = value;
+        }
         if (const char* value = std::getenv("PORT")) {
             try {
                 config.port = std::stoi(value);

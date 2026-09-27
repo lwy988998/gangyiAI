@@ -51,6 +51,15 @@ struct LearningSession {
     std::string title; std::optional<std::string> summary, searchQuery; std::string content;
     std::optional<std::string> references; int fallbackUsed = 0; std::string source = "ai";
 };
+struct LearningInteraction {
+    std::string id, kind, payload, createdAt;
+    std::optional<std::string> courseId, conversationId, subject;
+};
+struct SubjectMastery {
+    std::string subject, rationale, weakPoints = "[]", recommendation, model, status = "pending", updatedAt;
+    std::optional<int> score;
+    int evidenceCount = 0;
+};
 
 class Database {
 public:
@@ -72,6 +81,11 @@ public:
     bool insert(const LearningStepProgress&); std::optional<LearningStepProgress> getLearningStepProgress(const std::string&) const; std::vector<LearningStepProgress> listLearningStepProgress() const; bool update(const LearningStepProgress&); bool deleteLearningStepProgress(const std::string&); std::optional<LearningStepProgress> findLearningStepProgress(const std::string&, int, int) const;
     bool insert(const LearningCardProgress&); std::optional<LearningCardProgress> getLearningCardProgress(const std::string&) const; std::vector<LearningCardProgress> listLearningCardProgress() const; bool update(const LearningCardProgress&); bool deleteLearningCardProgress(const std::string&); std::optional<LearningCardProgress> findLearningCardProgress(const std::string&, int, int) const;
     bool insert(const LearningSession&); std::optional<LearningSession> getLearningSession(const std::string&) const; std::vector<LearningSession> listLearningSessions() const; bool update(const LearningSession&); bool deleteLearningSession(const std::string&); std::optional<LearningSession> findLearningSession(const std::string&, int, int) const;
+    bool insert(const LearningInteraction&); std::vector<LearningInteraction> listInteractions() const;
+    bool deleteConversation(const std::string&); bool deleteInteractionsForCourse(const std::string&);
+    bool upsert(const SubjectMastery&); void replaceMastery(const std::vector<SubjectMastery>&); std::vector<SubjectMastery> listMastery() const;
+    bool profileDirty() const; int profileRevision() const; void markProfileDirty(); void setProfileAssessed(int);
+    std::string profileError() const; void setProfileError(const std::string&);
 
 private: sqlite3* db_ = nullptr;
 };

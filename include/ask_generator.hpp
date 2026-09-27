@@ -14,7 +14,7 @@ struct AskAnswer {
 class AskGenerator {
 public:
     explicit AskGenerator(AIClient& client);
-    AskAnswer generate(const std::string& question) const;
+    AskAnswer generate(const std::string& question, const std::string& profileContext = {}) const;
 
 private:
     AIClient& client_;

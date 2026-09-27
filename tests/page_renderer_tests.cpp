@@ -42,6 +42,9 @@ int main() {
     expect(home.find("school-logo.png") != std::string::npos, "首页应加载校徽");
     expect(home.find("class=\"home-page ") != std::string::npos, "首页应包含校园背景容器");
     expect(home.find("home-goal-surface") != std::string::npos, "首页应包含学习目标对话框");
+    expect(home.find("home-floating-chip") != std::string::npos, "首页应保留动态画像卡片");
+    expect(home.find("home-ticker") != std::string::npos, "首页应保留动态功能导览");
+    expect(home.find("data-reveal") != std::string::npos, "首页区块应支持滚动入场");
 
     const std::string learn = gangyi::renderLearnPage("course-1", "掌握函数单调性", "deep",
         "1", "基础阶段", "1", "函数单调性", "anonymous-1", "", "", "");

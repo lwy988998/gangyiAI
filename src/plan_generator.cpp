@@ -131,7 +131,8 @@ ChatOptions options(const std::string& system, const std::string& user, const st
 PlanGenerator::PlanGenerator(AIClient& client) : client_(client) {}
 
 GeneratedPlan PlanGenerator::generate(const std::string& goal, const std::string& mode,
-                                      const std::string& qualityFeedback) {
+                                      const std::string& qualityFeedback,
+                                      const std::string& profileContext) {
     if (mode != "lite" && mode != "deep") throw AIClientError("invalid_request", "课程模式只能是快速规划或深度规划");
     const auto first = goal.find_first_not_of(" \t\r\n");
     if (first == std::string::npos) throw AIClientError("invalid_request", "请填写学习目标");
@@ -150,6 +151,8 @@ GeneratedPlan PlanGenerator::generate(const std::string& goal, const std::string
         user += qualityFeedback;
         user += "\n修正要求：每个阶段都要有具体知识点、可执行任务、明确产出和检查点；不要复用空泛句；必须严格满足阶段数量和字段结构。";
     }
+    if (!profileContext.empty() && profileContext != "[]")
+        user += "\n本机学习画像摘要（仅用于调整学习顺序和讲解重点，不得改写学习目标）：" + profileContext;
     const AIResult response = client_.chat(options(system, user, mode));
     GeneratedPlan plan = parsePlan(parseAIJson(response.content));
     plan.generationModel = response.model;

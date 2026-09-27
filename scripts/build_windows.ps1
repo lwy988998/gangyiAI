@@ -1,13 +1,14 @@
 ﻿param(
     [switch]$SkipDependencies,
-    [switch]$SkipInstaller
+    [switch]$SkipInstaller,
+    [string]$BuildDir = ''
 )
 
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $thirdParty = Join-Path $repoRoot 'third_party'
-$buildDir = Join-Path $repoRoot 'build-windows'
+$buildDir = if ($BuildDir) { $BuildDir } else { Join-Path $repoRoot 'build-windows' }
 $distDir = Join-Path $repoRoot 'dist\windows'
 
 function Require-Command([string]$Name) {
@@ -98,7 +99,7 @@ if ($LASTEXITCODE -ne 0) { throw 'C++ 测试失败' }
 
 $launcher = Join-Path $buildDir 'gangyiAI-launcher.exe'
 $server = Join-Path $buildDir 'gangyiAI.exe'
-$selfTest = Start-Process -FilePath $launcher -ArgumentList '--self-test' -Wait -PassThru
+$selfTest = Start-Process -FilePath $launcher -ArgumentList '--self-test' -Wait -PassThru -WindowStyle Hidden
 if ($selfTest.ExitCode -ne 0) { throw '启动器自检失败' }
 $cmakeText = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'CMakeLists.txt')
 if ($cmakeText -notmatch 'project\(gangyiAI VERSION ([0-9.]+)') { throw '无法读取项目版本号' }
@@ -125,11 +126,16 @@ foreach ($runtime in @('libwinpthread-1.dll', 'libgcc_s_seh-1.dll', 'libstdc++-6
 }
 $caBundle = Join-Path $buildDir 'curl-ca-bundle.crt'
 if (Test-Path -LiteralPath $caBundle) { Copy-Item -LiteralPath $caBundle -Destination $distDir }
-Copy-Item -LiteralPath (Join-Path $repoRoot 'public') -Destination $distDir -Recurse
+$publicDist = Join-Path $distDir 'public'
+New-Item -ItemType Directory -Force -Path $publicDist | Out-Null
+foreach ($asset in @('styles.css', 'plan.css', 'dark.css', 'dark.js', 'ask.js', 'school-logo.png', 'campus-background.jpg')) {
+    Copy-Item -LiteralPath (Join-Path $repoRoot "public\$asset") -Destination $publicDist
+}
 $requiredFiles = @(
     'gangyiAI.exe', 'gangyiAI-launcher.exe', 'libcurl-x64.dll',
     'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll',
-    'public\styles.css', 'public\school-logo.png', 'public\campus-background.jpg'
+    'public\styles.css', 'public\dark.css', 'public\dark.js', 'public\ask.js',
+    'public\school-logo.png', 'public\campus-background.jpg'
 )
 foreach ($required in $requiredFiles) {
     if (-not (Test-Path -LiteralPath (Join-Path $distDir $required))) { throw "发布文件缺失：$required" }

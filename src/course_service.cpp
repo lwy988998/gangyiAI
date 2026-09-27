@@ -281,6 +281,7 @@ std::vector<Course> listCoursesForIdentity(Database& db, const std::string& user
             bool match = false;
             if (!userId.empty() && course.userId && *course.userId == userId) match = true;
             if (!anonymousId.empty() && course.anonymousId && *course.anonymousId == anonymousId) match = true;
+            if (userId.empty() && anonymousId.empty()) match = true;
             if (!match) continue;
             courses.push_back(course);
         }
@@ -303,14 +304,17 @@ bool deleteCourseForIdentity(Database& db, const std::string& courseId, const st
         if (!course || course->status != "active") return false;
         const bool ownedByUser = !userId.empty() && course->userId && *course->userId == userId;
         const bool ownedByAnonymous = !anonymousId.empty() && course->anonymousId && *course->anonymousId == anonymousId;
-        if (!ownedByUser && !ownedByAnonymous) return false;
+        if (!ownedByUser && !ownedByAnonymous && (!userId.empty() || !anonymousId.empty())) return false;
 
         for (const auto& item : db.findSnapshotsByCourseId(courseId)) db.deleteCourseSnapshot(item.id);
         for (const auto& item : db.listTaskProgress()) if (item.courseId.value_or("") == courseId) db.deleteTaskProgress(item.id);
         for (const auto& item : db.listLearningStepProgress()) if (item.courseId.value_or("") == courseId) db.deleteLearningStepProgress(item.id);
         for (const auto& item : db.listLearningCardProgress()) if (item.courseId.value_or("") == courseId) db.deleteLearningCardProgress(item.id);
         for (const auto& item : db.listLearningSessions()) if (item.courseId.value_or("") == courseId) db.deleteLearningSession(item.id);
-        return db.deleteCourse(courseId);
+        db.deleteInteractionsForCourse(courseId);
+        const bool deleted = db.deleteCourse(courseId);
+        if (deleted) db.markProfileDirty();
+        return deleted;
     } catch (...) {
         return false;
     }

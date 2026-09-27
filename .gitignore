@@ -11,3 +11,6 @@ __pycache__/
 .env.local
 
 third_party/
+preview-data/
+verification/
+public/ui-previews/

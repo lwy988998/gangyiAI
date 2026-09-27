@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(gangyiAI VERSION 0.2.1 LANGUAGES C CXX)
+project(gangyiAI VERSION 0.3.0 LANGUAGES C CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -96,7 +96,7 @@ endif()
 
 add_executable(gangyiAI src/main.cpp src/db.cpp src/ai_client.cpp src/json_fix.cpp src/plan_generator.cpp src/page_renderer.cpp
     src/plan_cache.cpp src/plan_adapter.cpp src/search_client.cpp src/quality_gate.cpp src/course_service.cpp
-    src/progress_service.cpp src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/image_goal_analyzer.cpp
+    src/progress_service.cpp src/profile_service.cpp src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/image_goal_analyzer.cpp
     ${GANGYI_SERVICE_RESOURCE})
 
 target_include_directories(gangyiAI PRIVATE
@@ -173,6 +173,14 @@ if(BUILD_TESTING)
     target_include_directories(progress-service-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
     target_link_libraries(progress-service-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_SQLITE_LIB})
     add_test(NAME progress-service COMMAND progress-service-tests)
+
+    add_executable(profile-service-tests tests/profile_service_tests.cpp src/db.cpp src/profile_service.cpp src/ai_client.cpp src/json_fix.cpp)
+    target_include_directories(profile-service-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${GANGYI_CURL_INCLUDE})
+    target_link_libraries(profile-service-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_SQLITE_LIB} ${GANGYI_CURL_LINK} Threads::Threads)
+    if(WIN32)
+        target_link_libraries(profile-service-tests PRIVATE ws2_32)
+    endif()
+    add_test(NAME profile-service COMMAND profile-service-tests)
 
     add_executable(page-renderer-tests tests/page_renderer_tests.cpp src/page_renderer.cpp)
     target_include_directories(page-renderer-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)

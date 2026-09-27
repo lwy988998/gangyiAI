@@ -2,6 +2,7 @@
 #include "db_schema_version.hpp"
 
 #include <sqlite3.h>
+#include <filesystem>
 #include <iomanip>
 #include <random>
 #include <sstream>
@@ -24,7 +25,7 @@ bool done(Stmt& s) { const int rc = sqlite3_step(s.p); check(rc, s.db, "execute"
 }
 
 Database::~Database() { close(); }
-void Database::open(const std::string& path) { close(); check(sqlite3_open(path.c_str(), &db_), db_, "open database"); sqlite3_extended_result_codes(db_, 1); }
+void Database::open(const std::string& path) { close(); check(sqlite3_open(path.c_str(), &db_), db_, "open database"); sqlite3_extended_result_codes(db_, 1); sqlite3_busy_timeout(db_, 5000); }
 void Database::close() { if (db_) { sqlite3_close(db_); db_ = nullptr; } }
 void Database::migrate() {
     if (!db_) throw std::runtime_error("database is not open");
@@ -35,6 +36,22 @@ void Database::migrate() {
     sqlite3_finalize(versionStatement);
     if (versionResult != SQLITE_ROW || currentVersion > kDatabaseSchemaVersion) {
         throw std::runtime_error("database schema is newer than this application");
+    }
+    if (currentVersion > 0 && currentVersion < 4) {
+        const char* filename = sqlite3_db_filename(db_, "main");
+        if (filename && *filename && std::string(filename) != ":memory:") {
+            const auto backupPath = std::filesystem::u8path(filename).u8string() + ".pre-v4.db";
+            if (!std::filesystem::exists(std::filesystem::u8path(backupPath))) {
+                sqlite3* backupDb = nullptr;
+                check(sqlite3_open(backupPath.c_str(), &backupDb), backupDb, "open migration backup");
+                sqlite3_backup* backup = sqlite3_backup_init(backupDb, "main", db_, "main");
+                if (!backup) { sqlite3_close(backupDb); throw std::runtime_error("migration backup failed"); }
+                const int result = sqlite3_backup_step(backup, -1);
+                const int finishResult = sqlite3_backup_finish(backup);
+                sqlite3_close(backupDb);
+                if (result != SQLITE_DONE || finishResult != SQLITE_OK) throw std::runtime_error("migration backup failed");
+            }
+        }
     }
     exec(db_, R"SQL(
 CREATE TABLE IF NOT EXISTS Course(id TEXT PRIMARY KEY, anonymousId TEXT, userId TEXT, goal TEXT NOT NULL, mode TEXT NOT NULL, title TEXT NOT NULL, summary TEXT, source TEXT NOT NULL DEFAULT 'ai', status TEXT NOT NULL DEFAULT 'active', createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL);
@@ -54,7 +71,23 @@ CREATE INDEX IF NOT EXISTS UserSession_userId_idx ON UserSession(userId); CREATE
         exec(db_, "UPDATE LearningSession SET fallbackUsed=1, source='legacy' "
             "WHERE source<>'ai' OR fallbackUsed<>0 OR content NOT LIKE '%\"promptVersion\":\"ai-block-v1\"%'");
     }
-    exec(db_, ("PRAGMA user_version=" + std::to_string(kDatabaseSchemaVersion)).c_str());
+    if (currentVersion < 4) {
+        exec(db_, "BEGIN IMMEDIATE");
+        try {
+            exec(db_, R"SQL(
+CREATE TABLE IF NOT EXISTS LearningInteraction(id TEXT PRIMARY KEY, courseId TEXT, conversationId TEXT, subject TEXT, kind TEXT NOT NULL, payload TEXT NOT NULL, createdAt TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS LearningInteraction_course_idx ON LearningInteraction(courseId);
+CREATE INDEX IF NOT EXISTS LearningInteraction_conversation_idx ON LearningInteraction(conversationId,createdAt);
+CREATE TABLE IF NOT EXISTS SubjectMastery(subject TEXT PRIMARY KEY, score INTEGER CHECK(score BETWEEN 0 AND 100), rationale TEXT NOT NULL DEFAULT '', weakPoints TEXT NOT NULL DEFAULT '[]', recommendation TEXT NOT NULL DEFAULT '', evidenceCount INTEGER NOT NULL DEFAULT 0, model TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', updatedAt TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS ProfileMeta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+INSERT OR IGNORE INTO ProfileMeta(key,value) VALUES('revision','1');
+INSERT OR IGNORE INTO ProfileMeta(key,value) VALUES('assessed','0');
+INSERT OR IGNORE INTO ProfileMeta(key,value) VALUES('error','');
+)SQL");
+            exec(db_, ("PRAGMA user_version=" + std::to_string(kDatabaseSchemaVersion)).c_str());
+            exec(db_, "COMMIT");
+        } catch (...) { exec(db_, "ROLLBACK"); throw; }
+    }
 }
 
 // Course and User are kept explicit below; the repeated progress tables use the same SQL shape.
@@ -160,4 +193,68 @@ std::vector<LearningSession> Database::listLearningSessions()const{std::vector<L
 bool Database::update(const LearningSession&v){Stmt s(db_,"UPDATE LearningSession SET courseId=?,anonymousId=?,goal=?,mode=?,phaseIndex=?,phaseName=?,topicIndex=?,topicTitle=?,title=?,summary=?,searchQuery=?,content=?,`references`=?,fallbackUsed=?,source=? WHERE id=?");opt(s,1,v.courseId);opt(s,2,v.anonymousId);text(s,3,v.goal);opt(s,4,v.mode);integer(s,5,v.phaseIndex);text(s,6,v.phaseName);integer(s,7,v.topicIndex);text(s,8,v.topicTitle);text(s,9,v.title);opt(s,10,v.summary);opt(s,11,v.searchQuery);text(s,12,v.content);opt(s,13,v.references);integer(s,14,v.fallbackUsed);text(s,15,v.source);text(s,16,v.id);return done(s);}
 bool Database::deleteLearningSession(const std::string&key){Stmt s(db_,"DELETE FROM LearningSession WHERE id=?");text(s,1,key);return done(s);}
 std::optional<LearningSession> Database::findLearningSession(const std::string&courseId,int phaseIndex,int topicIndex)const{Stmt s(db_,"SELECT id,courseId,anonymousId,goal,mode,phaseIndex,phaseName,topicIndex,topicTitle,title,summary,searchQuery,content,`references`,fallbackUsed,source FROM LearningSession WHERE courseId=? AND phaseIndex=? AND topicIndex=?");text(s,1,courseId);integer(s,2,phaseIndex);integer(s,3,topicIndex);if(sqlite3_step(s.p)!=SQLITE_ROW)return std::nullopt;return map_LearningSession(s.p);}
+
+bool Database::insert(const LearningInteraction& value) {
+    Stmt s(db_, "INSERT INTO LearningInteraction(id,courseId,conversationId,subject,kind,payload,createdAt) VALUES(?,?,?,?,?,?,?)");
+    text(s,1,value.id.empty()?id():value.id);opt(s,2,value.courseId);opt(s,3,value.conversationId);
+    opt(s,4,value.subject);text(s,5,value.kind);text(s,6,value.payload);text(s,7,value.createdAt);
+    const bool saved=done(s); if(saved)markProfileDirty(); return saved;
+}
+std::vector<LearningInteraction> Database::listInteractions() const {
+    std::vector<LearningInteraction> rows;
+    Stmt s(db_, "SELECT id,courseId,conversationId,subject,kind,payload,createdAt FROM LearningInteraction ORDER BY rowid");
+    while(sqlite3_step(s.p)==SQLITE_ROW) rows.push_back({str(s.p,0),str(s.p,4),str(s.p,5),str(s.p,6),ostr(s.p,1),ostr(s.p,2),ostr(s.p,3)});
+    return rows;
+}
+bool Database::deleteConversation(const std::string& conversationId) {
+    Stmt s(db_, "DELETE FROM LearningInteraction WHERE conversationId=?");text(s,1,conversationId);
+    const bool changed=done(s);if(changed)markProfileDirty();return changed;
+}
+bool Database::deleteInteractionsForCourse(const std::string& courseId) {
+    Stmt s(db_, "DELETE FROM LearningInteraction WHERE courseId=?");text(s,1,courseId);
+    const bool changed=done(s);if(changed)markProfileDirty();return changed;
+}
+bool Database::upsert(const SubjectMastery& value) {
+    Stmt s(db_, "INSERT INTO SubjectMastery(subject,score,rationale,weakPoints,recommendation,evidenceCount,model,status,updatedAt) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(subject) DO UPDATE SET score=excluded.score,rationale=excluded.rationale,weakPoints=excluded.weakPoints,recommendation=excluded.recommendation,evidenceCount=excluded.evidenceCount,model=excluded.model,status=excluded.status,updatedAt=excluded.updatedAt");
+    text(s,1,value.subject);optint(s,2,value.score);text(s,3,value.rationale);text(s,4,value.weakPoints);
+    text(s,5,value.recommendation);integer(s,6,value.evidenceCount);text(s,7,value.model);
+    text(s,8,value.status);text(s,9,value.updatedAt);return done(s);
+}
+std::vector<SubjectMastery> Database::listMastery() const {
+    std::vector<SubjectMastery> rows;
+    Stmt s(db_, "SELECT subject,score,rationale,weakPoints,recommendation,evidenceCount,model,status,updatedAt FROM SubjectMastery ORDER BY subject");
+    while(sqlite3_step(s.p)==SQLITE_ROW) rows.push_back({str(s.p,0),str(s.p,2),str(s.p,3),str(s.p,4),str(s.p,6),str(s.p,7),str(s.p,8),oint(s.p,1),sqlite3_column_int(s.p,5)});
+    return rows;
+}
+void Database::replaceMastery(const std::vector<SubjectMastery>& values) {
+    exec(db_, "BEGIN IMMEDIATE");
+    try {
+        exec(db_, "DELETE FROM SubjectMastery");
+        for(const auto& value:values) upsert(value);
+        exec(db_, "COMMIT");
+    } catch (...) { exec(db_, "ROLLBACK"); throw; }
+}
+bool Database::profileDirty() const {
+    Stmt s(db_, "SELECT (SELECT CAST(value AS INTEGER) FROM ProfileMeta WHERE key='revision') > (SELECT CAST(value AS INTEGER) FROM ProfileMeta WHERE key='assessed')");
+    return sqlite3_step(s.p)==SQLITE_ROW && sqlite3_column_int(s.p,0)!=0;
+}
+int Database::profileRevision() const {
+    Stmt s(db_, "SELECT CAST(value AS INTEGER) FROM ProfileMeta WHERE key='revision'");
+    return sqlite3_step(s.p)==SQLITE_ROW ? sqlite3_column_int(s.p,0) : 0;
+}
+void Database::markProfileDirty() {
+    exec(db_, "UPDATE ProfileMeta SET value=CAST(value AS INTEGER)+1 WHERE key='revision'");
+}
+void Database::setProfileAssessed(int revision) {
+    Stmt s(db_, "UPDATE ProfileMeta SET value=? WHERE key='assessed'");
+    text(s,1,std::to_string(revision));done(s);
+}
+std::string Database::profileError() const {
+    Stmt s(db_, "SELECT value FROM ProfileMeta WHERE key='error'");
+    return sqlite3_step(s.p)==SQLITE_ROW ? str(s.p,0) : "";
+}
+void Database::setProfileError(const std::string& error) {
+    Stmt s(db_, "INSERT INTO ProfileMeta(key,value) VALUES('error',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value");
+    text(s,1,error);done(s);
+}
 }

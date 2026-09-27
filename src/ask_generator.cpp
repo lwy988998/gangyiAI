@@ -22,9 +22,9 @@ int askTimeoutMs() {
     return 25000;
 }
 
-std::vector<ChatMessage> prompt(const std::string& question) {
+std::vector<ChatMessage> prompt(const std::string& question, const std::string& profileContext) {
     return {
-        {"system", u8"你是钢一定制AI。请直接、准确地回答用户的问题。默认使用简体中文；问题不清楚时先说明缺少的信息。不要编造事实。", ""},
+        {"system", u8"你是钢一定制AI。请直接、准确地回答用户的问题。默认使用简体中文；问题不清楚时先说明缺少的信息。不要编造事实。学习画像仅作辅助，不得把低分当成学生能力定论。画像摘要：" + profileContext, ""},
         {"user", question, ""},
     };
 }
@@ -33,11 +33,11 @@ std::vector<ChatMessage> prompt(const std::string& question) {
 
 AskGenerator::AskGenerator(AIClient& client) : client_(client) {}
 
-AskAnswer AskGenerator::generate(const std::string& question) const {
+AskAnswer AskGenerator::generate(const std::string& question, const std::string& profileContext) const {
     const std::string safeQuestion = trim(question);
     if (safeQuestion.empty()) throw AIClientError("invalid_request", "请提供问题");
     ChatOptions options;
-    options.messages = prompt(safeQuestion);
+    options.messages = prompt(safeQuestion, profileContext);
     options.temperature = 0.5;
     options.maxTokens = 3000;
     options.timeoutMs = askTimeoutMs();

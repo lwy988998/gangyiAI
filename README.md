@@ -1,6 +1,8 @@
 # gangyiAI
 
-gangyiAI 是一个使用 C++17、Crow 和 SQLite 构建的本地 AI 学习平台。
+gangyiAI（钢一定制AI）是面向柳州市钢一中学的本机 AI 学习平台，使用 C++17、Crow、SQLite 和原生 HTML/CSS/JavaScript 构建。它支持学习目标输入与图片识别、快速或深度课程规划、阶段学习、微课程、测验、AI 对话和课程管理。深色动态界面展示依据本机学习记录生成的专属学习画像；课程和对话记录保存在本机，不需要在线账号。
+
+当前仓库源码版本为 **v0.3.0**；GitHub Releases 目前提供的最新版安装包仍为 **v0.2.1**。
 
 ## Windows 安装包
 
@@ -26,8 +28,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
 脚本会下载固定版本的构建依赖、编译服务和原生 Win32 托盘启动器，并生成：
 
 ```text
-dist\installer\gangyiAI-setup-v0.2.1-x64.exe
-dist\installer\gangyiAI-portable-v0.2.1-x64.zip
+dist\installer\gangyiAI-setup-v0.3.0-x64.exe
+dist\installer\gangyiAI-portable-v0.3.0-x64.zip
 dist\installer\SHA256SUMS.txt
 ```
 
@@ -55,4 +57,4 @@ DATABASE_PATH=gangyiAI.db
 PORT=39002
 ```
 
-默认监听 `0.0.0.0`；Windows 启动器会改为仅监听 `127.0.0.1`。
+默认仅监听 `127.0.0.1`。学习画像的依据保存在本机；评估时只向已配置的 AI 接口发送必要摘要，更新失败会保留最近一次有效结果。
