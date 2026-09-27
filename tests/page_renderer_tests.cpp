@@ -39,6 +39,16 @@ int main() {
     expect(phase.find("/ )HTML") == std::string::npos, "阶段进度不得包含多余空格");
 
     const std::string home = gangyi::renderHomePage();
+    expect(home.find("startup-playing") == std::string::npos, "普通首页不播放开机动画");
+    for (int variant = 0; variant < 5; ++variant) {
+        const std::string startup = gangyi::renderStartupPage(variant);
+        expect(startup.find("id=\"startup-overlay\"") != std::string::npos, "启动页包含动画覆盖层");
+        expect(startup.find("home-goal-surface") != std::string::npos, "启动页使用真实首页内容");
+        expect(startup.find("/startup.js") != std::string::npos, "启动页加载动画脚本");
+        expect(startup.find("location.replace('/')") == std::string::npos, "启动页不得硬切换到首页");
+    }
+    expect(gangyi::renderStartupPage(99).find("data-startup-variant=\"aurora\"") != std::string::npos,
+        "无效方案回退到首款");
     expect(home.find("school-logo.png") != std::string::npos, "首页应加载校徽");
     expect(home.find("class=\"home-page ") != std::string::npos, "首页应包含校园背景容器");
     expect(home.find("home-goal-surface") != std::string::npos, "首页应包含学习目标对话框");
@@ -80,5 +90,9 @@ int main() {
     const std::string myCourses = gangyi::renderMyCoursesPage(courses);
     expect(myCourses.find("data-course-id=\"course-1\"") != std::string::npos,
         "课程删除按钮应包含完整闭合的课程编号属性");
+    expect(myCourses.find("API 接口") != std::string::npos,
+        "我的课程页应显示 API 接口入口");
+    expect(myCourses.find("gangyiOpenApiSettings") != std::string::npos,
+        "API 接口入口应连接桌面设置桥接");
     return failures == 0 ? 0 : 1;
 }

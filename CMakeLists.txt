@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(gangyiAI VERSION 0.3.0 LANGUAGES C CXX)
+project(gangyiAI VERSION 0.3.4 LANGUAGES C CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -64,6 +64,15 @@ FetchContent_Declare(
 set(CROW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(CROW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(Crow nlohmann_json)
+if(WIN32)
+    FetchContent_Declare(
+        webview
+        GIT_REPOSITORY https://github.com/webview/webview.git
+        GIT_TAG 0.12.0
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(webview)
+endif()
 
 # SQLite：Windows 使用本地 amalgamation，Linux 使用系统库。
 if(WIN32)
@@ -127,6 +136,7 @@ if(WIN32)
         UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
     )
     target_link_libraries(gangyiAI-launcher PRIVATE
+        webview::core
         nlohmann_json::nlohmann_json
         ${GANGYI_SQLITE_LIB}
         ${GANGYI_CURL_LINK}

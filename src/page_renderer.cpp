@@ -50,9 +50,11 @@ std::string urlEncode(const std::string& value) {
     return encoded.str();
 }
 
-std::string document(const std::string& title, const std::string& body, const std::string& script = {}) {
+std::string document(const std::string& title, const std::string& body, const std::string& script = {},
+                     const std::string& headExtra = {}, const std::string& bodyClassExtra = {},
+                     const std::string& bodyAttributes = {}) {
     return "<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><meta name=\"theme-color\" content=\"#06090d\"><title>" +
-        htmlEscape(title) + "</title><link rel=\"icon\" type=\"image/png\" href=\"/school-logo.png\"><link rel=\"stylesheet\" href=\"/styles.css\"><link rel=\"stylesheet\" href=\"/plan.css\"><link rel=\"stylesheet\" href=\"/dark.css\"><script defer src=\"/dark.js\"></script></head><body class=\"antialiased page-transition dark-app\">" + body +
+        htmlEscape(title) + "</title><link rel=\"icon\" type=\"image/png\" href=\"/school-logo.png\"><link rel=\"stylesheet\" href=\"/styles.css\"><link rel=\"stylesheet\" href=\"/plan.css\"><link rel=\"stylesheet\" href=\"/dark.css\"><script defer src=\"/dark.js\"></script>" + headExtra + "</head><body class=\"antialiased page-transition dark-app" + bodyClassExtra + "\"" + bodyAttributes + ">" + body +
         "<footer class=\"dark-footer\"><span>钢一定制AI</span><span>让学习有路径，让进步看得见。</span><span>本机学习数据 · 私密可控</span></footer>" + script + "</body></html>";
 }
 
@@ -82,7 +84,7 @@ std::string loadingSpinner(const std::string& title, const std::string& subtitle
 
 }  // namespace
 
-std::string renderHomePage() {
+std::string renderHomePage(int startupVariant) {
     const std::string body = headerShell("home") + R"HTML(
 <main class="home-page min-h-screen text-slate-950">
   <section class="home-hero mx-auto flex min-h-[calc(100vh-3.25rem)] w-full max-w-6xl flex-col items-center px-4 pb-8 pt-3 text-center sm:px-6 sm:pt-5">
@@ -104,7 +106,19 @@ std::string renderHomePage() {
   </section>
 </main>)HTML";
     const std::string script = R"HTML(<script>(()=>{const $=id=>document.getElementById(id),form=$('goal-form'),goal=$('goal'),file=$('goal-image'),mode=$('goal-mode'),preview=$('image-preview'),message=$('goal-message'),examples={lite:['三天梳理高一函数概念','快速复习英语时态','二次函数图像与性质','化学物质的量基础','高一语文文言文实词'],deep:['系统复习高中数学函数与导数','高考物理力学专题训练','高中英语阅读与写作提升','高中化学氧化还原反应','高中生物遗传与变异','高中语文现代文阅读','高考历史中国古代史复习','高中地理大气运动专题']};let selectedMode='deep',imageFile=null,imageUrl='';function setMode(value){selectedMode=value==='lite'?'lite':'deep';mode.value=selectedMode;document.querySelectorAll('[data-mode]').forEach(button=>{const active=button.dataset.mode===selectedMode;button.classList.toggle('bg-sky-700',active);button.classList.toggle('text-white',active);button.classList.toggle('border-sky-700',active);button.classList.toggle('bg-white',!active);button.classList.toggle('text-slate-600',!active)});renderExamples()}function renderExamples(){const items=[...examples[selectedMode]].sort(()=>Math.random()-.5).slice(0,5);$('goal-examples').innerHTML=items.map(item=>'<button type="button" class="goal-example rounded-full border border-sky-100 bg-white/80 px-3 py-2 text-sm font-medium text-sky-900 hover:bg-sky-50">'+item+'</button>').join('')}function clearImage(){if(imageUrl)URL.revokeObjectURL(imageUrl);imageFile=null;imageUrl='';file.value='';preview.classList.add('hidden');preview.classList.remove('flex')}function showMessage(text){message.textContent=text;message.classList.remove('hidden')}function createAnonymousId(){const id=typeof crypto!=='undefined'&&typeof crypto.randomUUID==='function'?crypto.randomUUID():Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);return 'anon_'+id}function anonymousId(){try{let id=localStorage.getItem('gangyi-anonymous-id');if(!id){id=createAnonymousId();localStorage.setItem('gangyi-anonymous-id',id)}return id}catch(_){return createAnonymousId()}}file.addEventListener('change',()=>{const picked=file.files?.[0];message.classList.add('hidden');if(!picked)return;if(!picked.type.startsWith('image/')){clearImage();showMessage('请上传图片文件');return}if(picked.size>5*1024*1024){clearImage();showMessage('图片过大，请上传 5MB 以内的图片');return}clearImage();imageFile=picked;imageUrl=URL.createObjectURL(picked);preview.querySelector('img').src=imageUrl;$('image-name').textContent=picked.name;$('image-meta').textContent=(picked.size/1024/1024).toFixed(1)+' MB · 将结合图片生成学习目标';preview.classList.remove('hidden');preview.classList.add('flex')});$('pick-image').onclick=()=>file.click();$('remove-image').onclick=clearImage;document.addEventListener('click',event=>{const modeButton=event.target.closest('[data-mode]');if(modeButton)setMode(modeButton.dataset.mode);const example=event.target.closest('.goal-example');if(example){goal.value=example.textContent;goal.focus()}});goal.addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();form.requestSubmit()}});form.addEventListener('submit',async event=>{event.preventDefault();const text=goal.value.trim();message.classList.add('hidden');if(!text&&!imageFile){showMessage('请输入学习需求，或上传一张相关图片');return}const submit=$('goal-submit');submit.disabled=true;submit.textContent=imageFile?'识别中…':'准备生成…';let target=text;if(imageFile){try{const data=new FormData();data.append('image',imageFile);data.append('prompt',text);data.append('mode',selectedMode);const response=await fetch('/api/analyze-image-goal',{method:'POST',body:data});const result=await response.json();if(result.success&&result.goal)target=result.goal;else if(!text){showMessage(result.message||'图片识别未完成，请补充文字描述后重试');submit.disabled=false;submit.textContent='生成 →';return}else showMessage(result.message||'图片识别未完成，已按文字描述生成课程')}catch(_){if(!text){showMessage('图片识别未完成，请补充文字描述后重试');submit.disabled=false;submit.textContent='生成 →';return}showMessage('图片识别未完成，已按文字描述生成课程')}}location.href='/plan?'+new URLSearchParams({goal:target,mode:selectedMode,anonymousId:anonymousId()})});setMode('deep')})()</script>)HTML";
-    return document("柳州市钢一定制AI - 把学习目标变成可执行课程", body, script);
+    const bool startup = startupVariant >= 0 && startupVariant < 5;
+    constexpr const char* variantNames[] = {"aurora", "orbit", "particles", "scan", "panels"};
+    const std::string startupOverlay = R"HTML(<div id="startup-overlay" class="startup-overlay" role="status" aria-label="钢一定制AI正在启动"><div class="startup-overlay-grid"></div><div class="startup-scene"></div><div class="startup-overlay-brand"><small>柳州市钢一中学 · AI 学习平台</small><h2>钢一定制AI</h2></div><div class="startup-progress"><span></span></div><div class="startup-transition-layer" aria-hidden="true"></div></div>)HTML";
+    const std::string startupHead = "<link rel=\"stylesheet\" href=\"/startup.css\"><script defer src=\"/startup.js\"></script>";
+    const std::string startupAttributes = startup ?
+        std::string(" data-startup-variant=\"") + variantNames[startupVariant] + "\" data-startup-phase=\"intro\"" : "";
+    return document("柳州市钢一定制AI - 把学习目标变成可执行课程",
+        (startup ? startupOverlay : "") + body, script, startup ? startupHead : "",
+        startup ? " startup-playing" : "", startupAttributes);
+}
+
+std::string renderStartupPage(int variant) {
+    return renderHomePage(variant >= 0 && variant < 5 ? variant : 0);
 }
 
 std::string renderPlanPage(const std::string& goal, const std::string& mode,
@@ -271,6 +285,10 @@ std::string renderMyCoursesPage(const nlohmann::json& data) {
       <div><p class="text-sm font-semibold text-sky-700">我的课程</p><h1 class="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">我的课堂</h1><p class="mt-3 text-base leading-7 text-slate-600">继续学习已生成的课程，或生成一个新的学习计划。</p></div>
       <a class="inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white transition hover:bg-sky-800" href="/">+ 生成新课程</a>
     </div>
+    <section class="mt-6 flex flex-col gap-4 rounded-3xl border border-sky-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between" aria-labelledby="api-interface-title">
+      <div><p class="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">AI 设置</p><h2 id="api-interface-title" class="mt-1 text-xl font-semibold text-slate-950">API 接口</h2><p class="mt-2 max-w-2xl text-sm leading-6 text-slate-600">配置服务商、API 地址、API Key 和模型。密钥保存在本机 Windows 凭据管理器，不会显示在课程页面。</p><p id="api-settings-message" class="mt-2 min-h-5 text-sm text-slate-500" role="status" aria-live="polite"></p></div>
+      <button id="open-api-settings" type="button" class="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white transition hover:bg-sky-800 disabled:opacity-60">配置 API 接口</button>
+    </section>
     <section class="mt-6 grid gap-4 sm:grid-cols-3"><article class="rounded-2xl border border-sky-100 bg-white p-5"><p class="text-sm text-slate-500">全部课程</p><b class="mt-2 block text-3xl text-sky-700">)HTML" + std::to_string(total) + R"HTML(</b></article></section>
     <p id="course-message" class="mt-4 text-sm text-slate-600" aria-live="polite"></p>
     <section class="mt-6 grid gap-4 lg:grid-cols-2">)HTML"
@@ -278,7 +296,7 @@ std::string renderMyCoursesPage(const nlohmann::json& data) {
         + R"HTML(</section>
   </section>
 </main>)HTML";
-    const std::string script = R"HTML(<script>(()=>{const message=document.getElementById('course-message');document.querySelectorAll('.delete-course').forEach(button=>button.addEventListener('click',async()=>{if(!confirm('确定删除这门课程吗？学习进度和课程内容将一并删除。'))return;button.disabled=true;try{const response=await fetch('/api/my-courses/'+encodeURIComponent(button.dataset.courseId),{method:'DELETE'});if(!response.ok)throw new Error('删除失败，请稍后重试。');location.reload()}catch(error){button.disabled=false;message.textContent=error.message}}))})()</script>)HTML";
+    const std::string script = R"HTML(<script>(()=>{const message=document.getElementById('course-message');const apiButton=document.getElementById('open-api-settings');const apiMessage=document.getElementById('api-settings-message');apiButton?.addEventListener('click',async()=>{if(typeof window.gangyiOpenApiSettings!=='function'){apiMessage.textContent='请在钢一定制AI桌面应用托盘菜单中选择“设置”来配置 API 接口。';return}apiButton.disabled=true;apiMessage.textContent='正在打开 API 接口设置…';try{await window.gangyiOpenApiSettings();apiMessage.textContent='请在弹出的设置窗口中完成接口配置并保存。'}catch(error){apiMessage.textContent=error?.message||'设置窗口打开失败，请从托盘菜单进入“设置”。'}finally{apiButton.disabled=false}});document.querySelectorAll('.delete-course').forEach(button=>button.addEventListener('click',async()=>{if(!confirm('确定删除这门课程吗？学习进度和课程内容将一并删除。'))return;button.disabled=true;try{const response=await fetch('/api/my-courses/'+encodeURIComponent(button.dataset.courseId),{method:'DELETE'});if(!response.ok)throw new Error('删除失败，请稍后重试。');location.reload()}catch(error){button.disabled=false;message.textContent=error.message}}))})()</script>)HTML";
     return document("我的课程 - 钢一定制AI", body, script);
 }
 

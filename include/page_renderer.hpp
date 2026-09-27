@@ -6,7 +6,8 @@
 
 namespace gangyi {
 
-std::string renderHomePage();
+std::string renderHomePage(int startupVariant = -1);
+std::string renderStartupPage(int variant = 0);
 std::string renderPlanPage(const std::string& goal, const std::string& mode,
                            const std::string& courseId = {}, const std::string& anonymousId = {});
 // /phase 阶段页：courseId 课程快照(plan: MockPlan) + cardStatus(topicNo->completed/in_progress) 服务端渲染。

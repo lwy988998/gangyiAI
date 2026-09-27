@@ -999,6 +999,14 @@ int main() {
         return crow::response(200, gangyi::profileView(db).dump());
     });
 
+    CROW_ROUTE(app, "/startup")([](const crow::request& req) {
+        const char* raw = req.url_params.get("variant");
+        const int variant = raw && raw[0] >= '0' && raw[0] <= '4' && raw[1] == '\0' ? raw[0] - '0' : 0;
+        crow::response response(gangyi::renderStartupPage(variant));
+        response.set_header("Content-Type", "text/html; charset=utf-8");
+        return response;
+    });
+
     CROW_ROUTE(app, "/api/profile/refresh").methods(crow::HTTPMethod::POST)([&db] {
         db.markProfileDirty();
         return crow::response(202, nlohmann::json{{"ok", true}, {"updating", true}}.dump());

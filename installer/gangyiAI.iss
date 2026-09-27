@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.1"
+  #define MyAppVersion "0.3.4"
 #endif
 
 #define MyAppName "钢一定制AI"
@@ -41,6 +41,7 @@ VersionInfoProductVersion={#MyAppVersion}
 
 [Files]
 Source: "..\dist\windows\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\installer\MicrosoftEdgeWebView2Setup.exe"; Flags: dontcopy
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -51,3 +52,41 @@ Filename: "{app}\{#MyAppExeName}"; Description: "启动 {#MyAppName}"; Flags: no
 
 [UninstallRun]
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--remove-credentials"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveGangyiAICredentials"
+
+[Code]
+function HasWebView2Runtime: Boolean;
+var
+  Version: String;
+  MachineKey: String;
+  UserKey: String;
+begin
+  MachineKey := 'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
+  UserKey := 'Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
+  Result := (RegQueryStringValue(HKLM, MachineKey, 'pv', Version) and
+             (Version <> '') and (Version <> '0.0.0.0')) or
+            (RegQueryStringValue(HKCU, UserKey, 'pv', Version) and
+             (Version <> '') and (Version <> '0.0.0.0'));
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ExitCode: Integer;
+  Attempt: Integer;
+begin
+  Result := '';
+  if HasWebView2Runtime then Exit;
+  ExtractTemporaryFile('MicrosoftEdgeWebView2Setup.exe');
+  if not Exec(ExpandConstant('{tmp}\MicrosoftEdgeWebView2Setup.exe'),
+              '/silent /install', '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or
+     (ExitCode <> 0) then
+  begin
+    Result := 'WebView2 Runtime 安装失败。请联网后重试安装程序。';
+    Exit;
+  end;
+  for Attempt := 1 to 30 do
+  begin
+    if HasWebView2Runtime then Exit;
+    Sleep(1000);
+  end;
+  Result := '未检测到 WebView2 Runtime。请安装后重试。';
+end;

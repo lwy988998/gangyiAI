@@ -11,6 +11,7 @@
 #include <shellapi.h>
 #include <shlobj.h>
 #include <wincred.h>
+#include <webview/webview.h>
 
 #include "ai_client.hpp"
 #include "launcher_support.hpp"
@@ -36,17 +37,20 @@
 namespace {
 
 constexpr wchar_t kWindowClass[] = L"GangyiAILauncherWindow";
+constexpr wchar_t kDesktopWindowClass[] = L"GangyiAIDesktopWindow";
 constexpr wchar_t kMutexName[] = L"GangyiAI.Launcher.v1";
 constexpr wchar_t kRegistryKey[] = L"Software\\GangyiAI";
 constexpr wchar_t kCredentialTarget[] = L"GangyiAI/APIKey";
 constexpr UINT kTrayMessage = WM_APP + 1;
 constexpr UINT kServiceReady = WM_APP + 2;
 constexpr UINT kServiceFailed = WM_APP + 3;
-constexpr UINT kOpenBrowser = WM_APP + 4;
+constexpr UINT kOpenDesktop = WM_APP + 4;
+constexpr UINT kOpenApiSettings = WM_APP + 8;
 constexpr UINT kConnectionTestComplete = WM_APP + 5;
 constexpr UINT kModelListComplete = WM_APP + 6;
 constexpr UINT kRestartTimer = 1;
 constexpr UINT kStableTimer = 2;
+constexpr UINT kDesktopLoadTimer = 3;
 
 constexpr int kBaseUrlEdit = 101;
 constexpr int kApiKeyEdit = 102;
@@ -57,6 +61,7 @@ constexpr int kCancelButton = 106;
 constexpr int kTestButton = 107;
 constexpr int kProviderCombo = 108;
 constexpr int kFetchModelsButton = 109;
+constexpr int kSkipAiButton = 110;
 constexpr int kMenuOpen = 201;
 constexpr int kMenuSettings = 202;
 constexpr int kMenuRestart = 203;
@@ -76,6 +81,16 @@ struct Settings {
 
 struct AppState {
     HWND window = nullptr;
+    HWND desktopWindow = nullptr;
+    webview_t desktopView = nullptr;
+    ICoreWebView2* browser = nullptr;
+    EventRegistrationToken navigationToken{};
+    EventRegistrationToken newWindowToken{};
+    bool pageReady = false;
+    std::wstring desktopOrigin;
+    // 启动时先播放一次品牌动画，动画结束后由页面优雅回到首页。
+    std::wstring desktopRoute = L"/startup";
+    int displayPort = 0;
     HWND baseUrlEdit = nullptr;
     HWND apiKeyEdit = nullptr;
     HWND modelEdit = nullptr;
@@ -107,6 +122,8 @@ struct AppState {
     std::wstring controlToken;
     int port = 0;
     bool hasConfig = false;
+    bool skipAiSetup = false;
+    bool smokeMode = false;
     bool background = false;
     bool openWhenReady = true;
     DWORD lastExitCode = 0;
@@ -115,6 +132,16 @@ struct AppState {
 };
 
 AppState g;
+
+void enablePerMonitorDpi() {
+    // 高 DPI 屏幕由系统按每个显示器缩放，避免 WebView2 被 DPI 虚拟化后变模糊。
+    using SetProcessDpiAwarenessContextFn = BOOL(WINAPI*)(DPI_AWARENESS_CONTEXT);
+    const auto context = reinterpret_cast<DPI_AWARENESS_CONTEXT>(static_cast<INT_PTR>(-4));
+    const auto user32 = GetModuleHandleW(L"user32.dll");
+    const auto setContext = user32 ? reinterpret_cast<SetProcessDpiAwarenessContextFn>(
+        GetProcAddress(user32, "SetProcessDpiAwarenessContext")) : nullptr;
+    if (!setContext || !setContext(context)) SetProcessDPIAware();
+}
 
 std::wstring readRegistryString(const wchar_t* name, const std::wstring& fallback = {}) {
     HKEY key = nullptr;
@@ -271,6 +298,10 @@ bool validBaseUrl(const std::wstring& value) {
     return startsWithIgnoreCase(value, L"https://") || startsWithIgnoreCase(value, L"http://");
 }
 
+bool canStartService(const Settings& settings, bool hasApiKey, bool skipAiSetup) {
+    return skipAiSetup || (validBaseUrl(settings.baseUrl) && !settings.model.empty() && hasApiKey);
+}
+
 std::string toUtf8(const std::wstring& value) {
     if (value.empty()) return {};
     const int size = WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
@@ -310,6 +341,20 @@ std::wstring randomToken() {
         token.push_back(hex[value & 0x0f]);
     }
     return token;
+}
+
+unsigned selectStartupVariant() {
+    const DWORD previous = readRegistryDword(L"LastStartupVariant", 5);
+    unsigned char randomByte = 0;
+    do {
+        if (BCryptGenRandom(nullptr, &randomByte, 1, BCRYPT_USE_SYSTEM_PREFERRED_RNG) < 0) {
+            randomByte = static_cast<unsigned char>(GetTickCount64() % (previous < 5 ? 256 : 255));
+            break;
+        }
+    } while (previous >= 5 && randomByte == 255);
+    const unsigned selected = gangyi::launcher::chooseStartupVariant(previous, randomByte);
+    writeRegistryDword(L"LastStartupVariant", selected);
+    return selected;
 }
 
 int findAvailablePort() {
@@ -425,10 +470,261 @@ void showFailure(const wchar_t* message) {
     }
 }
 
-void openBrowser() {
+bool isExternalWebUrl(const std::wstring& url) {
+    if (!startsWithIgnoreCase(url, L"https://") && !startsWithIgnoreCase(url, L"http://")) return false;
+    const size_t authority = url.find(L"://") + 3;
+    const size_t end = url.find_first_of(L"/?#", authority);
+    const std::wstring address = url.substr(authority, end - authority);
+    if (address.empty()) return false;
+    const size_t port = address.front() == L'[' ? address.find(L']') + 1 : address.find(L':');
+    const std::wstring host = address.substr(0, port);
+    return _wcsicmp(host.c_str(), L"127.0.0.1") != 0 &&
+           _wcsicmp(host.c_str(), L"localhost") != 0 &&
+           _wcsicmp(host.c_str(), L"[::1]") != 0;
+}
+
+bool isCurrentLocalUrl(const std::wstring& url) {
+    if (url.compare(0, g.desktopOrigin.size(), g.desktopOrigin) != 0) return false;
+    return url.size() == g.desktopOrigin.size() || url[g.desktopOrigin.size()] == L'/' ||
+           url[g.desktopOrigin.size()] == L'?' || url[g.desktopOrigin.size()] == L'#';
+}
+
+void openExternalUrl(const std::wstring& url) {
+    if (isExternalWebUrl(url)) ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
+class NavigationHandler final : public ICoreWebView2NavigationStartingEventHandler {
+public:
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** result) override {
+        if (!result) return E_POINTER;
+        *result = nullptr;
+        if (IsEqualIID(id, IID_IUnknown) || IsEqualIID(id, IID_ICoreWebView2NavigationStartingEventHandler)) {
+            *result = this;
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return ++refs_; }
+    ULONG STDMETHODCALLTYPE Release() override {
+        const ULONG remaining = --refs_;
+        if (!remaining) delete this;
+        return remaining;
+    }
+    HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) override {
+        LPWSTR raw = nullptr;
+        if (FAILED(args->get_Uri(&raw)) || !raw) return S_OK;
+        const std::wstring url(raw);
+        CoTaskMemFree(raw);
+        if (url == L"about:blank") return S_OK;
+        if (isCurrentLocalUrl(url)) {
+            g.desktopRoute = url.substr(g.desktopOrigin.size());
+            if (g.desktopRoute.empty()) g.desktopRoute = L"/";
+            g.pageReady = false;
+            if (g.desktopWindow) SetTimer(g.desktopWindow, kDesktopLoadTimer, 15000, nullptr);
+        } else {
+            args->put_Cancel(TRUE);
+            openExternalUrl(url);
+        }
+        return S_OK;
+    }
+private:
+    std::atomic<ULONG> refs_{1};
+};
+
+class NewWindowHandler final : public ICoreWebView2NewWindowRequestedEventHandler {
+public:
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** result) override {
+        if (!result) return E_POINTER;
+        *result = nullptr;
+        if (IsEqualIID(id, IID_IUnknown) || IsEqualIID(id, IID_ICoreWebView2NewWindowRequestedEventHandler)) {
+            *result = this;
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return ++refs_; }
+    ULONG STDMETHODCALLTYPE Release() override {
+        const ULONG remaining = --refs_;
+        if (!remaining) delete this;
+        return remaining;
+    }
+    HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) override {
+        LPWSTR raw = nullptr;
+        if (SUCCEEDED(args->get_Uri(&raw)) && raw) {
+            if (isCurrentLocalUrl(raw) && g.browser) g.browser->Navigate(raw);
+            else openExternalUrl(raw);
+            CoTaskMemFree(raw);
+        }
+        args->put_Handled(TRUE);
+        return S_OK;
+    }
+private:
+    std::atomic<ULONG> refs_{1};
+};
+
+void resizeDesktopWidget(HWND window) {
+    if (!g.desktopView) return;
+    auto* widget = static_cast<HWND>(webview_get_native_handle(g.desktopView, WEBVIEW_NATIVE_HANDLE_KIND_UI_WIDGET));
+    RECT bounds{};
+    if (widget && GetClientRect(window, &bounds))
+        MoveWindow(widget, 0, 0, bounds.right, bounds.bottom, TRUE);
+}
+
+void desktopPageReady(const char* id, const char*, void*) {
+    g.pageReady = true;
+    if (g.desktopWindow) KillTimer(g.desktopWindow, kDesktopLoadTimer);
+    webview_return(g.desktopView, id, 0, "null");
+}
+
+void openApiSettings(const char* id, const char*, void*) {
+    if (!g.window || !PostMessageW(g.window, kOpenApiSettings, 0, 0)) {
+        webview_return(g.desktopView, id, 1, "\"无法打开 API 接口设置，请从托盘菜单进入设置。\"");
+        return;
+    }
+    webview_return(g.desktopView, id, 0, "null");
+}
+
+const char* kDesktopScript = R"JS((() => {
+  const report = () => {
+    const header = document.querySelector('.site-header');
+    if (header && header.getBoundingClientRect().width > 0 &&
+        document.documentElement.clientWidth > 0 && document.body.innerText.trim()) {
+      window.gangyiPageReady();
+    } else {
+      setTimeout(report, 200);
+    }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', report, {once: true});
+  else report();
+})())JS";
+
+void closeDesktopView() {
+    if (g.desktopWindow) KillTimer(g.desktopWindow, kDesktopLoadTimer);
+    if (g.browser) {
+        g.browser->remove_NavigationStarting(g.navigationToken);
+        g.browser->remove_NewWindowRequested(g.newWindowToken);
+        g.browser->Release();
+        g.browser = nullptr;
+    }
+    if (g.desktopView) {
+        webview_destroy(g.desktopView);
+        g.desktopView = nullptr;
+    }
+}
+
+LRESULT CALLBACK desktopWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
+    switch (message) {
+    case WM_SIZE:
+        resizeDesktopWidget(window);
+        return 0;
+    case WM_MOVE:
+        if (g.desktopView) {
+            auto* controller = static_cast<ICoreWebView2Controller*>(webview_get_native_handle(
+                g.desktopView, WEBVIEW_NATIVE_HANDLE_KIND_BROWSER_CONTROLLER));
+            if (controller) controller->NotifyParentWindowPositionChanged();
+        }
+        return 0;
+    case WM_DPICHANGED: {
+        const auto* suggested = reinterpret_cast<const RECT*>(lParam);
+        if (suggested) SetWindowPos(window, nullptr, suggested->left, suggested->top,
+            suggested->right - suggested->left, suggested->bottom - suggested->top,
+            SWP_NOZORDER | SWP_NOACTIVATE);
+        resizeDesktopWidget(window);
+        return 0;
+    }
+    case WM_TIMER:
+        if (wParam == kDesktopLoadTimer && !g.pageReady) {
+            KillTimer(window, kDesktopLoadTimer);
+            const int answer = MessageBoxW(window,
+                L"页面未能正常显示。请检查本地服务，然后重试；也可以退出程序。",
+                L"钢一定制AI - 加载失败", MB_RETRYCANCEL | MB_ICONWARNING);
+            if (answer == IDRETRY) {
+                SetTimer(window, kDesktopLoadTimer, 15000, nullptr);
+                webview_navigate(g.desktopView, toUtf8(g.desktopOrigin + g.desktopRoute).c_str());
+            } else PostMessageW(window, WM_CLOSE, 0, 0);
+            return 0;
+        }
+        break;
+    case WM_CLOSE:
+        closeDesktopView();
+        DestroyWindow(window);
+        return 0;
+    case WM_DESTROY:
+        g.desktopWindow = nullptr;
+        g.displayPort = 0;
+        if (g.window && !g.shuttingDown) DestroyWindow(g.window);
+        return 0;
+    }
+    return DefWindowProcW(window, message, wParam, lParam);
+}
+
+void openDesktop() {
     if (!g.port) return;
-    const std::wstring url = L"http://127.0.0.1:" + std::to_wstring(g.port) + L"/";
-    ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    if (!g.desktopWindow) {
+        RECT workArea{};
+        if (!SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0))
+            SetRect(&workArea, 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
+        const int width = static_cast<int>(std::min<LONG>(1120, (workArea.right - workArea.left) * 9 / 10));
+        const int height = static_cast<int>(std::min<LONG>(760, (workArea.bottom - workArea.top) * 9 / 10));
+        g.desktopWindow = CreateWindowExW(0, kDesktopWindowClass, L"钢一定制AI", WS_OVERLAPPEDWINDOW,
+            workArea.left + (workArea.right - workArea.left - width) / 2,
+            workArea.top + (workArea.bottom - workArea.top - height) / 2,
+            width, height, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+        if (!g.desktopWindow) { showFailure(L"无法创建桌面主窗口。"); return; }
+        g.desktopView = webview_create(0, g.desktopWindow);
+        if (!g.desktopView) {
+            const int answer = MessageBoxW(g.desktopWindow,
+                L"无法启动独立界面。请安装 Microsoft Edge WebView2 Runtime。是否打开官方下载页？",
+                L"钢一定制AI", MB_YESNO | MB_ICONERROR);
+            if (answer == IDYES) ShellExecuteW(nullptr, L"open",
+                L"https://developer.microsoft.com/microsoft-edge/webview2/", nullptr, nullptr, SW_SHOWNORMAL);
+            DestroyWindow(g.desktopWindow);
+            DestroyWindow(g.window);
+            return;
+        }
+        webview_bind(g.desktopView, "gangyiPageReady", desktopPageReady, nullptr);
+        webview_bind(g.desktopView, "gangyiOpenApiSettings", openApiSettings, nullptr);
+        webview_init(g.desktopView, kDesktopScript);
+        auto* controller = static_cast<ICoreWebView2Controller*>(webview_get_native_handle(
+            g.desktopView, WEBVIEW_NATIVE_HANDLE_KIND_BROWSER_CONTROLLER));
+        if (!controller || FAILED(controller->get_CoreWebView2(&g.browser)) || !g.browser) {
+            showFailure(L"无法初始化桌面页面。");
+            closeDesktopView();
+            DestroyWindow(g.desktopWindow);
+            DestroyWindow(g.window);
+            return;
+        }
+        auto* navigation = new NavigationHandler();
+        g.browser->add_NavigationStarting(navigation, &g.navigationToken);
+        navigation->Release();
+        auto* newWindow = new NewWindowHandler();
+        g.browser->add_NewWindowRequested(newWindow, &g.newWindowToken);
+        newWindow->Release();
+        resizeDesktopWidget(g.desktopWindow);
+        ShowWindow(g.desktopWindow, SW_SHOW);
+    }
+    if (g.displayPort != g.port) {
+        if (g.browser && !g.desktopOrigin.empty()) {
+            LPWSTR current = nullptr;
+            if (SUCCEEDED(g.browser->get_Source(&current)) && current) {
+                const std::wstring source(current);
+                if (isCurrentLocalUrl(source)) g.desktopRoute = source.substr(g.desktopOrigin.size());
+                CoTaskMemFree(current);
+            }
+        }
+        g.desktopOrigin = L"http://127.0.0.1:" + std::to_wstring(g.port);
+        g.displayPort = g.port;
+        if (g.desktopRoute.empty() || g.desktopRoute.front() != L'/') g.desktopRoute = L"/";
+        if (g.desktopRoute == L"/startup")
+            g.desktopRoute += L"?variant=" + std::to_wstring(selectStartupVariant());
+        g.pageReady = false;
+        SetTimer(g.desktopWindow, kDesktopLoadTimer, 15000, nullptr);
+        webview_navigate(g.desktopView, toUtf8(g.desktopOrigin + g.desktopRoute).c_str());
+    }
+    ShowWindow(g.desktopWindow, IsIconic(g.desktopWindow) ? SW_RESTORE : SW_SHOW);
+    SetForegroundWindow(g.desktopWindow);
 }
 
 void stopService() {
@@ -452,9 +748,16 @@ bool startService(bool openWhenReady, bool resetRestart = true) {
         KillTimer(g.window, kRestartTimer);
         KillTimer(g.window, kStableTimer);
     }
-    g.settings = loadSettings();
-    std::wstring apiKey = readApiKey();
-    if (!validBaseUrl(g.settings.baseUrl) || g.settings.model.empty() || apiKey.empty()) return false;
+    g.settings = g.smokeMode ? Settings{} : loadSettings();
+    std::wstring apiKey = g.smokeMode ? std::wstring{} : readApiKey();
+    if (!canStartService(g.settings, !apiKey.empty(), g.skipAiSetup)) {
+        SecureZeroMemory(apiKey.data(), apiKey.size() * sizeof(wchar_t));
+        return false;
+    }
+    if (g.skipAiSetup) {
+        SecureZeroMemory(apiKey.data(), apiKey.size() * sizeof(wchar_t));
+        apiKey.clear();
+    }
     g.port = findAvailablePort();
     g.controlToken = randomToken();
     if (!g.port || g.controlToken.empty()) {
@@ -738,7 +1041,7 @@ bool saveSettingsFromControls() {
         writeRegistryString(L"AIModel", settings.model) &&
         writeRegistryString(L"AIProvider", gangyi::launcher::providerProfile(settings.provider).id) &&
         writeRegistryDword(L"AutoStart", settings.autoStart ? 1 : 0) &&
-        writeApiKey(apiKey) && configureAutoStart(settings.autoStart);
+        writeApiKey(apiKey) && writeRegistryDword(L"SkipAISetup", 0) && configureAutoStart(settings.autoStart);
     SecureZeroMemory(apiKey.data(), apiKey.size() * sizeof(wchar_t));
     SetWindowTextW(g.apiKeyEdit, L"");
     if (!saved) {
@@ -747,8 +1050,22 @@ bool saveSettingsFromControls() {
     }
     g.settings = settings;
     g.hasConfig = true;
+    g.skipAiSetup = false;
     ShowWindow(g.window, SW_HIDE);
     return startService(true);
+}
+
+void skipAiSetup() {
+    const bool autoStart = SendMessageW(g.autoStartCheck, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    if (!configureAutoStart(autoStart) || !writeRegistryDword(L"AutoStart", autoStart ? 1 : 0) ||
+        !writeRegistryDword(L"SkipAISetup", 1)) {
+        MessageBoxW(g.window, L"暂不配置的选择保存失败，请检查当前用户权限。", L"钢一定制AI", MB_OK | MB_ICONERROR);
+        return;
+    }
+    SetWindowTextW(g.apiKeyEdit, L"");
+    g.skipAiSetup = true;
+    ShowWindow(g.window, SW_HIDE);
+    if (!startService(true)) showSettingsWindow();
 }
 
 std::wstring connectionErrorMessage(const std::string& type) {
@@ -956,13 +1273,15 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
             378, 202, 102, 28, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kFetchModelsButton)), nullptr, nullptr);
         g.autoStartCheck = CreateWindowW(L"BUTTON", L"登录 Windows 后自动启动", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
             24, 244, 250, 24, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAutoStartCheck)), nullptr, nullptr);
+        CreateWindowW(L"BUTTON", L"暂不配置，直接使用", WS_CHILD | WS_VISIBLE,
+            24, 314, 148, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSkipAiButton)), nullptr, nullptr);
         g.testButton = CreateWindowW(L"BUTTON", L"测试连接", WS_CHILD | WS_VISIBLE,
             180, 314, 96, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kTestButton)), nullptr, nullptr);
         g.saveButton = CreateWindowW(L"BUTTON", L"保存并启动", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
             282, 314, 96, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSaveButton)), nullptr, nullptr);
         CreateWindowW(L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE,
             384, 314, 96, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCancelButton)), nullptr, nullptr);
-        g.statusLabel = CreateWindowW(L"STATIC", L"API Key 将安全保存在 Windows 凭据管理器中。", WS_CHILD | WS_VISIBLE,
+        g.statusLabel = CreateWindowW(L"STATIC", L"可先使用本地功能；AI 功能可稍后在托盘“设置”中启用。", WS_CHILD | WS_VISIBLE,
             24, 278, 456, 24, window, nullptr, nullptr, nullptr);
         EnumChildWindows(window, [](HWND child, LPARAM value) -> BOOL {
             SendMessageW(child, WM_SETFONT, static_cast<WPARAM>(value), TRUE);
@@ -979,11 +1298,12 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         case kFetchModelsButton: fetchModelsFromControls(); return 0;
         case kTestButton: testConnectionFromControls(); return 0;
         case kSaveButton: saveSettingsFromControls(); return 0;
+        case kSkipAiButton: skipAiSetup(); return 0;
         case kCancelButton:
             SetWindowTextW(g.apiKeyEdit, L"");
-            if (g.hasConfig) ShowWindow(window, SW_HIDE); else DestroyWindow(window);
+            if (g.hasConfig || g.skipAiSetup) ShowWindow(window, SW_HIDE); else DestroyWindow(window);
             return 0;
-        case kMenuOpen: PostMessageW(window, kOpenBrowser, 0, 0); return 0;
+        case kMenuOpen: PostMessageW(window, kOpenDesktop, 0, 0); return 0;
         case kMenuSettings: showSettingsWindow(); return 0;
         case kMenuRestart:
             if (!startService(false)) showSettingsWindow();
@@ -997,7 +1317,7 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         }
         break;
     case kTrayMessage:
-        if (LOWORD(lParam) == WM_LBUTTONDBLCLK) PostMessageW(window, kOpenBrowser, 0, 0);
+        if (LOWORD(lParam) == WM_LBUTTONDBLCLK) PostMessageW(window, kOpenDesktop, 0, 0);
         else if (LOWORD(lParam) == WM_CONTEXTMENU || LOWORD(lParam) == WM_RBUTTONUP) showTrayMenu();
         return 0;
     case kServiceReady:
@@ -1005,7 +1325,7 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         g.pendingRestoreRollback.clear();
         KillTimer(window, kStableTimer);
         SetTimer(window, kStableTimer, 10 * 60 * 1000, nullptr);
-        if (g.openWhenReady) openBrowser();
+        if (g.openWhenReady || g.desktopWindow) openDesktop();
         return 0;
     case kServiceFailed:
         KillTimer(window, kStableTimer);
@@ -1037,8 +1357,11 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
             return 0;
         }
         break;
-    case kOpenBrowser:
-        if (processRunning()) openBrowser(); else if (!startService(true)) showSettingsWindow();
+    case kOpenDesktop:
+        if (processRunning()) openDesktop(); else if (!startService(true)) showSettingsWindow();
+        return 0;
+    case kOpenApiSettings:
+        showSettingsWindow();
         return 0;
     case kConnectionTestComplete: {
         std::wstring message;
@@ -1089,10 +1412,11 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     }
     case WM_CLOSE:
         SetWindowTextW(g.apiKeyEdit, L"");
-        if (g.hasConfig) ShowWindow(window, SW_HIDE); else DestroyWindow(window);
+        if (g.hasConfig || g.skipAiSetup) ShowWindow(window, SW_HIDE); else DestroyWindow(window);
         return 0;
     case WM_DESTROY:
         g.shuttingDown = true;
+        if (g.desktopWindow) DestroyWindow(g.desktopWindow);
         if (g.connectionTestThread.joinable()) g.connectionTestThread.join();
         if (g.modelListThread.joinable()) g.modelListThread.join();
         KillTimer(window, kRestartTimer);
@@ -1111,12 +1435,18 @@ int selfTest() {
     if (token.size() != 64) return 11;
     if (findAvailablePort() < 39002) return 12;
     if (localAppDataPath().empty()) return 13;
+    Settings settings;
+    if (canStartService(settings, false, false) || !canStartService(settings, false, true) ||
+        !canStartService(settings, true, false)) return 14;
+    settings.baseUrl.clear();
+    if (canStartService(settings, true, false) || !canStartService(settings, false, true)) return 15;
     return 0;
 }
 
 }  // namespace
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
+    enablePerMonitorDpi();
     if (FAILED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED))) return 1;
     WSADATA sockets{};
     if (WSAStartup(MAKEWORD(2, 2), &sockets) != 0) {
@@ -1130,16 +1460,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
         CoUninitialize();
         return 0;
     }
-    if (arguments.find(L"--self-test") != std::wstring::npos) {
+    if (arguments == L"--self-test") {
         const int result = selfTest();
         WSACleanup();
         CoUninitialize();
         return result;
     }
 
-    HANDLE mutex = CreateMutexW(nullptr, TRUE, kMutexName);
+    g.smokeMode = arguments.find(L"--self-test-ui") != std::wstring::npos;
+    HANDLE mutex = CreateMutexW(nullptr, TRUE, g.smokeMode ? L"GangyiAI.Launcher.UI.Smoke" : kMutexName);
     if (!mutex || GetLastError() == ERROR_ALREADY_EXISTS) {
-        if (HWND existing = FindWindowW(kWindowClass, nullptr)) PostMessageW(existing, kOpenBrowser, 0, 0);
+        if (HWND existing = FindWindowW(kWindowClass, nullptr)) PostMessageW(existing, kOpenDesktop, 0, 0);
         if (mutex) CloseHandle(mutex);
         WSACleanup();
         CoUninitialize();
@@ -1150,9 +1481,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     g.installDir = std::filesystem::path(exe).parent_path().wstring();
     g.dataDir = (std::filesystem::path(localAppDataPath()) / L"GangyiAI").wstring();
     g.background = arguments.find(L"--background") != std::wstring::npos;
-    g.settings = loadSettings();
-    std::wstring key = readApiKey();
+    g.settings = g.smokeMode ? Settings{} : loadSettings();
+    std::wstring key = g.smokeMode ? std::wstring{} : readApiKey();
     g.hasConfig = validBaseUrl(g.settings.baseUrl) && !g.settings.model.empty() && !key.empty();
+    g.skipAiSetup = g.smokeMode || readRegistryDword(L"SkipAISetup", 0) != 0;
     SecureZeroMemory(key.data(), key.size() * sizeof(wchar_t));
 
     g.job = CreateJobObjectW(nullptr, nullptr);
@@ -1173,10 +1505,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     windowClass.lpszClassName = kWindowClass;
     if (!RegisterClassExW(&windowClass)) return 1;
 
+    WNDCLASSEXW desktopClass = windowClass;
+    desktopClass.lpfnWndProc = desktopWindowProc;
+    desktopClass.lpszClassName = kDesktopWindowClass;
+    if (!RegisterClassExW(&desktopClass)) return 1;
+
     g.window = CreateWindowExW(0, kWindowClass, L"钢一定制AI 配置", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
         CW_USEDEFAULT, CW_USEDEFAULT, 520, 400, nullptr, nullptr, instance, nullptr);
     if (!g.window) return 1;
-    if (g.hasConfig) {
+    if (g.hasConfig || g.skipAiSetup) {
         if (!startService(!g.background)) showSettingsWindow();
     } else {
         showSettingsWindow();

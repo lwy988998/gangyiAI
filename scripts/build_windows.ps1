@@ -90,7 +90,10 @@ if (-not $SkipDependencies) {
         '7f23b039f6ea4197362d4468e1a0e71428201222e1bef3b680d5ef7b2aefb714'
 }
 
-cmake -S $repoRoot -B $buildDir -G 'MinGW Makefiles' -DCMAKE_BUILD_TYPE=Release
+$cmakeArgs = @('-S', $repoRoot, '-B', $buildDir, '-G', 'MinGW Makefiles', '-DCMAKE_BUILD_TYPE=Release')
+$curlCa = Get-ChildItem -LiteralPath (Join-Path $thirdParty 'curl') -Filter 'curl-ca-bundle.crt' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($curlCa) { $cmakeArgs += "-DCMAKE_TLS_CAINFO=$($curlCa.FullName)" }
+cmake @cmakeArgs
 if ($LASTEXITCODE -ne 0) { throw 'CMake 配置失败' }
 cmake --build $buildDir --parallel
 if ($LASTEXITCODE -ne 0) { throw 'C++ 编译失败' }
@@ -128,13 +131,13 @@ $caBundle = Join-Path $buildDir 'curl-ca-bundle.crt'
 if (Test-Path -LiteralPath $caBundle) { Copy-Item -LiteralPath $caBundle -Destination $distDir }
 $publicDist = Join-Path $distDir 'public'
 New-Item -ItemType Directory -Force -Path $publicDist | Out-Null
-foreach ($asset in @('styles.css', 'plan.css', 'dark.css', 'dark.js', 'ask.js', 'school-logo.png', 'campus-background.jpg')) {
+foreach ($asset in @('styles.css', 'plan.css', 'dark.css', 'dark.js', 'startup.css', 'startup.js', 'ask.js', 'school-logo.png', 'campus-background.jpg')) {
     Copy-Item -LiteralPath (Join-Path $repoRoot "public\$asset") -Destination $publicDist
 }
 $requiredFiles = @(
     'gangyiAI.exe', 'gangyiAI-launcher.exe', 'libcurl-x64.dll',
     'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll',
-    'public\styles.css', 'public\dark.css', 'public\dark.js', 'public\ask.js',
+    'public\styles.css', 'public\dark.css', 'public\dark.js', 'public\startup.css', 'public\startup.js', 'public\ask.js',
     'public\school-logo.png', 'public\campus-background.jpg'
 )
 foreach ($required in $requiredFiles) {
@@ -156,10 +159,11 @@ $portableGuide = @"
 钢一定制AI v$version 免安装版
 
 1. 请完整解压 ZIP，不要直接在压缩包内运行。
-2. 双击 gangyiAI-launcher.exe，填写 AI 服务商、API Key 和模型。
+2. 双击 gangyiAI-launcher.exe，可先点击“暂不配置，直接使用”；需要 AI 功能时再配置服务商、API Key 和模型。
 3. 配置、凭据、日志和课程数据库保存在 %LOCALAPPDATA%\GangyiAI。
 4. 本版本无需 CMake、编译器、Visual Studio、Python 或 Node.js。
-5. 当前程序尚未签名，Windows SmartScreen 可能提示未知发布者。
+5. 独立窗口界面需要 Microsoft Edge WebView2 Runtime；若提示缺失，请联网安装后重试。
+6. 当前程序尚未签名，Windows SmartScreen 可能提示未知发布者。
 "@
 Set-Content -LiteralPath (Join-Path $distDir '免安装版使用说明.txt') -Value $portableGuide -Encoding utf8
 $portableName = "gangyiAI-portable-v$version-x64.zip"
@@ -169,6 +173,15 @@ if (Test-Path -LiteralPath $portablePath) { Remove-Item -LiteralPath $portablePa
 Compress-Archive -Path (Join-Path $distDir '*') -DestinationPath $portablePath -CompressionLevel Optimal
 
 if (-not $SkipInstaller) {
+    $bootstrapper = Join-Path $buildDir 'MicrosoftEdgeWebView2Setup.exe'
+    if (-not (Test-Path -LiteralPath $bootstrapper)) {
+        Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $bootstrapper -UseBasicParsing
+    }
+    $signature = Get-AuthenticodeSignature -LiteralPath $bootstrapper
+    if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
+        throw 'WebView2 安装引导程序未通过微软签名校验'
+    }
+    Copy-Item -LiteralPath $bootstrapper -Destination (Join-Path $repoRoot 'dist\installer\MicrosoftEdgeWebView2Setup.exe') -Force
     $iscc = Get-Command 'ISCC.exe' -ErrorAction SilentlyContinue
     if (-not $iscc) {
         $isccCandidates = @(

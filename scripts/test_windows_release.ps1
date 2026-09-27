@@ -46,7 +46,7 @@ try {
     $env:LOCAL_CONTROL_TOKEN = 'ci-control-token'
     $env:DATABASE_PATH = Join-Path $temporary 'smoke.db'
     $env:AI_BASE_URL = 'http://127.0.0.1:9/v1'
-    $env:AI_API_KEY = 'ci-placeholder-key'
+    $env:AI_API_KEY = ''
     $env:AI_MODEL = 'ci-model'
     $service = Start-Process (Join-Path $portableDir 'gangyiAI.exe') -WorkingDirectory $portableDir -PassThru -WindowStyle Hidden
     try {
@@ -59,6 +59,10 @@ try {
             Start-Sleep -Milliseconds 150
         }
         if (-not $healthy) { throw '免安装版服务健康检查失败' }
+        $homeResponse = Invoke-WebRequest "http://127.0.0.1:$port/" -UseBasicParsing
+        if ($homeResponse.StatusCode -ne 200 -or $homeResponse.Content -notmatch '</html>') {
+            throw '未配置 API Key 时首页不可用'
+        }
         $logo = Invoke-WebRequest "http://127.0.0.1:$port/school-logo.png" -UseBasicParsing
         if ($logo.Headers.'Content-Type' -ne 'image/png') { throw '校徽 MIME 类型错误' }
         $background = Invoke-WebRequest "http://127.0.0.1:$port/campus-background.jpg" -UseBasicParsing
