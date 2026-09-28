@@ -64,6 +64,18 @@ FetchContent_Declare(
 set(CROW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(CROW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(Crow nlohmann_json)
+# Crow 1.2.0 的空请求构造函数未初始化协议标志，复用连接时会触发未定义行为。
+set(crowRequestHeader "${crow_SOURCE_DIR}/include/crow/http_request.h")
+file(READ "${crowRequestHeader}" crowRequestSource)
+set(crowOriginalConstructor "method(HTTPMethod::Get)")
+set(crowFixedConstructor "method(HTTPMethod::Get), http_ver_major(0), http_ver_minor(0), keep_alive(false), close_connection(false), upgrade(false)")
+if(NOT crowRequestSource MATCHES "keep_alive\\(false\\), close_connection\\(false\\), upgrade\\(false\\)")
+    string(REPLACE "${crowOriginalConstructor}" "${crowFixedConstructor}" crowPatchedSource "${crowRequestSource}")
+    if(crowPatchedSource STREQUAL crowRequestSource)
+        message(FATAL_ERROR "无法修复 Crow 1.2.0 的请求初始化")
+    endif()
+    file(WRITE "${crowRequestHeader}" "${crowPatchedSource}")
+endif()
 if(WIN32)
     FetchContent_Declare(
         webview
