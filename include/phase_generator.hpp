@@ -22,7 +22,8 @@ public:
     std::optional<nlohmann::json> generate(const std::string& goal, const std::string& mode,
                                            int phaseIndex, const std::string& stage,
                                            const std::vector<std::string>& topics,
-                                           const std::vector<SearchResource>& resources) const;
+                                           const std::vector<SearchResource>& resources,
+                                           const std::string& profileContext = {}) const;
 
 private:
     AIClient& client_;

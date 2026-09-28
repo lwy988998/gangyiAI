@@ -144,6 +144,8 @@ int main() {
             topic, 1, "deep", "overview", nlohmann::json::object(), {resource});
         server.wait();
         expect(result["_generation"].value("source", "") == "ai", "成功板块必须记录 AI 来源");
+        expect(result["_generation"].value("searchStatus", "not_requested") != "not_requested",
+            "微课生成前必须获得检索状态");
         expect(result["_generation"].value("model", "") == "configured-model", "必须记录实际返回模型");
         expect(server.requests().find("configured-model") != std::string::npos, "必须使用配置的模型");
         expect(server.requests().find("deepseek-v4-flash") == std::string::npos, "不得硬模型");
@@ -185,6 +187,9 @@ int main() {
         }
         server.wait();
         expect(server.count() == 3, "阶段生成失败必须自动尝试三次");
+        expect(server.requests().find("联网检索") != std::string::npos ||
+            server.requests().find("未获得联网依据") != std::string::npos,
+            "阶段生成前必须注入检索结果或失败状态");
         expect(server.requests().find("禁止省略任何字段") != std::string::npos,
             "阶段提示词必须禁止截断或省略字段");
         expect(server.requests().find("所有数组必须使用 JSON 数组") != std::string::npos,

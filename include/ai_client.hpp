@@ -25,6 +25,7 @@ struct ChatOptions {
     std::string responseFormat;
     int timeoutMs = 0;
     int maxAttempts = 0;
+    std::string searchQuery;
 };
 
 struct AIResult {
@@ -32,6 +33,8 @@ struct AIResult {
     std::string model;
     int status = 0;
     std::string finishReason;
+    std::string searchStatus = "not_requested";
+    std::vector<std::string> sources;
 };
 
 struct AIClientConfig {

@@ -2,6 +2,6 @@
 
 namespace gangyi {
 
-constexpr int kDatabaseSchemaVersion = 4;
+constexpr int kDatabaseSchemaVersion = 5;
 
 }

@@ -42,11 +42,15 @@ AskAnswer AskGenerator::generate(const std::string& question, const std::string&
     options.maxTokens = 3000;
     options.timeoutMs = askTimeoutMs();
     options.maxAttempts = 1;
+    std::string subject = u8"高中学科知识";
+    for (const auto& item : {u8"数学", u8"英语", u8"语文", u8"物理", u8"化学", u8"生物", u8"历史", u8"地理", u8"政治"})
+        if (safeQuestion.find(item) != std::string::npos) { subject = item; break; }
+    options.searchQuery = subject.empty() ? u8"高中学科知识" : subject;
 
     const auto result = client_.chat(options);
     const std::string content = trim(result.content);
     if (content.empty()) throw AIClientError("invalid_response", "AI 没有返回内容");
-    return {content, result.model};
+    return {content, result.model, result.searchStatus, result.sources};
 }
 
 }  // namespace gangyi

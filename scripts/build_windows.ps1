@@ -1,7 +1,8 @@
 ﻿param(
     [switch]$SkipDependencies,
     [switch]$SkipInstaller,
-    [string]$BuildDir = ''
+    [string]$BuildDir = '',
+    [string]$Generator = 'MinGW Makefiles'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -90,7 +91,7 @@ if (-not $SkipDependencies) {
         '7f23b039f6ea4197362d4468e1a0e71428201222e1bef3b680d5ef7b2aefb714'
 }
 
-$cmakeArgs = @('-S', $repoRoot, '-B', $buildDir, '-G', 'MinGW Makefiles', '-DCMAKE_BUILD_TYPE=Release')
+$cmakeArgs = @('-S', $repoRoot, '-B', $buildDir, '-G', $Generator, '-DCMAKE_BUILD_TYPE=Release')
 $curlCa = Get-ChildItem -LiteralPath (Join-Path $thirdParty 'curl') -Filter 'curl-ca-bundle.crt' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($curlCa) { $cmakeArgs += "-DCMAKE_TLS_CAINFO=$($curlCa.FullName.Replace('\', '/'))" }
 cmake @cmakeArgs

@@ -13,6 +13,7 @@ namespace gangyi {
 class SearchClient {
 public:
     SearchClient();
+    static bool testBochaKey(const std::string& key, std::string* diagnostic = nullptr);
 
     // 搜索 goal 相关资源，失败返回空 vector（不抛异常），最多 limit 条。
     std::vector<SearchResource> search(const std::string& goal, size_t limit = 20) const;

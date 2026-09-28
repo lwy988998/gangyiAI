@@ -60,6 +60,12 @@ struct SubjectMastery {
     std::optional<int> score;
     int evidenceCount = 0;
 };
+struct TopicMastery {
+    std::string courseId, topic, rationale, weakPoints = "[]", recommendation;
+    std::string evidenceIds = "[]", nextReviewAt, model, status = "insufficient", updatedAt;
+    int phaseIndex = 0, evidenceCount = 0, version = 0;
+    std::optional<int> score;
+};
 
 class Database {
 public:
@@ -84,8 +90,13 @@ public:
     bool insert(const LearningInteraction&); std::vector<LearningInteraction> listInteractions() const;
     bool deleteConversation(const std::string&); bool deleteInteractionsForCourse(const std::string&);
     bool upsert(const SubjectMastery&); void replaceMastery(const std::vector<SubjectMastery>&); std::vector<SubjectMastery> listMastery() const;
-    bool profileDirty() const; int profileRevision() const; void markProfileDirty(); void setProfileAssessed(int);
+    bool upsert(const TopicMastery&); std::vector<TopicMastery> listTopicMastery() const;
+    bool deleteTopicMasteryForCourse(const std::string&);
+    bool profileDirty() const; int profileRevision() const; int profileAssessedRevision() const;
+    void markProfileDirty(); void setProfileAssessed(int);
     std::string profileError() const; void setProfileError(const std::string&);
+    std::string profileSearchStatus() const; std::string profileSources() const;
+    void setProfileSearch(const std::string& status, const std::string& sources);
 
 private: sqlite3* db_ = nullptr;
 };

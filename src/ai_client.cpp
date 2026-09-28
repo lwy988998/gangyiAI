@@ -1,4 +1,5 @@
 #include "ai_client.hpp"
+#include "search_client.hpp"
 
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
@@ -224,6 +225,26 @@ AIClient::~AIClient() {
 }
 
 AIResult AIClient::chat(const ChatOptions& options) const {
+    ChatOptions prepared = options;
+    std::string searchStatus = "not_requested";
+    std::vector<std::string> sources;
+    if (!options.searchQuery.empty()) {
+        try {
+            SearchClient search;
+            const auto resources = search.search(options.searchQuery, 5);
+            searchStatus = resources.empty() ? "unavailable" : search.lastProvider();
+            std::string context = u8"联网检索只用于知识内容出处，不得用它判断学生掌握度。";
+            for (const auto& resource : resources) {
+                context += "\n- " + resource.title + " | " + resource.url + " | " + resource.description;
+                sources.push_back(resource.url);
+            }
+            if (resources.empty()) context += u8"未获得联网依据；不要虚构来源。";
+            prepared.messages.insert(prepared.messages.begin(), {"system", context});
+        } catch (...) {
+            searchStatus = "unavailable";
+            prepared.messages.insert(prepared.messages.begin(), {"system", u8"未获得联网依据；不要虚构来源。"});
+        }
+    }
     const int timeout = options.timeoutMs > 0 ? options.timeoutMs : timeoutMs_;
     const int attempts = options.maxAttempts > 0 ? options.maxAttempts : retryAttempts_;
     if (attempts < 1) throw AIClientError("unknown", "maxAttempts must be positive");
@@ -233,7 +254,9 @@ AIResult AIClient::chat(const ChatOptions& options) const {
 
     const Endpoint primary{baseUrl_, apiKey_, model_};
     try {
-        AIResult result = attempt(primary, options, timeout, attempts);
+        AIResult result = attempt(primary, prepared, timeout, attempts);
+        result.searchStatus = searchStatus;
+        result.sources = std::move(sources);
         consecutiveFailures_ = 0;
         return result;
     } catch (const AIClientError& primaryError) {

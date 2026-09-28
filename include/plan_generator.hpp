@@ -46,6 +46,8 @@ struct Slide {
 
 struct GeneratedPlan {
     std::string generationModel;
+    std::string searchStatus;
+    std::vector<std::string> searchSources;
     std::string inferredDomain;
     std::string learnerGoal;
     std::string courseTitle;

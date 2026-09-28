@@ -82,7 +82,8 @@ PhaseGenerator::PhaseGenerator(AIClient& client) : client_(client) {}
 
 std::optional<json> PhaseGenerator::generate(const std::string& goal, const std::string& mode, int phaseIndex,
                                               const std::string& stage, const std::vector<std::string>& topics,
-                                              const std::vector<SearchResource>& resources) const {
+                                              const std::vector<SearchResource>& resources,
+                                              const std::string& profileContext) const {
     std::ostringstream topicText;
     for (size_t i = 0; i < topics.size(); ++i) { if (i) topicText << "、"; topicText << topics[i]; }
     std::ostringstream resourceText;
@@ -104,8 +105,12 @@ std::optional<json> PhaseGenerator::generate(const std::string& goal, const std:
             R"({"objective":"含目标和阶段的具体目标","overview":"含目标和阶段的具体概述","tasks":[{"title":"任务1","description":"具体说明","duration":"时长","output":"具体产出","actionSteps":["操作1","操作2"],"checklist":["检查1"]},{"title":"任务2","description":"具体说明","duration":"时长","output":"具体产出","actionSteps":["操作1","操作2"],"checklist":["检查1"]},{"title":"任务3","description":"具体说明","duration":"时长","output":"具体产出","actionSteps":["操作1","操作2"],"checklist":["检查1"]}],"checklist":["阶段检查1","阶段检查2","阶段检查3"],"commonMistakes":["具体错误1","具体错误2"],"steps":[{"title":"步骤1","explanation":"讲解","example":"示例","action":"操作","check":"检查"},{"title":"步骤2","explanation":"讲解","example":"示例","action":"操作","check":"检查"},{"title":"步骤3","explanation":"讲解","example":"示例","action":"操作","check":"检查"},{"title":"步骤4","explanation":"讲解","example":"示例","action":"操作","check":"检查"},{"title":"步骤5","explanation":"讲解","example":"示例","action":"操作","check":"检查"}]})"
             "每个字符串最多2句话，description/explanation/example/action/check 各不超过80个汉字，总长度不超过4500个汉字；禁止省略任何字段。";
         if (!feedback.empty()) user += "\n上一次输出未通过检查：" + feedback + "。请完整重新生成并逐项修正。";
+        if (!profileContext.empty()) user += u8"\n本机学习摘要：" + profileContext +
+            u8"。仅调整讲解和练习难度，不得改变课程目标与已有阶段主线。";
         try {
-            const AIResult response = client_.chat(options(system, user, mode));
+            ChatOptions request = options(system, user, mode);
+            request.searchQuery = goal;
+            const AIResult response = client_.chat(request);
             json output = parseAIJson(response.content);
             feedback = validate(output, goal, stage);
             if (feedback.empty()) {
@@ -125,7 +130,8 @@ std::optional<json> PhaseGenerator::generate(const std::string& goal, const std:
                 const char* configuredModel = std::getenv("AI_MODEL");
                 normalized["_generation"] = {{"source", "ai"},
                     {"model", response.model.empty() && configuredModel ? configuredModel : response.model},
-                    {"generatedAt", nowIso8601()}, {"attempts", attempt}, {"promptVersion", "ai-phase-v1"}};
+                    {"generatedAt", nowIso8601()}, {"attempts", attempt}, {"promptVersion", "ai-phase-v1"},
+                    {"searchStatus", response.searchStatus}, {"sources", response.sources}};
                 std::cerr << "[phase] phase=" << phaseIndex << " attempt=" << attempt << " quality=passed\n";
                 return normalized;
             }
