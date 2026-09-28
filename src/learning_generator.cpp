@@ -207,7 +207,7 @@ json LearningGenerator::generateBlock(const std::string& goal, const json& cours
 
         ChatOptions options;
         options.messages = {
-            {"system", u8"你是钢一定制AI的专业高中教师。你正在生成一节课程中的单个板块。只输出一个完整严格 JSON 对象，禁止 Markdown、代码块、解释文字、字段省略、输出截断和虚构链接。字符串正文禁止使用反斜杠或 LaTeX 命令，数学公式必须改用 Unicode 符号或普通文本。必须根据用户目标、AI课程主线、当前阶段、当前主题和前置板块生成具体教学内容；输出正文必须原样出现输入中的 goal、phase、topic 三个字符串；每个说明控制在1-3句话，不得把字段名或通用学习方法当作正文。输出结构：" + schema->second},
+            {"system", u8"你是钢一定制AI的专业高中教师。你正在生成一节课程中的单个板块。只输出一个完整严格 JSON 对象，禁止 Markdown、代码块、解释文字、字段省略、输出截断和虚构链接。字符串正文禁止使用反斜杠或 LaTeX 命令，数学公式必须改用 Unicode 符号或普通文本。必须根据用户目标、AI课程主线、当前阶段、当前主题和前置板块生成具体教学内容；personalLearning 是经本机证据校验的学习状态，低分主题应补讲并给基础练习，高分主题可给进阶迁移练习；数据不足时不得推测掌握度。只调整讲解、示例与难度，不得改写课程目标或已学主线。输出正文必须原样出现输入中的 goal、phase、topic 三个字符串；每个说明控制在1-3句话，不得把字段名或通用学习方法当作正文。输出结构：" + schema->second},
             {"user", input.dump()}
         };
         options.temperature = attempt == 1 ? 0.3 : 0.15;
@@ -215,6 +215,7 @@ json LearningGenerator::generateBlock(const std::string& goal, const json& cours
         options.responseFormat = "json_object";
         options.timeoutMs = 90000;
         options.maxAttempts = 1;
+        options.searchQuery = goal;
         try {
             const AIResult response = client_.chat(options);
             responseBytes = response.content.size();
@@ -226,7 +227,8 @@ json LearningGenerator::generateBlock(const std::string& goal, const json& cours
                 const char* configuredModel = std::getenv("AI_MODEL");
                 normalized["_generation"] = {{"source", "ai"},
                     {"model", response.model.empty() && configuredModel ? configuredModel : response.model},
-                    {"generatedAt", nowIso8601()}, {"attempts", attempt}, {"promptVersion", "ai-block-v1"}};
+                    {"generatedAt", nowIso8601()}, {"attempts", attempt}, {"promptVersion", "ai-block-v1"},
+                    {"searchStatus", response.searchStatus}, {"sources", response.sources}};
                 std::cerr << "[learning-block] block=" << block << " attempt=" << attempt << " quality=passed\n";
                 return normalized;
             }

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(gangyiAI VERSION 0.3.4 LANGUAGES C CXX)
+project(gangyiAI VERSION 4.0.0 LANGUAGES C CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -64,6 +64,18 @@ FetchContent_Declare(
 set(CROW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(CROW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(Crow nlohmann_json)
+# Crow 1.2.0 的空请求构造函数未初始化协议标志，复用连接时会触发未定义行为。
+set(crowRequestHeader "${crow_SOURCE_DIR}/include/crow/http_request.h")
+file(READ "${crowRequestHeader}" crowRequestSource)
+set(crowOriginalConstructor "method(HTTPMethod::Get)")
+set(crowFixedConstructor "method(HTTPMethod::Get), http_ver_major(0), http_ver_minor(0), keep_alive(false), close_connection(false), upgrade(false)")
+if(NOT crowRequestSource MATCHES "keep_alive\\(false\\), close_connection\\(false\\), upgrade\\(false\\)")
+    string(REPLACE "${crowOriginalConstructor}" "${crowFixedConstructor}" crowPatchedSource "${crowRequestSource}")
+    if(crowPatchedSource STREQUAL crowRequestSource)
+        message(FATAL_ERROR "无法修复 Crow 1.2.0 的请求初始化")
+    endif()
+    file(WRITE "${crowRequestHeader}" "${crowPatchedSource}")
+endif()
 if(WIN32)
     FetchContent_Declare(
         webview
@@ -127,7 +139,7 @@ if(WIN32)
 endif()
 
 if(WIN32)
-    add_executable(gangyiAI-launcher WIN32 src/windows_launcher.cpp src/launcher_support.cpp src/ai_client.cpp ${GANGYI_LAUNCHER_RESOURCE})
+    add_executable(gangyiAI-launcher WIN32 src/windows_launcher.cpp src/launcher_support.cpp src/ai_client.cpp src/search_client.cpp ${GANGYI_LAUNCHER_RESOURCE})
     target_include_directories(gangyiAI-launcher PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${GANGYI_CURL_INCLUDE}
@@ -152,7 +164,7 @@ endif()
 include(CTest)
 if(BUILD_TESTING)
     find_package(Threads REQUIRED)
-    add_executable(ai-client-tests tests/ai_client_tests.cpp src/ai_client.cpp src/ask_generator.cpp
+    add_executable(ai-client-tests tests/ai_client_tests.cpp src/ai_client.cpp src/search_client.cpp src/ask_generator.cpp
         src/json_fix.cpp src/plan_generator.cpp)
     target_include_directories(ai-client-tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -166,7 +178,7 @@ if(BUILD_TESTING)
     add_test(NAME ai-client COMMAND ai-client-tests)
 
     add_executable(ai-content-generation-tests tests/ai_content_generation_tests.cpp
-        src/learning_generator.cpp src/phase_generator.cpp src/ai_client.cpp src/json_fix.cpp)
+        src/learning_generator.cpp src/phase_generator.cpp src/ai_client.cpp src/search_client.cpp src/json_fix.cpp)
     target_include_directories(ai-content-generation-tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${GANGYI_CURL_INCLUDE}
@@ -184,7 +196,7 @@ if(BUILD_TESTING)
     target_link_libraries(progress-service-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_SQLITE_LIB})
     add_test(NAME progress-service COMMAND progress-service-tests)
 
-    add_executable(profile-service-tests tests/profile_service_tests.cpp src/db.cpp src/profile_service.cpp src/ai_client.cpp src/json_fix.cpp)
+    add_executable(profile-service-tests tests/profile_service_tests.cpp src/db.cpp src/profile_service.cpp src/ai_client.cpp src/search_client.cpp src/json_fix.cpp)
     target_include_directories(profile-service-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${GANGYI_CURL_INCLUDE})
     target_link_libraries(profile-service-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_SQLITE_LIB} ${GANGYI_CURL_LINK} Threads::Threads)
     if(WIN32)
@@ -203,6 +215,15 @@ if(BUILD_TESTING AND WIN32)
     target_compile_definitions(launcher-support-tests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_link_libraries(launcher-support-tests PRIVATE ${GANGYI_SQLITE_LIB})
     add_test(NAME launcher-support COMMAND launcher-support-tests)
+endif()
+if(BUILD_TESTING)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME personalization-smoke COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/personalization_smoke.py $<TARGET_FILE:gangyiAI>)
+        add_test(NAME api-smoke COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/api_smoke.py $<TARGET_FILE:gangyiAI>)
+    endif()
 endif()
 
 add_custom_command(TARGET gangyiAI POST_BUILD

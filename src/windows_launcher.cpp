@@ -14,6 +14,7 @@
 #include <webview/webview.h>
 
 #include "ai_client.hpp"
+#include "search_client.hpp"
 #include "launcher_support.hpp"
 #include "version.hpp"
 #include "windows_resource.h"
@@ -41,6 +42,7 @@ constexpr wchar_t kDesktopWindowClass[] = L"GangyiAIDesktopWindow";
 constexpr wchar_t kMutexName[] = L"GangyiAI.Launcher.v1";
 constexpr wchar_t kRegistryKey[] = L"Software\\GangyiAI";
 constexpr wchar_t kCredentialTarget[] = L"GangyiAI/APIKey";
+constexpr wchar_t kBochaCredentialTarget[] = L"GangyiAI/BochaKey";
 constexpr UINT kTrayMessage = WM_APP + 1;
 constexpr UINT kServiceReady = WM_APP + 2;
 constexpr UINT kServiceFailed = WM_APP + 3;
@@ -62,6 +64,8 @@ constexpr int kTestButton = 107;
 constexpr int kProviderCombo = 108;
 constexpr int kFetchModelsButton = 109;
 constexpr int kSkipAiButton = 110;
+constexpr int kBochaKeyEdit = 111;
+constexpr int kBochaTestButton = 112;
 constexpr int kMenuOpen = 201;
 constexpr int kMenuSettings = 202;
 constexpr int kMenuRestart = 203;
@@ -93,6 +97,8 @@ struct AppState {
     int displayPort = 0;
     HWND baseUrlEdit = nullptr;
     HWND apiKeyEdit = nullptr;
+    HWND bochaKeyEdit = nullptr;
+    HWND bochaTestButton = nullptr;
     HWND modelEdit = nullptr;
     HWND providerCombo = nullptr;
     HWND fetchModelsButton = nullptr;
@@ -191,9 +197,9 @@ bool writeRegistryDword(const wchar_t* name, DWORD value) {
     return result == ERROR_SUCCESS;
 }
 
-std::wstring readApiKey() {
+std::wstring readCredential(const wchar_t* target) {
     PCREDENTIALW credential = nullptr;
-    if (!CredReadW(kCredentialTarget, CRED_TYPE_GENERIC, 0, &credential)) return {};
+    if (!CredReadW(target, CRED_TYPE_GENERIC, 0, &credential)) return {};
     std::wstring value;
     if (credential->CredentialBlob && credential->CredentialBlobSize % sizeof(wchar_t) == 0) {
         value.assign(reinterpret_cast<const wchar_t*>(credential->CredentialBlob),
@@ -203,17 +209,19 @@ std::wstring readApiKey() {
     return value;
 }
 
-bool writeApiKey(const std::wstring& value) {
+bool writeCredential(const wchar_t* target, const std::wstring& value) {
     if (value.empty() || value.size() * sizeof(wchar_t) > CRED_MAX_CREDENTIAL_BLOB_SIZE) return false;
     CREDENTIALW credential{};
     credential.Type = CRED_TYPE_GENERIC;
-    credential.TargetName = const_cast<wchar_t*>(kCredentialTarget);
+    credential.TargetName = const_cast<wchar_t*>(target);
     credential.CredentialBlobSize = static_cast<DWORD>(value.size() * sizeof(wchar_t));
     credential.CredentialBlob = reinterpret_cast<BYTE*>(const_cast<wchar_t*>(value.data()));
     credential.Persist = CRED_PERSIST_LOCAL_MACHINE;
     credential.UserName = const_cast<wchar_t*>(L"gangyiAI");
     return CredWriteW(&credential, 0) == TRUE;
 }
+std::wstring readApiKey() { return readCredential(kCredentialTarget); }
+bool writeApiKey(const std::wstring& value) { return writeCredential(kCredentialTarget, value); }
 
 std::wstring executablePath() {
     std::vector<wchar_t> path(32768, L'\0');
@@ -286,6 +294,7 @@ bool configureAutoStart(bool enabled) {
 void removeLocalSettings() {
     configureAutoStart(false);
     CredDeleteW(kCredentialTarget, CRED_TYPE_GENERIC, 0);
+    CredDeleteW(kBochaCredentialTarget, CRED_TYPE_GENERIC, 0);
     RegDeleteTreeW(HKEY_CURRENT_USER, kRegistryKey);
 }
 
@@ -783,12 +792,14 @@ bool startService(bool openWhenReady, bool resetRestart = true) {
         return false;
     }
 
+    std::wstring bochaKey = g.smokeMode ? std::wstring{} : readCredential(kBochaCredentialTarget);
     std::vector<std::pair<std::wstring, std::wstring>> overrides = {
         {L"HOST", L"127.0.0.1"},
         {L"PORT", std::to_wstring(g.port)},
         {L"AI_BASE_URL", g.settings.baseUrl},
         {L"AI_API_KEY", apiKey},
         {L"AI_MODEL", g.settings.model},
+        {L"BOCHA_API_KEY", bochaKey},
         {L"DATABASE_PATH", databasePath.wstring()},
         {L"LOCAL_CONTROL_TOKEN", g.controlToken},
     };
@@ -796,6 +807,9 @@ bool startService(bool openWhenReady, bool resetRestart = true) {
     if (std::filesystem::is_regular_file(caBundle)) overrides.emplace_back(L"CURL_CA_BUNDLE", caBundle.wstring());
     auto environment = childEnvironment(overrides);
     SecureZeroMemory(apiKey.data(), apiKey.size() * sizeof(wchar_t));
+    SecureZeroMemory(bochaKey.data(), bochaKey.size() * sizeof(wchar_t));
+    for (auto& [name, value] : overrides) if (name == L"AI_API_KEY" || name == L"BOCHA_API_KEY")
+        SecureZeroMemory(value.data(), value.size() * sizeof(wchar_t));
 
     SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
     const std::filesystem::path logPath = logDir / L"gangyiAI.log";
@@ -1009,13 +1023,16 @@ void exportDiagnosticReport() {
 void loadControls() {
     g.settings = loadSettings();
     std::wstring apiKey = readApiKey();
+    std::wstring bochaKey = readCredential(kBochaCredentialTarget);
     SendMessageW(g.providerCombo, CB_SETCURSEL, providerIndex(g.settings.provider), 0);
     SetWindowTextW(g.baseUrlEdit, g.settings.baseUrl.c_str());
     SetWindowTextW(g.apiKeyEdit, apiKey.c_str());
+    SetWindowTextW(g.bochaKeyEdit, bochaKey.c_str());
     SetWindowTextW(g.modelEdit, g.settings.model.c_str());
     EnableWindow(g.baseUrlEdit, g.settings.provider == gangyi::launcher::AIProvider::Custom);
     SendMessageW(g.autoStartCheck, BM_SETCHECK, g.settings.autoStart ? BST_CHECKED : BST_UNCHECKED, 0);
     SecureZeroMemory(apiKey.data(), apiKey.size() * sizeof(wchar_t));
+    SecureZeroMemory(bochaKey.data(), bochaKey.size() * sizeof(wchar_t));
 }
 
 void showSettingsWindow() {
@@ -1032,18 +1049,25 @@ bool saveSettingsFromControls() {
     settings.model = controlText(g.modelEdit);
     settings.autoStart = SendMessageW(g.autoStartCheck, BM_GETCHECK, 0, 0) == BST_CHECKED;
     std::wstring apiKey = controlText(g.apiKeyEdit);
+    std::wstring bochaKey = controlText(g.bochaKeyEdit);
     if (!validBaseUrl(settings.baseUrl) || settings.model.empty() || apiKey.empty()) {
         MessageBoxW(g.window, L"请填写有效的 HTTP(S) API 地址、API Key 和模型名称。", L"钢一定制AI", MB_OK | MB_ICONWARNING);
         SecureZeroMemory(apiKey.data(), apiKey.size() * sizeof(wchar_t));
+        SecureZeroMemory(bochaKey.data(), bochaKey.size() * sizeof(wchar_t));
         return false;
     }
     const bool saved = writeRegistryString(L"AIBaseUrl", settings.baseUrl) &&
         writeRegistryString(L"AIModel", settings.model) &&
         writeRegistryString(L"AIProvider", gangyi::launcher::providerProfile(settings.provider).id) &&
         writeRegistryDword(L"AutoStart", settings.autoStart ? 1 : 0) &&
-        writeApiKey(apiKey) && writeRegistryDword(L"SkipAISetup", 0) && configureAutoStart(settings.autoStart);
+        writeApiKey(apiKey) && (bochaKey.empty() ?
+            (CredDeleteW(kBochaCredentialTarget, CRED_TYPE_GENERIC, 0) || GetLastError() == ERROR_NOT_FOUND) :
+            writeCredential(kBochaCredentialTarget, bochaKey)) &&
+        writeRegistryDword(L"SkipAISetup", 0) && configureAutoStart(settings.autoStart);
     SecureZeroMemory(apiKey.data(), apiKey.size() * sizeof(wchar_t));
+    SecureZeroMemory(bochaKey.data(), bochaKey.size() * sizeof(wchar_t));
     SetWindowTextW(g.apiKeyEdit, L"");
+    SetWindowTextW(g.bochaKeyEdit, L"");
     if (!saved) {
         MessageBoxW(g.window, L"配置保存失败，请检查当前用户权限。", L"钢一定制AI", MB_OK | MB_ICONERROR);
         return false;
@@ -1196,6 +1220,47 @@ void testConnectionFromControls() {
     });
 }
 
+void testBochaFromControls() {
+    if (g.connectionTestRunning.exchange(true)) return;
+    std::wstring key = controlText(g.bochaKeyEdit);
+    if (key.empty()) {
+        g.connectionTestRunning = false;
+        SetWindowTextW(g.statusLabel, L"请先填写博查 Key。");
+        return;
+    }
+    if (g.connectionTestThread.joinable()) g.connectionTestThread.join();
+    EnableWindow(g.bochaTestButton, FALSE);
+    EnableWindow(g.testButton, FALSE);
+    EnableWindow(g.saveButton, FALSE);
+    SetWindowTextW(g.statusLabel, L"正在测试博查连接，请稍候……");
+    g.connectionTestThread = std::thread([key = std::move(key)]() mutable {
+        bool succeeded = false;
+        std::string diagnostic;
+        try {
+            std::string utf8Key = toUtf8(key);
+            SecureZeroMemory(key.data(), key.size() * sizeof(wchar_t));
+            succeeded = gangyi::SearchClient::testBochaKey(utf8Key, &diagnostic);
+            SecureZeroMemory(utf8Key.data(), utf8Key.size());
+        } catch (...) {}
+        SecureZeroMemory(key.data(), key.size() * sizeof(wchar_t));
+        const std::wstring message = succeeded ?
+            (diagnostic == "ok_direct" ? L"博查连接成功（已绕过故障代理）。" : L"博查连接成功。") :
+            diagnostic == "http:401" ? L"博查认证失败（HTTP 401）：请确认粘贴的是 API Key。" :
+            diagnostic == "http:403" ? L"博查权限或账户余额不足（HTTP 403）。" :
+            diagnostic == "http:429" ? L"博查请求频率受限（HTTP 429），请稍后重试。" :
+            diagnostic.rfind("network_error:", 0) == 0 ? L"博查网络连接失败，请检查代理或证书。" :
+            diagnostic == "invalid_response" ? L"博查已响应，但返回内容不符合接口格式。" :
+            L"博查服务返回错误，请稍后重试。";
+        {
+            std::lock_guard<std::mutex> lock(g.connectionTestMutex);
+            g.connectionTestSucceeded = succeeded;
+            g.connectionTestMessage = message;
+        }
+        if (!g.shuttingDown && !PostMessageW(g.window, kConnectionTestComplete, 0, 0))
+            g.connectionTestRunning = false;
+    });
+}
+
 HICON appIcon() {
     HICON icon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_GANGYI_AI));
     return icon ? icon : LoadIconW(nullptr, IDI_APPLICATION);
@@ -1257,6 +1322,7 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         createLabel(window, L"AI API 地址", 24, 72, 120);
         createLabel(window, L"API Key", 24, 126, 120);
         createLabel(window, L"模型名称", 24, 180, 120);
+        createLabel(window, L"博查 Key（联网检索）", 24, 238, 200);
         g.providerCombo = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST,
             24, 41, 456, 160, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kProviderCombo)), nullptr, nullptr);
         SendMessageW(g.providerCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"DeepSeek"));
@@ -1271,18 +1337,22 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
             24, 203, 346, 220, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kModelEdit)), nullptr, nullptr);
         g.fetchModelsButton = CreateWindowW(L"BUTTON", L"获取模型", WS_CHILD | WS_VISIBLE,
             378, 202, 102, 28, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kFetchModelsButton)), nullptr, nullptr);
+        g.bochaKeyEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_PASSWORD,
+            24, 260, 346, 26, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBochaKeyEdit)), nullptr, nullptr);
+        g.bochaTestButton = CreateWindowW(L"BUTTON", L"测试博查", WS_CHILD | WS_VISIBLE,
+            378, 259, 102, 28, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBochaTestButton)), nullptr, nullptr);
         g.autoStartCheck = CreateWindowW(L"BUTTON", L"登录 Windows 后自动启动", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-            24, 244, 250, 24, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAutoStartCheck)), nullptr, nullptr);
+            24, 299, 250, 24, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAutoStartCheck)), nullptr, nullptr);
         CreateWindowW(L"BUTTON", L"暂不配置，直接使用", WS_CHILD | WS_VISIBLE,
-            24, 314, 148, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSkipAiButton)), nullptr, nullptr);
+            24, 369, 148, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSkipAiButton)), nullptr, nullptr);
         g.testButton = CreateWindowW(L"BUTTON", L"测试连接", WS_CHILD | WS_VISIBLE,
-            180, 314, 96, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kTestButton)), nullptr, nullptr);
+            180, 369, 96, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kTestButton)), nullptr, nullptr);
         g.saveButton = CreateWindowW(L"BUTTON", L"保存并启动", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-            282, 314, 96, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSaveButton)), nullptr, nullptr);
+            282, 369, 96, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSaveButton)), nullptr, nullptr);
         CreateWindowW(L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE,
-            384, 314, 96, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCancelButton)), nullptr, nullptr);
+            384, 369, 96, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCancelButton)), nullptr, nullptr);
         g.statusLabel = CreateWindowW(L"STATIC", L"可先使用本地功能；AI 功能可稍后在托盘“设置”中启用。", WS_CHILD | WS_VISIBLE,
-            24, 278, 456, 24, window, nullptr, nullptr, nullptr);
+            24, 333, 456, 24, window, nullptr, nullptr, nullptr);
         EnumChildWindows(window, [](HWND child, LPARAM value) -> BOOL {
             SendMessageW(child, WM_SETFONT, static_cast<WPARAM>(value), TRUE);
             return TRUE;
@@ -1297,6 +1367,7 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
             return 0;
         case kFetchModelsButton: fetchModelsFromControls(); return 0;
         case kTestButton: testConnectionFromControls(); return 0;
+        case kBochaTestButton: testBochaFromControls(); return 0;
         case kSaveButton: saveSettingsFromControls(); return 0;
         case kSkipAiButton: skipAiSetup(); return 0;
         case kCancelButton:
@@ -1374,6 +1445,7 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         if (g.connectionTestThread.joinable()) g.connectionTestThread.join();
         g.connectionTestRunning = false;
         EnableWindow(g.testButton, TRUE);
+        EnableWindow(g.bochaTestButton, TRUE);
         EnableWindow(g.saveButton, TRUE);
         SetWindowTextW(g.statusLabel, message.c_str());
         MessageBoxW(window, message.c_str(), L"钢一定制AI - 连接测试",
@@ -1511,7 +1583,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     if (!RegisterClassExW(&desktopClass)) return 1;
 
     g.window = CreateWindowExW(0, kWindowClass, L"钢一定制AI 配置", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
-        CW_USEDEFAULT, CW_USEDEFAULT, 520, 400, nullptr, nullptr, instance, nullptr);
+        CW_USEDEFAULT, CW_USEDEFAULT, 520, 455, nullptr, nullptr, instance, nullptr);
     if (!g.window) return 1;
     if (g.hasConfig || g.skipAiSetup) {
         if (!startService(!g.background)) showSettingsWindow();

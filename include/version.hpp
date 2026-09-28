@@ -2,6 +2,6 @@
 
 namespace gangyi {
 
-inline constexpr const char* kVersion = "v0.3.4";
+inline constexpr const char* kVersion = "v4.0.0";
 
 }  // namespace gangyi

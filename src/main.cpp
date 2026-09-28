@@ -373,8 +373,8 @@ int main() {
             if (!courseId.empty()) {
                 if (const auto found = gangyi::getCourseWithSnapshot(db, courseId)) {
                     plan = found->payload;
-                    if (goal.empty()) goal = found->course.goal;
-                    if (value("mode").empty()) mode = found->course.mode == "lite" ? "lite" : "deep";
+                    goal = found->course.goal;
+                    mode = found->course.mode == "lite" ? "lite" : "deep";
                 }
                 const auto provenance = plan.value("generation", nlohmann::json::object());
                 if (provenance.value("source", "") != "ai" || provenance.value("promptVersion", "") != "ai-plan-v1") {
@@ -398,8 +398,8 @@ int main() {
                 if (!stage.contains("topics")) stage["topics"] = structure[phaseIndex].value("topics", nlohmann::json::array());
                 if (!stage.contains("name")) stage["name"] = structure[phaseIndex].value("stage", "");
             }
-            const std::string phaseName = value("phaseName").empty() ? stage.value("name", "") : value("phaseName");
-            std::string topic = value("topic");
+            const std::string phaseName = courseId.empty() ? value("phaseName") : stage.value("name", "");
+            std::string topic = courseId.empty() ? value("topic") : "";
             const auto topics = stage.value("topics", nlohmann::json::array());
             if (topic.empty() && topics.is_array() && topicIndex < static_cast<int>(topics.size()) && topics[topicIndex].is_string()) topic = topics[topicIndex].get<std::string>();
             if (phaseName.empty() || topic.empty()) {
@@ -407,9 +407,10 @@ int main() {
                     {"error", "当前课程缺少 AI 生成的阶段或主题，请重新生成课程。"}, {"canRetry", false}}.dump());
             }
 
+            const int profileVersion = db.profileAssessedRevision();
             nlohmann::json stored = {{"schemaVersion", 2}, {"promptVersion", "ai-block-v1"},
                 {"blocks", nlohmann::json::object()}, {"generations", nlohmann::json::object()},
-                {"references", nlohmann::json::array()}};
+                {"references", nlohmann::json::array()}, {"profileVersion", profileVersion}};
             std::optional<gangyi::LearningSession> existing;
             if (!courseId.empty()) existing = db.findLearningSession(courseId, phaseNumber, topicNumber);
             if (existing && existing->source == "ai" && existing->fallbackUsed == 0) {
@@ -418,6 +419,16 @@ int main() {
                     if (parsed.value("promptVersion", "") == "ai-block-v1" && parsed.value("blocks", nlohmann::json()).is_object()) stored = parsed;
                 } catch (...) {}
 
+            }
+            bool touched = false;
+            if (const auto progress = db.findLearningCardProgress(courseId, phaseNumber, topicNumber))
+                touched = progress->status != "not_started";
+            if (!touched) for (const auto& item : db.listInteractions()) {
+                if (item.courseId.value_or("") != courseId ||
+                    (item.kind != "quiz" && item.kind != "practice" && item.kind != "review")) continue;
+                const auto payload = nlohmann::json::parse(item.payload, nullptr, false);
+                if (payload.is_object() && payload.value("phaseIndex", 0) == phaseNumber &&
+                    payload.value("topicIndex", 0) == topicNumber) { touched = true; break; }
             }
 
             const std::string block = value("block");
@@ -443,8 +454,9 @@ int main() {
                 return crow::response(400, nlohmann::json{{"ok", false}, {"type", "invalid_request"}, {"error", "未知课堂板块"}}.dump());
             }
 
-            const bool regenerateAll = value("regenerate") == "1";
-            const bool retryBlock = value("retry") == "1";
+            const bool regenerateAll = !touched && (value("regenerate") == "1" ||
+                (existing && stored.value("profileVersion", 0) < profileVersion));
+            const bool retryBlock = !touched && value("retry") == "1";
             if (generateAll && !regenerateAll && std::all_of(allowed.begin(), allowed.end(),
                     [&](const std::string& name) { return hasAiBlock(stored, name); })) {
                 return crow::response(200, nlohmann::json{{"ok", true}, {"cached", true},
@@ -458,7 +470,8 @@ int main() {
             }
 
             nlohmann::json working = stored;
-            if (generateAll && regenerateAll) {
+            working["profileVersion"] = profileVersion;
+            if (regenerateAll) {
                 working["blocks"] = nlohmann::json::object();
                 working["generations"] = nlohmann::json::object();
                 working["references"] = nlohmann::json::array();
@@ -467,7 +480,7 @@ int main() {
             std::vector<gangyi::SearchResource> resources;
             try {
                 gangyi::SearchClient search;
-                resources = search.search(goal + " " + phaseName + " " + topic + " 高中 学习资料 例题", 8);
+                resources = search.search(goal, 8);
             } catch (...) {}
 
             if (!resources.empty()) {
@@ -507,17 +520,20 @@ int main() {
             gangyi::LearningGenerator generator(ai);
             const auto generate = [&](const std::string& name) {
                 activeBlock = name;
-                nlohmann::json generated = generator.generateBlock(goal, plan, phaseName, topic, topicNumber,
+                nlohmann::json learningPlan = plan;
+                learningPlan["personalLearning"] = gangyi::profileContext(db);
+                nlohmann::json generated = generator.generateBlock(goal, learningPlan, phaseName, topic, topicNumber,
                     mode, name, working["blocks"], resources);
                 const nlohmann::json metadata = generated.value("_generation", nlohmann::json::object());
                 if (metadata.value("source", "") != "ai") throw gangyi::AIClientError("invalid_response", "AI 生成来源校验失败");
                 generated.erase("_generation");
                 working["blocks"][name] = generated;
                 working["generations"][name] = metadata;
+                working["generations"][name]["profileVersion"] = profileVersion;
                 if (!generateAll || !regenerateAll) persist(working);
                 std::cerr << "[learning-block] saved course=" << courseId << " phase=" << phaseNumber
                           << " topic=" << topicNumber << " block=" << name << '\n';
-                return std::pair<nlohmann::json, nlohmann::json>{std::move(generated), metadata};
+                return std::pair<nlohmann::json, nlohmann::json>{std::move(generated), working["generations"][name]};
             };
 
             if (generateAll) {
@@ -931,7 +947,8 @@ int main() {
             recordInteraction(db, "chat-user", {{"text", question}, {"topic", ""}}, "", conversationId);
             recordInteraction(db, "chat-assistant", {{"text", answer.content}, {"model", answer.model}}, "", conversationId);
             return crow::response(200, nlohmann::json{{"ok", true}, {"answer", answer.content},
-                {"model", answer.model}}.dump());
+                {"model", answer.model}, {"searchStatus", answer.searchStatus}, {"sources", answer.sources},
+                {"profileVersion", db.profileAssessedRevision()}}.dump());
         } catch (const gangyi::AIClientError& error) {
             return crow::response(aiHttpStatus(error), nlohmann::json{{"ok", false},
                 {"error", publicAIErrorMessage(error)}, {"type", error.errorType}}.dump());
@@ -977,6 +994,9 @@ int main() {
             options.maxTokens = 3500;
             options.timeoutMs = 45000;
             options.maxAttempts = 2;
+            const std::string searchCourseId = body.value("courseId", "");
+            const auto searchCourse = searchCourseId.empty() ? std::optional<gangyi::Course>{} : db.getCourse(searchCourseId);
+            options.searchQuery = searchCourse ? searchCourse->goal : u8"高中学科知识";
             gangyi::AIClient ai;
             const auto result = ai.chat(options);
             if (result.content.empty()) throw gangyi::AIClientError("invalid_response", "AI 没有返回课堂回答");
@@ -985,7 +1005,8 @@ int main() {
             recordInteraction(db, "chat-user", {{"text", question}, {"topic", context.value("topic", "")}}, courseId, conversationId);
             recordInteraction(db, "chat-assistant", {{"text", result.content}, {"model", result.model}}, courseId, conversationId);
             return crow::response(200, nlohmann::json{{"ok", true}, {"answer", result.content},
-                {"model", result.model}}.dump());
+                {"model", result.model}, {"searchStatus", result.searchStatus}, {"sources", result.sources},
+                {"profileVersion", db.profileAssessedRevision()}}.dump());
         } catch (const gangyi::AIClientError& error) {
             return crow::response(aiHttpStatus(error), nlohmann::json{{"ok", false}, {"type", error.errorType},
                 {"error", publicAIErrorMessage(error)}, {"canRetry", true}}.dump());
@@ -997,6 +1018,31 @@ int main() {
 
     CROW_ROUTE(app, "/api/profile")([&db] {
         return crow::response(200, gangyi::profileView(db).dump());
+    });
+
+    CROW_ROUTE(app, "/api/next-learning")([&db](const crow::request& req) {
+        const std::string courseId = req.url_params.get("courseId") ? req.url_params.get("courseId") : "";
+        if (courseId.empty() || !requesterCanAccessCourse(db, req, courseId, requestAnonymousId(req)))
+            return crow::response(404, nlohmann::json{{"ok", false}, {"error", "课程不存在"}}.dump());
+        auto result = gangyi::nextLearning(db, courseId);
+        result["ok"] = true;
+        return crow::response(200, result.dump());
+    });
+
+    CROW_ROUTE(app, "/api/topic-mastery")([&db](const crow::request& req) {
+        const std::string courseId = req.url_params.get("courseId") ? req.url_params.get("courseId") : "";
+        if (courseId.empty() || !requesterCanAccessCourse(db, req, courseId, requestAnonymousId(req)))
+            return crow::response(404, nlohmann::json{{"ok", false}, {"error", "课程不存在"}}.dump());
+        nlohmann::json topics = nlohmann::json::array();
+        for (const auto& value : db.listTopicMastery()) if (value.courseId == courseId)
+            topics.push_back({{"phaseIndex", value.phaseIndex}, {"topic", value.topic},
+                {"score", value.score ? nlohmann::json(*value.score) : nlohmann::json(nullptr)},
+                {"status", value.status}, {"rationale", value.rationale},
+                {"weakPoints", nlohmann::json::parse(value.weakPoints, nullptr, false)},
+                {"recommendation", value.recommendation}, {"evidenceCount", value.evidenceCount},
+                {"evidenceIds", nlohmann::json::parse(value.evidenceIds, nullptr, false)},
+                {"nextReviewAt", value.nextReviewAt}, {"version", value.version}, {"updatedAt", value.updatedAt}});
+        return crow::response(200, nlohmann::json{{"ok", true}, {"topics", topics}}.dump());
     });
 
     CROW_ROUTE(app, "/startup")([](const crow::request& req) {
@@ -1036,7 +1082,7 @@ int main() {
             const std::string courseId = body.value("courseId", "");
             const int phaseIndex = body.value("phaseIndex", 0);
             const int topicIndex = body.value("topicIndex", 0);
-            if (!requesterCanAccessCourse(db, req, courseId, "") || courseId.empty() ||
+            if (!requesterCanAccessCourse(db, req, courseId, requestAnonymousId(req, &body)) || courseId.empty() ||
                 phaseIndex < 1 || topicIndex < 1 || !body.contains("answers") || !body["answers"].is_array())
                 return crow::response(400, nlohmann::json{{"ok", false}, {"error", "测验参数无效"}}.dump());
             const auto session = db.findLearningSession(courseId, phaseIndex, topicIndex);
@@ -1046,14 +1092,20 @@ int main() {
             if (!quiz.is_array() || quiz.empty() || body["answers"].size() != quiz.size())
                 return crow::response(400, nlohmann::json{{"ok", false}, {"error", "测验答案数量不正确"}}.dump());
             int score = 0;
+            nlohmann::json results = nlohmann::json::array();
             for (size_t i = 0; i < quiz.size(); ++i) {
                 const auto& choice = body["answers"][i];
-                if (!choice.is_null() && (!choice.is_number_integer() || choice.get<int>() < 0 || choice.get<int>() > 3))
+                if (!choice.is_null() && (!choice.is_number_integer() || choice.get<int>() < 0 ||
+                    choice.get<int>() >= static_cast<int>(quiz[i].at("options").size())))
                     return crow::response(400, nlohmann::json{{"ok", false}, {"error", "测验答案无效"}}.dump());
-                if (!choice.is_null() && choice.get<int>() == quiz[i].at("answerIndex").get<int>()) ++score;
+                const bool correct = !choice.is_null() && choice.get<int>() == quiz[i].at("answerIndex").get<int>();
+                if (correct) ++score;
+                results.push_back({{"questionIndex", i}, {"topic", session->topicTitle},
+                    {"correct", correct}, {"answered", !choice.is_null()}});
             }
             const int total = static_cast<int>(quiz.size());
             recordInteraction(db, "quiz", {{"score", score}, {"total", total}, {"answers", body["answers"]},
+                {"results", results}, {"phaseIndex", phaseIndex}, {"topicIndex", topicIndex},
                 {"topic", session->topicTitle}}, courseId);
             return crow::response(200, nlohmann::json{{"ok", true}, {"score", score}, {"total", total},
                 {"passed", score * 10 >= total * 7}}.dump());
@@ -1065,11 +1117,19 @@ int main() {
             const auto body = nlohmann::json::parse(req.body);
             const std::string courseId = body.value("courseId", "");
             const std::string kind = body.value("kind", "");
-            if (courseId.empty() || !requesterCanAccessCourse(db, req, courseId, "") ||
-                (kind != "practice" && kind != "review"))
+            const int phaseIndex = body.value("phaseIndex", 0);
+            const int topicIndex = body.value("topicIndex", 0);
+            if (courseId.empty() || !requesterCanAccessCourse(db, req, courseId, requestAnonymousId(req, &body)) ||
+                (kind != "practice" && kind != "review") || phaseIndex < 1 || topicIndex < 1)
                 return crow::response(400, nlohmann::json{{"ok", false}, {"error", "学习记录参数无效"}}.dump());
-            recordInteraction(db, kind, {{"topic", body.value("topic", std::string()).substr(0, 120)},
-                {"state", body.value("state", std::string()).substr(0, 30)}}, courseId);
+            const auto session = db.findLearningSession(courseId, phaseIndex, topicIndex);
+            if (!session) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "微课尚未生成"}}.dump());
+            const std::string state = body.value("state", std::string());
+            if (state != "completed" && state != "reopened" && state != "too_hard" &&
+                state != "too_easy" && state != "unsuitable")
+                return crow::response(400, nlohmann::json{{"ok", false}, {"error", "反馈状态无效"}}.dump());
+            recordInteraction(db, kind, {{"topic", session->topicTitle}, {"phaseIndex", phaseIndex},
+                {"topicIndex", topicIndex}, {"state", state}}, courseId);
             return crow::response(200, nlohmann::json{{"ok", true}}.dump());
         } catch (...) { return crow::response(400, nlohmann::json{{"ok", false}, {"error", "学习记录保存失败"}}.dump()); }
     });
@@ -1126,6 +1186,8 @@ int main() {
             bool qualityValid = false;
             int successfulAttempt = 0;
             std::string generatedModel;
+            std::string searchStatus = "unavailable";
+            std::vector<std::string> searchSources;
             std::string lastErrorType = "quality_rejected";
             for (int attempt = 0; attempt < 3 && !qualityValid; ++attempt) {
                     std::cerr << "[generate-plan] attempt=" << (attempt + 1)
@@ -1133,6 +1195,8 @@ int main() {
                     try {
                         const auto plan = generator.generate(goal, mode, feedback, gangyi::profileContext(db));
                         generatedModel = plan.generationModel;
+                        searchStatus = plan.searchStatus;
+                        searchSources = plan.searchSources;
                         const auto raw = planToJson(plan);
                         adapted = gangyi::adaptGeneratedPlan(raw, mode);
                         gate = gangyi::validateCourseContent(adapted, goal, mode,
@@ -1164,7 +1228,8 @@ int main() {
             if (!qualityValid) throw gangyi::AIClientError(lastErrorType, feedback.empty() ? "AI 连续三次未生成合格课程结构" : feedback);
             const char* configuredModel = std::getenv("AI_MODEL");
             adapted["generation"] = {{"source", "ai"}, {"model", generatedModel.empty() ? (configuredModel ? configuredModel : "") : generatedModel},
-                {"generatedAt", nowIso8601()}, {"attempts", successfulAttempt}, {"promptVersion", "ai-plan-v1"}};
+                {"generatedAt", nowIso8601()}, {"attempts", successfulAttempt}, {"promptVersion", "ai-plan-v1"},
+                {"searchStatus", searchStatus}, {"sources", searchSources}, {"profileVersion", db.profileAssessedRevision()}};
 
             // 联网搜索补充真实资源（失败静默降级，不阻断主流程）
             try {
@@ -1550,13 +1615,13 @@ int main() {
             std::string goal = body.value("goal", "");
             std::string mode = body.value("mode", "deep");
             const int phaseIndex = std::max(1, body.value("phaseIndex", 1));
-            std::string stage = body.value("stage", "");
+            std::string stage = courseId.empty() ? body.value("stage", "") : "";
             nlohmann::json plan = nlohmann::json::object();
             if (!courseId.empty()) {
                 if (const auto found = gangyi::getCourseWithSnapshot(db, courseId)) {
                     plan = found->payload;
-                    if (goal.empty()) goal = found->course.goal;
-                    if (body.value("mode", "").empty()) mode = found->course.mode;
+                    goal = found->course.goal;
+                    mode = found->course.mode;
                 }
                 const auto provenance = plan.value("generation", nlohmann::json::object());
                 if (provenance.value("source", "") != "ai" || provenance.value("promptVersion", "") != "ai-plan-v1") {
@@ -1580,7 +1645,7 @@ int main() {
             }
 
             std::vector<std::string> topics;
-            if (body.contains("topics") && body["topics"].is_array())
+            if (courseId.empty() && body.contains("topics") && body["topics"].is_array())
                 for (const auto& topic : body["topics"]) if (topic.is_string()) topics.push_back(topic.get<std::string>());
             const auto roadmap = plan.value("roadmap", nlohmann::json::array());
             if (roadmap.is_array() && phaseIndex <= static_cast<int>(roadmap.size()) && roadmap[phaseIndex - 1].is_object()) {
@@ -1588,17 +1653,24 @@ int main() {
                 if (stage.empty()) stage = phase.value("name", "");
                 if (topics.empty() && phase.contains("topics") && phase["topics"].is_array())
                     for (const auto& topic : phase["topics"]) if (topic.is_string()) topics.push_back(topic.get<std::string>());
-
+            }
+            const auto structure = plan.value("courseStructure", nlohmann::json::array());
+            if (structure.is_array() && phaseIndex <= static_cast<int>(structure.size()) && structure[phaseIndex - 1].is_object()) {
+                const auto& phase = structure[phaseIndex - 1];
+                if (stage.empty()) stage = phase.value("stage", "");
+                if (topics.empty() && phase.contains("topics") && phase["topics"].is_array())
+                    for (const auto& topic : phase["topics"]) if (topic.is_string()) topics.push_back(topic.get<std::string>());
             }
             if (stage.empty() || topics.empty()) return crow::response(400, nlohmann::json{{"ok", false},
                 {"type", "phase_context_missing"}, {"error", "课程缺少 AI 生成的阶段或主题"}}.dump());
 
             std::vector<gangyi::SearchResource> resources;
-            try { gangyi::SearchClient search; resources = search.search(goal + " " + stage, 8); } catch (...) {}
+            try { gangyi::SearchClient search; resources = search.search(goal, 8); } catch (...) {}
             gangyi::AIClient ai;
             gangyi::PhaseGenerator generator(ai);
-            auto generated = *generator.generate(goal, mode, phaseIndex, stage, topics, resources);
-            const auto metadata = generated.value("_generation", nlohmann::json::object());
+            auto generated = *generator.generate(goal, mode, phaseIndex, stage, topics, resources, gangyi::profileContext(db));
+            auto metadata = generated.value("_generation", nlohmann::json::object());
+            metadata["profileVersion"] = db.profileAssessedRevision();
             if (metadata.value("source", "") != "ai") throw gangyi::AIClientError("invalid_response", "阶段生成来源校验失败");
             generated.erase("_generation");
 
@@ -1676,9 +1748,15 @@ int main() {
             workerDb.open(config.database_path);
             while (!stopProfile) {
                 if (workerDb.profileDirty()) {
+                    const int pendingRevision = workerDb.profileRevision();
+                    for (int i = 0; i < 20 && !stopProfile && workerDb.profileRevision() == pendingRevision; ++i)
+                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    if (stopProfile || workerDb.profileRevision() != pendingRevision) continue;
                     gangyi::AIClient ai;
                     std::string error;
-                    if (!gangyi::refreshProfile(workerDb, ai, error)) {
+                    const bool topicsReady = gangyi::refreshTopicMastery(workerDb, ai, error);
+                    if (!topicsReady) workerDb.setProfileError(u8"主题状态暂未更新，请稍后重试。");
+                    if (!topicsReady || !gangyi::refreshProfile(workerDb, ai, error)) {
                         std::cerr << "[profile] update failed: " << error << '\n';
                         const int failedRevision = workerDb.profileRevision();
                         for (int i = 0; i < 300 && !stopProfile && workerDb.profileRevision() == failedRevision; ++i)

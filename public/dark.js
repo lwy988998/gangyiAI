@@ -47,15 +47,15 @@
     const subjects = (data.subjects || []).filter(item => item.score !== null && Number.isFinite(item.score));
     const time = data.subjects?.map(item => item.updatedAt).filter(Boolean).sort().at(-1);
     const text = data.error || (data.updating ? '画像正在更新；当前显示最近一次有效结果。' :
-      data.hasEvidence ? subjects.length ? '画像依据本机课程和学习记录生成。' : '数据积累中，完成学习或测验后将逐步形成画像。' :
-        '还没有学习记录。创建课程后，画像会在本机自动建立。');
+      data.hasEvidence ? subjects.length ? '画像依据本机逐题测验与主题评估生成。' : '数据不足：完成至少 3 道测验题后再形成画像。' :
+        '数据不足：暂无可靠测验记录。');
     message.textContent = text;
     status.textContent = time ? `最近更新：${time.replace('T', ' ').slice(0, 16)}` : '数据积累中';
     radar.replaceChildren();
     cards.replaceChildren();
     if (subjects.length < 3) {
       const list = node('div', '', 'radar-list');
-      if (!subjects.length) list.append(node('p', '暂无可展示的学科强度'));
+      if (!subjects.length) list.append(node('p', '数据不足：暂无可展示的学科强度'));
       for (const item of subjects) list.append(node('p', `${item.subject} · ${item.score}%`));
       radar.append(list);
     } else {
@@ -92,7 +92,8 @@
     for (const item of data.subjects || []) {
       const card = node('article', '', 'profile-subject-card');
       card.append(node('h3', item.subject || '未命名学科'));
-      card.append(node('strong', item.score === null ? '积累中' : `${item.score}%`));
+      card.append(node('strong', item.score === null ?
+        item.historicalScore === null ? '积累中' : `历史画像 ${item.historicalScore}%（待新测验验证）` : `${item.score}%`));
       card.append(node('p', item.rationale || '等待更多学习证据。'));
       if (item.weakPoints?.length) card.append(node('p', `待加强：${item.weakPoints.join('、')}`));
       if (item.recommendation) card.append(node('p', `建议：${item.recommendation}`));

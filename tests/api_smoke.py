@@ -32,11 +32,18 @@ def main(executable):
 
         class MockAI(BaseHTTPRequestHandler):
             def do_POST(self):
-                mock_state["requests"].append(self.rfile.read(int(self.headers["Content-Length"])))
-                profile = {"subjects": [{"subject": "数学", "score": mock_state["score"],
-                    "rationale": "根据测验和学习记录", "weakPoints": ["二次函数"],
-                    "recommendation": "复盘错题", "evidenceCount": 1}]}
-                content = "[]" if mock_state["invalid"] else json.dumps(profile, ensure_ascii=False)
+                raw = self.rfile.read(int(self.headers["Content-Length"]))
+                mock_state["requests"].append(raw)
+                messages = json.loads(raw)["messages"]
+                user = json.loads(next(item["content"] for item in messages if item["role"] == "user"))
+                if "events" in user:
+                    result = {"score": mock_state["score"], "rationale": "依据逐题测验", "weakPoints": ["二次函数"],
+                              "recommendation": "复盘错题", "evidenceIds": [user["events"][-1]["id"]], "nextReviewAt": ""}
+                else:
+                    result = {"subjects": [{"subject": "数学", "score": mock_state["score"],
+                        "rationale": "根据测验和学习记录", "weakPoints": ["二次函数"],
+                        "recommendation": "复盘错题", "evidenceIds": user["topicStates"][0]["evidenceIds"]}]}
+                content = "[]" if mock_state["invalid"] else json.dumps(result, ensure_ascii=False)
                 data = json.dumps({"model": "mock-profile", "choices": [{"message": {"content": content}}]},
                                   ensure_ascii=False).encode()
                 self.send_response(200)
@@ -81,8 +88,9 @@ def main(executable):
                            ("old", "old-id", None, "学习二次函数", "deep", "数学课程", None,
                             "ai", "active", "2026-01-01", "2026-01-01"))
                 quiz = {"promptVersion": "ai-block-v1", "blocks": {"quiz": {"quiz": [
-                    {"question": "一", "answerIndex": 0}, {"question": "二", "answerIndex": 1},
-                    {"question": "三", "answerIndex": 2}]}}}
+                    {"question": "一", "options": ["甲", "乙", "丙"], "answerIndex": 0},
+                    {"question": "二", "options": ["甲", "乙", "丙"], "answerIndex": 1},
+                    {"question": "三", "options": ["甲", "乙", "丙"], "answerIndex": 2}]}}}
                 db.execute("INSERT INTO LearningSession VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                            ("session", "old", "old-id", "学习二次函数", "deep", 1, "基础", 1,
                             "二次函数", "测试课", None, None, json.dumps(quiz), None, 0, "ai"))
@@ -90,8 +98,8 @@ def main(executable):
                            ("chat", None, "general", None, "chat-user", '{"text":"你好"}', "2026-01-01"))
             status, attempt = request(base, "/api/quiz-attempts", "POST",
                                       {"courseId": "old", "phaseIndex": 1, "topicIndex": 1,
-                                       "answers": [0, 1, None]})
-            assert status == 200 and attempt["score"] == 2 and attempt["total"] == 3 and not attempt["passed"]
+                                       "answers": [0, 1, 2]})
+            assert status == 200 and attempt["score"] == 3 and attempt["total"] == 3 and attempt["passed"]
             for _ in range(80):
                 profile = request(base, "/api/profile")[1]
                 if profile["subjects"] and profile["subjects"][0]["score"] == 73:

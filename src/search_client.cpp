@@ -253,7 +253,7 @@ std::string detectDomain(const std::string& goal) {
     return "general";
 }
 
-struct HttpResult { long status = 0; std::string body; };
+struct HttpResult { long status = 0; std::string body; CURLcode error = CURLE_OK; bool directRetry = false; };
 
 HttpResult postJson(const std::string& url, const std::string& key, const json& body, long timeoutMs) {
     HttpResult result;
@@ -262,7 +262,7 @@ HttpResult postJson(const std::string& url, const std::string& key, const json& 
     struct curl_slist* headers = nullptr;
     headers = curl_slist_append(headers, "Content-Type: application/json");
     if (!key.empty()) {
-        const std::string auth = "Authorization: Bearer " + key;
+        const std::string auth = "Authorization: Bearer " + trim(key);
         headers = curl_slist_append(headers, auth.c_str());
     }
     const std::string payload = body.dump();
@@ -277,8 +277,20 @@ HttpResult postJson(const std::string& url, const std::string& key, const json& 
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
-    curl_easy_perform(curl);
+    result.error = curl_easy_perform(curl);
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &result.status);
+    long usedProxy = 0;
+#if LIBCURL_VERSION_NUM >= 0x080700
+    curl_easy_getinfo(curl, CURLINFO_USED_PROXY, &usedProxy);
+#endif
+    if (result.error != CURLE_OK && usedProxy && url.rfind("https://api.bocha", 0) == 0) {
+        result.body.clear();
+        result.status = 0;
+        result.directRetry = true;
+        curl_easy_setopt(curl, CURLOPT_NOPROXY, "*");
+        result.error = curl_easy_perform(curl);
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &result.status);
+    }
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
     return result;
@@ -465,10 +477,33 @@ SearchClient::SearchClient()
     // 微课程需要中文真实资料，默认优先使用 Bocha；仍支持通过环境变量切换。
     : provider_(envToLower("SEARCH_PROVIDER", "bocha")),
       fallbackProvider_(envToLower("SEARCH_FALLBACK_PROVIDER", "tavily")),
-      cacheDir_(env("RESOURCE_SEARCH_CACHE_DIR", "data/resource-search-cache")) {
+      cacheDir_(env("RESOURCE_SEARCH_CACHE_DIR", env("LOCALAPPDATA").empty()
+          ? "data/resource-search-cache" : (fs::path(env("LOCALAPPDATA")) / "GangyiAI" / "resource-search-cache").string())) {
     if (provider_ != "bocha") provider_ = "tavily";
-    if (fallbackProvider_ != "tavily") fallbackProvider_ = "bocha";
+    if (!fallbackProvider_.empty() && fallbackProvider_ != "tavily") fallbackProvider_ = "bocha";
     curl_global_init(CURL_GLOBAL_DEFAULT);
+}
+
+bool SearchClient::testBochaKey(const std::string& key, std::string* diagnostic) {
+    if (trim(key).empty()) { if (diagnostic) *diagnostic = "missing_key"; return false; }
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    std::string base = trim(env("BOCHA_BASE_URL", "https://api.bochaai.com"));
+    while (!base.empty() && base.back() == '/') base.pop_back();
+    const auto response = postJson(base + "/v1/web-search", key,
+        {{"query", u8"高中数学知识点"}, {"count", 1}, {"summary", false}}, 8000);
+    if (response.error != CURLE_OK) {
+        if (diagnostic) *diagnostic = "network_error:" + std::to_string(static_cast<int>(response.error));
+        return false;
+    }
+    if (response.status < 200 || response.status >= 300) {
+        if (diagnostic) *diagnostic = "http:" + std::to_string(response.status);
+        return false;
+    }
+    const auto body = json::parse(response.body, nullptr, false);
+    const bool valid = body.is_object() && (!body.contains("code") ||
+        (body["code"].is_number_integer() && body["code"].get<int>() == 200));
+    if (diagnostic) *diagnostic = valid ? (response.directRetry ? "ok_direct" : "ok") : "invalid_response";
+    return valid;
 }
 
 std::vector<SearchResource> SearchClient::search(const std::string& goal, size_t limit) const {
@@ -485,9 +520,11 @@ std::vector<SearchResource> SearchClient::search(const std::string& goal, size_t
 
         const std::vector<std::string> queries = detectQueries(domain, goal);
         std::string liveProvider = provider_;
-        std::vector<SearchResource> result = fetchFromProvider(provider_, env(provider_ == "bocha" ? "BOCHA_API_KEY" : "TAVILY_API_KEY"),
-                                                               provider_ == "bocha" ? env("BOCHA_BASE_URL", "https://api.bochaai.com") : std::string{},
-                                                               queries, domain);
+        const std::string primaryKey = env(provider_ == "bocha" ? "BOCHA_API_KEY" : "TAVILY_API_KEY");
+        std::vector<SearchResource> result = primaryKey.empty() ? std::vector<SearchResource>{} :
+            fetchFromProvider(provider_, primaryKey,
+                provider_ == "bocha" ? env("BOCHA_BASE_URL", "https://api.bochaai.com") : std::string{},
+                queries, domain);
         bool usedFallback = false;
         if (result.empty()) {
             const std::string fallbackKey = env(fallbackProvider_ == "bocha" ? "BOCHA_API_KEY" : "TAVILY_API_KEY");

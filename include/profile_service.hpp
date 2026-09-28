@@ -11,4 +11,6 @@ nlohmann::json profileView(Database& db);
 nlohmann::json profileEvidenceSummary(Database& db);
 std::string profileContext(Database& db);
 bool refreshProfile(Database& db, AIClient& ai, std::string& error);
+bool refreshTopicMastery(Database& db, AIClient& ai, std::string& error);
+nlohmann::json nextLearning(Database& db, const std::string& courseId);
 }

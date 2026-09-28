@@ -2,6 +2,7 @@
 #include "ask_generator.hpp"
 #include "json_fix.hpp"
 #include "plan_generator.hpp"
+#include "search_client.hpp"
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -24,6 +25,7 @@ constexpr Socket kInvalidSocket = -1;
 
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -259,10 +261,49 @@ int main() {
         expect(plan.title == "函数单调性课程", "课程标题应兼容 courseTitle 字段");
         expect(plan.goal == "掌握函数单调性", "学习目标应兼容 learnerGoal 字段");
         expect(plan.phases.size() == 3, "快速规划应保留三个阶段");
+        expect(plan.searchStatus != "not_requested", "课程规划前必须取得检索状态");
         expect(server.request().find("\"max_tokens\":4500") != std::string::npos,
             "快速规划必须预留完整 JSON 输出空间");
         expect(server.request().find("phases 必须恰好 3 项") != std::string::npos,
             "课程规划提示词必须明确阶段精确数量");
+    }
+    {
+        MockServer server(response(200, R"({"code":200,"data":{}})"));
+        const std::string url = "http://127.0.0.1:" + std::to_string(server.port());
+#ifdef _WIN32
+        _putenv_s("BOCHA_BASE_URL", url.c_str());
+#else
+        setenv("BOCHA_BASE_URL", url.c_str(), 1);
+#endif
+        std::string diagnostic;
+        expect(gangyi::SearchClient::testBochaKey(" test-key ", &diagnostic) && diagnostic == "ok",
+            "博查连接测试应识别成功响应并修剪 Key 空白");
+        server.wait();
+        expect(server.request().find("Bearer test-key") != std::string::npos,
+            "博查请求头不得携带粘贴时的空白");
+    }
+    {
+        MockServer server(response(401, R"({"code":401})"));
+        const std::string url = "http://127.0.0.1:" + std::to_string(server.port());
+#ifdef _WIN32
+        _putenv_s("BOCHA_BASE_URL", url.c_str());
+#else
+        setenv("BOCHA_BASE_URL", url.c_str(), 1);
+#endif
+        std::string diagnostic;
+        expect(!gangyi::SearchClient::testBochaKey("test-key", &diagnostic) && diagnostic == "http:401",
+            "博查连接测试应报告认证状态码");
+        server.wait();
+    }
+#ifdef _WIN32
+    _putenv_s("BOCHA_BASE_URL", "");
+#else
+    unsetenv("BOCHA_BASE_URL");
+#endif
+    if (std::getenv("LIVE_BOCHA_PROBE")) {
+        std::string diagnostic;
+        const bool valid = gangyi::SearchClient::testBochaKey("invalid-diagnostic-key", &diagnostic);
+        expect(!valid && diagnostic == "http:401", "代理故障时博查应直连并返回 HTTP 401");
     }
 #ifdef _WIN32
     WSACleanup();

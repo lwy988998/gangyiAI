@@ -4,19 +4,21 @@ gangyiAI（钢一定制AI）是面向柳州市钢一中学的 Windows 本机 AI 
 
 平台基于 C++17、Crow、SQLite、WebView2 和原生 HTML/CSS/JavaScript 构建，支持学习目标输入与图片识别、快速或深度课程规划、阶段学习、微课程、测验、AI 对话和课程管理。深色动态界面展示依据本机学习记录生成的专属学习画像；课程和对话记录保存在本机，不需要在线账号。首次启动可暂不配置 AI 接口，先使用本地功能。
 
-当前仓库源码与 GitHub Releases 的最新版本均为 **v0.3.4**。
+当前源码版本为 **v4.0.0**。
+
+v4.0.0 在原有课程主线中新增逐题证据、课程／阶段／主题掌握状态、个性化微课和下一步建议。博查 Key 在 Windows 设置中单独配置并保存到凭据管理器；联网检索仅发送课程目标或学科／知识点，失败时 AI 仍可生成并标记无联网依据。主题评分必须引用本机真实记录 ID，数据不足时不生成掌握分。
 
 ## Windows 安装包
 
 普通用户可前往 [GitHub Releases](https://github.com/lwy988998/gangyiAI/releases/latest) 下载
-`gangyiAI-setup-v0.3.4-x64.exe`，也可下载 `gangyiAI-portable-v0.3.4-x64.zip` 解压免安装使用。
-Windows v0.3.4 使用可缩放的独立窗口展示现有动态页面，不再默认打开浏览器。每次冷启动从五款开机动画中随机选择一款，避免连续重复，动画完成后平滑呈现真实首页。“我的课程”提供 API 接口快捷入口，可配置服务商、API 地址、API Key 和模型；密钥保存在 Windows 凭据管理器。首次启动可选择“暂不配置，直接使用”；需要 AI 生成或问答时，也可从托盘“设置”中配置。可用系统按钮最小化、最大化或关闭；关闭主窗口会退出程序。
+`gangyiAI-setup-v4.0.0-x64.exe`，也可下载 `gangyiAI-portable-v4.0.0-x64.zip` 解压免安装使用。
+Windows v4.0.0 使用可缩放的独立窗口展示现有动态页面，不再默认打开浏览器。每次冷启动从五款开机动画中随机选择一款，避免连续重复，动画完成后平滑呈现真实首页。“我的课程”提供 API 接口快捷入口，可配置服务商、API 地址、API Key 和模型；密钥保存在 Windows 凭据管理器。首次启动可选择“暂不配置，直接使用”；需要 AI 生成或问答时，也可从托盘“设置”中配置。可用系统按钮最小化、最大化或关闭；关闭主窗口会退出程序。
 首次发布版本尚未进行代码签名，Windows SmartScreen 可能显示未知发布者提示。
 
 安装包同页提供 `SHA256SUMS.txt`，可使用以下命令校验下载文件：
 
 ```powershell
-Get-FileHash .\gangyiAI-setup-v0.3.4-x64.exe -Algorithm SHA256
+Get-FileHash .\gangyiAI-setup-v4.0.0-x64.exe -Algorithm SHA256
 ```
 
 ### 发布构建
@@ -30,8 +32,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
 脚本会下载固定版本的构建依赖、编译服务和原生 Win32 托盘启动器，并生成：
 
 ```text
-dist\installer\gangyiAI-setup-v0.3.4-x64.exe
-dist\installer\gangyiAI-portable-v0.3.4-x64.zip
+dist\installer\gangyiAI-setup-v4.0.0-x64.exe
+dist\installer\gangyiAI-portable-v4.0.0-x64.zip
 dist\installer\SHA256SUMS.txt
 ```
 
