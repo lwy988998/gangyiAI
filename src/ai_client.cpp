@@ -140,8 +140,12 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
         const auto& message = choice.at("message");
         std::string responseModel = parsed.value("model", selectedModel);
         if (responseModel.empty()) responseModel = selectedModel;
-        return {message.at("content").get<std::string>(), responseModel, static_cast<int>(status),
-            choice.value("finish_reason", "")};
+        AIResult result;
+        result.content = message.at("content").get<std::string>();
+        result.model = std::move(responseModel);
+        result.status = static_cast<int>(status);
+        result.finishReason = choice.value("finish_reason", "");
+        return result;
     } catch (const std::exception& error) {
         throw AIClientError("invalid_response", error.what());
     }
