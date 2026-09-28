@@ -59,7 +59,7 @@ std::string validate(const json& output, const std::string& goal, const std::str
 
 ChatOptions options(const std::string& system, const std::string& user, const std::string& mode) {
     return {{{"system", system}, {"user", user}}, {}, 0.25,
-        mode == "lite" ? 4500 : 6000, "json_object", 90000, 1};
+        mode == "lite" ? 4500 : 6000, "json_object", 90000, 1, {}};
 }
 
 std::string nowIso8601() {

@@ -280,7 +280,9 @@ HttpResult postJson(const std::string& url, const std::string& key, const json& 
     result.error = curl_easy_perform(curl);
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &result.status);
     long usedProxy = 0;
+#if LIBCURL_VERSION_NUM >= 0x080700
     curl_easy_getinfo(curl, CURLINFO_USED_PROXY, &usedProxy);
+#endif
     if (result.error != CURLE_OK && usedProxy && url.rfind("https://api.bocha", 0) == 0) {
         result.body.clear();
         result.status = 0;
