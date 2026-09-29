@@ -228,7 +228,7 @@ AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int
     if (code != CURLE_OK || status < 200 || status >= 300)
         throw errorFor(code, status, code == CURLE_OK ? "AI provider returned HTTP " + std::to_string(status) : curl_easy_strerror(code));
     if (state.content.empty()) throw AIClientError("invalid_response", "AI stream is empty");
-    return {state.content, state.model, static_cast<int>(status), "stop"};
+    return {state.content, state.model, static_cast<int>(status), "stop", "not_requested", {}};
 }
 
 AIResult attempt(const Endpoint& endpoint, const ChatOptions& options, int timeoutMs, int attempts) {
