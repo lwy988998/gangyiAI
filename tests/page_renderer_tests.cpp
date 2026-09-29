@@ -40,15 +40,12 @@ int main() {
 
     const std::string home = gangyi::renderHomePage();
     expect(home.find("startup-playing") == std::string::npos, "普通首页不播放开机动画");
-    for (int variant = 0; variant < 5; ++variant) {
-        const std::string startup = gangyi::renderStartupPage(variant);
-        expect(startup.find("id=\"startup-overlay\"") != std::string::npos, "启动页包含动画覆盖层");
-        expect(startup.find("home-goal-surface") != std::string::npos, "启动页使用真实首页内容");
-        expect(startup.find("/startup.js") != std::string::npos, "启动页加载动画脚本");
-        expect(startup.find("location.replace('/')") == std::string::npos, "启动页不得硬切换到首页");
-    }
-    expect(gangyi::renderStartupPage(99).find("data-startup-variant=\"aurora\"") != std::string::npos,
-        "无效方案回退到首款");
+    const std::string startup = gangyi::renderStartupPage();
+    expect(startup.find("id=\"startup-overlay\"") != std::string::npos, "启动页包含动画覆盖层");
+    expect(startup.find("home-goal-surface") != std::string::npos, "启动页使用真实首页内容");
+    expect(startup.find("/startup.js") != std::string::npos, "启动页加载动画脚本");
+    expect(startup.find("data-startup-variant") == std::string::npos, "启动页不再暴露旧动画变体");
+    expect(startup.find("location.replace('/')") == std::string::npos, "启动页不得硬切换到首页");
     expect(home.find("school-logo.png") != std::string::npos, "首页应加载校徽");
     expect(home.find("class=\"home-page ") != std::string::npos, "首页应包含校园背景容器");
     expect(home.find("home-goal-surface") != std::string::npos, "首页应包含学习目标对话框");
@@ -76,6 +73,9 @@ int main() {
         "进度只能统计具有真实 AI 来源元数据的板块");
 
     const std::string planPage = gangyi::renderPlanPage("掌握函数单调性", "deep", "", "anonymous-1");
+    expect(planPage.find("&phaseIndex=0&topicIndex=0") == std::string::npos &&
+        planPage.find("&phaseIndex=1&topicIndex=1") != std::string::npos,
+        "计划页首课入口必须使用一基课时序号");
     expect(planPage.find("250000") != std::string::npos,
         "主线课程三次 AI 尝试应有足够的前端等待时间");
 

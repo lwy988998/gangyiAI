@@ -186,6 +186,22 @@ int main() {
                "问答请求不得包含硬编码模型");
     }
     {
+        const std::string events = "data: {\"model\":\"mock\",\"choices\":[{\"delta\":{\"content\":\"第一段\"}}]}\n\n"
+            "data:{\"model\":\"mock\",\"choices\":[{\"delta\":{\"content\":\"第二段\"}}]}\n\n"
+            "data: [DONE]\n\n";
+        MockServer server("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: " +
+            std::to_string(events.size()) + "\r\nConnection: close\r\n\r\n" + events);
+        auto client = clientFor(server);
+        gangyi::ChatOptions options;
+        options.messages = {{"user", "测试", ""}};
+        std::vector<std::string> chunks;
+        const auto result = client.chatStream(options, [&](const std::string& chunk) { chunks.push_back(chunk); return true; });
+        server.wait();
+        expect(chunks.size() == 2 && chunks[0] == "第一段" && chunks[1] == "第二段", "流式回调应逐段返回内容");
+        expect(result.content == "第一段第二段" && result.model == "mock", "流式结果应合并内容和模型");
+        expect(server.request().find("\"stream\":true") != std::string::npos, "流式请求应启用 stream 字段");
+    }
+    {
         MockServer server(response(200, R"({"data":[{"id":"z-model"},{"id":"a-model"},{"id":"a-model"}]})"));
         const auto models = clientFor(server, "/v1/chat/completions/").listModels();
         server.wait();

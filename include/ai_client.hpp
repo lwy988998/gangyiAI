@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdexcept>
+#include <functional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -25,6 +26,7 @@ struct ChatOptions {
     std::string responseFormat;
     int timeoutMs = 0;
     int maxAttempts = 0;
+    std::function<bool()> cancelled;
     std::string searchQuery;
 };
 
@@ -57,6 +59,8 @@ public:
     explicit AIClient(AIClientConfig config);
     ~AIClient();
     AIResult chat(const ChatOptions& options) const;
+    AIResult chatStream(const ChatOptions& options,
+                        const std::function<bool(const std::string&)>& onChunk) const;
     std::vector<std::string> listModels(int timeoutMs = 15000) const;
 
 private:

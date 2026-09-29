@@ -155,12 +155,6 @@ std::wstring boolText(bool value) {
 
 }  // namespace
 
-unsigned chooseStartupVariant(unsigned previous, unsigned randomByte) {
-    if (previous >= 5) return randomByte % 5;
-    const unsigned choice = randomByte % 4;
-    return choice >= previous ? choice + 1 : choice;
-}
-
 const ProviderProfile& providerProfile(AIProvider provider) {
     for (const auto& profile : kProfiles) if (profile.provider == provider) return profile;
     return kProfiles[2];

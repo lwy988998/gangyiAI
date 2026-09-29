@@ -60,6 +60,14 @@ struct SubjectMastery {
     std::optional<int> score;
     int evidenceCount = 0;
 };
+struct ClassroomActivity {
+    std::string id, courseId, kind, payload, updatedAt;
+    int phaseIndex = 0, topicIndex = 0;
+};
+struct WeeklyPlan {
+    std::string courseId, payload, updatedAt;
+    int version = 1;
+};
 struct TopicMastery {
     std::string courseId, topic, rationale, weakPoints = "[]", recommendation;
     std::string evidenceIds = "[]", nextReviewAt, model, status = "insufficient", updatedAt;
@@ -88,6 +96,10 @@ public:
     bool insert(const LearningCardProgress&); std::optional<LearningCardProgress> getLearningCardProgress(const std::string&) const; std::vector<LearningCardProgress> listLearningCardProgress() const; bool update(const LearningCardProgress&); bool deleteLearningCardProgress(const std::string&); std::optional<LearningCardProgress> findLearningCardProgress(const std::string&, int, int) const;
     bool insert(const LearningSession&); std::optional<LearningSession> getLearningSession(const std::string&) const; std::vector<LearningSession> listLearningSessions() const; bool update(const LearningSession&); bool deleteLearningSession(const std::string&); std::optional<LearningSession> findLearningSession(const std::string&, int, int) const;
     bool insert(const LearningInteraction&); std::vector<LearningInteraction> listInteractions() const;
+    bool upsert(const ClassroomActivity&); std::optional<ClassroomActivity> getClassroomActivity(const std::string&) const;
+    std::vector<ClassroomActivity> listClassroomActivities(const std::string&) const;
+    bool upsert(const WeeklyPlan&); std::optional<WeeklyPlan> getWeeklyPlan(const std::string&) const;
+    void deleteClassroomData(const std::string&);
     bool deleteConversation(const std::string&); bool deleteInteractionsForCourse(const std::string&);
     bool upsert(const SubjectMastery&); void replaceMastery(const std::vector<SubjectMastery>&); std::vector<SubjectMastery> listMastery() const;
     bool upsert(const TopicMastery&); std::vector<TopicMastery> listTopicMastery() const;

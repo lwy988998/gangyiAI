@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(gangyiAI VERSION 4.0.0 LANGUAGES C CXX)
+project(gangyiAI VERSION 4.1.0 LANGUAGES C CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -117,7 +117,7 @@ endif()
 
 add_executable(gangyiAI src/main.cpp src/db.cpp src/ai_client.cpp src/json_fix.cpp src/plan_generator.cpp src/page_renderer.cpp
     src/plan_cache.cpp src/plan_adapter.cpp src/search_client.cpp src/quality_gate.cpp src/course_service.cpp
-    src/progress_service.cpp src/profile_service.cpp src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/image_goal_analyzer.cpp
+    src/progress_service.cpp src/profile_service.cpp src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/classroom_service.cpp src/image_goal_analyzer.cpp
     ${GANGYI_SERVICE_RESOURCE})
 
 target_include_directories(gangyiAI PRIVATE
@@ -208,6 +208,16 @@ if(BUILD_TESTING)
     target_include_directories(page-renderer-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
     target_link_libraries(page-renderer-tests PRIVATE nlohmann_json::nlohmann_json)
     add_test(NAME page-renderer COMMAND page-renderer-tests)
+
+    add_executable(classroom-service-tests tests/classroom_service_tests.cpp src/classroom_service.cpp
+        src/db.cpp src/ai_client.cpp src/search_client.cpp src/json_fix.cpp src/course_service.cpp)
+    target_include_directories(classroom-service-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${GANGYI_CURL_INCLUDE})
+    target_link_libraries(classroom-service-tests PRIVATE nlohmann_json::nlohmann_json
+        ${GANGYI_SQLITE_LIB} ${GANGYI_CURL_LINK} Threads::Threads)
+    if(WIN32)
+        target_link_libraries(classroom-service-tests PRIVATE ws2_32)
+    endif()
+    add_test(NAME classroom-service COMMAND classroom-service-tests)
 endif()
 if(BUILD_TESTING AND WIN32)
     add_executable(launcher-support-tests tests/launcher_support_tests.cpp src/launcher_support.cpp)
