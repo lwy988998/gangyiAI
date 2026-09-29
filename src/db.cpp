@@ -105,6 +105,18 @@ UPDATE SubjectMastery SET status='legacy' WHERE status='ready';
             exec(db_, "COMMIT");
         } catch (...) { exec(db_, "ROLLBACK"); throw; }
     }
+    if (currentVersion < 5) {
+        exec(db_, "BEGIN IMMEDIATE");
+        try {
+            exec(db_, R"SQL(
+CREATE TABLE IF NOT EXISTS ClassroomActivity(id TEXT PRIMARY KEY, courseId TEXT NOT NULL, phaseIndex INTEGER NOT NULL, topicIndex INTEGER NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL, updatedAt TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS ClassroomActivity_lesson_idx ON ClassroomActivity(courseId,phaseIndex,topicIndex,kind);
+CREATE TABLE IF NOT EXISTS WeeklyPlan(courseId TEXT PRIMARY KEY, payload TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1, updatedAt TEXT NOT NULL);
+)SQL");
+            exec(db_, "PRAGMA user_version=5");
+            exec(db_, "COMMIT");
+        } catch (...) { exec(db_, "ROLLBACK"); throw; }
+    }
 }
 
 // Course and User are kept explicit below; the repeated progress tables use the same SQL shape.
@@ -224,6 +236,35 @@ std::vector<LearningInteraction> Database::listInteractions() const {
     Stmt s(db_, "SELECT id,courseId,conversationId,subject,kind,payload,createdAt FROM LearningInteraction ORDER BY rowid");
     while(sqlite3_step(s.p)==SQLITE_ROW) rows.push_back({str(s.p,0),str(s.p,4),str(s.p,5),str(s.p,6),ostr(s.p,1),ostr(s.p,2),ostr(s.p,3)});
     return rows;
+}
+bool Database::upsert(const ClassroomActivity& value) {
+    Stmt s(db_, "INSERT INTO ClassroomActivity(id,courseId,phaseIndex,topicIndex,kind,payload,updatedAt) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,updatedAt=excluded.updatedAt");
+    text(s,1,value.id);text(s,2,value.courseId);integer(s,3,value.phaseIndex);integer(s,4,value.topicIndex);
+    text(s,5,value.kind);text(s,6,value.payload);text(s,7,value.updatedAt);return done(s);
+}
+std::optional<ClassroomActivity> Database::getClassroomActivity(const std::string& key) const {
+    Stmt s(db_, "SELECT id,courseId,phaseIndex,topicIndex,kind,payload,updatedAt FROM ClassroomActivity WHERE id=?");text(s,1,key);
+    if(sqlite3_step(s.p)!=SQLITE_ROW)return std::nullopt;
+    return ClassroomActivity{str(s.p,0),str(s.p,1),str(s.p,4),str(s.p,5),str(s.p,6),sqlite3_column_int(s.p,2),sqlite3_column_int(s.p,3)};
+}
+std::vector<ClassroomActivity> Database::listClassroomActivities(const std::string& courseId) const {
+    std::vector<ClassroomActivity> rows;
+    Stmt s(db_, "SELECT id,courseId,phaseIndex,topicIndex,kind,payload,updatedAt FROM ClassroomActivity WHERE courseId=? ORDER BY rowid");text(s,1,courseId);
+    while(sqlite3_step(s.p)==SQLITE_ROW)rows.push_back({str(s.p,0),str(s.p,1),str(s.p,4),str(s.p,5),str(s.p,6),sqlite3_column_int(s.p,2),sqlite3_column_int(s.p,3)});
+    return rows;
+}
+bool Database::upsert(const WeeklyPlan& value) {
+    Stmt s(db_, "INSERT INTO WeeklyPlan(courseId,payload,version,updatedAt) VALUES(?,?,?,?) ON CONFLICT(courseId) DO UPDATE SET payload=excluded.payload,version=excluded.version,updatedAt=excluded.updatedAt");
+    text(s,1,value.courseId);text(s,2,value.payload);integer(s,3,value.version);text(s,4,value.updatedAt);return done(s);
+}
+std::optional<WeeklyPlan> Database::getWeeklyPlan(const std::string& courseId) const {
+    Stmt s(db_, "SELECT courseId,payload,version,updatedAt FROM WeeklyPlan WHERE courseId=?");text(s,1,courseId);
+    if(sqlite3_step(s.p)!=SQLITE_ROW)return std::nullopt;
+    return WeeklyPlan{str(s.p,0),str(s.p,1),str(s.p,3),sqlite3_column_int(s.p,2)};
+}
+void Database::deleteClassroomData(const std::string& courseId) {
+    Stmt activities(db_, "DELETE FROM ClassroomActivity WHERE courseId=?");text(activities,1,courseId);done(activities);
+    Stmt weekly(db_, "DELETE FROM WeeklyPlan WHERE courseId=?");text(weekly,1,courseId);done(weekly);
 }
 bool Database::deleteConversation(const std::string& conversationId) {
     Stmt s(db_, "DELETE FROM LearningInteraction WHERE conversationId=?");text(s,1,conversationId);

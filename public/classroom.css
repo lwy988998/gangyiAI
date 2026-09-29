@@ -1,0 +1,67 @@
+.classroom-card{margin:20px 0;padding:22px;border:1px solid #3d6259;border-radius:10px;background:#14221f;color:#edf3ef}
+.classroom-card h2{margin:0 0 10px;font-size:1.25rem;font-weight:700;color:#e9f8f1}
+.classroom-card h3{margin:15px 0 8px;font-size:1rem;font-weight:700;color:#e9f8f1}
+.classroom-card p{line-height:1.7;color:#c2d4d0}
+.classroom-card button,#classroom-idle button,#ask-selection{min-height:40px;padding:8px 14px;border:1px solid #8cdec5;border-radius:7px;background:#a4e5d2;color:#10251f;font-weight:700}
+.classroom-card button:hover,#classroom-idle button:hover,#ask-selection:hover{background:#c0f5e5}
+.classroom-card button:disabled{background:#263a34;color:#c2d4d0;border-color:#8da69d;cursor:wait;opacity:1}
+.classroom-card button:focus-visible,#classroom-idle button:focus-visible,#ask-selection:focus-visible{outline:3px solid #d0fff0;outline-offset:3px}
+.classroom-question{padding:14px 0;border-top:1px solid #47645c}
+.classroom-options{display:grid;gap:7px;margin:12px 0}
+.classroom-options label{display:flex;gap:10px;align-items:start;padding:8px;border:1px solid #48675d;border-radius:7px;cursor:pointer;color:#edf3ef}
+.classroom-options label:hover{border-color:#a4e5d2;background:#20332d}
+.classroom-options input{accent-color:#a4e5d2}
+.classroom-options textarea{width:100%;min-height:90px;padding:10px;border:1px solid #8aa69b;border-radius:7px}
+.classroom-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+.classroom-feedback{min-height:1.5em;margin-top:10px}
+.availability-card{max-width:620px;margin-top:12px}
+.availability-card legend{font-weight:700;padding:0 6px}
+.availability-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:12px 0}
+.availability-grid label{display:flex;align-items:center;gap:5px;color:#edf3ef}
+.availability-grid input[type=number]{width:54px;padding:4px;border:1px solid #8aa69b;border-radius:5px}
+.weekly-plan{margin-top:20px}
+.weekly-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #47645c}
+.weekly-row strong{flex:1;min-width:150px}
+.weekly-row input[type=date]{width:145px;padding:5px}
+.weekly-row input[type=number]{width:65px;padding:5px}
+.weekly-row input{border:1px solid #8aa69b;border-radius:5px}
+.weekly-row button{min-width:36px;padding:5px}
+.due-reviews{max-width:1200px;margin:24px auto;padding:20px}
+.due-reviews ul{display:grid;gap:8px;padding-left:20px}
+.due-reviews a{color:#a4e5d2;text-decoration:underline}
+.due-reviews a:hover{color:#d0fff0}
+#classroom-branch[hidden],#classroom-guidance[hidden],#classroom-next[hidden],#classroom-idle[hidden],#ask-selection[hidden]{display:none}
+body[data-classroom-mode=familiar] #learn-steps article:nth-child(-n+2) p{display:none}
+#classroom-idle{position:fixed;left:50%;bottom:18px;z-index:35;display:flex;align-items:center;gap:12px;max-width:min(90vw,560px);padding:12px;border:1px solid #8cdec5;border-radius:9px;background:#14221f;color:#edf3ef;box-shadow:0 8px 28px #0009;transform:translateX(-50%)}
+#classroom-idle button{min-width:40px}
+#ask-selection{position:fixed;z-index:45;box-shadow:0 6px 20px #0008}
+#learning-chat-stop{margin-left:8px;padding:8px 12px;border:1px solid #9db5ac;border-radius:7px;color:#edf3ef;background:#22332d}
+.classroom-chat-user,.classroom-chat-reply{padding:10px;border-radius:9px;white-space:pre-wrap;line-height:1.5}
+.classroom-chat-user{margin-left:20%;background:#214238;color:#e8fff5}
+.classroom-chat-reply{margin-right:15%;background:#1c2b31;color:#edf3ef}
+
+/* 全站深色界面正文、占位符、悬停、焦点和禁用态维持可读对比。 */
+.dark-app{--dark-muted:#b8cac5}
+.dark-app .dark-nav-link,.dark-app .dark-footer,.dark-app .home-floating-chip small,
+.dark-app .home-ticker-track,.dark-app .home-radar-top span,.dark-app .home-radar-bottom,
+.dark-app .profile-subject-card small,.dark-app #profile-message{color:#b8cac5}
+.dark-app input::placeholder,.dark-app textarea::placeholder{color:#aebfba;opacity:1}
+.dark-app .text-slate-400,.dark-app .text-slate-500,.dark-app .text-slate-600{color:#b8cac5!important}
+.dark-app button:disabled,.dark-app a[aria-disabled=true]{opacity:1!important;color:#b8cac5!important;background:#263a34!important;border-color:#819d93!important}
+.dark-app .bg-sky-700:disabled,.dark-app .bg-emerald-600:disabled{color:#10251f!important;background:#a4e5d2!important}
+.dark-app :is(a,button,input,textarea,select,summary):focus-visible{outline:3px solid #d0fff0!important;outline-offset:3px}
+.dark-app :is(a,button):hover{filter:brightness(1.12)}
+.dark-app .plan-view .mode-badge{background:#214238!important;color:#e8fff5!important}
+.dark-app .plan-view :is(.plan-hero,.lite-hero,.plan-card,.phase-card,.slide-content,.resource-item,.project-item) :is(h2,h3,h4,strong){color:#edf3ef!important}
+.dark-app .plan-view .section-heading h2,.dark-app .plan-view .structure-row b{color:#edf3ef!important}
+.dark-app .plan-view :is(.hero-facts>div,.lite-facts>span,.progress-strip,.phase-grid>div,.phase-meta span,.bullet-list span){background:#1c302a!important;border-color:#527168!important;color:#d0e5dd!important}
+.dark-app .plan-view :is(.hero-facts small,.lite-facts small,.progress-strip span,.phase-meta span,.phase-grid p,.step-row span){color:#c2d4d0!important}
+.dark-app .plan-view :is(.hero-facts b,.lite-facts b,.step-row strong,.structure-row b,.slide-content h3){color:#edf3ef!important}
+.dark-app .plan-view .progress-strip b{color:#a4e5d2!important}
+.dark-app .plan-view :is(.step-row em,.structure-row a,.resource-item small,.phase-grid b){color:#a4e5d2!important}
+.dark-app .plan-view .phase-number{background:#214238!important;color:#e8fff5!important}
+.dark-app .plan-view .structure-row a{background:#1c302a!important;border-color:#527168!important}
+.dark-app .next-action p,.dark-app .next-action .plan-kicker{color:#10251f!important;opacity:1}
+.dark-app .bg-amber-50{background:#3b2c14!important}
+.dark-app .text-amber-800,.dark-app .text-amber-700{color:#ffe3a1!important}
+.dark-app .border-amber-100{border-color:#a6884c!important}

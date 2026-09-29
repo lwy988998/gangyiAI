@@ -123,7 +123,7 @@ void validate(const GeneratedPlan& plan, const std::string& mode) {
 
 ChatOptions options(const std::string& system, const std::string& user, const std::string& mode) {
     return {{ {"system", system}, {"user", user} }, {}, 0.7,
-        mode == "lite" ? 4500 : 6000, "json_object", 90000, 1, {}};
+        mode == "lite" ? 4500 : 6000, "json_object", 90000, 1, {}, {}};
 }
 
 }

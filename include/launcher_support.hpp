@@ -22,8 +22,6 @@ const ProviderProfile& providerProfile(AIProvider provider);
 AIProvider providerFromId(const std::wstring& id);
 AIProvider inferProvider(const std::wstring& baseUrl);
 std::wstring sanitizeBaseUrl(const std::wstring& baseUrl);
-unsigned chooseStartupVariant(unsigned previous, unsigned randomByte);
-
 class RestartPolicy {
 public:
     std::optional<unsigned> recordFailure();

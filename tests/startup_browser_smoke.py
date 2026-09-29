@@ -11,7 +11,7 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 SERVICE = Path(os.environ.get("GANGYI_SERVICE_EXE", str(ROOT / "build-ascii" / "gangyiAI.exe"))).resolve()
-SHOTS = ROOT / "verification" / "startup-random-v034" / "browser-shots"
+SHOTS = ROOT / "verification" / "startup-scan-v410" / "browser-shots"
 
 
 def free_port():
@@ -51,42 +51,29 @@ def main():
                 page.goto(base + "/", wait_until="networkidle")
                 assert page.locator("#startup-overlay").count() == 0
                 print("NORMAL_HOME overlay=NONE")
-                for invalid in ("99", "2x", "-1"):
-                    page.goto(base + f"/startup?variant={invalid}", wait_until="networkidle")
-                    assert page.locator("body").get_attribute("data-startup-variant") == "aurora"
-                print("INVALID_VARIANT fallback=aurora")
-                for variant in range(5):
-                    page.goto(base + f"/startup?variant={variant}", wait_until="networkidle")
-                    assert page.locator("#startup-overlay").is_visible()
-                    assert page.locator(".startup-overlay-index, .startup-overlay-brand p").count() == 0
-                    assert not any(name in page.locator("#startup-overlay").inner_text() for name in
-                                   ("极光折射", "精密轨道", "点阵成形", "光栅扫描", "层叠空间",
-                                    "AURORA / REFRACTION", "ORBIT / ALIGNMENT", "PARTICLE / ASSEMBLY",
-                                    "SCAN / REVEAL", "PANELS / ARRIVAL"))
-                    assert page.locator("#goal-form").count() == 1
-                    assert page.locator("body").get_attribute("data-startup-phase") == "intro"
-                    page.wait_for_timeout(1700)
-                    page.screenshot(path=str(SHOTS / f"variant-{variant}-intro.png"))
-                    page.wait_for_timeout(2050)
-                    assert page.locator("body").get_attribute("data-startup-phase") == "outro"
-                    page.screenshot(path=str(SHOTS / f"variant-{variant}-transition.png"))
-                    page.wait_for_timeout(1500)
-                    assert page.locator("#startup-overlay").count() == 0
-                    assert page.locator("body").get_attribute("data-startup-phase") == "home"
-                    assert page.evaluate("location.pathname") == "/"
-                    assert page.locator("#goal-form").is_visible()
-                    print(f"VARIANT_{variant} name=HIDDEN intro=PASS transition=PASS real_home=PASS")
+                page.goto(base + "/startup", wait_until="networkidle")
+                assert page.locator("#startup-overlay").is_visible()
+                assert page.locator(".scan-art").count() == 1
+                assert page.locator(".aurora-field, .orbit-art, .particle-art, .panel-art").count() == 0
+                assert page.locator("#goal-form").count() == 1
+                assert page.locator("body").get_attribute("data-startup-phase") == "intro"
+                page.wait_for_timeout(800)
+                page.screenshot(path=str(SHOTS / "scan-intro.png"))
+                page.wait_for_function("document.body.dataset.startupPhase === 'outro'", timeout=4500)
+                page.screenshot(path=str(SHOTS / "scan-transition.png"))
+                page.wait_for_function("document.body.dataset.startupPhase === 'home'", timeout=4500)
+                assert page.locator("#startup-overlay").count() == 0
+                assert page.evaluate("location.pathname") == "/"
+                assert page.locator("#goal-form").is_visible()
+                print("STARTUP_SCAN intro=PASS transition=PASS real_home=PASS")
                 reduced = browser.new_page(viewport={"width": 390, "height": 844}, reduced_motion="reduce")
-                reduced.goto(base + "/startup?variant=4", wait_until="networkidle")
+                reduced.goto(base + "/startup", wait_until="networkidle")
                 reduced.wait_for_timeout(500)
-                assert reduced.locator("#startup-overlay").is_visible()
-                assert reduced.locator("body").get_attribute("data-startup-phase") == "intro"
-                assert reduced.evaluate("document.documentElement.scrollWidth <= innerWidth")
-                reduced.wait_for_timeout(4800)
                 assert reduced.locator("#startup-overlay").count() == 0
+                assert reduced.evaluate("document.documentElement.scrollWidth <= innerWidth")
                 assert reduced.evaluate("location.pathname") == "/"
                 assert not errors, errors
-                print("REDUCED_MOTION full_play=PASS MOBILE_OVERFLOW=NONE JS_HTTP_ERRORS=0")
+                print("REDUCED_MOTION skip=PASS MOBILE_OVERFLOW=NONE JS_HTTP_ERRORS=0")
                 browser.close()
         finally:
             try:

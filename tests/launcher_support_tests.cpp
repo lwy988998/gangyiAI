@@ -35,15 +35,6 @@ void createDatabase(const std::filesystem::path& path) {
 
 int main() {
     using namespace gangyi::launcher;
-    int firstCounts[5]{};
-    for (unsigned byte = 0; byte < 255; ++byte) ++firstCounts[chooseStartupVariant(5, byte)];
-    for (int count : firstCounts) expect(count == 51, "首次启动五款等概率");
-    for (unsigned previous = 0; previous < 5; ++previous) {
-        int counts[5]{};
-        for (unsigned byte = 0; byte < 256; ++byte) ++counts[chooseStartupVariant(previous, byte)];
-        for (unsigned variant = 0; variant < 5; ++variant)
-            expect(counts[variant] == (variant == previous ? 0 : 64), "连续启动不重复且其余四款等概率");
-    }
     expect(inferProvider(L"https://api.deepseek.com/v1") == AIProvider::DeepSeek, "识别 DeepSeek");
     expect(inferProvider(L"https://api.openai.com/v1") == AIProvider::OpenAI, "识别 OpenAI");
     expect(inferProvider(L"https://example.com/v1") == AIProvider::Custom, "识别自定义服务商");

@@ -1,0 +1,356 @@
+"""在隔离数据库和模拟模型上验证课堂流程及流式问答。"""
+
+import asyncio
+import datetime
+import json
+import os
+import socket
+import sqlite3
+import subprocess
+import tempfile
+import threading
+import time
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from contextlib import closing
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+import websockets
+
+
+def free_port():
+    with socket.socket() as connection:
+        connection.bind(("127.0.0.1", 0))
+        return connection.getsockname()[1]
+
+
+def request(base, path, data=None):
+    body = None if data is None else json.dumps(data, ensure_ascii=False).encode()
+    req = urllib.request.Request(base + path, data=body,
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=25) as response:
+        return json.loads(response.read())
+
+
+class MockAI(BaseHTTPRequestHandler):
+    remedial_calls = 0
+    stream_messages = []
+    learn_block_calls = 0
+    def log_message(self, *_):
+        pass
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        if body.get("stream"):
+            MockAI.stream_messages = body.get("messages", [])
+            chunks = ["片段一", "片段二"]
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            for chunk in chunks:
+                event = {"model": "mock", "choices": [{"delta": {"content": chunk}}]}
+                try:
+                    self.wfile.write(("data: " + json.dumps(event, ensure_ascii=False) + "\n\n").encode())
+                    self.wfile.flush()
+                except BrokenPipeError:
+                    break
+                time.sleep(.15)
+            return
+        prompt = body["messages"][-1]["content"]
+        parsed_prompt = json.loads(prompt) if prompt.startswith("{") else {}
+        if isinstance(parsed_prompt, dict) and parsed_prompt.get("block"):
+            MockAI.learn_block_calls += 1
+            block = parsed_prompt["block"]
+            base = f'{parsed_prompt["goal"]} {parsed_prompt["phase"]} {parsed_prompt["topic"]}'
+            if block == "overview":
+                answer = {"title": base, "summary": base + " 概览", "inferredDomain": "数学",
+                          "keyConcepts": ["定义", "区间", "变化"]}
+            elif block == "steps":
+                answer = {"lessonSteps": [{"title": f"步骤{i}", "explanation": base + f" 解释{i}",
+                          "example": f"示例{i}", "action": f"完成练习{i}", "check": f"检查{i}"} for i in range(4)]}
+            elif block == "examples":
+                answer = {"examples": [{"title": f"例题{i}", "content": base + f" 题目{i}",
+                          "solution": f"解析{i}"} for i in range(2)]}
+            elif block == "practice":
+                answer = {"practice": [{"title": f"练习{i}", "task": base + f" 任务{i}",
+                          "check": f"核对{i}"} for i in range(3)]}
+            elif block == "quiz":
+                answer = {"quiz": [{"question": base + f" 测验{i}", "options": ["对", "错", "其他", "不确定"],
+                          "answerIndex": 0, "explanation": f"解释{i}"} for i in range(3)]}
+            else:
+                answer = {"checkpoint": [base + " 检查1", "检查2"],
+                          "commonMistakes": ["忽略区间", "混淆方向"], "resourceSummary": "复习定义"}
+        elif '"answer"' in prompt and '"rubric"' in prompt:
+            answer = {"correct": True, "confidence": .4, "feedback": "解释仍然缺少关键条件", "followUp": "为什么要满足这个条件？"}
+        elif '"direction"' in prompt:
+            context = json.loads(prompt)
+            answer = ({"action": "skip", "topic": context["nextTopic"]} if context["direction"] == "strong"
+                      else {"action": "insert", "topic": "函数单调性短补弱"})
+        elif '"topics"' in prompt:
+            answer = {"topics": ["函数单调性", "函数图像"]}
+        else:
+            MockAI.remedial_calls += 1
+            answer = {"title": "补讲", "content": "先回到函数单调性的定义。" * 12,
+                      "check": "如何判断一个区间内的单调性？"}
+        payload = json.dumps({"model": "mock", "choices": [{"message": {"content": json.dumps(answer, ensure_ascii=False)}}]}, ensure_ascii=False).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+
+async def check_stream(port, course_id):
+    async with websockets.connect(f"ws://127.0.0.1:{port}/ws/classroom") as connection:
+        await connection.send(json.dumps({"type": "ask", "courseId": course_id, "phaseIndex": 1,
+                                          "topicIndex": 1, "question": "为何单调？", "selection": "单调性"}, ensure_ascii=False))
+        events = []
+        while True:
+            event = json.loads(await asyncio.wait_for(connection.recv(), 10))
+            events.append(event)
+            if event["type"] in ("done", "error"):
+                break
+        assert [event["text"] for event in events if event["type"] == "delta"] == ["片段一", "片段二"], events
+        assert events[-1]["type"] == "done", events
+        await asyncio.sleep(.05)
+        await connection.send(json.dumps({"type": "ask", "courseId": course_id, "phaseIndex": 1,
+                                          "topicIndex": 1, "question": "停止测试"}, ensure_ascii=False))
+        first = json.loads(await asyncio.wait_for(connection.recv(), 10))
+        assert first["type"] == "delta"
+        await connection.send(json.dumps({"type": "stop"}))
+        while True:
+            stopped = json.loads(await asyncio.wait_for(connection.recv(), 10))
+            if stopped["type"] in ("done", "error"):
+                break
+        assert stopped["type"] == "done" and stopped.get("message") == "已停止", stopped
+    return len(events)
+
+
+def main(executable):
+    with tempfile.TemporaryDirectory(prefix="classroom-api-") as directory:
+        db_path = Path(directory) / "classroom.db"
+        ai = ThreadingHTTPServer(("127.0.0.1", free_port()), MockAI)
+        worker = threading.Thread(target=ai.serve_forever, daemon=True)
+        worker.start()
+        port = free_port()
+        env = dict(os.environ, HOST="127.0.0.1", PORT=str(port), DATABASE_PATH=str(db_path),
+                   AI_BASE_URL=f"http://127.0.0.1:{ai.server_port}/v1", AI_API_KEY="mock-key",
+                   LOCAL_CONTROL_TOKEN="classroom-test")
+        service = subprocess.Popen([str(executable)], cwd=executable.parent, env=env,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        base = f"http://127.0.0.1:{port}"
+        try:
+            for _ in range(100):
+                try:
+                    if urllib.request.urlopen(base + "/health", timeout=1).status == 200:
+                        break
+                except Exception:
+                    time.sleep(.1)
+            else:
+                raise AssertionError("课堂服务未启动")
+            created_plan = {"generation": {"source": "ai", "promptVersion": "ai-plan-v1"},
+                            "title": "函数单调性训练", "summary": "按定义、图像、应用逐步练习函数单调性。",
+                            "outcome": "完成函数应用报告", "prerequisites": ["掌握一次函数"],
+                            "courseStructure": [], "roadmap": []}
+            for stage, first, second in [("定义基础", "函数单调性", "函数图像"),
+                                         ("图像判断", "图像上升区间", "图像下降区间"),
+                                         ("应用迁移", "实际变化模型", "综合情境挑战")]:
+                created_plan["courseStructure"].append({"stage": stage, "topics": [first, second]})
+                created_plan["roadmap"].append({"name": stage, "description": f"完成{first}与{second}练习，提交函数报告。",
+                                                   "topics": [first, second], "steps": [{"title": f"分析{first}",
+                                                   "explanation": f"用区间判断{first}的变化。", "action": "完成练习",
+                                                   "check": f"解释{second}的判断依据"}]})
+            created = request(base, "/api/courses", {"anonymousId": "anon", "goal": "学习函数单调性", "mode": "lite",
+                              "title": "函数单调性训练", "source": "ai", "payload": created_plan})
+            assert created["ok"] and created["courseId"], created
+            course_id = created["courseId"]
+            first_week = request(base, "/api/classroom/week?courseId=" + course_id)
+            assert len(first_week["availability"]) == 3 and all(slot["minutes"] == 30 for slot in first_week["availability"])
+            new_lesson = f"?courseId={course_id}&phaseIndex=1&topicIndex=1"
+            first_diagnostic = request(base, "/api/classroom/start" + new_lesson + "&kind=diagnostic")
+            assert len(first_diagnostic["questions"]) == 2
+            with closing(sqlite3.connect(db_path)) as db:
+                upgraded = json.loads(db.execute(
+                    "SELECT payload FROM CourseSnapshot WHERE courseId=? ORDER BY version DESC LIMIT 1",
+                    (course_id,)).fetchone()[0])["courseStructure"]
+                assert all(len(stage["topicIds"]) == len(stage["topics"]) for stage in upgraded)
+            skipped = request(base, "/api/courses", {"anonymousId": "skip-anon", "goal": "学习函数单调性",
+                              "mode": "lite", "title": "跳过诊断测试", "source": "ai", "payload": created_plan})
+            skip_id = skipped["courseId"]
+            request(base, f"/api/classroom/start?courseId={skip_id}&phaseIndex=1&topicIndex=1&kind=diagnostic")
+            assert request(base, "/api/classroom/skip", {"courseId": skip_id, "phaseIndex": 1,
+                           "topicIndex": 1})["mode"] == "full"
+            quiz = [{"question": f"测验{i}", "options": ["对", "错", "其他", "不确定"],
+                     "answerIndex": 0} for i in range(3)]
+            content = {"blocks": {"quiz": {"quiz": quiz}}}
+            strong = request(base, "/api/courses", {"anonymousId": "strong-anon", "goal": "学习函数单调性",
+                             "mode": "lite", "title": "强证据跳课测试", "source": "ai", "payload": created_plan})
+            strong_id = strong["courseId"]
+            with closing(sqlite3.connect(db_path)) as db, db:
+                db.execute("INSERT INTO LearningSession VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                           ("l1", course_id, "anon", "函数", "lite", 1, "定义基础", 1, "函数单调性", "函数单调性", "", "", json.dumps(content, ensure_ascii=False), "[]", 0, "ai"))
+                db.execute("INSERT INTO LearningInteraction VALUES(?,?,?,?,?,?,?)",
+                           ("old-lesson-chat", course_id, f"lesson-{course_id}-1-1", None,
+                            "chat-assistant", json.dumps({"text": "旧课堂记录"}, ensure_ascii=False), "2026-09-28"))
+                db.execute("INSERT INTO LearningInteraction VALUES(?,?,?,?,?,?,?)",
+                           ("other-lesson-chat", course_id, f"lesson-{course_id}-1-2", None,
+                            "chat-assistant", json.dumps({"text": "另一课时记录"}, ensure_ascii=False), "2026-09-28"))
+                for kind in ("diagnostic", "interaction"):
+                    for index in range(3):
+                        item = {"question": f"{kind}{index}", "type": "open" if kind == "interaction" and index == 1 else "choice",
+                                "options": ["对", "错", "其他", "不确定"], "answerIndex": 0,
+                                "rubric": "说明条件与具体推理过程", "explanation": "请检查定义中的关键条件。",
+                                "status": "pending", "evidenceSource": "ai-generated"}
+                        db.execute("INSERT OR REPLACE INTO ClassroomActivity VALUES(?,?,?,?,?,?,?)",
+                                   (f"classroom:{course_id}:1:1:{kind}:{index}", course_id, 1, 1, kind,
+                                    json.dumps(item, ensure_ascii=False), "2026-09-28"))
+                db.execute("INSERT INTO LearningSession VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                           ("strong-session", strong_id, "strong-anon", "函数", "lite", 1, "定义基础", 1,
+                            "函数单调性", "函数单调性", "", "", json.dumps(content, ensure_ascii=False), "[]", 0, "ai"))
+                for index in range(2):
+                    item = {"status": "answered", "correct": True, "credible": True}
+                    db.execute("INSERT INTO ClassroomActivity VALUES(?,?,?,?,?,?,?)",
+                               (f"classroom:{strong_id}:1:1:diagnostic:{index}", strong_id, 1, 1,
+                                "diagnostic", json.dumps(item), "2026-09-28"))
+                db.execute("INSERT INTO LearningSession VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                           ("skip-session", skip_id, "skip-anon", "函数", "lite", 1, "定义基础", 1,
+                            "函数单调性", "函数单调性", "", "", json.dumps(content, ensure_ascii=False), "[]", 0, "ai"))
+                for index in range(2):
+                    item = {"status": "answered", "correct": True, "credible": True}
+                    db.execute("INSERT OR REPLACE INTO ClassroomActivity VALUES(?,?,?,?,?,?,?)",
+                               (f"classroom:{skip_id}:1:1:diagnostic:{index}", skip_id, 1, 1,
+                                "diagnostic", json.dumps(item), "2026-09-28"))
+            strong_quiz = request(base, "/api/quiz-attempts", {"courseId": strong_id, "phaseIndex": 1,
+                                  "topicIndex": 1, "answers": [0, 0, 0]})
+            assert strong_quiz["passed"]
+            request(base, "/api/learn/progress", {"courseId": strong_id, "phaseIndex": 1,
+                    "topicIndex": 1, "status": "completed"})
+            strong_finish = request(base, "/api/classroom/finish", {"courseId": strong_id,
+                                    "phaseIndex": 1, "topicIndex": 1})
+            assert strong_finish["pathAdjustment"] == "strong", strong_finish
+            with closing(sqlite3.connect(db_path)) as db:
+                strong_topics = json.loads(db.execute(
+                    "SELECT payload FROM CourseSnapshot WHERE courseId=? ORDER BY version DESC LIMIT 1",
+                    (strong_id,)).fetchone()[0])["courseStructure"]
+                assert strong_topics[0]["topics"] == ["函数单调性"] and len(strong_topics[1]["topics"]) == 2
+                skip_versions = db.execute("SELECT COUNT(*) FROM CourseSnapshot WHERE courseId=?", (skip_id,)).fetchone()[0]
+            request(base, "/api/quiz-attempts", {"courseId": skip_id, "phaseIndex": 1,
+                    "topicIndex": 1, "answers": [0, 0, 0]})
+            request(base, "/api/learn/progress", {"courseId": skip_id, "phaseIndex": 1,
+                    "topicIndex": 1, "status": "completed"})
+            skipped_finish = request(base, "/api/classroom/finish", {"courseId": skip_id,
+                                     "phaseIndex": 1, "topicIndex": 1})
+            assert skipped_finish["pathAdjustment"] == ""
+            with closing(sqlite3.connect(db_path)) as db:
+                assert db.execute("SELECT COUNT(*) FROM CourseSnapshot WHERE courseId=?", (skip_id,)).fetchone()[0] == skip_versions
+            q = f"?courseId={course_id}&phaseIndex=1&topicIndex=1"
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                lessons = list(pool.map(lambda _: request(base, "/api/learn" + q + "&block=all"), range(2)))
+            assert all(len(item["blocks"]) == 6 for item in lessons) and MockAI.learn_block_calls == 6, lessons
+            assert len(request(base, "/api/classroom/start" + q + "&kind=diagnostic")["questions"]) == 2
+            assert request(base, "/api/classroom/submit", {"courseId": course_id, "phaseIndex": 1, "topicIndex": 1,
+                       "kind": "diagnostic", "index": 0, "answer": 1})["mode"] == "pending"
+            weak_quiz = request(base, "/api/quiz-attempts", {"courseId": course_id, "phaseIndex": 1,
+                                      "topicIndex": 1, "answers": [1, 0, 0]})
+            assert weak_quiz["passed"] is False
+            assert request(base, "/api/learn/progress", {"courseId": course_id, "phaseIndex": 1,
+                           "topicIndex": 1, "status": "completed"})["ok"]
+            assert request(base, "/api/classroom/finish", {"courseId": course_id, "phaseIndex": 1,
+                       "topicIndex": 1})["pathAdjustment"] == ""
+            second = request(base, "/api/classroom/submit", {"courseId": course_id, "phaseIndex": 1,
+                             "topicIndex": 1, "kind": "diagnostic", "index": 1, "answer": 0})
+            assert second["mode"] == "third" and second["nextQuestion"]["question"] == "diagnostic2"
+            third = request(base, "/api/classroom/submit", {"courseId": course_id, "phaseIndex": 1,
+                            "topicIndex": 1, "kind": "diagnostic", "index": 2, "answer": 1})
+            assert third["mode"] == "weak"
+            assert len(request(base, "/api/classroom/start" + q + "&kind=diagnostic")["questions"]) == 3
+            remedial_before = MockAI.remedial_calls
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                remedials = list(pool.map(lambda _: request(base, "/api/classroom/remedial" + q), range(2)))
+            assert remedials[0] == remedials[1] and MockAI.remedial_calls == remedial_before + 1, remedials
+            assert len(request(base, "/api/classroom/start" + q + "&kind=interaction")["questions"]) == 3
+            prediction = request(base, "/api/classroom/submit", {"courseId": course_id, "phaseIndex": 1,
+                                 "topicIndex": 1, "kind": "interaction", "index": 0, "answer": 1})
+            assert not prediction["correct"] and prediction["followUp"]
+            hint2 = request(base, "/api/classroom/hint", {"courseId": course_id, "phaseIndex": 1,
+                            "topicIndex": 1, "kind": "interaction", "index": 0})
+            hint3 = request(base, "/api/classroom/hint", {"courseId": course_id, "phaseIndex": 1,
+                            "topicIndex": 1, "kind": "interaction", "index": 0})
+            assert hint2["level"] == 2 and hint3["level"] == 3
+            open_result = request(base, "/api/classroom/submit", {"courseId": course_id, "phaseIndex": 1,
+                                  "topicIndex": 1, "kind": "interaction", "index": 1, "answer": "我认为是递增。"})
+            assert open_result["credible"] is False
+            assert request(base, "/api/classroom/activity/skip", {"courseId": course_id, "phaseIndex": 1,
+                           "topicIndex": 1, "index": 2})["item"]["status"] == "skipped"
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                finishes = list(pool.map(lambda _: request(base, "/api/classroom/finish", {
+                    "courseId": course_id, "phaseIndex": 1, "topicIndex": 1}), range(2)))
+            assert [item["pathAdjustment"] for item in finishes].count("weak") == 1, finishes
+            with closing(sqlite3.connect(db_path)) as db, db:
+                snapshots = db.execute("SELECT version,payload FROM CourseSnapshot WHERE courseId=? ORDER BY version", (course_id,)).fetchall()
+                assert snapshots[0][0] == 1 and len(snapshots) >= 2
+                adjusted_payload = json.loads(snapshots[-1][1])
+                topics = adjusted_payload["courseStructure"][0]["topics"]
+                assert topics == ["函数单调性", "函数单调性短补弱", "函数图像"], topics
+                assert adjusted_payload["prerequisites"] == ["掌握一次函数"]
+                state_id = f"classroom:{course_id}:1:1:state"
+                state = json.loads(db.execute("SELECT payload FROM ClassroomActivity WHERE id=?", (state_id,)).fetchone()[0])
+                state["pathAdjusted"] = False
+                db.execute("UPDATE ClassroomActivity SET payload=? WHERE id=?", (json.dumps(state, ensure_ascii=False), state_id))
+                db.execute("INSERT INTO LearningSession VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                           ("l2", course_id, "anon", "函数", "lite", 1, "定义基础", 2, "函数单调性短补弱",
+                            "短补弱", "", "", json.dumps(content, ensure_ascii=False), "[]", 0, "ai"))
+            unchanged = request(base, "/api/classroom/finish", {"courseId": course_id, "phaseIndex": 1, "topicIndex": 1})
+            assert unchanged["pathAdjustment"] == ""
+            with closing(sqlite3.connect(db_path)) as db:
+                assert db.execute("SELECT COUNT(*) FROM CourseSnapshot WHERE courseId=?", (course_id,)).fetchone()[0] == len(snapshots)
+            review = request(base, "/api/classroom/review/submit", {"courseId": course_id, "phaseIndex": 1,
+                             "topicIndex": 1, "day": 1, "answers": [1, 1, 1]})
+            tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
+            assert not review["passed"] and review["nextDue"] == tomorrow, review
+            with closing(sqlite3.connect(db_path)) as db, db:
+                retry = db.execute("SELECT payload FROM ClassroomActivity WHERE id LIKE ?",
+                                   (f"classroom:{course_id}:1:1:review:retry:%",)).fetchone()
+                assert retry and json.loads(retry[0])["due"] == tomorrow
+            refreshed = request(base, "/api/classroom/week/replan", {"courseId": course_id})
+            assert not refreshed["requiresConfirmation"]
+            week = refreshed["plan"]
+            assert all(entry["title"] != "函数单调性" for entry in week["entries"] if entry["kind"] == "lesson"), week
+            week["entries"][0]["minutes"] = 25
+            edited = request(base, "/api/classroom/week/edit", {"courseId": course_id, "version": week["version"],
+                              "entries": week["entries"]})
+            proposal = request(base, "/api/classroom/week/replan", {"courseId": course_id})
+            assert proposal["requiresConfirmation"] and proposal["current"]["version"] == edited["version"]
+            assert request(base, "/api/classroom/week?courseId=" + course_id)["version"] == edited["version"]
+            accepted = request(base, "/api/classroom/week/replan", {"courseId": course_id, "confirm": True})
+            assert not accepted["requiresConfirmation"] and accepted["plan"]["version"] == edited["version"] + 1
+            with closing(sqlite3.connect(db_path)) as db, db:
+                stored = db.execute("SELECT payload,version FROM WeeklyPlan WHERE courseId=?", (course_id,)).fetchone()
+                old_week = json.loads(stored[0]); old_week["weekStart"] = "2026-09-21"
+                db.execute("UPDATE WeeklyPlan SET payload=? WHERE courseId=?",
+                           (json.dumps(old_week, ensure_ascii=False), course_id))
+            rolled = request(base, "/api/classroom/week?courseId=" + course_id)
+            today = datetime.date.today()
+            expected_monday = (today - datetime.timedelta(days=today.weekday())).isoformat()
+            assert rolled["weekStart"] == expected_monday and rolled["version"] == stored[1] + 1
+            assert asyncio.run(check_stream(port, course_id)) == 3
+            sent_context = json.dumps(MockAI.stream_messages, ensure_ascii=False)
+            assert "旧课堂记录" in sent_context and "另一课时记录" not in sent_context
+            history = request(base, f"/api/conversations/lesson-{course_id}-1-1")["messages"]
+            assert history[0]["text"] == "旧课堂记录" and history[-1]["text"] == "片段一片段二"
+            print("CLASSROOM_API_SMOKE PASS: creation-to-cross-week, diagnosis, review retry, path insert/skip, started topic, weekly confirmation, concurrent lesson/remedial, stream, stop")
+        finally:
+            try:
+                urllib.request.urlopen(urllib.request.Request(base + "/internal/shutdown", method="POST",
+                    headers={"X-Gangyi-Control-Token": "classroom-test"}), timeout=2)
+            except Exception:
+                service.terminate()
+            service.wait(timeout=10)
+            ai.shutdown(); ai.server_close(); worker.join(timeout=2)
+
+
+if __name__ == "__main__":
+    import sys
+    main(Path(sys.argv[1]).resolve())

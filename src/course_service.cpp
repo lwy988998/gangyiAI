@@ -312,6 +312,7 @@ bool deleteCourseForIdentity(Database& db, const std::string& courseId, const st
         for (const auto& item : db.listLearningCardProgress()) if (item.courseId.value_or("") == courseId) db.deleteLearningCardProgress(item.id);
         for (const auto& item : db.listLearningSessions()) if (item.courseId.value_or("") == courseId) db.deleteLearningSession(item.id);
         db.deleteInteractionsForCourse(courseId);
+        db.deleteClassroomData(courseId);
         db.deleteTopicMasteryForCourse(courseId);
         const bool deleted = db.deleteCourse(courseId);
         if (deleted) db.markProfileDirty();

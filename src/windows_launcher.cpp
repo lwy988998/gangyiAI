@@ -352,20 +352,6 @@ std::wstring randomToken() {
     return token;
 }
 
-unsigned selectStartupVariant() {
-    const DWORD previous = readRegistryDword(L"LastStartupVariant", 5);
-    unsigned char randomByte = 0;
-    do {
-        if (BCryptGenRandom(nullptr, &randomByte, 1, BCRYPT_USE_SYSTEM_PREFERRED_RNG) < 0) {
-            randomByte = static_cast<unsigned char>(GetTickCount64() % (previous < 5 ? 256 : 255));
-            break;
-        }
-    } while (previous >= 5 && randomByte == 255);
-    const unsigned selected = gangyi::launcher::chooseStartupVariant(previous, randomByte);
-    writeRegistryDword(L"LastStartupVariant", selected);
-    return selected;
-}
-
 int findAvailablePort() {
     for (int port = 39002; port <= 39099; ++port) {
         SOCKET candidate = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -726,8 +712,6 @@ void openDesktop() {
         g.desktopOrigin = L"http://127.0.0.1:" + std::to_wstring(g.port);
         g.displayPort = g.port;
         if (g.desktopRoute.empty() || g.desktopRoute.front() != L'/') g.desktopRoute = L"/";
-        if (g.desktopRoute == L"/startup")
-            g.desktopRoute += L"?variant=" + std::to_wstring(selectStartupVariant());
         g.pageReady = false;
         SetTimer(g.desktopWindow, kDesktopLoadTimer, 15000, nullptr);
         webview_navigate(g.desktopView, toUtf8(g.desktopOrigin + g.desktopRoute).c_str());

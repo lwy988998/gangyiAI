@@ -151,6 +151,86 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
     }
 }
 
+struct StreamState {
+    std::string pending, content, model;
+    std::function<bool(const std::string&)> onChunk;
+    bool cancelled = false;
+    std::function<bool()> shouldCancel;
+};
+
+int streamProgress(void* user, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
+    auto& state = *static_cast<StreamState*>(user);
+    if (state.shouldCancel && state.shouldCancel()) { state.cancelled = true; return 1; }
+    return 0;
+}
+
+size_t writeStream(char* data, size_t size, size_t count, void* user) {
+    auto& state = *static_cast<StreamState*>(user);
+    const size_t bytes = size * count;
+    state.pending.append(data, bytes);
+    size_t end = 0;
+    while ((end = state.pending.find('\n')) != std::string::npos) {
+        std::string line = state.pending.substr(0, end);
+        state.pending.erase(0, end + 1);
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.compare(0, 5, "data:") != 0) continue;
+        std::string payload = line.substr(5);
+        if (!payload.empty() && payload.front() == ' ') payload.erase(payload.begin());
+        if (payload == "[DONE]") continue;
+        const json event = json::parse(payload, nullptr, false);
+        if (!event.is_object() || !event.contains("choices") || !event["choices"].is_array() || event["choices"].empty()) continue;
+        state.model = event.value("model", state.model);
+        const auto& delta = event["choices"][0].value("delta", json::object());
+        if (!delta.is_object() || !delta.value("content", json()).is_string()) continue;
+        const std::string chunk = delta["content"].get<std::string>();
+        if (chunk.empty()) continue;
+        state.content += chunk;
+        if (!state.onChunk(chunk)) { state.cancelled = true; return 0; }
+    }
+    return bytes;
+}
+
+AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int timeoutMs,
+                       const std::function<bool(const std::string&)>& onChunk) {
+    if (endpoint.key.empty()) throw AIClientError("missing_config", "AI_API_KEY is not configured");
+    CURL* curl = curl_easy_init();
+    if (!curl) throw AIClientError("network_error", "unable to initialize curl");
+    const std::string model = options.model.empty() ? endpoint.model : options.model;
+    json body{{"model", model}, {"temperature", options.temperature},
+              {"max_tokens", options.maxTokens}, {"stream", true}, {"messages", json::array()}};
+    for (const auto& message : options.messages)
+        body["messages"].push_back({{"role", message.role}, {"content", message.content}});
+    const std::string postBody = body.dump();
+    const std::string url = chatEndpoint(endpoint.url);
+    const std::string authorization = "Authorization: Bearer " + endpoint.key;
+    curl_slist* headers = nullptr;
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+    headers = curl_slist_append(headers, authorization.c_str());
+    StreamState state{{}, {}, model, onChunk, false, options.cancelled};
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postBody.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(postBody.size()));
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeStream);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &state);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeoutMs));
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, streamProgress);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &state);
+    const CURLcode code = curl_easy_perform(curl);
+    long status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    curl_easy_cleanup(curl);
+    curl_slist_free_all(headers);
+    if (state.cancelled) throw AIClientError("cancelled", "stream cancelled");
+    if (code != CURLE_OK || status < 200 || status >= 300)
+        throw errorFor(code, status, code == CURLE_OK ? "AI provider returned HTTP " + std::to_string(status) : curl_easy_strerror(code));
+    if (state.content.empty()) throw AIClientError("invalid_response", "AI stream is empty");
+    return {state.content, state.model, static_cast<int>(status), "stop", "not_requested", {}};
+}
+
 AIResult attempt(const Endpoint& endpoint, const ChatOptions& options, int timeoutMs, int attempts) {
     AIClientError last("unknown", "AI request failed");
     for (int i = 0; i < attempts; ++i) {
@@ -267,6 +347,12 @@ AIResult AIClient::chat(const ChatOptions& options) const {
         if (++consecutiveFailures_ >= 3) circuitOpenedAtMs_ = nowMs();
         throw primaryError;
     }
+}
+
+AIResult AIClient::chatStream(const ChatOptions& options,
+                              const std::function<bool(const std::string&)>& onChunk) const {
+    return streamRequest({baseUrl_, apiKey_, model_}, options,
+        options.timeoutMs > 0 ? options.timeoutMs : timeoutMs_, onChunk);
 }
 
 std::vector<std::string> AIClient::listModels(int timeoutMs) const {
