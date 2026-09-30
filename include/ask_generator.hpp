@@ -17,7 +17,10 @@ struct AskAnswer {
 class AskGenerator {
 public:
     explicit AskGenerator(AIClient& client);
-    AskAnswer generate(const std::string& question, const std::string& profileContext = {}) const;
+    static ChatOptions options(const std::string& question, const std::string& profileContext = {},
+                               const std::vector<ChatMessage>& history = {});
+    AskAnswer generate(const std::string& question, const std::string& profileContext = {},
+                       const std::vector<ChatMessage>& history = {}) const;
 
 private:
     AIClient& client_;

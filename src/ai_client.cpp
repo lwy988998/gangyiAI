@@ -156,6 +156,7 @@ struct StreamState {
     std::function<bool(const std::string&)> onChunk;
     bool cancelled = false;
     std::function<bool()> shouldCancel;
+    bool completed = false;
 };
 
 int streamProgress(void* user, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
@@ -176,11 +177,14 @@ size_t writeStream(char* data, size_t size, size_t count, void* user) {
         if (line.compare(0, 5, "data:") != 0) continue;
         std::string payload = line.substr(5);
         if (!payload.empty() && payload.front() == ' ') payload.erase(payload.begin());
-        if (payload == "[DONE]") continue;
+        if (payload == "[DONE]") { state.completed = true; continue; }
         const json event = json::parse(payload, nullptr, false);
         if (!event.is_object() || !event.contains("choices") || !event["choices"].is_array() || event["choices"].empty()) continue;
-        state.model = event.value("model", state.model);
-        const auto& delta = event["choices"][0].value("delta", json::object());
+        if (event.contains("model") && event["model"].is_string()) state.model = event["model"].get<std::string>();
+        if (!event["choices"][0].is_object()) continue;
+        const auto& choice = event["choices"][0];
+        if (choice.value("finish_reason", json()) == "stop") state.completed = true;
+        const auto delta = choice.value("delta", json::object());
         if (!delta.is_object() || !delta.value("content", json()).is_string()) continue;
         const std::string chunk = delta["content"].get<std::string>();
         if (chunk.empty()) continue;
@@ -227,8 +231,31 @@ AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int
     if (state.cancelled) throw AIClientError("cancelled", "stream cancelled");
     if (code != CURLE_OK || status < 200 || status >= 300)
         throw errorFor(code, status, code == CURLE_OK ? "AI provider returned HTTP " + std::to_string(status) : curl_easy_strerror(code));
-    if (state.content.empty()) throw AIClientError("invalid_response", "AI stream is empty");
+    if (state.content.empty() || !state.completed) throw AIClientError("invalid_response", "AI stream is incomplete");
     return {state.content, state.model, static_cast<int>(status), "stop", "not_requested", {}};
+}
+
+ChatOptions prepareSearch(const ChatOptions& options, std::string& searchStatus, std::vector<std::string>& sources) {
+    ChatOptions prepared = options;
+    if (!options.searchQuery.empty()) {
+        try {
+            SearchClient search;
+            const auto resources = search.search(options.searchQuery, 5);
+            searchStatus = resources.empty() ? "unavailable" : search.lastProvider();
+            std::string context = u8"联网检索只用于知识内容出处，不得用它判断学生掌握度。";
+            for (const auto& resource : resources) {
+                context += "\n- " + resource.title + " | " + resource.url + " | " + resource.description;
+                sources.push_back(resource.url);
+            }
+            if (resources.empty()) context += u8"未获得联网依据；不要虚构来源。";
+            prepared.messages.insert(prepared.messages.begin(), {"system", context});
+        } catch (...) {
+            searchStatus = "unavailable";
+            prepared.messages.insert(prepared.messages.begin(), {"system", u8"未获得联网依据；不要虚构来源。"});
+        }
+    }
+    if (options.cancelled && options.cancelled()) throw AIClientError("cancelled", "stream cancelled");
+    return prepared;
 }
 
 AIResult attempt(const Endpoint& endpoint, const ChatOptions& options, int timeoutMs, int attempts) {
@@ -309,26 +336,9 @@ AIClient::~AIClient() {
 }
 
 AIResult AIClient::chat(const ChatOptions& options) const {
-    ChatOptions prepared = options;
     std::string searchStatus = "not_requested";
     std::vector<std::string> sources;
-    if (!options.searchQuery.empty()) {
-        try {
-            SearchClient search;
-            const auto resources = search.search(options.searchQuery, 5);
-            searchStatus = resources.empty() ? "unavailable" : search.lastProvider();
-            std::string context = u8"联网检索只用于知识内容出处，不得用它判断学生掌握度。";
-            for (const auto& resource : resources) {
-                context += "\n- " + resource.title + " | " + resource.url + " | " + resource.description;
-                sources.push_back(resource.url);
-            }
-            if (resources.empty()) context += u8"未获得联网依据；不要虚构来源。";
-            prepared.messages.insert(prepared.messages.begin(), {"system", context});
-        } catch (...) {
-            searchStatus = "unavailable";
-            prepared.messages.insert(prepared.messages.begin(), {"system", u8"未获得联网依据；不要虚构来源。"});
-        }
-    }
+    const auto prepared = prepareSearch(options, searchStatus, sources);
     const int timeout = options.timeoutMs > 0 ? options.timeoutMs : timeoutMs_;
     const int attempts = options.maxAttempts > 0 ? options.maxAttempts : retryAttempts_;
     if (attempts < 1) throw AIClientError("unknown", "maxAttempts must be positive");
@@ -351,8 +361,14 @@ AIResult AIClient::chat(const ChatOptions& options) const {
 
 AIResult AIClient::chatStream(const ChatOptions& options,
                               const std::function<bool(const std::string&)>& onChunk) const {
-    return streamRequest({baseUrl_, apiKey_, model_}, options,
+    std::string searchStatus = "not_requested";
+    std::vector<std::string> sources;
+    const auto prepared = prepareSearch(options, searchStatus, sources);
+    auto result = streamRequest({baseUrl_, apiKey_, model_}, prepared,
         options.timeoutMs > 0 ? options.timeoutMs : timeoutMs_, onChunk);
+    result.searchStatus = searchStatus;
+    result.sources = std::move(sources);
+    return result;
 }
 
 std::vector<std::string> AIClient::listModels(int timeoutMs) const {

@@ -132,13 +132,14 @@ $caBundle = Join-Path $buildDir 'curl-ca-bundle.crt'
 if (Test-Path -LiteralPath $caBundle) { Copy-Item -LiteralPath $caBundle -Destination $distDir }
 $publicDist = Join-Path $distDir 'public'
 New-Item -ItemType Directory -Force -Path $publicDist | Out-Null
-foreach ($asset in @('styles.css', 'plan.css', 'dark.css', 'dark.js', 'startup.css', 'startup.js', 'ask.js', 'school-logo.png', 'campus-background.jpg')) {
+foreach ($asset in @('styles.css', 'plan.css', 'dark.css', 'dark.js', 'startup.css', 'startup.js', 'ask.js', 'classroom.js', 'classroom.css', 'school-logo.png', 'campus-background.jpg')) {
     Copy-Item -LiteralPath (Join-Path $repoRoot "public\$asset") -Destination $publicDist
 }
 $requiredFiles = @(
     'gangyiAI.exe', 'gangyiAI-launcher.exe', 'libcurl-x64.dll',
     'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll',
     'public\styles.css', 'public\dark.css', 'public\dark.js', 'public\startup.css', 'public\startup.js', 'public\ask.js',
+    'public\classroom.js', 'public\classroom.css',
     'public\school-logo.png', 'public\campus-background.jpg'
 )
 foreach ($required in $requiredFiles) {
