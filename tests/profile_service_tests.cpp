@@ -55,6 +55,7 @@ int main() {
     const auto v4Path = std::filesystem::temp_directory_path() / "gangyiAI-profile-v4-tests.db";
     std::filesystem::remove(v4Path, ignored);
     std::filesystem::remove(v4Path.u8string() + ".pre-v5.db", ignored);
+    std::filesystem::remove(v4Path.u8string() + ".pre-v6.db", ignored);
     if (sqlite3_open(v4Path.u8string().c_str(), &legacy) != SQLITE_OK) return 10;
     if (sqlite3_exec(legacy,
         "CREATE TABLE LearningInteraction(id TEXT PRIMARY KEY,courseId TEXT,conversationId TEXT,subject TEXT,kind TEXT NOT NULL,payload TEXT NOT NULL,createdAt TEXT NOT NULL);"
@@ -72,7 +73,39 @@ int main() {
         gangyi::profileView(db)["subjects"][0]["score"] != nullptr ||
         gangyi::profileView(db)["subjects"][0]["historicalScore"] != 66) return 12;
     db.close();
+    // 重现已标记为 v5、但缺少课堂表的真实升级路径。
+    if (sqlite3_open(v4Path.u8string().c_str(), &legacy) != SQLITE_OK) return 13;
+    if (sqlite3_exec(legacy, "DROP TABLE ClassroomActivity; DROP TABLE WeeklyPlan; PRAGMA user_version=5;",
+        nullptr, nullptr, nullptr) != SQLITE_OK) return 14;
+    sqlite3_close(legacy);
+    db.open(v4Path.u8string());
+    db.migrate();
+    if (!std::filesystem::exists(v4Path.u8string() + ".pre-v6.db") ||
+        db.listMastery().size() != 1 || db.listMastery()[0].score != 66) return 15;
+    gangyi::WeeklyPlan week;
+    week.courseId = "old"; week.payload = "{\"entries\":[]}"; week.version = 7; week.updatedAt = "2026-09-30";
+    gangyi::ClassroomActivity activity;
+    activity.id = "old-activity"; activity.courseId = "old"; activity.kind = "diagnostic";
+    activity.payload = "{\"status\":\"answered\"}"; activity.updatedAt = "2026-09-30";
+    if (!db.upsert(week) || !db.upsert(activity)) return 16;
+    db.close();
+    if (sqlite3_open(v4Path.u8string().c_str(), &legacy) != SQLITE_OK) return 20;
+    sqlite3_exec(legacy, "PRAGMA user_version=5", nullptr, nullptr, nullptr);
+    sqlite3_close(legacy);
+    db.open(v4Path.u8string());
+    db.migrate();
+    db.migrate();
+    if (!db.getWeeklyPlan("old") || db.getWeeklyPlan("old")->version != 7 ||
+        !db.getClassroomActivity("old-activity")) return 17;
+    db.close();
+    if (sqlite3_open(v4Path.u8string().c_str(), &legacy) != SQLITE_OK) return 18;
+    sqlite3_stmt* statement = nullptr;
+    sqlite3_prepare_v2(legacy, "PRAGMA user_version", -1, &statement, nullptr);
+    if (sqlite3_step(statement) != SQLITE_ROW || sqlite3_column_int(statement, 0) != 6) return 19;
+    sqlite3_finalize(statement);
+    sqlite3_close(legacy);
     std::filesystem::remove(v4Path, ignored);
     std::filesystem::remove(v4Path.u8string() + ".pre-v5.db", ignored);
+    std::filesystem::remove(v4Path.u8string() + ".pre-v6.db", ignored);
     std::cout << "画像迁移与本机记录测试通过\n";
 }

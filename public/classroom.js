@@ -276,7 +276,7 @@
     let selected = '', socket = null;
     const stop = document.createElement('button'); stop.type = 'button'; stop.id = 'learning-chat-stop'; stop.textContent = '停止回答'; stop.hidden = true;
     form.appendChild(stop);
-    stop.onclick = () => { if (socket) { socket.send(JSON.stringify({type: 'stop'})); socket.close(); } stop.hidden = true; $('learning-chat-send').disabled = false; };
+    stop.onclick = () => { if (socket) { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({type: 'stop'})); socket.close(); } stop.hidden = true; };
     document.addEventListener('mouseup', () => {
       const text = window.getSelection()?.toString().trim() || '';
       if (!text || text.length > 2000 || !window.getSelection()?.anchorNode?.parentElement?.closest('#learn-content')) return;
@@ -302,7 +302,7 @@
       socket.onmessage = event => {
         const data = JSON.parse(event.data);
         if (data.type === 'delta') reply.textContent += data.text;
-        if (data.type === 'error') reply.textContent += '\n' + data.message;
+        if (data.type === 'error' || data.cancelled) reply.textContent += '\n' + data.message;
         if (data.type === 'done' || data.type === 'error') socket.close();
         box.scrollTop = box.scrollHeight;
       };

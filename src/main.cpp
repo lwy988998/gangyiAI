@@ -277,6 +277,39 @@ void recordInteraction(gangyi::Database& db, const std::string& kind, const nloh
     if (!db.insert(item)) throw std::runtime_error("学习记录保存失败");
 }
 
+// 普通导师与每个课时只读取自己的最近八条消息。
+// ponytail: 本机少量历史沿用现有读取接口；记录量明显增长时改为按会话 SQL LIMIT 8。
+std::vector<gangyi::ChatMessage> chatHistory(gangyi::Database& db, const std::string& conversation,
+                                           const nlohmann::json& body = nlohmann::json::object()) {
+    std::vector<gangyi::ChatMessage> history;
+    if (body.contains("messages")) {
+        const auto& items = body.at("messages");
+        if (!items.is_array() || items.size() > 100)
+            throw gangyi::AIClientError("invalid_request", "历史消息格式无效");
+        const size_t start = items.size() > 8 ? items.size() - 8 : 0;
+        for (size_t i = start; i < items.size(); ++i) {
+            const auto& item = items[i];
+            if (!item.is_object() || !item.contains("role") || !item["role"].is_string() ||
+                !item.contains("content") || !item["content"].is_string())
+                throw gangyi::AIClientError("invalid_request", "历史消息格式无效");
+            const auto role = item["role"].get<std::string>(), content = item["content"].get<std::string>();
+            if ((role != "user" && role != "assistant") || content.size() > 16000)
+                throw gangyi::AIClientError("invalid_request", "历史消息角色或长度无效");
+            if (!content.empty()) history.push_back({role, content});
+        }
+    } else {
+        for (const auto& row : db.listInteractions()) {
+            if (row.conversationId.value_or("") != conversation ||
+                (row.kind != "chat-user" && row.kind != "chat-assistant")) continue;
+            const auto payload = nlohmann::json::parse(row.payload, nullptr, false);
+            if (payload.is_object() && payload.contains("text") && payload["text"].is_string())
+                history.push_back({row.kind == "chat-user" ? "user" : "assistant", payload["text"].get<std::string>()});
+        }
+        if (history.size() > 8) history.erase(history.begin(), history.end() - 8);
+    }
+    return history;
+}
+
 int aiHttpStatus(const gangyi::AIClientError& error) {
     if (error.errorType == "invalid_request") return 400;
     if (error.errorType == "rate_limited") return 429;
@@ -1032,7 +1065,7 @@ int main() {
             const std::string conversationId = body.value("conversationId", std::string("general")).substr(0, 100);
             gangyi::AIClient ai;
             gangyi::AskGenerator generator(ai);
-            const auto answer = generator.generate(question, gangyi::profileContext(db));
+            const auto answer = generator.generate(question, gangyi::profileContext(db), chatHistory(db, conversationId, body));
             recordInteraction(db, "chat-user", {{"text", question}, {"topic", ""}}, "", conversationId);
             recordInteraction(db, "chat-assistant", {{"text", answer.content}, {"model", answer.model}}, "", conversationId);
             return crow::response(200, nlohmann::json{{"ok", true}, {"answer", answer.content},
@@ -1108,14 +1141,13 @@ int main() {
     std::mutex socketMapMutex;
     std::atomic<int> socketWorkerCount{0};
     std::unordered_map<crow::websocket::connection*, std::shared_ptr<ClassroomSocket>> socketMap;
-    CROW_WEBSOCKET_ROUTE(app, "/ws/classroom")
-        .onopen([&](crow::websocket::connection& connection) {
+    const auto socketOpen = [&](crow::websocket::connection& connection) {
             auto state = std::make_shared<ClassroomSocket>();
             state->connection = &connection;
             std::lock_guard<std::mutex> guard(socketMapMutex);
             socketMap[&connection] = std::move(state);
-        })
-        .onclose([&](crow::websocket::connection& connection, const std::string&) {
+        };
+    const auto socketClose = [&](crow::websocket::connection& connection, const std::string&) {
             std::shared_ptr<ClassroomSocket> state;
             {
                 std::lock_guard<std::mutex> guard(socketMapMutex);
@@ -1127,73 +1159,87 @@ int main() {
                 std::lock_guard<std::mutex> guard(state->mutex);
                 state->connection = nullptr;
             }
-        })
-        .onmessage([&](crow::websocket::connection& connection, const std::string& message, bool binary) {
-            std::shared_ptr<ClassroomSocket> state;
-            {
-                std::lock_guard<std::mutex> guard(socketMapMutex);
-                const auto it = socketMap.find(&connection);
-                if (it != socketMap.end()) state = it->second;
-            }
-            if (!state || binary) return;
-            const auto body = nlohmann::json::parse(message, nullptr, false);
-            if (!body.is_object()) { state->send({{"type", "error"}, {"message", "消息格式无效"}}); return; }
-            if (body.value("type", "") == "stop") { state->cancelled = true; return; }
-            if (body.value("type", "") != "ask" || state->busy.exchange(true)) return;
-            state->cancelled = false;
-            ++socketWorkerCount;
-            std::thread([state, body, &db, &socketWorkerCount] {
-                try {
-                    const std::string courseId = body.at("courseId").get<std::string>();
-                    const int phase = body.at("phaseIndex").get<int>();
-                    const int topic = body.at("topicIndex").get<int>();
-                    const std::string question = body.at("question").get<std::string>();
-                    const std::string selection = body.value("selection", "");
-                    const std::string title = savedTopic(db, courseId, phase, topic);
-                    if (title.empty() || question.empty() || question.size() > 4000 || selection.size() > 2000)
+        };
+    const auto socketMessage = [&](crow::websocket::connection& connection, const std::string& message, bool binary, bool classroom) {
+        std::shared_ptr<ClassroomSocket> state;
+        {
+            std::lock_guard<std::mutex> guard(socketMapMutex);
+            const auto it = socketMap.find(&connection);
+            if (it != socketMap.end()) state = it->second;
+        }
+        if (!state || binary) return;
+        const auto body = nlohmann::json::parse(message, nullptr, false);
+        if (!body.is_object() || !body.contains("type") || !body["type"].is_string()) {
+            state->send({{"type", "error"}, {"message", "消息格式无效"}}); return;
+        }
+        if (body["type"] == "stop") { state->cancelled = true; return; }
+        if (body["type"] != "ask" || state->busy.exchange(true)) return;
+        state->cancelled = false;
+        ++socketWorkerCount;
+        std::thread([state, body, classroom, &db, &socketWorkerCount] {
+            nlohmann::json terminal;
+            try {
+                const std::string question = body.at("question").get<std::string>();
+                std::string courseId, title, selection, conversation = "general";
+                gangyi::ChatOptions options;
+                if (classroom) {
+                    courseId = body.at("courseId").get<std::string>();
+                    const int phase = body.at("phaseIndex").get<int>(), topic = body.at("topicIndex").get<int>();
+                    selection = body.value("selection", "");
+                    title = savedTopic(db, courseId, phase, topic);
+                    if (title.empty() || question.find_first_not_of(" \t\r\n") == std::string::npos ||
+                        question.size() > 4000 || selection.size() > 2000)
                         throw std::invalid_argument("问题或课时无效");
                     const auto course = db.getCourse(courseId);
                     if (!course || course->status != "active") throw std::invalid_argument("课程不存在");
                     const auto session = db.findLearningSession(courseId, phase, topic);
-                    const std::string conversation = "lesson-" + courseId + "-" + std::to_string(phase) + "-" + std::to_string(topic);
-                    gangyi::ChatOptions options;
+                    conversation = "lesson-" + courseId + "-" + std::to_string(phase) + "-" + std::to_string(topic);
                     options.temperature = 0.4;
                     options.maxTokens = 2200;
-                    options.timeoutMs = 60000;
-                    options.cancelled = [state] { return state->cancelled.load(); };
+                    options.searchQuery = course->goal;
                     options.messages.push_back({"system", u8"你是课堂辅导老师，只回答当前已保存课程和课时相关的问题。先定位具体误解，再引导学生思考；默认简体中文。课堂上下文：" +
                         nlohmann::json{{"goal", course->goal}, {"topic", title},
-                            {"summary", session ? session->summary.value_or("") : ""}}.dump(), ""});
-                    std::vector<gangyi::ChatMessage> history;
-                    for (const auto& row : db.listInteractions()) {
-                        if (row.conversationId.value_or("") != conversation ||
-                            (row.kind != "chat-user" && row.kind != "chat-assistant")) continue;
-                        const auto payload = nlohmann::json::parse(row.payload, nullptr, false);
-                        if (payload.is_object()) history.push_back({row.kind == "chat-user" ? "user" : "assistant", payload.value("text", ""), ""});
-                    }
-                    const size_t begin = history.size() > 8 ? history.size() - 8 : 0;
-                    for (size_t i = begin; i < history.size(); ++i) options.messages.push_back(history[i]);
-                    options.messages.push_back({"user", selection.empty() ? question : u8"选中文字：" + selection + u8"\n问题：" + question, ""});
-                    gangyi::AIClient ai;
-                    const auto result = ai.chatStream(options, [state](const std::string& chunk) {
-                        if (state->cancelled) return false;
-                        state->send({{"type", "delta"}, {"text", chunk}});
-                        return !state->cancelled;
-                    });
-                    if (!state->cancelled) {
-                        recordInteraction(db, "chat-user", {{"text", question}, {"topic", title}, {"selection", selection}}, courseId, conversation);
-                        recordInteraction(db, "chat-assistant", {{"text", result.content}, {"model", result.model}}, courseId, conversation);
-                        state->send({{"type", "done"}, {"model", result.model}});
-                    }
-                } catch (const gangyi::AIClientError& error) {
-                    state->send({{"type", error.errorType == "cancelled" ? "done" : "error"},
-                        {"message", error.errorType == "cancelled" ? "已停止" : publicAIErrorMessage(error)}});
-                } catch (const std::exception& error) {
-                    state->send({{"type", "error"}, {"message", "课堂回答失败，请重试。"}});
+                            {"summary", session ? session->summary.value_or("") : ""}}.dump() +
+                        u8"\n本机学习画像（仅作辅助）：" + gangyi::profileContext(db)});
+                    for (const auto& item : chatHistory(db, conversation)) options.messages.push_back(item);
+                    options.messages.push_back({"user", selection.empty() ? question : u8"选中文字：" + selection + u8"\n问题：" + question});
+                } else {
+                    options = gangyi::AskGenerator::options(question, gangyi::profileContext(db), chatHistory(db, conversation, body));
                 }
-                state->busy = false;
-                --socketWorkerCount;
-            }).detach();
+                options.timeoutMs = 60000;
+                options.cancelled = [state] { return state->cancelled.load(); };
+                gangyi::AIClient ai;
+                const auto result = ai.chatStream(options, [state](const std::string& chunk) {
+                    if (state->cancelled) return false;
+                    state->send({{"type", "delta"}, {"text", chunk}});
+                    return !state->cancelled;
+                });
+                if (state->cancelled) terminal = {{"type", "done"}, {"message", "已停止"}, {"cancelled", true}};
+                else {
+                    recordInteraction(db, "chat-user", {{"text", question}, {"topic", title}, {"selection", selection}}, courseId, conversation);
+                    recordInteraction(db, "chat-assistant", {{"text", result.content}, {"model", result.model}}, courseId, conversation);
+                    terminal = {{"type", "done"}, {"model", result.model}, {"searchStatus", result.searchStatus},
+                                {"sources", result.sources}, {"profileVersion", db.profileAssessedRevision()}, {"cancelled", false}};
+                }
+            } catch (const gangyi::AIClientError& error) {
+                terminal = {{"type", error.errorType == "cancelled" ? "done" : "error"},
+                            {"cancelled", error.errorType == "cancelled"},
+                            {"message", error.errorType == "cancelled" ? "已停止" : publicAIErrorMessage(error)}};
+            } catch (const std::exception&) {
+                terminal = {{"type", "error"}, {"message", "问题格式无效或回答未保存，请重试。"}};
+            }
+            state->busy = false;
+            state->send(terminal);
+            --socketWorkerCount;
+        }).detach();
+    };
+    CROW_WEBSOCKET_ROUTE(app, "/ws/classroom").onopen(socketOpen).onclose(socketClose)
+        .onmessage([&](crow::websocket::connection& connection, const std::string& message, bool binary) {
+            socketMessage(connection, message, binary, true);
+        });
+    CROW_WEBSOCKET_ROUTE(app, "/ws/ask").onopen(socketOpen).onclose(socketClose)
+        .onmessage([&](crow::websocket::connection& connection, const std::string& message, bool binary) {
+            socketMessage(connection, message, binary, false);
         });
 
     CROW_ROUTE(app, "/api/classroom/start")([&db](const crow::request& req) {

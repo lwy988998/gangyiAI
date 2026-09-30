@@ -12,7 +12,7 @@ namespace gangyi {
 namespace {
 void check(int rc, sqlite3* db, const char* action) { if (rc != SQLITE_OK && rc != SQLITE_DONE && rc != SQLITE_ROW) throw std::runtime_error(std::string(action) + ": " + sqlite3_errmsg(db)); }
 void exec(sqlite3* db, const char* sql) { char* error = nullptr; const int rc = sqlite3_exec(db, sql, nullptr, nullptr, &error); if (rc != SQLITE_OK) { std::string message = error ? error : sqlite3_errmsg(db); sqlite3_free(error); throw std::runtime_error(message); } }
-std::string id() { static std::mt19937_64 rng(std::random_device{}()); std::ostringstream out; out << std::hex << std::setfill('0'); for (int i = 0; i < 2; ++i) out << std::setw(16) << rng(); return out.str(); }
+std::string id() { static thread_local std::mt19937_64 rng(std::random_device{}()); std::ostringstream out; out << std::hex << std::setfill('0'); for (int i = 0; i < 2; ++i) out << std::setw(16) << rng(); return out.str(); }
 struct Stmt { sqlite3_stmt* p = nullptr; sqlite3* db; Stmt(sqlite3* d, const char* sql) : db(d) { check(sqlite3_prepare_v2(db, sql, -1, &p, nullptr), db, "prepare"); } ~Stmt() { sqlite3_finalize(p); } };
 void text(Stmt& s, int n, const std::string& v) { check(sqlite3_bind_text(s.p, n, v.c_str(), -1, SQLITE_TRANSIENT), s.db, "bind"); }
 void opt(Stmt& s, int n, const std::optional<std::string>& v) { if (v) text(s, n, *v); else check(sqlite3_bind_null(s.p, n), s.db, "bind"); }
@@ -37,11 +37,11 @@ void Database::migrate() {
     if (versionResult != SQLITE_ROW || currentVersion > kDatabaseSchemaVersion) {
         throw std::runtime_error("database schema is newer than this application");
     }
-    if (currentVersion > 0 && currentVersion < 5) {
+    if (currentVersion > 0 && currentVersion < kDatabaseSchemaVersion) {
         const char* filename = sqlite3_db_filename(db_, "main");
         if (filename && *filename && std::string(filename) != ":memory:") {
             const auto backupPath = std::filesystem::u8path(filename).u8string() +
-                (currentVersion < 4 ? ".pre-v4.db" : ".pre-v5.db");
+                (currentVersion < 4 ? ".pre-v4.db" : currentVersion < 5 ? ".pre-v5.db" : ".pre-v6.db");
             if (!std::filesystem::exists(std::filesystem::u8path(backupPath))) {
                 sqlite3* backupDb = nullptr;
                 check(sqlite3_open(backupPath.c_str(), &backupDb), backupDb, "open migration backup");
@@ -50,7 +50,11 @@ void Database::migrate() {
                 const int result = sqlite3_backup_step(backup, -1);
                 const int finishResult = sqlite3_backup_finish(backup);
                 sqlite3_close(backupDb);
-                if (result != SQLITE_DONE || finishResult != SQLITE_OK) throw std::runtime_error("migration backup failed");
+                if (result != SQLITE_DONE || finishResult != SQLITE_OK) {
+                    std::error_code ignored;
+                    std::filesystem::remove(std::filesystem::u8path(backupPath), ignored);
+                    throw std::runtime_error("migration backup failed");
+                }
             }
         }
     }
@@ -105,7 +109,7 @@ UPDATE SubjectMastery SET status='legacy' WHERE status='ready';
             exec(db_, "COMMIT");
         } catch (...) { exec(db_, "ROLLBACK"); throw; }
     }
-    if (currentVersion < 5) {
+    if (currentVersion < 6) {
         exec(db_, "BEGIN IMMEDIATE");
         try {
             exec(db_, R"SQL(
@@ -113,7 +117,7 @@ CREATE TABLE IF NOT EXISTS ClassroomActivity(id TEXT PRIMARY KEY, courseId TEXT 
 CREATE INDEX IF NOT EXISTS ClassroomActivity_lesson_idx ON ClassroomActivity(courseId,phaseIndex,topicIndex,kind);
 CREATE TABLE IF NOT EXISTS WeeklyPlan(courseId TEXT PRIMARY KEY, payload TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1, updatedAt TEXT NOT NULL);
 )SQL");
-            exec(db_, "PRAGMA user_version=5");
+            exec(db_, "PRAGMA user_version=6");
             exec(db_, "COMMIT");
         } catch (...) { exec(db_, "ROLLBACK"); throw; }
     }

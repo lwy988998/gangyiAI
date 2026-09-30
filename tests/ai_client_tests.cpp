@@ -174,7 +174,7 @@ int main() {
         MockServer server(response(200, R"({"choices":[{"message":{"content":" 好的 "}}]})"));
         auto client = clientFor(server, "/v1", "configured-ask-model");
         gangyi::AskGenerator generator(client);
-        const auto answer = generator.generate("请解释函数单调性");
+        const auto answer = generator.generate("请解释函数单调性", "共享画像", {{"user", "最近的问题"}, {"assistant", "最近的回答"}});
         server.wait();
         expect(answer.content == "好的", "问答应返回去除首尾空白的内容");
         expect(answer.model == "configured-ask-model", "响应缺少模型字段时应回退到配置模型");
@@ -184,6 +184,9 @@ int main() {
                "问答不得覆盖用户配置的模型");
         expect(server.request().find("deepseek-v4-flash") == std::string::npos,
                "问答请求不得包含硬编码模型");
+        expect(server.request().find("最近的问题") != std::string::npos &&
+               server.request().find("最近的回答") != std::string::npos &&
+               server.request().find("共享画像") != std::string::npos, "导师应包含最近对话与共享画像");
     }
     {
         const std::string events = "data: {\"model\":\"mock\",\"choices\":[{\"delta\":{\"content\":\"第一段\"}}]}\n\n"

@@ -129,6 +129,23 @@ def main(executable):
                         assert page.locator("#goal-submit").evaluate("el => parseFloat(getComputedStyle(el).outlineWidth) >= 2")
                         page.locator("#goal-submit").evaluate("el => el.disabled = true")
                         assert not page.evaluate(AUDIT), "首页禁用态对比度不足"
+                    if path == "/ask":
+                        page.locator("#ask-question").fill("导师界面上下文")
+                        page.locator("#ask-submit").click()
+                        page.locator("#ask-messages").get_by_text("片段一片段二", exact=True).wait_for()
+                        page.locator("#ask-submit:not([disabled])").wait_for()
+                        page.locator("#ask-question").fill("第二问")
+                        page.locator("#ask-submit").click()
+                        page.locator("#ask-messages").get_by_text("片段一片段二", exact=True).nth(1).wait_for()
+                        page.locator("#ask-submit:not([disabled])").wait_for()
+                        assert "导师界面上下文" in json.dumps(MockAI.stream_messages, ensure_ascii=False)
+                        page.locator("#ask-question").fill("停止界面测试")
+                        page.locator("#ask-submit").click()
+                        page.locator("#ask-stop").click()
+                        page.locator("#ask-messages").get_by_text("已停止", exact=False).wait_for()
+                        page.locator("#ask-submit:not([disabled])").wait_for()
+                        page.reload(wait_until="networkidle")
+                        assert "停止界面测试" not in page.locator("#ask-messages").inner_text()
                     if path.startswith("/plan"):
                         page.locator("#weekly-entries .weekly-row").first.wait_for()
                         assert page.locator("#weekly-availability input[type=checkbox]:checked").count() == 3
@@ -165,6 +182,10 @@ def main(executable):
                         page.locator("#ask-selection").wait_for(state="visible")
                         page.locator("#ask-selection").click()
                         assert page.locator("#learning-chat-panel").is_visible()
+                        page.locator("#learning-chat-form").evaluate("el => el.requestSubmit()")
+                        page.locator("#learning-chat-messages").get_by_text("片段一片段二", exact=True).wait_for()
+                        assert "导师界面上下文" not in page.locator("#learning-chat-messages").inner_text()
+                        assert page.locator("#learning-chat-stop").count() == 1
                         page.locator("#diagnostic-skip").click()
                         page.locator("#classroom-branch").wait_for(state="visible")
                         assert "完整课堂" in page.locator("#classroom-branch").inner_text()

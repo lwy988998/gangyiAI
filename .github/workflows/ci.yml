@@ -36,6 +36,20 @@ jobs:
       - name: 构建、测试和打包
         shell: pwsh
         run: .\scripts\build_windows.ps1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 安装交互验收依赖
+        run: |
+          python -m pip install websockets==15.0.1 playwright==1.62.0
+          python -m playwright install chromium
+      - name: 验证发布目录的导师和课堂闭环
+        shell: pwsh
+        run: |
+          python tests/classroom_api_smoke.py dist/windows/gangyiAI.exe
+          if ($LASTEXITCODE -ne 0) { throw '导师与课堂接口验收失败' }
+          python tests/classroom_browser_smoke.py dist/windows/gangyiAI.exe
+          if ($LASTEXITCODE -ne 0) { throw '导师与课堂页面验收失败' }
       - name: 验收安装包和免安装版
         shell: pwsh
         run: .\scripts\test_windows_release.ps1
