@@ -22,6 +22,8 @@ constexpr Socket kInvalidSocket = -1;
 #endif
 
 #include <atomic>
+#include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -75,7 +77,22 @@ private:
             if (client == kInvalidSocket) return;
             std::string request;
             char buffer[4096];
-            while (request.find("\r\n\r\n") == std::string::npos) {
+            // 必须按 Content-Length 读完请求体：只读到空行会漏掉整个 JSON，断言会随分片时序随机失败。
+            size_t contentLength = std::string::npos;
+            while (true) {
+                const size_t headerEnd = request.find("\r\n\r\n");
+                if (headerEnd != std::string::npos) {
+                    if (contentLength == std::string::npos) {
+                        const std::string headers = request.substr(0, headerEnd + 4);
+                        for (const char* name : {"Content-Length:", "content-length:"}) {
+                            const size_t at = headers.find(name);
+                            if (at == std::string::npos) continue;
+                            contentLength = static_cast<size_t>(std::strtoul(headers.c_str() + at + std::strlen(name), nullptr, 10));
+                            break;
+                        }
+                    }
+                    if (contentLength != std::string::npos && request.size() >= headerEnd + 4 + contentLength) break;
+                }
                 const int received = recv(client, buffer, sizeof(buffer), 0);
                 if (received <= 0) break;
                 request.append(buffer, static_cast<size_t>(received));

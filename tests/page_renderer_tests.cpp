@@ -92,7 +92,17 @@ int main() {
         "课程删除按钮应包含完整闭合的课程编号属性");
     expect(myCourses.find("API 接口") != std::string::npos,
         "我的课程页应显示 API 接口入口");
-    expect(myCourses.find("gangyiOpenApiSettings") != std::string::npos,
-        "API 接口入口应连接桌面设置桥接");
+    expect(myCourses.find("/user-center.js") != std::string::npos,
+        "用户中心应加载独立脚本");
+    expect(myCourses.find("id=\"uc-overview\"") != std::string::npos &&
+        myCourses.find("id=\"uc-courses\"") != std::string::npos &&
+        myCourses.find("id=\"uc-time\"") != std::string::npos &&
+        myCourses.find("id=\"uc-profile\"") != std::string::npos &&
+        myCourses.find("id=\"uc-settings\"") != std::string::npos,
+        "用户中心应包含五个区块");
+    expect(myCourses.find("id=\"uc-availability-grid\"") != std::string::npos,
+        "每周学习时间应搬到用户中心");
+    expect(myCourses.find("待复习清单") != std::string::npos,
+        "用户中心应展示待复习清单");
     return failures == 0 ? 0 : 1;
 }

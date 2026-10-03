@@ -132,14 +132,18 @@ $caBundle = Join-Path $buildDir 'curl-ca-bundle.crt'
 if (Test-Path -LiteralPath $caBundle) { Copy-Item -LiteralPath $caBundle -Destination $distDir }
 $publicDist = Join-Path $distDir 'public'
 New-Item -ItemType Directory -Force -Path $publicDist | Out-Null
-foreach ($asset in @('styles.css', 'plan.css', 'dark.css', 'dark.js', 'startup.css', 'startup.js', 'ask.js', 'classroom.js', 'classroom.css', 'school-logo.png', 'campus-background.jpg')) {
+foreach ($asset in @('styles.css', 'plan.css', 'dark.css', 'dark.js', 'startup.css', 'startup.js', 'ask.js', 'classroom.js', 'classroom.css', 'chat-render.js', 'user-center.js', 'school-logo.png', 'campus-background.jpg')) {
     Copy-Item -LiteralPath (Join-Path $repoRoot "public\$asset") -Destination $publicDist
 }
+# 公式渲染引擎随包发布：断网也能显示数学公式。
+Copy-Item -LiteralPath (Join-Path $repoRoot 'public\vendor') -Destination $publicDist -Recurse -Force
 $requiredFiles = @(
     'gangyiAI.exe', 'gangyiAI-launcher.exe', 'libcurl-x64.dll',
     'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll',
     'public\styles.css', 'public\dark.css', 'public\dark.js', 'public\startup.css', 'public\startup.js', 'public\ask.js',
-    'public\classroom.js', 'public\classroom.css',
+    'public\classroom.js', 'public\classroom.css', 'public\chat-render.js', 'public\user-center.js',
+    'public\vendor\katex\katex.min.js', 'public\vendor\katex\katex.min.css',
+    'public\vendor\katex\fonts\KaTeX_Main-Regular.woff2',
     'public\school-logo.png', 'public\campus-background.jpg'
 )
 foreach ($required in $requiredFiles) {

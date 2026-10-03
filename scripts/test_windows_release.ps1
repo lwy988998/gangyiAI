@@ -67,7 +67,9 @@ try {
         if ($logo.Headers.'Content-Type' -ne 'image/png') { throw '校徽 MIME 类型错误' }
         $background = Invoke-WebRequest "http://127.0.0.1:$port/campus-background.jpg" -UseBasicParsing
         if ($background.Headers.'Content-Type' -ne 'image/jpeg') { throw '校园背景图 MIME 类型错误' }
-        foreach ($resource in @('classroom.js', 'classroom.css', 'ask.js')) {
+        foreach ($resource in @('classroom.js', 'classroom.css', 'ask.js', 'chat-render.js', 'user-center.js',
+                                'vendor/katex/katex.min.js', 'vendor/katex/katex.min.css',
+                                'vendor/katex/fonts/KaTeX_Main-Regular.woff2')) {
             $response = Invoke-WebRequest "http://127.0.0.1:$port/$resource" -UseBasicParsing
             if ($response.StatusCode -ne 200 -or $response.RawContentLength -lt 100) { throw "发布资源缺失：$resource" }
         }

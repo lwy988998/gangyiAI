@@ -14,36 +14,6 @@
     return result;
   }
 
-  function setupAvailability() {
-    const form = $('goal-form');
-    if (!form || $('home-availability')) return;
-    const defaults = [{weekday: 1, minutes: 30}, {weekday: 3, minutes: 30}, {weekday: 5, minutes: 30}];
-    let saved = defaults;
-    try { saved = JSON.parse(localStorage.getItem('gangyi-week-availability') || 'null') || defaults; } catch (_) {}
-    const names = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-    const section = document.createElement('fieldset');
-    section.id = 'home-availability';
-    section.className = 'classroom-card availability-card';
-    section.innerHTML = '<legend>每周可学习时间</legend><p>预填每周 3 天、每天 30 分钟；课程生成后仍可修改。</p><div class="availability-grid"></div>';
-    const grid = section.querySelector('.availability-grid');
-    names.forEach((name, i) => {
-      const slot = saved.find(item => item.weekday === i + 1);
-      const label = document.createElement('label');
-      label.innerHTML = '<input type="checkbox" data-weekday="' + (i + 1) + '" ' + (slot ? 'checked' : '') + '><span>' + name + '</span><input type="number" min="10" max="240" step="5" value="' + (slot?.minutes || 30) + '" aria-label="' + name + '分钟数"><span>分钟</span>';
-      grid.appendChild(label);
-    });
-    function save() {
-      const availability = [...grid.querySelectorAll('label')].filter(label => label.querySelector('[type=checkbox]').checked)
-        .map(label => ({weekday: Number(label.querySelector('[type=checkbox]').dataset.weekday), minutes: Math.max(10, Math.min(240, Number(label.querySelector('[type=number]').value) || 30))}));
-      if (availability.length) {
-        localStorage.setItem('gangyi-week-availability', JSON.stringify(availability));
-        localStorage.setItem('gangyi-week-pending', '1');
-      }
-    }
-    section.addEventListener('change', save);
-    form.appendChild(section);
-  }
-
   async function setupWeeklyPlan() {
     if (!courseId || !$('plan-view')) return;
     const container = document.createElement('section');
@@ -108,7 +78,7 @@
   }
 
   async function setupReviews() {
-    if (!['/', '/my-courses'].includes(location.pathname)) return;
+    if (location.pathname !== '/') return;
     const main = document.querySelector('main');
     if (!main) return;
     const section = document.createElement('section');
@@ -267,16 +237,76 @@
   function setupChat() {
     const form = $('learning-chat-form'), input = $('learning-chat-input'), box = $('learning-chat-messages');
     if (!form || !input || !box) return;
-    api('/api/conversations/lesson-' + encodeURIComponent(courseId) + '-' + phaseIndex + '-' + topicIndex)
-      .then(data => (data.messages || []).forEach(item => {
-        const line = document.createElement('p');
-        line.className = item.role === 'user' ? 'classroom-chat-user' : 'classroom-chat-reply';
-        line.textContent = item.text; box.appendChild(line);
-      })).catch(() => {});
+    const chat = window.GangyiChat;
+    const conversation = 'lesson-' + courseId + '-' + phaseIndex + '-' + topicIndex;
+    function addHistory(text, mine) {
+      const row = document.createElement('article');
+      row.className = mine ? 'chat-row chat-row-mine' : 'chat-row chat-row-ai';
+      const bubble = document.createElement('div');
+      bubble.className = mine ? 'chat-bubble chat-bubble-mine' : 'chat-bubble chat-bubble-ai';
+      if (mine) { bubble.textContent = text; }
+      else {
+        const body = document.createElement('div');
+        body.className = 'chat-body';
+        body.innerHTML = chat.renderMarkdown(text, {math: true});
+        bubble.appendChild(body);
+      }
+      row.appendChild(bubble); box.appendChild(row);
+    }
+    function topicName() {
+      return ($('learn-topic-name')?.textContent || '').trim();
+    }
+    function finish(view, question, data) {
+      view.complete(() => {
+        const answer = view.text();
+        if (data && data.cancelled) {
+          const note = document.createElement('p');
+          note.className = 'chat-error';
+          note.textContent = '已停止，本次回答未保存。';
+          view.bubble.appendChild(note);
+          return;
+        }
+        const actions = view.addActions('<button type="button" class="chat-copy">复制</button><span class="chat-chips"></span>');
+        const copyButton = actions.querySelector('.chat-copy');
+        copyButton.addEventListener('click', async () => {
+          try { await chat.copyText(answer); copyButton.textContent = '已复制'; }
+          catch (_) { copyButton.textContent = '复制失败'; }
+          setTimeout(() => { copyButton.textContent = '复制'; }, 1600);
+        });
+        const host = actions.querySelector('.chat-chips');
+        const fallback = ['这一段能再讲细一点吗？', '举个例子说明一下', '为什么这里要用这个方法？'];
+        fetch('/api/ask/suggestions', {method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({question, answer, topic: topicName()})})
+          .then(response => response.ok ? response.json() : null)
+          .then(payload => {
+            const list = ((payload && payload.suggestions) || []).filter(item => typeof item === 'string' && item.trim()).slice(0, 3);
+            return list.length ? list : fallback;
+          })
+          .catch(() => fallback)
+          .then(items => {
+            host.innerHTML = '';
+            items.forEach(text => {
+              const chip = document.createElement('button');
+              chip.type = 'button'; chip.className = 'chat-chip'; chip.textContent = text;
+              chip.addEventListener('click', () => { input.value = text; input.focus(); form.requestSubmit(); });
+              host.appendChild(chip);
+            });
+          });
+      });
+    }
+    api('/api/conversations/' + encodeURIComponent(conversation))
+      .then(data => (data.messages || []).forEach(item => addHistory(item.text, item.role === 'user'))).catch(() => {});
     let selected = '', socket = null;
     const stop = document.createElement('button'); stop.type = 'button'; stop.id = 'learning-chat-stop'; stop.textContent = '停止回答'; stop.hidden = true;
     form.appendChild(stop);
-    stop.onclick = () => { if (socket) { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({type: 'stop'})); socket.close(); } stop.hidden = true; };
+    stop.onclick = () => {
+      if (!socket) return;
+      const connection = socket;
+      stop.disabled = true;
+      const request = () => { try { connection.send(JSON.stringify({type: 'stop'})); } catch (_) {} };
+      if (connection.readyState === WebSocket.OPEN) request();
+      else if (connection.readyState === WebSocket.CONNECTING) connection.addEventListener('open', request, {once: true});
+    };
     document.addEventListener('mouseup', () => {
       const text = window.getSelection()?.toString().trim() || '';
       if (!text || text.length > 2000 || !window.getSelection()?.anchorNode?.parentElement?.closest('#learn-content')) return;
@@ -292,22 +322,26 @@
     form.onsubmit = event => {
       event.preventDefault();
       const question = input.value.trim(); if (!question || socket) return;
-      const mine = document.createElement('p'); mine.className = 'classroom-chat-user'; mine.textContent = question; box.appendChild(mine);
-      const reply = document.createElement('p'); reply.className = 'classroom-chat-reply'; box.appendChild(reply);
-      box.scrollTop = box.scrollHeight; input.value = '';
-      const send = $('learning-chat-send'); send.disabled = true; stop.hidden = false;
+      const sentSelection = selected;
+      addHistory(question, true);
+      input.value = '';
+      const send = $('learning-chat-send'); send.disabled = true; stop.hidden = false; stop.disabled = false;
+      const view = chat.createAssistantView(box, {scrollRoot: box});
+      let finished = false;
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       socket = new WebSocket(protocol + '//' + location.host + '/ws/classroom');
-      socket.onopen = () => socket.send(JSON.stringify({...context, type: 'ask', question, selection: selected}));
+      socket.onopen = () => socket.send(JSON.stringify({...context, type: 'ask', question, selection: sentSelection}));
       socket.onmessage = event => {
         const data = JSON.parse(event.data);
-        if (data.type === 'delta') reply.textContent += data.text;
-        if (data.type === 'error' || data.cancelled) reply.textContent += '\n' + data.message;
-        if (data.type === 'done' || data.type === 'error') socket.close();
-        box.scrollTop = box.scrollHeight;
+        if (data.type === 'delta') view.push(data.text);
+        if (data.type === 'done') { finished = true; finish(view, question, data); socket.close(); }
+        if (data.type === 'error') { finished = true; view.fail(data.message); socket.close(); }
       };
-      socket.onerror = () => { reply.textContent += '\n连接中断，请重试。'; };
-      socket.onclose = () => { socket = null; send.disabled = false; stop.hidden = true; selected = ''; input.focus(); };
+      socket.onerror = () => { finished = true; view.fail('连接中断，请重试。'); };
+      socket.onclose = () => {
+        if (!finished) view.fail('回答中断，本次未完成。');
+        socket = null; send.disabled = false; stop.hidden = true; stop.disabled = false; selected = ''; input.focus();
+      };
     };
   }
 
@@ -333,5 +367,5 @@
     }, 5000);
   }
 
-  setupAvailability(); setupWeeklyPlan(); setupReviews(); setupLearn();
+  setupWeeklyPlan(); setupReviews(); setupLearn();
 })();

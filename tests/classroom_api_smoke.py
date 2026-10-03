@@ -46,7 +46,14 @@ class MockAI(BaseHTTPRequestHandler):
         MockAI.requests.append(body)
         if body.get("stream"):
             MockAI.stream_messages = body.get("messages", [])
-            chunks = ["片段一", "片段二"]
+            stream_prompt = json.dumps(body.get("messages", []), ensure_ascii=False)
+            if ("思考测试" in stream_prompt or
+                    "停止界面测试" in stream_prompt):
+                time.sleep(3.0)
+                chunks = ["**重点**：把式子整理成 ", "$x^2+y^2=r^2$",
+                          " 的形式。", "\n\n- 第一步\n- 第二步"]
+            else:
+                chunks = ["片段一", "片段二"]
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
@@ -55,16 +62,25 @@ class MockAI(BaseHTTPRequestHandler):
                 try:
                     self.wfile.write(("data: " + json.dumps(event, ensure_ascii=False) + "\n\n").encode())
                     self.wfile.flush()
-                except BrokenPipeError:
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                     break
                 time.sleep(.15)
             try:
                 if body["messages"][-1]["content"] != "中断测试":
                     self.wfile.write(b"data: [DONE]\n\n"); self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError):
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 pass
             return
         prompt = body["messages"][-1]["content"]
+        if '"suggestions"' in prompt:
+            answer = {"suggestions": ["先讲这一步的由来", "换个数再算一遍", "这类题的通用解法是什么"]}
+            payload = json.dumps({"model": "mock", "choices": [{"message": {"content": json.dumps(answer, ensure_ascii=False)}}]}, ensure_ascii=False).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
         parsed_prompt = json.loads(prompt) if prompt.startswith("{") else {}
         if isinstance(parsed_prompt, dict) and parsed_prompt.get("block"):
             MockAI.learn_block_calls += 1
@@ -178,6 +194,10 @@ async def check_ask(port, base):
     sent = json.dumps(next(item["messages"] for item in reversed(MockAI.requests)
                      if item["messages"][-1]["content"] == "HTTP 可选历史"), ensure_ascii=False)
     assert "前端历史0" not in sent and "前端历史1" not in sent and "前端历史2" in sent and "前端历史9" in sent
+    suggested = request(base, "/api/ask/suggestions",
+                         {"question": "什么是单调性？", "answer": "单调性是指……", "topic": "函数单调性"})
+    assert len(suggested["suggestions"]) == 3, suggested
+    assert request(base, "/api/ask/suggestions", {"question": "", "answer": ""})["suggestions"] == []
     return "ASK_STREAM_CONTEXT_STOP_ISOLATION_HTTP PASS"
 
 
