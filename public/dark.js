@@ -104,49 +104,12 @@
       data.hasEvidence ? subjects.length ? '画像依据本机逐题测验与主题评估生成。' : '数据不足：完成至少 3 道测验题后再形成画像。' :
         '数据不足：暂无可靠测验记录。');
     message.textContent = text;
-    status.textContent = time ? `最近更新：${localTime(time)}` : '数据积累中';
-    radar.replaceChildren();
+    if (status) status.textContent = time ? `最近更新：${localTime(time)}` : '数据积累中';
     cards.replaceChildren();
-    if (subjects.length < 3) {
-      const list = node('div', '', 'radar-list');
-      if (!subjects.length) list.append(node('p', '数据不足：暂无可展示的学科强度'));
-      for (const item of subjects) list.append(node('p', `${item.subject} · ${item.score}%`));
-      radar.append(list);
-    } else {
-      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      svg.setAttribute('viewBox', '0 0 360 270');
-      svg.setAttribute('aria-hidden', 'true');
-      const center = [180, 135];
-      const point = (index, radius) => {
-        const angle = -Math.PI / 2 + index * Math.PI * 2 / subjects.length;
-        return [center[0] + Math.cos(angle) * radius, center[1] + Math.sin(angle) * radius];
-      };
-      const polygon = (radius) => subjects.map((_, index) => point(index, radius).join(',')).join(' ');
-      for (const radius of [35, 68, 98]) {
-        const grid = document.createElementNS(svg.namespaceURI, 'polygon');
-        grid.setAttribute('points', polygon(radius));
-        grid.setAttribute('class', 'radar-grid');
-        svg.append(grid);
-      }
-      const shape = document.createElementNS(svg.namespaceURI, 'polygon');
-      shape.setAttribute('points', subjects.map((item, index) => point(index, 98 * item.score / 100).join(',')).join(' '));
-      svg.append(shape);
-      subjects.forEach((item, index) => {
-        const [x, y] = point(index, 117);
-        const label = document.createElementNS(svg.namespaceURI, 'text');
-        label.setAttribute('x', x);
-        label.setAttribute('y', y);
-        label.setAttribute('text-anchor', 'middle');
-        label.textContent = `${item.subject} ${item.score}%`;
-        svg.append(label);
-      });
-      radar.append(svg);
-      radar.setAttribute('aria-label', subjects.map(item => `${item.subject} ${item.score}%`).join('，'));
-    }
     for (const item of data.subjects || []) {
       const card = node('article', '', 'profile-subject-card');
-      const starting = item.score === 0 && (item.rationale || '').includes('unknown=true');
-      const explanation = starting ? '你在本次基础诊断中明确反馈“暂时不会”。当前画像只覆盖已测知识点，后续会随着你自己的作答更新。' :
+      const starting = item.score === 0;
+      const explanation = starting && (item.rationale || '').includes('unknown=true') ? '你在本次基础诊断中明确反馈“暂时不会”。当前画像只覆盖已测知识点，后续会随着你自己的作答更新。' :
         (item.rationale || '等待更多学习证据。').replace(/\s*\[\[\s*(?:"[0-9a-f]{32}"\s*,\s*)*"[0-9a-f]{32}"\s*\]\]\s*$/i, '').replaceAll('topicStates', '已评估学习记录');
       card.append(node('h3', item.subject || '未命名学科'));
       card.append(node('strong', starting ? '入门起点' : item.score === null ?
@@ -170,7 +133,7 @@
       if ((!data.updating || data.error) && poll) { clearInterval(poll); poll = 0; }
     } catch (error) {
       message.textContent = error.message;
-      radar.textContent = '画像暂时不可用';
+      // 雷达组件保留上次读取的有效结果。
     }
   }
   refresh?.addEventListener('click', async () => {

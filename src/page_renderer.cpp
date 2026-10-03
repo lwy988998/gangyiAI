@@ -54,7 +54,7 @@ std::string document(const std::string& title, const std::string& body, const st
                      const std::string& headExtra = {}, const std::string& bodyClassExtra = {},
                      const std::string& bodyAttributes = {}) {
     return "<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><meta name=\"theme-color\" content=\"#06090d\"><title>" +
-        htmlEscape(title) + "</title><link rel=\"icon\" type=\"image/png\" href=\"/school-logo.png\"><link rel=\"stylesheet\" href=\"/styles.css\"><link rel=\"stylesheet\" href=\"/plan.css\"><link rel=\"stylesheet\" href=\"/dark.css\"><link rel=\"stylesheet\" href=\"/classroom.css\"><link rel=\"stylesheet\" href=\"/vendor/katex/katex.min.css\"><script defer src=\"/vendor/katex/katex.min.js\"></script><script defer src=\"/chat-render.js\"></script><script defer src=\"/dark.js\"></script><script defer src=\"/classroom.js\"></script>" + headExtra + "</head><body class=\"antialiased page-transition dark-app" + bodyClassExtra + "\"" + bodyAttributes + ">" + body +
+        htmlEscape(title) + "</title><link rel=\"icon\" type=\"image/png\" href=\"/school-logo.png\"><link rel=\"stylesheet\" href=\"/styles.css\"><link rel=\"stylesheet\" href=\"/plan.css\"><link rel=\"stylesheet\" href=\"/dark.css\"><link rel=\"stylesheet\" href=\"/classroom.css\"><link rel=\"stylesheet\" href=\"/profile-radar.css\"><link rel=\"stylesheet\" href=\"/vendor/katex/katex.min.css\"><script defer src=\"/vendor/katex/katex.min.js\"></script><script defer src=\"/chat-render.js\"></script><script defer src=\"/profile-radar.js\"></script><script defer src=\"/dark.js\"></script><script defer src=\"/classroom.js\"></script>" + headExtra + "</head><body class=\"antialiased page-transition dark-app" + bodyClassExtra + "\"" + bodyAttributes + ">" + body +
         "<footer class=\"dark-footer\"><span>钢一定制AI</span><span>让学习有路径，让进步看得见。</span><span>本机学习数据 · 私密可控</span></footer>" + script + "</body></html>";
 }
 
@@ -96,7 +96,7 @@ std::string renderHomePageContent(bool startup) {
       <div id="image-preview" class="hidden mt-3 items-center gap-3 rounded-2xl border border-sky-100 bg-sky-50 p-3"><img class="h-16 w-16 rounded-xl border border-white object-cover" alt="图片预览"><div class="min-w-0 flex-1"><p id="image-name" class="truncate text-sm font-semibold"></p><p id="image-meta" class="mt-1 text-xs text-slate-500"></p></div><button id="remove-image" type="button" class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500">移除</button></div><p id="goal-message" class="hidden mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700"></p>
     </form>
     <div id="goal-examples" class="mt-4 flex max-w-4xl flex-wrap justify-center gap-2"></div>
-    <aside class="home-visual" aria-label="学习画像"><div class="home-radar-panel"><div class="home-radar-top"><span>本机画像</span><strong>学科掌握强度</strong></div><div id="home-radar" class="home-radar" role="img" aria-label="学科掌握强度图"><p>正在读取本机学习画像…</p></div><div class="home-radar-bottom"><span id="home-profile-status">读取中</span><a href="#profile">查看详情 ↓</a></div></div><div class="home-floating-chip chip-top" aria-hidden="true"><span>↗</span><div><small>学习进展</small><strong>持续记录</strong></div></div><div class="home-floating-chip chip-bottom" aria-hidden="true"><span>◐</span><div><small>专属画像</small><strong>本机保存</strong></div></div></aside>
+    <aside class="home-visual" aria-label="学习画像"><div class="home-radar-panel"><div id="home-radar" data-profile-radar></div></div></aside>
   </section>
   <div class="home-ticker" aria-hidden="true"><div class="home-ticker-track"><span>学习目标</span><b>✦</b><span>阶段规划</span><b>✦</b><span>微课程</span><b>✦</b><span>练习测验</span><b>✦</b><span>本机画像</span><b>✦</b><span>AI 导师</span><b>✦</b><span>学习目标</span><b>✦</b><span>阶段规划</span><b>✦</b><span>微课程</span><b>✦</b><span>练习测验</span><b>✦</b><span>本机画像</span><b>✦</b><span>AI 导师</span><b>✦</b></div></div>
   <section id="profile" class="profile-section" aria-labelledby="profile-title" data-reveal>
@@ -366,6 +366,7 @@ std::string renderMyCoursesPage(const nlohmann::json& data) {
       </section>
       <section id="uc-profile" class="uc-section" aria-labelledby="uc-profile-title">
         <h2 id="uc-profile-title" class="uc-section-title">学习画像</h2>
+        <div id="uc-profile-radar" class="uc-profile-radar" data-profile-radar></div>
         <div id="uc-profile-subjects" class="uc-card uc-profile"><p class="uc-empty">正在读取本机学习画像…</p></div>
         <div id="uc-profile-topics" class="uc-card uc-topics"><p class="uc-empty">正在读取主题掌握度…</p></div>
       </section>

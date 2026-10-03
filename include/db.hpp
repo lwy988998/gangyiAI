@@ -109,6 +109,11 @@ public:
     std::string profileError() const; void setProfileError(const std::string&);
     std::string profileSearchStatus() const; std::string profileSources() const;
     void setProfileSearch(const std::string& status, const std::string& sources);
+    std::string profileMeta(const std::string& key) const;
+    void setProfileMeta(const std::string& key, const std::string& value);
+    bool setProfileMetaAtRevision(const std::string& key, const std::string& value, int revision);
+    bool replaceMasteryAtRevision(const std::vector<SubjectMastery>& values, int revision);
+    bool upsertTopicMasteryAtRevision(const TopicMastery& value, int revision);
 
 private: sqlite3* db_ = nullptr;
 };

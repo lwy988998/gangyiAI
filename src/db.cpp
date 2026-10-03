@@ -1,4 +1,5 @@
 #include "db.hpp"
+#include <nlohmann/json.hpp>
 #include "db_schema_version.hpp"
 
 #include <sqlite3.h>
@@ -242,9 +243,18 @@ std::vector<LearningInteraction> Database::listInteractions() const {
     return rows;
 }
 bool Database::upsert(const ClassroomActivity& value) {
+    const bool assessment = value.kind == "diagnostic" || value.kind == "interaction";
+    const auto previous = assessment ? getClassroomActivity(value.id) : std::optional<ClassroomActivity>{};
     Stmt s(db_, "INSERT INTO ClassroomActivity(id,courseId,phaseIndex,topicIndex,kind,payload,updatedAt) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,updatedAt=excluded.updatedAt");
     text(s,1,value.id);text(s,2,value.courseId);integer(s,3,value.phaseIndex);integer(s,4,value.topicIndex);
-    text(s,5,value.kind);text(s,6,value.payload);text(s,7,value.updatedAt);return done(s);
+    text(s,5,value.kind);text(s,6,value.payload);text(s,7,value.updatedAt);
+    const bool saved = done(s);
+    if (saved && assessment && (!previous || previous->payload != value.payload)) {
+        const auto payload = nlohmann::json::parse(value.payload, nullptr, false);
+        if (payload.is_object() && payload.value("status", "") == "answered" && payload.value("credible", false))
+            markProfileDirty();
+    }
+    return saved;
 }
 std::optional<ClassroomActivity> Database::getClassroomActivity(const std::string& key) const {
     Stmt s(db_, "SELECT id,courseId,phaseIndex,topicIndex,kind,payload,updatedAt FROM ClassroomActivity WHERE id=?");text(s,1,key);
@@ -338,6 +348,7 @@ int Database::profileAssessedRevision() const {
 }
 void Database::markProfileDirty() {
     exec(db_, "UPDATE ProfileMeta SET value=CAST(value AS INTEGER)+1 WHERE key='revision'");
+    setProfileError("");
 }
 void Database::setProfileAssessed(int revision) {
     Stmt s(db_, "UPDATE ProfileMeta SET value=? WHERE key='assessed'");
@@ -346,6 +357,42 @@ void Database::setProfileAssessed(int revision) {
 std::string Database::profileError() const {
     Stmt s(db_, "SELECT value FROM ProfileMeta WHERE key='error'");
     return sqlite3_step(s.p)==SQLITE_ROW ? str(s.p,0) : "";
+}
+bool Database::replaceMasteryAtRevision(const std::vector<SubjectMastery>& values, int revision) {
+    exec(db_, "BEGIN IMMEDIATE");
+    try {
+        if (profileRevision() != revision) { exec(db_, "ROLLBACK"); return false; }
+        exec(db_, "DELETE FROM SubjectMastery");
+        for (const auto& value : values) upsert(value);
+        setProfileAssessed(revision);
+        setProfileError("");
+        exec(db_, "COMMIT");
+        return true;
+    } catch (...) { exec(db_, "ROLLBACK"); throw; }
+}
+bool Database::upsertTopicMasteryAtRevision(const TopicMastery& value, int revision) {
+    exec(db_, "BEGIN IMMEDIATE");
+    try {
+        if (profileRevision() != revision) { exec(db_, "ROLLBACK"); return false; }
+        upsert(value);
+        exec(db_, "COMMIT");
+        return true;
+    } catch (...) { exec(db_, "ROLLBACK"); throw; }
+}
+std::string Database::profileMeta(const std::string& key) const {
+    Stmt s(db_, "SELECT value FROM ProfileMeta WHERE key=?");
+    text(s,1,key);
+    return sqlite3_step(s.p)==SQLITE_ROW ? str(s.p,0) : "";
+}
+void Database::setProfileMeta(const std::string& key, const std::string& value) {
+    Stmt s(db_, "INSERT INTO ProfileMeta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value");
+    text(s,1,key);text(s,2,value);done(s);
+}
+bool Database::setProfileMetaAtRevision(const std::string& key, const std::string& value, int revision) {
+    // 单条 SQL 校验版本并保存，避免新作答写入后被旧 AI 结果覆盖。
+    Stmt s(db_, "INSERT INTO ProfileMeta(key,value) SELECT ?,? WHERE (SELECT CAST(value AS INTEGER) FROM ProfileMeta WHERE key='revision')=? ON CONFLICT(key) DO UPDATE SET value=excluded.value");
+    text(s,1,key);text(s,2,value);integer(s,3,revision);done(s);
+    return sqlite3_changes(db_) == 1;
 }
 void Database::setProfileError(const std::string& error) {
     Stmt s(db_, "INSERT INTO ProfileMeta(key,value) VALUES('error',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value");

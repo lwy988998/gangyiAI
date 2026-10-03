@@ -14,6 +14,7 @@
 #include "learning_generator.hpp"
 #include "image_goal_analyzer.hpp"
 #include "profile_service.hpp"
+#include "question_evidence.hpp"
 #include "home_recommendations.hpp"
 #include "classroom_service.hpp"
 #include "json_fix.hpp"
@@ -1536,7 +1537,20 @@ int main() {
     });
 
     CROW_ROUTE(app, "/api/profile")([&db] {
-        return crow::response(200, gangyi::profileView(db).dump());
+        crow::response response(200, gangyi::profileView(db).dump());
+        response.set_header("Cache-Control", "no-store");
+        return response;
+    });
+
+    CROW_ROUTE(app, "/api/profile/radar-preferences")([&db] {
+        crow::response response(200, gangyi::radarPreferences(db).dump());
+        response.set_header("Content-Type", "application/json; charset=utf-8");
+        response.set_header("Cache-Control", "no-store");
+        return response;
+    });
+    CROW_ROUTE(app, "/api/profile/radar-preferences").methods(crow::HTTPMethod::PUT)([&db](const crow::request& req) {
+        try { return crow::response(200, gangyi::saveRadarPreferences(db, nlohmann::json::parse(req.body)).dump()); }
+        catch (...) { return crow::response(400, nlohmann::json{{"error", "请选择九科中的六门不同学科，并指定有效的显示模式。"}}.dump()); }
     });
 
     CROW_ROUTE(app, "/api/next-learning")([&db](const crow::request& req) {
@@ -1627,8 +1641,11 @@ int main() {
                     choice.get<int>() == quiz[i].at("answerIndex").get<int>();
                 if (correct) ++score;
                 if (unknown) ++unknownCount;
+                const auto snapshot = gangyi::questionSnapshot(quiz[i]);
                 results.push_back({{"questionIndex", i}, {"topic", session->topicTitle},
-                    {"correct", correct}, {"answered", !choice.is_null()}, {"unknown", unknown}});
+                    {"correct", correct}, {"answered", !choice.is_null()}, {"unknown", unknown},
+                    {"credible", !choice.is_null()}, {"givenAnswer", choice}, {"questionSnapshot", snapshot},
+                    {"questionId", gangyi::questionIdentity(courseId, snapshot)}});
             }
             const int total = static_cast<int>(quiz.size());
             recordInteraction(db, "quiz", {{"score", score}, {"total", total}, {"answers", body["answers"]},
@@ -2275,7 +2292,7 @@ int main() {
             gangyi::Database workerDb;
             workerDb.open(config.database_path);
             while (!stopProfile) {
-                if (workerDb.profileDirty()) {
+                if (workerDb.profileDirty() && workerDb.profileMeta("profile-failed-revision") != std::to_string(workerDb.profileRevision())) {
                     const int pendingRevision = workerDb.profileRevision();
                     for (int i = 0; i < 20 && !stopProfile && workerDb.profileRevision() == pendingRevision; ++i)
                         std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -2283,12 +2300,13 @@ int main() {
                     gangyi::AIClient ai;
                     std::string error;
                     const bool topicsReady = gangyi::refreshTopicMastery(workerDb, ai, error);
+                    if (workerDb.profileRevision() != pendingRevision) continue;
                     if (!topicsReady) workerDb.setProfileError(u8"主题状态暂未更新，请稍后重试。");
                     if (!topicsReady || !gangyi::refreshProfile(workerDb, ai, error)) {
-                        std::cerr << "[profile] update failed: " << error << '\n';
-                        const int failedRevision = workerDb.profileRevision();
-                        for (int i = 0; i < 300 && !stopProfile && workerDb.profileRevision() == failedRevision; ++i)
-                            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                        workerDb.setProfileMetaAtRevision("profile-failed-revision", std::to_string(pendingRevision), pendingRevision);
+                        std::cerr << "[profile] 等待下一次有效作答或手动更新\n";
+                    } else {
+                        workerDb.setProfileMetaAtRevision("profile-failed-revision", "", pendingRevision);
                     }
                 }
                 for (int i = 0; i < 20 && !stopProfile; ++i)
@@ -2298,10 +2316,33 @@ int main() {
             std::cerr << "[profile] worker stopped: " << error.what() << '\n';
         }
     });
+    // 能力评估独立于学科画像；同一失败证据版本仅尝试一次。
+    std::thread abilityWorker([&] {
+        try {
+            gangyi::Database workerDb;
+            workerDb.open(config.database_path);
+            while (!stopProfile) {
+                if (gangyi::abilityProfileView(workerDb)["state"].value("updating", false)) {
+                    const int revision = workerDb.profileRevision();
+                    for (int i = 0; i < 20 && !stopProfile && workerDb.profileRevision() == revision; ++i)
+                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    if (!stopProfile && workerDb.profileRevision() == revision) {
+                        gangyi::AIClient ai;
+                        gangyi::refreshAbilityProfile(workerDb, ai);
+                    }
+                }
+                for (int i = 0; i < 20 && !stopProfile; ++i)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+        } catch (const std::exception&) {
+            std::cerr << "[profile] 能力评估线程停止，重新打开软件后可继续更新\n";
+        }
+    });
     std::cout << "gangyiAI " << gangyi::kVersion << " listening on " << config.host << ':' << config.port << '\n';
     app.bindaddr(config.host).port(config.port).multithreaded().run();
     while (socketWorkerCount > 0) std::this_thread::sleep_for(std::chrono::milliseconds(100));
     homeRecommendations.stop();
     stopProfile = true;
     profileWorker.join();
+    abilityWorker.join();
 }

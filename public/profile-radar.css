@@ -1,0 +1,34 @@
+/* 六维画像使用正向布局；动画仅在初次展示和分数变化时运行。 */
+.profile-radar{color:var(--dark-ink);background:radial-gradient(ellipse at 48% 32%,#1d3033 0%,#111c23 64%);border:1px solid var(--dark-line);border-radius:16px;padding:24px;min-width:0;box-shadow:0 22px 64px #0004}
+.radar-header,.radar-toolbar,.radar-selection-actions{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.radar-header{margin-bottom:22px}.radar-eyebrow{font-size:10px;letter-spacing:.12em;color:var(--dark-mint)}
+.radar-header h3{font-size:20px;letter-spacing:-.02em;margin:6px 0 0;font-weight:600}
+.profile-radar button{font:inherit;border:0;background:transparent;color:var(--dark-muted)}
+.profile-radar .radar-refresh{font-size:11px;color:var(--dark-mint);white-space:nowrap;padding:8px 0}
+.radar-modes{display:flex;gap:3px;padding:4px;background:#0c151bb0;border:1px solid var(--dark-line);border-radius:9px}
+.radar-modes button{padding:8px 13px;border-radius:6px;font-size:12px;white-space:nowrap}
+.radar-modes button.is-active{background:#a4e5d21c;color:var(--dark-mint)}
+.profile-radar .radar-select{font-size:11px;padding:8px 0;color:#b6c8c4}
+.radar-chart{position:relative;aspect-ratio:440/354;margin:12px auto 8px;max-width:500px;width:100%}
+.radar-chart svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.radar-chart .radar-grid{fill:none;stroke:#a4e5d222;stroke-width:1}
+.radar-guide{stroke:#a4e5d222;stroke-width:1}.radar-tick{font-size:9px;fill:#8aa19b;paint-order:stroke;stroke:#152327;stroke-width:3px;stroke-linejoin:round}
+.radar-area{stroke:var(--dark-mint);stroke-width:1.8;stroke-linejoin:round;filter:drop-shadow(0 0 7px #a4e5d220)}
+.radar-value-line{stroke:#a4e5d2;stroke-opacity:.58;stroke-width:1.3}.radar-value-point{fill:var(--dark-mint);stroke:#12251f;stroke-width:1.5}
+.radar-changed .radar-area,.radar-changed .radar-value-point{animation:radar-appear .32s ease-out}
+@keyframes radar-appear{from{opacity:.25}to{opacity:1}}
+.profile-radar .radar-axis{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border-radius:8px;padding:6px 3px;min-height:44px;width:25%;max-width:116px;font-size:12px;line-height:1.3;color:#dfebe6}
+.radar-axis strong{font-size:11px;color:var(--dark-mint);font-weight:500}.radar-axis.is-pending strong{color:#acbcb7}.radar-axis.is-selected{background:#a4e5d20a}.radar-axis:hover{background:#a4e5d211}
+.radar-notice{margin:0 0 14px;text-align:center;font-size:11px;color:#b1c1bd;line-height:1.7;min-height:19px}
+.radar-detail{border-top:1px solid var(--dark-line);padding-top:16px;min-height:160px}.radar-detail h4{font-size:14px;color:var(--dark-mint);margin:0 0 7px;font-weight:500}
+.radar-detail p{font-size:12px;line-height:1.85;color:#c2ceca;margin:6px 0;overflow-wrap:anywhere}.radar-detail .radar-detail-scope{font-size:10px;color:#a0b3ad}
+.radar-detail small{display:block;color:#a0b3ad;font-size:10px;margin-top:12px;line-height:1.7}
+.radar-selection{padding:15px;border:1px solid #a4e5d230;border-radius:10px;margin-top:14px;background:#0d191f}.radar-selection[hidden],.radar-select[hidden]{display:none}
+.radar-selection p{font-size:11px;color:#b5c5be;margin:0 0 13px;line-height:1.8}.radar-subject-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.radar-subject-grid label{display:flex;align-items:center;gap:7px;font-size:12px;min-height:24px;cursor:pointer}.radar-subject-grid input{accent-color:var(--dark-mint);width:16px;height:16px}
+.radar-selection-actions{margin-top:16px;font-size:11px}.radar-selection-actions span{margin-right:auto;color:#a0b3ad}.radar-selection-actions button{padding:7px 10px;border-radius:6px;background:#a4e5d212;color:var(--dark-mint);font-size:11px}
+.dark-app .home-visual{height:auto;min-height:560px;align-self:center}.dark-app .home-radar-panel{height:auto;padding:0;background:none;border:0;box-shadow:none;transform:none;animation:none;transition:none}
+.uc-profile-radar{margin-bottom:24px;max-width:780px}.uc-profile-radar .radar-chart{max-width:480px}.uc-profile-radar .radar-detail{min-height:120px}
+@media(max-width:900px){.dark-app .home-visual{height:auto;min-height:0;max-width:600px;margin-top:40px}.profile-radar{padding:22px}}
+@media(max-width:600px){.profile-radar{padding:18px 14px;border-radius:12px}.radar-header{gap:8px}.radar-header h3{font-size:18px}.radar-refresh{font-size:10px}.radar-modes button{padding:8px 10px}.radar-axis-name{font-size:11px}.radar-detail{min-height:150px}.radar-toolbar{gap:6px}}
+@media(prefers-reduced-motion:reduce){.radar-changed .radar-area,.radar-changed .radar-value-point{animation:none}.profile-radar *{transition:none!important}}

@@ -67,7 +67,7 @@
     updateAvailabilitySummary();
   }
 
-  const scoreLabel = value => (value === null || value === undefined) ? '数据不足' : String(value) + ' 分';
+  const scoreLabel = value => (value === null || value === undefined) ? '数据不足' : value === 0 ? '入门起点' : String(value) + ' 分';
 
   async function loadProfile() {
     const host = $('uc-profile-subjects');
@@ -85,7 +85,7 @@
         const weak = (subject.weakPoints || []).slice(0, 3);
         return '<article class="uc-profile-item"><p class="uc-eyebrow">' + escape(subject.subject || '') + '</p>' +
           '<b>' + escape(scoreLabel(subject.score)) + '</b>' +
-          '<p class="uc-note">' + escape(subject.rationale || '暂无说明') + '</p>' +
+          '<p class="uc-note">' + escape((subject.rationale || '暂无说明').replace(/\b(?:q-[0-9a-f]{16}|[0-9a-f]{32})\b/gi, '').replace(/unknown=true/g, '明确反馈暂时不会').replace(/topicStates/g, '已评估学习记录')) + '</p>' +
           (weak.length ? '<p class="uc-note">薄弱点：' + escape(weak.join('、')) + '</p>' : '') +
           (subject.recommendation ? '<p class="uc-note">建议：' + escape(subject.recommendation) + '</p>' : '') +
           '<p class="uc-course-created">依据 ' + Number(subject.evidenceCount || 0) + ' 条记录</p></article>';
@@ -188,4 +188,5 @@
   setupNav();
   loadProfile();
   loadTopicMastery();
+  setInterval(() => { if (!document.hidden) loadProfile(); }, 15000);
 })();

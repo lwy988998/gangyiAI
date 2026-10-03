@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(gangyiAI VERSION 5.2.0 LANGUAGES C CXX)
+project(gangyiAI VERSION 5.3.0 LANGUAGES C CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -249,6 +249,8 @@ if(BUILD_TESTING)
     if(Python3_Interpreter_FOUND)
         add_test(NAME personalization-smoke COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/personalization_smoke.py $<TARGET_FILE:gangyiAI>)
+        add_test(NAME radar-smoke COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/radar_smoke.py $<TARGET_FILE:gangyiAI>)
         add_test(NAME home-recommendations-smoke COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/home_recommendations_smoke.py $<TARGET_FILE:gangyiAI>)
         add_test(NAME api-smoke COMMAND ${Python3_EXECUTABLE}
