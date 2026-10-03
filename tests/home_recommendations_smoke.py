@@ -115,4 +115,7 @@ def main(executable):
 
 
 if __name__ == "__main__":
+    # Windows CI 默认西文编码，统一日志编码以保留中文验收信息。
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     main(Path(sys.argv[1]).resolve())
