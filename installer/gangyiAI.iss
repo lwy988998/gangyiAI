@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "5.2.0"
+  #define MyAppVersion "5.3.0"
 #endif
 
 #define MyAppName "钢一定制AI"

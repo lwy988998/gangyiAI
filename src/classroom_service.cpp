@@ -2,6 +2,7 @@
 #include "ai_client.hpp"
 #include "course_service.hpp"
 #include "json_fix.hpp"
+#include "question_evidence.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -537,6 +538,8 @@ Json classroomSubmit(Database& db, const std::string& courseId, int phaseIndex, 
     item["followUp"] = evaluation.value("followUp", "");
     item["hintLevel"] = correct ? 0 : 1;
     item["evidenceSource"] = open ? "ai-evaluation" : "objective-choice";
+    item["questionSnapshot"] = questionSnapshot(item);
+    item["questionId"] = questionIdentity(courseId, item["questionSnapshot"]);
     save(db, itemId(key, kind, index), courseId, phaseIndex, topicIndex, kind, item);
     std::string mode = stateFor(db, key).value("diagnosticMode", "pending");
     if (kind == "diagnostic") {

@@ -49,7 +49,8 @@ int main() {
     expect(home.find("school-logo.png") != std::string::npos, "首页应加载校徽");
     expect(home.find("class=\"home-page ") != std::string::npos, "首页应包含校园背景容器");
     expect(home.find("home-goal-surface") != std::string::npos, "首页应包含学习目标对话框");
-    expect(home.find("home-floating-chip") != std::string::npos, "首页应保留动态画像卡片");
+    expect(home.find("data-profile-radar") != std::string::npos && home.find("/profile-radar.js") != std::string::npos,
+           "首页应使用共享六维画像组件");
     expect(home.find("home-ticker") != std::string::npos, "首页应保留动态功能导览");
     expect(home.find("data-reveal") != std::string::npos, "首页区块应支持滚动入场");
 

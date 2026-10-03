@@ -1,5 +1,6 @@
 #include "db.hpp"
 #include "profile_service.hpp"
+#include "question_evidence.hpp"
 
 #include <sqlite3.h>
 #include <filesystem>
@@ -39,6 +40,18 @@ int main() {
     db.replaceMastery({mastery});
     if (db.listMastery().at(0).score != 66) return 6;
     const int revision = db.profileRevision();
+    const nlohmann::json originalQuestion = {{"question", "虚构题目"}, {"options", {"甲", "乙"}}, {"answerIndex", 0}};
+    auto repeatedQuestion = originalQuestion;
+    repeatedQuestion["status"] = "answered";
+    repeatedQuestion["answer"] = 1;
+    repeatedQuestion["answerIndex"] = 1;
+    repeatedQuestion["difficulty"] = "基础";
+    if (gangyi::questionIdentity("old", gangyi::questionSnapshot(originalQuestion)) !=
+        gangyi::questionIdentity("old", gangyi::questionSnapshot(repeatedQuestion))) return 30;
+    if (!db.setProfileMetaAtRevision("test-version", "有效", revision) ||
+        db.setProfileMetaAtRevision("test-version", "过期", revision - 1) ||
+        db.profileMeta("test-version") != "有效") return 31;
+    if (db.replaceMasteryAtRevision({}, revision - 1) || db.listMastery().at(0).score != 66) return 32;
     db.setProfileAssessed(revision);
     if (db.profileDirty() || !db.deleteConversation("general") || !db.listInteractions().empty() || db.profileDirty()) return 7;
     gangyi::LearningInteraction quiz;
@@ -92,6 +105,15 @@ int main() {
     recentActivity.phaseIndex = recentActivity.topicIndex = 1;
     recentActivity.updatedAt = "2026-02-03T00:00:00Z";
     if (!db.upsert(recentActivity) || gangyi::recentCourses(db)[0]["courseId"] != "recent-0") return 28;
+    gangyi::ClassroomActivity answered;
+    answered.id = "reliable-answer"; answered.courseId = "old"; answered.kind = "interaction";
+    answered.payload = R"({"status":"answered","credible":true,"question":"虚构问题","answer":0,"correct":true})";
+    if (!db.upsert(answered)) return 33;
+    const int answerRevision = db.profileRevision();
+    answered.payload = R"({"status":"answered","credible":true,"question":"虚构问题","answer":0,"correct":true,"hintLevel":1})";
+    if (!db.upsert(answered) || db.profileRevision() != answerRevision) return 34;
+    answered.payload = R"({"status":"answered","credible":true,"question":"虚构问题","answer":1,"correct":false})";
+    if (!db.upsert(answered) || db.profileRevision() != answerRevision + 1) return 35;
     db.close();
     std::filesystem::remove(path, ignored);
     std::filesystem::remove(path.u8string() + ".pre-v4.db", ignored);
