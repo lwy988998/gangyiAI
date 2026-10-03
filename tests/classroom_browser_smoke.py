@@ -117,13 +117,7 @@ def main(executable):
                 for path in pages:
                     page.goto(base + path, wait_until="networkidle")
                     if path == "/":
-                        assert page.locator("#home-availability input[type=checkbox]:checked").count() == 3
-                        monday = page.locator("#home-availability input[data-weekday='1']")
-                        tuesday = page.locator("#home-availability input[data-weekday='2']")
-                        monday.uncheck()
-                        tuesday.check()
-                        tuesday.locator("xpath=..//input[@type='number']").fill("45")
-                        tuesday.dispatch_event("change")
+                        assert page.locator("#home-availability").count() == 0
                         page.locator("#due-reviews a").get_by_text("函数单调性", exact=False).wait_for()
                         page.locator("#goal-submit").focus()
                         assert page.locator("#goal-submit").evaluate("el => parseFloat(getComputedStyle(el).outlineWidth) >= 2")
@@ -146,6 +140,40 @@ def main(executable):
                         page.locator("#ask-submit:not([disabled])").wait_for()
                         page.reload(wait_until="networkidle")
                         assert "停止界面测试" not in page.locator("#ask-messages").inner_text()
+                    if path == "/ask":
+                        page.locator("#ask-question").fill("思考测试：**重点** $x^2+y^2=r^2$")
+                        page.locator("#ask-submit").click()
+                        page.locator("#ask-messages .chat-thinking").wait_for(state="visible", timeout=8000)
+                        page.locator("#ask-messages .chat-body strong").first.wait_for(timeout=20000)
+                        page.locator("#ask-messages .chat-body .katex").first.wait_for(timeout=20000)
+                        page.locator("#ask-messages .chat-body ul li").first.wait_for(timeout=20000)
+                        page.locator("#ask-submit:not([disabled])").wait_for(timeout=20000)
+                        page.locator("#ask-messages .chat-actions .chat-copy").last.wait_for(timeout=10000)
+                        assert page.locator("#ask-messages .chat-chips .chat-chip").count() >= 1
+                        page.locator("#ask-messages .chat-chips .chat-chip").first.click()
+                        page.locator("#ask-submit:not([disabled])").wait_for(timeout=20000)
+                    if path == "/my-courses":
+                        for name in ("uc-overview", "uc-courses", "uc-time", "uc-profile", "uc-settings"):
+                            assert page.locator("#" + name).count() == 1, name
+                        assert page.locator(".uc-nav a").count() == 5
+                        assert page.locator(".uc-course").count() >= 1
+                        assert page.locator(".uc-course a[href^='/plan?courseId=']").first.is_visible()
+                        assert page.locator("#uc-availability-grid input[type=checkbox]:checked").count() == 3
+                        monday = page.locator("#uc-availability-grid input[data-weekday='1']")
+                        tuesday = page.locator("#uc-availability-grid input[data-weekday='2']")
+                        monday.uncheck()
+                        tuesday.check()
+                        tuesday.locator("xpath=..//input[@type='number']").fill("45")
+                        tuesday.dispatch_event("change")
+                        assert "周二" in page.locator("#uc-availability-summary").inner_text()
+                        page.wait_for_function("() => document.getElementById('uc-profile-subjects').textContent.trim().length > 0")
+                        page.wait_for_function("() => document.getElementById('uc-profile-topics').textContent.trim().length > 0")
+                        page.locator("#uc-settings").scroll_into_view_if_needed()
+                        assert page.locator("#open-api-settings").is_visible()
+                        page.set_viewport_size({"width": 390, "height": 844})
+                        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
+                        assert page.locator(".uc-nav a").first.is_visible()
+                        page.set_viewport_size({"width": 1280, "height": 900})
                     if path.startswith("/plan"):
                         page.locator("#weekly-entries .weekly-row").first.wait_for()
                         assert page.locator("#weekly-availability input[type=checkbox]:checked").count() == 3

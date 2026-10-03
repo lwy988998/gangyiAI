@@ -54,7 +54,7 @@ std::string document(const std::string& title, const std::string& body, const st
                      const std::string& headExtra = {}, const std::string& bodyClassExtra = {},
                      const std::string& bodyAttributes = {}) {
     return "<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><meta name=\"theme-color\" content=\"#06090d\"><title>" +
-        htmlEscape(title) + "</title><link rel=\"icon\" type=\"image/png\" href=\"/school-logo.png\"><link rel=\"stylesheet\" href=\"/styles.css\"><link rel=\"stylesheet\" href=\"/plan.css\"><link rel=\"stylesheet\" href=\"/dark.css\"><link rel=\"stylesheet\" href=\"/classroom.css\"><script defer src=\"/dark.js\"></script><script defer src=\"/classroom.js\"></script>" + headExtra + "</head><body class=\"antialiased page-transition dark-app" + bodyClassExtra + "\"" + bodyAttributes + ">" + body +
+        htmlEscape(title) + "</title><link rel=\"icon\" type=\"image/png\" href=\"/school-logo.png\"><link rel=\"stylesheet\" href=\"/styles.css\"><link rel=\"stylesheet\" href=\"/plan.css\"><link rel=\"stylesheet\" href=\"/dark.css\"><link rel=\"stylesheet\" href=\"/classroom.css\"><link rel=\"stylesheet\" href=\"/vendor/katex/katex.min.css\"><script defer src=\"/vendor/katex/katex.min.js\"></script><script defer src=\"/chat-render.js\"></script><script defer src=\"/dark.js\"></script><script defer src=\"/classroom.js\"></script>" + headExtra + "</head><body class=\"antialiased page-transition dark-app" + bodyClassExtra + "\"" + bodyAttributes + ">" + body +
         "<footer class=\"dark-footer\"><span>钢一定制AI</span><span>让学习有路径，让进步看得见。</span><span>本机学习数据 · 私密可控</span></footer>" + script + "</body></html>";
 }
 
@@ -290,6 +290,10 @@ std::string renderMyCoursesPage(const nlohmann::json& data) {
     const auto num = [](const nlohmann::json& v) { return v.is_number() ? v.get<int>() : 0; };
     const auto stats = data.value("stats", nlohmann::json::object());
     const int total = num(stats.value("total", 0));
+    const int percent = num(stats.value("percent", 0));
+    const int doneTopics = num(stats.value("doneTopics", 0));
+    const int totalTopics = num(stats.value("totalTopics", 0));
+    const int dueCount = num(stats.value("due", 0));
     std::string cardsHtml;
     for (const auto& c : data.value("courses", nlohmann::json::array())) {
         const std::string title = str(c.value("title", ""));
@@ -297,33 +301,81 @@ std::string renderMyCoursesPage(const nlohmann::json& data) {
         const std::string source = str(c.value("source", "ai"));
         const std::string createdAt = str(c.value("createdAt", ""));
         const std::string courseId = str(c.value("courseId", ""));
+        const int coursePercent = num(c.value("percent", 0));
+        const int courseDone = num(c.value("doneTopics", 0));
+        const int courseTotal = num(c.value("totalTopics", 0));
+        const int courseDue = num(c.value("dueCount", 0));
         const std::string sourceLabel = source == "fallback" ? "应急内容" : (source == "mock" || source == "template" ? "示例" : "AI 生成");
-        cardsHtml += R"HTML(<article class="rounded-3xl border border-sky-100 bg-white p-5 shadow-sm shadow-sky-900/5 sm:p-6">
-  <div class="flex flex-wrap items-center justify-between gap-2"><div class="min-w-0"><p class="text-xs font-semibold text-sky-700">)HTML" + htmlEscape(sourceLabel) + R"HTML(</p><h2 class="mt-1 break-words text-xl font-semibold text-slate-950">)HTML" + htmlEscape(title) + R"HTML(</h2></div></div>
-  <p class="mt-3 break-words text-sm leading-7 text-slate-600">)HTML" + htmlEscape(goal) + R"HTML(</p>
-  <div class="mt-4 flex flex-wrap gap-2"><a class="inline-flex min-h-10 items-center justify-center rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white" href="/plan?courseId=)HTML" + htmlEscape(courseId) + R"HTML(">继续学习</a><button type="button" class="delete-course inline-flex min-h-10 items-center justify-center rounded-xl px-3 text-sm font-semibold text-slate-500 transition hover:bg-rose-50 hover:text-rose-700" data-course-id=")HTML" + htmlEscape(courseId) + R"HTML(">删除</button></div>
-  )HTML" + (createdAt.empty() ? "" : R"HTML(<p class="mt-3 text-xs text-slate-400">创建于 )HTML" + htmlEscape(createdAt) + "</p>") + R"HTML(
+        cardsHtml += R"HTML(<article class="uc-card uc-course" data-course-id=")HTML" + htmlEscape(courseId) + R"HTML(">
+  <div class="uc-course-top"><div class="min-w-0"><p class="uc-eyebrow">)HTML" + htmlEscape(sourceLabel) + R"HTML(</p><h3 class="uc-course-title">)HTML" + htmlEscape(title) + R"HTML(</h3></div>)HTML" +
+            (courseDue > 0 ? R"HTML(<span class="uc-badge uc-badge-warn">待复习 )HTML" + std::to_string(courseDue) + R"HTML(</span>)HTML" : std::string()) + R"HTML(</div>
+  <p class="uc-course-goal">)HTML" + htmlEscape(goal) + R"HTML(</p>
+  <div class="uc-bar"><i style="width: )HTML" + std::to_string(coursePercent) + R"HTML(%"></i></div>
+  <p class="uc-course-meta">完成 )HTML" + std::to_string(courseDone) + R"HTML( / )HTML" + std::to_string(courseTotal) + R"HTML( 节 · )HTML" + std::to_string(coursePercent) + R"HTML( %</p>
+  <div class="uc-course-actions"><a class="uc-primary" href="/plan?courseId=)HTML" + htmlEscape(courseId) + R"HTML(">继续学习</a><button type="button" class="delete-course uc-ghost-danger" data-course-id=")HTML" + htmlEscape(courseId) + R"HTML(">删除</button></div>
+  )HTML" + (createdAt.empty() ? "" : R"HTML(<p class="uc-course-created">创建于 )HTML" + htmlEscape(createdAt) + "</p>") + R"HTML(
 </article>)HTML";
     }
+    std::string dueHtml;
+    for (const auto& item : data.value("dueReviews", nlohmann::json::array())) {
+        dueHtml += R"HTML(<li><a href=")HTML" + htmlEscape(str(item.value("href", ""))) + R"HTML("><strong>)HTML" +
+            htmlEscape(str(item.value("title", ""))) + R"HTML(</strong><span>)HTML" +
+            htmlEscape(str(item.value("course", ""))) + R"HTML( · 到期 )HTML" + htmlEscape(str(item.value("due", ""))) + R"HTML(</span></a></li>)HTML";
+    }
     const std::string body = headerShell("my-courses") + R"HTML(
-<main class="learn-app-page min-h-screen bg-[#f5f9ff] text-slate-950">
-  <section class="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
-    <div class="flex flex-wrap items-end justify-between gap-3">
-      <div><p class="text-sm font-semibold text-sky-700">我的课程</p><h1 class="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">我的课堂</h1><p class="mt-3 text-base leading-7 text-slate-600">继续学习已生成的课程，或生成一个新的学习计划。</p></div>
-      <a class="inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white transition hover:bg-sky-800" href="/">+ 生成新课程</a>
+<main class="learn-app-page uc-main">
+  <div class="uc-shell">
+    <aside class="uc-side">
+      <div class="uc-identity"><span class="uc-avatar" aria-hidden="true">钢</span><div><strong>本机学习档案</strong><small>数据保存在这台电脑</small></div></div>
+      <nav class="uc-nav" aria-label="用户中心"><a href="#uc-overview" class="is-active">概览</a><a href="#uc-courses">我的课程</a><a href="#uc-time">学习时间</a><a href="#uc-profile">学习画像</a><a href="#uc-settings">AI 设置</a></nav>
+      <a class="uc-primary uc-new" href="/">+ 生成新课程</a>
+    </aside>
+    <div class="uc-content">
+      <header class="uc-head"><p class="uc-eyebrow">用户中心</p><h1>我的课堂</h1><p class="uc-lead">继续学习已生成的课程，查看学习画像，并管理每周学习时间。</p></header>
+      <p id="course-message" class="uc-message" aria-live="polite"></p>
+      <section id="uc-overview" class="uc-section" aria-labelledby="uc-overview-title">
+        <h2 id="uc-overview-title" class="uc-section-title">概览</h2>
+        <div class="uc-stats">
+          <article class="uc-card uc-stat"><p>全部课程</p><b>)HTML" + std::to_string(total) + R"HTML(</b></article>
+          <article class="uc-card uc-stat"><p>总体完成度</p><b>)HTML" + std::to_string(percent) + R"HTML(<i>%</i></b><span>)HTML" + std::to_string(doneTopics) + R"HTML( / )HTML" + std::to_string(totalTopics) + R"HTML( 节</span></article>
+          <article class="uc-card uc-stat"><p>已完成节数</p><b>)HTML" + std::to_string(doneTopics) + R"HTML(</b><span>按学习卡片统计</span></article>
+          <article class="uc-card uc-stat"><p>待复习</p><b>)HTML" + std::to_string(dueCount) + R"HTML(</b><span>1 / 3 / 7 天复习</span></article>
+        </div>
+        <div class="uc-card uc-due"><h3>待复习清单</h3>)HTML" +
+            (dueHtml.empty() ? R"HTML(<p class="uc-empty">目前没有到期复习，保持节奏就好。</p>)HTML"
+                             : R"HTML(<ul class="uc-due-list">)HTML" + dueHtml + "</ul>") + R"HTML(
+        </div>
+      </section>
+      <section id="uc-courses" class="uc-section" aria-labelledby="uc-courses-title">
+        <h2 id="uc-courses-title" class="uc-section-title">我的课程</h2>)HTML"
+        + (cardsHtml.empty() ? R"HTML(<div class="uc-card uc-empty-card"><p class="uc-empty">还没有课程。去首页输入你的学习目标，先生成一份课程计划。</p><a class="uc-primary" style="margin-top:12px" href="/">去首页生成课程</a></div>)HTML" : cardsHtml)
+        + R"HTML(
+      </section>
+      <section id="uc-time" class="uc-section" aria-labelledby="uc-time-title">
+        <h2 id="uc-time-title" class="uc-section-title">学习时间</h2>
+        <div class="uc-card">
+          <p class="uc-hint">预填每周 3 天、每天 30 分钟。课程计划页会读取这里的设置，两边自动同步。</p>
+          <p id="uc-availability-summary" class="uc-summary">正在读取…</p>
+          <fieldset class="uc-availability"><legend class="sr-only">每周可学习时间</legend><div id="uc-availability-grid" class="availability-grid"></div></fieldset>
+        </div>
+      </section>
+      <section id="uc-profile" class="uc-section" aria-labelledby="uc-profile-title">
+        <h2 id="uc-profile-title" class="uc-section-title">学习画像</h2>
+        <div id="uc-profile-subjects" class="uc-card uc-profile"><p class="uc-empty">正在读取本机学习画像…</p></div>
+        <div id="uc-profile-topics" class="uc-card uc-topics"><p class="uc-empty">正在读取主题掌握度…</p></div>
+      </section>
+      <section id="uc-settings" class="uc-section" aria-labelledby="uc-settings-title">
+        <h2 id="uc-settings-title" class="uc-section-title">AI 设置</h2>
+        <div class="uc-card uc-settings" aria-labelledby="api-interface-title">
+          <div><p class="uc-eyebrow">AI 设置</p><h3 id="api-interface-title">API 接口</h3><p>配置服务商、API 地址、API Key 和模型。密钥保存在本机 Windows 凭据管理器，不会显示在课程页面。</p><p id="api-settings-message" class="uc-message" role="status" aria-live="polite"></p></div>
+          <button id="open-api-settings" type="button" class="uc-primary">配置 API 接口</button>
+        </div>
+        <div class="uc-card uc-data"><h3>本机数据说明</h3><ul><li>课程、进度、对话记录和学习画像保存在 <code>%LOCALAPPDATA%\GangyiAI\data</code>，只属于这台电脑。</li><li>DeepSeek 与博查的密钥保存在 Windows 凭据管理器，不会写入课程页面或日志。</li><li>「每周学习时间」记在当前窗口的本机存储中，清理窗口数据会回到默认设置。</li></ul></div>
+      </section>
     </div>
-    <section class="mt-6 flex flex-col gap-4 rounded-3xl border border-sky-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between" aria-labelledby="api-interface-title">
-      <div><p class="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">AI 设置</p><h2 id="api-interface-title" class="mt-1 text-xl font-semibold text-slate-950">API 接口</h2><p class="mt-2 max-w-2xl text-sm leading-6 text-slate-600">配置服务商、API 地址、API Key 和模型。密钥保存在本机 Windows 凭据管理器，不会显示在课程页面。</p><p id="api-settings-message" class="mt-2 min-h-5 text-sm text-slate-500" role="status" aria-live="polite"></p></div>
-      <button id="open-api-settings" type="button" class="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white transition hover:bg-sky-800 disabled:opacity-60">配置 API 接口</button>
-    </section>
-    <section class="mt-6 grid gap-4 sm:grid-cols-3"><article class="rounded-2xl border border-sky-100 bg-white p-5"><p class="text-sm text-slate-500">全部课程</p><b class="mt-2 block text-3xl text-sky-700">)HTML" + std::to_string(total) + R"HTML(</b></article></section>
-    <p id="course-message" class="mt-4 text-sm text-slate-600" aria-live="polite"></p>
-    <section class="mt-6 grid gap-4 lg:grid-cols-2">)HTML"
-        + (cardsHtml.empty() ? R"HTML(<div class="lg:col-span-2 rounded-3xl border border-dashed border-slate-200 bg-white p-8 text-center"><p class="text-slate-600">还没有课程。去首页输入你的学习目标，先生成一份课程计划。</p><a class="mt-4 inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white" href="/">去首页生成课程</a></div>)HTML" : cardsHtml)
-        + R"HTML(</section>
-  </section>
+  </div>
 </main>)HTML";
-    const std::string script = R"HTML(<script>(()=>{const message=document.getElementById('course-message');const apiButton=document.getElementById('open-api-settings');const apiMessage=document.getElementById('api-settings-message');apiButton?.addEventListener('click',async()=>{if(typeof window.gangyiOpenApiSettings!=='function'){apiMessage.textContent='请在钢一定制AI桌面应用托盘菜单中选择“设置”来配置 API 接口。';return}apiButton.disabled=true;apiMessage.textContent='正在打开 API 接口设置…';try{await window.gangyiOpenApiSettings();apiMessage.textContent='请在弹出的设置窗口中完成接口配置并保存。'}catch(error){apiMessage.textContent=error?.message||'设置窗口打开失败，请从托盘菜单进入“设置”。'}finally{apiButton.disabled=false}});document.querySelectorAll('.delete-course').forEach(button=>button.addEventListener('click',async()=>{if(!confirm('确定删除这门课程吗？学习进度和课程内容将一并删除。'))return;button.disabled=true;try{const response=await fetch('/api/my-courses/'+encodeURIComponent(button.dataset.courseId),{method:'DELETE'});if(!response.ok)throw new Error('删除失败，请稍后重试。');location.reload()}catch(error){button.disabled=false;message.textContent=error.message}}))})()</script>)HTML";
+    const std::string script = R"HTML(<script defer src="/user-center.js"></script>)HTML";
     return document("我的课程 - 钢一定制AI", body, script);
 }
 

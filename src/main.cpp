@@ -15,6 +15,7 @@
 #include "image_goal_analyzer.hpp"
 #include "profile_service.hpp"
 #include "classroom_service.hpp"
+#include "json_fix.hpp"
 
 #include <crow.h>
 #include <crow/multipart.h>
@@ -54,7 +55,38 @@ std::string content_type_for(const std::filesystem::path& path) {
     if (extension == ".jpg" || extension == ".jpeg") return "image/jpeg";
     if (extension == ".svg") return "image/svg+xml";
     if (extension == ".ico") return "image/x-icon";
+    if (extension == ".woff2") return "font/woff2";
+    if (extension == ".woff") return "font/woff";
+    if (extension == ".ttf") return "font/ttf";
     return "application/octet-stream";
+}
+
+// 按 UTF-8 字符边界截断，避免 json 序列化遇到半个字符而失败。
+std::string utf8Truncate(const std::string& text, size_t maxBytes) {
+    if (text.size() <= maxBytes) return text;
+    size_t cut = maxBytes;
+    while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0) == 0x80) --cut;
+    return text.substr(0, cut);
+}
+
+// 查询参数百分号编码，保证课程 ID 与复习 ID 可安全拼进链接。
+std::string queryValue(const std::string& value) {
+    static constexpr char kHex[] = "0123456789ABCDEF";
+    std::string encoded;
+    encoded.reserve(value.size());
+    for (const unsigned char character : value) {
+        const bool plain = (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+            (character >= '0' && character <= '9') || character == '-' || character == '_' ||
+            character == '.' || character == '~';
+        if (plain) {
+            encoded.push_back(static_cast<char>(character));
+        } else {
+            encoded.push_back('%');
+            encoded.push_back(kHex[character >> 4]);
+            encoded.push_back(kHex[character & 0x0F]);
+        }
+    }
+    return encoded;
 }
 
 }  // namespace
@@ -135,21 +167,32 @@ std::string mondayDate() {
     return output.str();
 }
 
-nlohmann::json courseTopics(gangyi::Database& db, const std::string& courseId, const nlohmann::json& payload) {
-    nlohmann::json topics = nlohmann::json::array();
+// 课程结构里每个主题依次回调 (阶段序号, 主题序号, 主题名)。
+template <typename Callback>
+void forEachTopic(const nlohmann::json& payload, Callback callback) {
+    if (!payload.is_object()) return;
     const auto stages = payload.value("courseStructure", nlohmann::json::array());
+    if (!stages.is_array()) return;
     int phaseIndex = 0;
-    if (stages.is_array()) for (const auto& stage : stages) {
+    for (const auto& stage : stages) {
         ++phaseIndex;
         if (!stage.is_object()) continue;
         const auto items = stage.value("topics", nlohmann::json::array());
+        if (!items.is_array()) continue;
         int topicIndex = 0;
-        if (items.is_array()) for (const auto& item : items) {
+        for (const auto& item : items) {
             ++topicIndex;
-            const auto progress = db.findLearningCardProgress(courseId, phaseIndex, topicIndex);
-            if (item.is_string() && (!progress || progress->status != "completed")) topics.push_back(item);
+            if (item.is_string()) callback(phaseIndex, topicIndex, item.get<std::string>());
         }
     }
+}
+
+nlohmann::json courseTopics(gangyi::Database& db, const std::string& courseId, const nlohmann::json& payload) {
+    nlohmann::json topics = nlohmann::json::array();
+    forEachTopic(payload, [&](int phaseIndex, int topicIndex, const std::string& name) {
+        const auto progress = db.findLearningCardProgress(courseId, phaseIndex, topicIndex);
+        if (!progress || progress->status != "completed") topics.push_back(name);
+    });
     return topics;
 }
 
@@ -789,14 +832,48 @@ int main() {
         const std::string anonymousId = requestAnonymousId(req);
         const auto courses = gangyi::listCoursesForIdentity(db, "", "", 100, 0);
         nlohmann::json list = nlohmann::json::array();
+        nlohmann::json dueReviews = nlohmann::json::array();
+        int totalTopics = 0, doneTopics = 0, dueTotal = 0;
         for (const auto& c : courses) {
             const std::string title = c.title.empty() ? (c.goal.empty() ? c.id : c.goal) : c.title;
+            int courseTotal = 0, courseDone = 0;
+            if (const auto found = gangyi::getCourseWithSnapshot(db, c.id)) {
+                forEachTopic(found->payload, [&](int phaseIndex, int topicIndex, const std::string&) {
+                    ++courseTotal;
+                    const auto progress = db.findLearningCardProgress(c.id, phaseIndex, topicIndex);
+                    if (progress && progress->status == "completed") ++courseDone;
+                });
+            }
+            int courseDue = 0;
+            try {
+                for (const auto& review : gangyi::dueReviews(db, c.id, todayDate())) {
+                    ++courseDue;
+                    std::string reviewHref = "/learn?courseId=" + queryValue(c.id) +
+                        "&phaseIndex=" + std::to_string(review.value("phaseIndex", 0)) +
+                        "&topicIndex=" + std::to_string(review.value("topicIndex", 0)) +
+                        "&review=" + std::to_string(review.value("day", 0));
+                    const std::string reviewId = review.value("reviewId", std::string());
+                    if (!reviewId.empty()) reviewHref += "&reviewId=" + queryValue(reviewId);
+                    dueReviews.push_back({{"course", title},
+                        {"title", review.value("title", std::string("到期复习"))},
+                        {"due", review.value("due", std::string())},
+                        {"href", reviewHref}});
+                }
+            } catch (...) {}
+            totalTopics += courseTotal;
+            doneTopics += courseDone;
+            dueTotal += courseDue;
             list.push_back({{"courseId", c.id}, {"title", title}, {"goal", c.goal}, {"mode", c.mode},
                 {"source", c.source}, {"createdAt", c.createdAt}, {"updatedAt", c.updatedAt},
-                {"status", "generated"}});
+                {"status", "generated"}, {"totalTopics", courseTotal}, {"doneTopics", courseDone},
+                {"percent", courseTotal > 0 ? courseDone * 100 / courseTotal : 0},
+                {"dueCount", courseDue}});
         }
         crow::response response(gangyi::renderMyCoursesPage({{"courses", list}, {"anonymousId", anonymousId},
-            {"stats", {{"total", static_cast<int>(courses.size())}}}}));
+            {"dueReviews", dueReviews},
+            {"stats", {{"total", static_cast<int>(courses.size())}, {"totalTopics", totalTopics},
+                {"doneTopics", doneTopics}, {"due", dueTotal},
+                {"percent", totalTopics > 0 ? doneTopics * 100 / totalTopics : 0}}}}));
         response.set_header("Content-Type", "text/html; charset=utf-8");
         return response;
     });
@@ -1077,6 +1154,39 @@ int main() {
         } catch (...) {
             return crow::response(400, nlohmann::json{{"ok", false}, {"error", "请求内容格式不正确。"}}.dump());
         }
+    });
+
+    // 追问建议：一次轻量请求；任何失败都返回空数组，前端会退回固定建议。
+    CROW_ROUTE(app, "/api/ask/suggestions").methods(crow::HTTPMethod::POST)([](const crow::request& req) {
+        nlohmann::json suggestions = nlohmann::json::array();
+        try {
+            const auto body = nlohmann::json::parse(req.body);
+            const std::string question = utf8Truncate(body.value("question", std::string()), 2000);
+            const std::string answer = utf8Truncate(body.value("answer", std::string()), 6000);
+            const std::string topic = utf8Truncate(body.value("topic", std::string()), 120);
+            if (!question.empty() && !answer.empty()) {
+                gangyi::AIClient ai;
+                gangyi::ChatOptions options;
+                options.messages.push_back({"system", u8"你是钢一定制AI。根据刚结束的一轮问答，给出三条学生最可能继续追问的短问题。每条不超过 24 个汉字，必须指向本轮话题的具体下一步，不要重复原问题。只输出 JSON。"});
+                options.messages.push_back({"user", nlohmann::json{{"question", question}, {"answer", answer},
+                    {"topic", topic}}.dump() + u8"\n输出格式：{\"suggestions\":[\"\",\"\",\"\"]}"});
+                options.temperature = 0.6;
+                options.maxTokens = 260;
+                options.timeoutMs = 12000;
+                options.maxAttempts = 1;
+                const auto parsed = gangyi::parseAIJson(ai.chat(options).content);
+                if (parsed.is_object() && parsed.contains("suggestions") && parsed["suggestions"].is_array()) {
+                    for (const auto& item : parsed["suggestions"]) {
+                        if (!item.is_string()) continue;
+                        const std::string text = item.get<std::string>();
+                        if (text.empty() || text.size() > 120) continue;
+                        suggestions.push_back(text);
+                        if (suggestions.size() >= 3) break;
+                    }
+                }
+            }
+        } catch (...) {}
+        return crow::response(200, nlohmann::json{{"ok", true}, {"suggestions", suggestions}}.dump());
     });
 
     // 课堂内上下文对话：问题必须携带当前课程目标、阶段和主题，避免退化为全局闲聊。
