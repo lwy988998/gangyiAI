@@ -251,8 +251,14 @@ bool Database::upsert(const ClassroomActivity& value) {
     const bool saved = done(s);
     if (saved && assessment && (!previous || previous->payload != value.payload)) {
         const auto payload = nlohmann::json::parse(value.payload, nullptr, false);
-        if (payload.is_object() && payload.value("status", "") == "answered" && payload.value("credible", false))
-            markProfileDirty();
+        if (payload.is_object() && payload.value("status", "") == "answered" && payload.value("credible", false)) {
+            const auto old = previous ? nlohmann::json::parse(previous->payload, nullptr, false) : nlohmann::json();
+            // 提示展开、反馈展示等界面变化不算新答案，避免额外触发 AI 评估。
+            bool changed = !old.is_object() || old.value("status", "") != "answered" || !old.value("credible", false);
+            for (const char* key : {"question", "options", "rubric", "type", "answer", "correct", "unknown"})
+                if (!old.is_object() || old.value(key, nlohmann::json()) != payload.value(key, nlohmann::json())) changed = true;
+            if (changed) markProfileDirty();
+        }
     }
     return saved;
 }
