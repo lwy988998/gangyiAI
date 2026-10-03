@@ -79,6 +79,11 @@ body[data-classroom-mode=familiar] #learn-steps article:nth-child(-n+2) p{displa
 .chat-body p{margin:0 0 10px}
 .chat-body h3,.chat-body h4,.chat-body h5,.chat-body h6{margin:14px 0 8px;font-size:1.02em;font-weight:700;color:#e9f8f1}
 .chat-body ul,.chat-body ol{margin:6px 0 10px;padding-left:22px}
+/* Tailwind 预置样式清空了列表标记，这里显式恢复，保证回答里的清单看得见。 */
+.chat-body ul{list-style:disc}
+.chat-body ol{list-style:decimal}
+.chat-body ul ul{list-style:circle}
+.chat-body ul ul ul{list-style:square}
 .chat-body li{margin:4px 0}
 .chat-body blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid #a4e5d2;border-radius:0 6px 6px 0;background:#182a26;color:#c2d4d0}
 .chat-body code{padding:1px 5px;border-radius:4px;background:#20332d;font-family:Consolas,"Courier New",monospace;font-size:.94em}
