@@ -4,6 +4,7 @@
 #include "json_fix.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <ctime>
 #include <iomanip>
@@ -18,6 +19,16 @@ namespace {
 
 // ponytail: 单实例全局锁串行化课堂题生成；并发课程增多时改为按课时锁。
 std::mutex classroomMutex;
+// 周计划写入与预览确认使用同一把锁，避免跨窗口覆盖新版本。
+std::recursive_mutex weeklyMutex;
+struct WeeklyProposal {
+    Json plan;
+    int version;
+    std::string id, message, source;
+    std::chrono::steady_clock::time_point expires;
+};
+std::map<std::string, WeeklyProposal> weeklyProposals;
+std::atomic_uint64_t proposalSequence{0};
 
 std::string now() {
     const auto clock = std::chrono::system_clock::now();
@@ -178,9 +189,11 @@ Json normalizedTopics(const Json& raw) {
     return topics;
 }
 
-Json suggestTopicOrder(const Json& topics, const Json& performance) {
+Json suggestTopicOrder(const Json& topics, const Json& performance, bool* usedAI = nullptr) {
+    if (usedAI) *usedAI = false;
     const Json names = normalizedTopics(topics);
-    if (names.empty()) return names;
+    if (names.empty()) return topics;
+    if (std::set<Json>(names.begin(), names.end()).size() != names.size()) return topics;
     try {
         ChatOptions options;
         options.temperature = 0.2;
@@ -192,14 +205,21 @@ Json suggestTopicOrder(const Json& topics, const Json& performance) {
         AIClient ai;
         const Json reply = parseAIJson(ai.chat(options).content);
         const Json proposed = reply.at("topics");
-        if (!proposed.is_array() || proposed.empty() || proposed.size() > 7) return names;
+        if (!proposed.is_array() || proposed.empty() || proposed.size() > 7) return topics;
         std::set<std::string> seen;
         for (const auto& item : proposed) {
             if (!item.is_string() || std::find(names.begin(), names.end(), item) == names.end() ||
-                !seen.insert(item.get<std::string>()).second) return names;
+                !seen.insert(item.get<std::string>()).second) return topics;
         }
-        return proposed;
-    } catch (...) { return names; }
+        Json ordered = Json::array();
+        for (const auto& name : proposed) {
+            for (size_t i = 0; i < names.size(); ++i) if (names[i] == name) { ordered.push_back(topics[i]); break; }
+        }
+        // 模型只建议前几项，其余课时仍保留，不能丢失待学习内容。
+        for (size_t i = 0; i < names.size(); ++i) if (!seen.count(names[i].get<std::string>())) ordered.push_back(topics[i]);
+        if (usedAI) *usedAI = true;
+        return ordered;
+    } catch (...) { return topics; }
 }
 
 Json recentPerformance(Database& db, const std::string& courseId, const Json& reviews) {
@@ -215,11 +235,52 @@ Json recentPerformance(Database& db, const std::string& courseId, const Json& re
         if (row.courseId.value_or("") != courseId || row.kind != "quiz") continue;
         const Json quiz = Json::parse(row.payload, nullptr, false);
         if (quiz.is_object()) result["quizzes"].push_back({{"score", quiz.value("score", 0)},
-            {"total", quiz.value("total", 0)}, {"topic", quiz.value("topic", "")}});
+            {"total", quiz.value("total", 0)}, {"topic", quiz.value("topic", "")},
+            {"phaseIndex", quiz.value("phaseIndex", 0)}, {"topicIndex", quiz.value("topicIndex", 0)},
+            {"unknownCount", quiz.value("unknownCount", 0)}, {"results", quiz.value("results", Json::array())},
+            {"createdAt", row.createdAt}});
     }
     for (const char* key : {"activities", "quizzes"}) if (result[key].size() > 20)
         result[key].erase(result[key].begin(), result[key].end() - 20);
     return result;
+}
+
+// 客观作答优先于旧画像；无模型配置时也能完成真正的补弱排序。
+Json prioritizeTopics(Database& db, const std::string& courseId, const Json& topics, const Json& performance) {
+    std::map<std::string, bool> weak;
+    const auto key = [](const Json& item) {
+        return std::to_string(item.value("phaseIndex", 0)) + ":" +
+            std::to_string(item.value("topicIndex", 0)) + ":" + item.value("title", item.value("topic", ""));
+    };
+    for (const auto& state : db.listTopicMastery()) if (state.courseId == courseId && state.score && state.evidenceCount > 0)
+        for (const auto& topic : topics) if (topic.is_object() && topic.value("phaseIndex", 0) == state.phaseIndex &&
+            topic.value("title", "") == state.topic) weak[key(topic)] = *state.score < 70;
+    for (const auto& item : performance["activities"]) if (item.value("credible", false))
+        for (const auto& topic : topics) if (topic.is_object() && topic.value("phaseIndex", 0) == item.value("phaseIndex", 0) &&
+            topic.value("topicIndex", 0) == item.value("topicIndex", 0)) weak[key(topic)] = !item.value("correct", false);
+    for (const auto& quiz : performance["quizzes"]) if (quiz.value("total", 0) > 0) {
+        const auto results = quiz.value("results", Json::array());
+        if (!results.empty() && std::none_of(results.begin(), results.end(), [](const Json& item) { return item.value("answered", false); })) continue;
+        for (const auto& topic : topics) if (topic.is_object() && topic.value("phaseIndex", 0) == quiz.value("phaseIndex", 0) &&
+            topic.value("topicIndex", 0) == quiz.value("topicIndex", 0))
+            weak[key(topic)] = quiz.value("score", 0) * 10 < quiz.value("total", 0) * 7;
+    }
+    std::vector<Json> ordered(topics.begin(), topics.end());
+    std::stable_sort(ordered.begin(), ordered.end(), [&](const Json& a, const Json& b) {
+        return (a.is_object() && weak[key(a)]) > (b.is_object() && weak[key(b)]);
+    });
+    return Json(ordered);
+}
+
+std::string availableWeek(const Json& availability, const std::string& monday, const std::string& today) {
+    for (const auto& slot : availability)
+        if (addDays(monday, slot.at("weekday").get<int>() - 1) >= today) return monday;
+    return addDays(monday, 7);
+}
+
+Json comparableEntries(Json entries) {
+    for (auto& item : entries) item.erase("manual");
+    return entries;
 }
 
 bool futureStarted(Database& db, const std::string& courseId, int phaseIndex, int topicIndex) {
@@ -366,7 +427,7 @@ bool sufficientPathEvidence(const Json& evidence, const std::string& direction) 
 
 Json defaultAvailability() { return Json::array({{{"weekday", 1}, {"minutes", 30}}, {{"weekday", 3}, {"minutes", 30}}, {{"weekday", 5}, {"minutes", 30}}}); }
 
-Json buildWeeklyDraft(const Json& availability, const Json& topics, const Json& reviews, const std::string& monday) {
+Json buildWeeklyDraft(const Json& availability, const Json& topics, const Json& reviews, const std::string& monday, const std::string& notBefore) {
     if (!validAvailability(availability)) throw std::invalid_argument("可用时间无效");
     Json entries = Json::array();
     const Json names = normalizedTopics(topics);
@@ -381,16 +442,22 @@ Json buildWeeklyDraft(const Json& availability, const Json& topics, const Json& 
         const auto slot = std::find_if(availability.begin(), availability.end(), [day](const Json& item) { return item.value("weekday", 0) == day; });
         if (slot == availability.end()) continue;
         const std::string date = addDays(monday, day - 1);
+        if (!notBefore.empty() && date < notBefore) continue;
         int remaining = (*slot)["minutes"].get<int>();
         while (!pending.empty() && pending.front().value("due", "") <= date && remaining >= 10) {
             entries.push_back({{"date", date}, {"title", pending.front().value("title", "到期复习")}, {"kind", "review"},
-                {"minutes", 10}, {"manual", false}, {"order", entries.size()}});
+                {"minutes", 10}, {"manual", false}, {"order", entries.size()},
+                {"reviewId", pending.front().value("reviewId", "")}});
             remaining -= 10;
             pending.erase(pending.begin());
         }
         if (topicIndex < names.size() && remaining >= 10) {
-            entries.push_back({{"date", date}, {"title", names[topicIndex++]}, {"kind", "lesson"},
-                {"minutes", std::min(30, remaining)}, {"manual", false}, {"order", entries.size()}});
+            Json entry = {{"date", date}, {"title", names[topicIndex]}, {"kind", "lesson"},
+                {"minutes", std::min(30, remaining)}, {"manual", false}, {"order", entries.size()}};
+            if (topics[topicIndex].is_object()) for (const char* field : {"phaseIndex", "topicIndex"})
+                if (topics[topicIndex].contains(field)) entry[field] = topics[topicIndex][field];
+            entries.push_back(std::move(entry));
+            ++topicIndex;
         }
     }
     return entries;
@@ -652,7 +719,9 @@ Json dueReviews(Database& db, const std::string& courseId, const std::string& to
     return due;
 }
 
-Json getWeeklyPlan(Database& db, const std::string& courseId, const Json& topics, const std::string& monday) {
+Json getWeeklyPlan(Database& db, const std::string& courseId, const Json& topics, const std::string& monday,
+                   const std::string& today) {
+    std::lock_guard<std::recursive_mutex> guard(weeklyMutex);
     const auto saved = db.getWeeklyPlan(courseId);
     Json availability = defaultAvailability();
     int version = 1;
@@ -660,20 +729,26 @@ Json getWeeklyPlan(Database& db, const std::string& courseId, const Json& topics
         Json plan = Json::parse(saved->payload, nullptr, false);
         if (plan.is_object()) {
             plan["version"] = saved->version;
-            if (plan.value("weekStart", "") == monday) return plan;
+            // 顺延到下周的计划不能在本周再次读取时被重置。
+            const auto start = plan.value("weekStart", "");
+            if (start >= monday && start <= addDays(monday, 7)) return plan;
             availability = plan.value("availability", availability);
             version = saved->version + 1;
         }
     }
-    const Json reviews = dueReviews(db, courseId, addDays(monday, 6));
-    const Json entries = buildWeeklyDraft(availability,
-        suggestTopicOrder(topics, recentPerformance(db, courseId, reviews)), reviews, monday);
-    Json plan = {{"availability", availability}, {"entries", entries}, {"weekStart", monday}, {"version", version}};
+    const std::string from = today.empty() ? monday : today;
+    const auto start = availableWeek(availability, monday, from);
+    const Json reviews = dueReviews(db, courseId, addDays(start, 6));
+    const Json performance = recentPerformance(db, courseId, reviews);
+    const Json order = prioritizeTopics(db, courseId, suggestTopicOrder(topics, performance), performance);
+    const Json entries = buildWeeklyDraft(availability, order, reviews, start, from);
+    Json plan = {{"availability", availability}, {"entries", entries}, {"weekStart", start}, {"version", version}};
     if (!db.upsert(WeeklyPlan{courseId, plan.dump(), now(), version})) throw std::runtime_error("周计划保存失败");
     return plan;
 }
 
-Json editWeeklyPlan(Database& db, const std::string& courseId, const Json& body) {
+Json editWeeklyPlan(Database& db, const std::string& courseId, const Json& body, const std::string& today) {
+    std::lock_guard<std::recursive_mutex> guard(weeklyMutex);
     const auto saved = db.getWeeklyPlan(courseId);
     if (!saved) throw std::invalid_argument("请先读取周计划");
     if (body.value("version", 0) != saved->version) throw std::invalid_argument("周计划版本已变化，请刷新");
@@ -684,12 +759,22 @@ Json editWeeklyPlan(Database& db, const std::string& courseId, const Json& body)
     if (!body.contains("entries")) {
         const auto found = getCourseWithSnapshot(db, courseId);
         Json topics = Json::array();
+        int phase = 0;
         if (found && found->payload.value("courseStructure", Json()).is_array())
-            for (const auto& stage : found->payload["courseStructure"])
-                if (stage.is_object() && stage.value("topics", Json()).is_array())
-                    for (const auto& item : stage["topics"]) topics.push_back(item);
-        entries = buildWeeklyDraft(availability, topics, dueReviews(db, courseId, addDays(plan.value("weekStart", ""), 6)),
-            plan.value("weekStart", ""));
+            for (const auto& stage : found->payload["courseStructure"]) {
+                ++phase;
+                int index = 0;
+                if (stage.is_object() && stage.value("topics", Json()).is_array()) for (const auto& item : stage["topics"]) {
+                    ++index;
+                    const auto progress = db.findLearningCardProgress(courseId, phase, index);
+                    if (!progress || progress->status != "completed") topics.push_back({{"title", item}, {"phaseIndex", phase}, {"topicIndex", index}});
+                }
+            }
+        const auto from = today.empty() ? plan.value("weekStart", "") : today;
+        const auto start = availableWeek(availability, plan.value("weekStart", ""), from);
+        plan["weekStart"] = start;
+        const auto reviews = dueReviews(db, courseId, addDays(start, 6));
+        entries = buildWeeklyDraft(availability, prioritizeTopics(db, courseId, topics, recentPerformance(db, courseId, reviews)), reviews, start, from);
     }
     const Json oldEntries = plan.value("entries", Json::array());
     plan["availability"] = availability;
@@ -697,37 +782,80 @@ Json editWeeklyPlan(Database& db, const std::string& courseId, const Json& body)
     plan["manualAvailability"] = body.contains("availability");
     for (size_t i = 0; i < plan["entries"].size(); ++i) {
         const bool changed = body.contains("entries") && (i >= oldEntries.size() ||
-            entries[i].value("date", "") != oldEntries[i].value("date", "") ||
-            entries[i].value("minutes", 0) != oldEntries[i].value("minutes", 0) ||
-            entries[i].value("order", 0) != oldEntries[i].value("order", 0));
+            comparableEntries(Json::array({entries[i]})) != comparableEntries(Json::array({oldEntries[i]})));
         plan["entries"][i]["manual"] = changed || entries[i].value("manual", false);
     }
     plan["version"] = saved->version + 1;
     if (!db.upsert(WeeklyPlan{courseId, plan.dump(), now(), saved->version + 1})) throw std::runtime_error("周计划保存失败");
+    weeklyProposals.erase(courseId);
     return plan;
 }
 
 Json replanWeeklyPlan(Database& db, const std::string& courseId, const Json& topics,
-                      const std::string& monday, bool confirm) {
-    Json current = getWeeklyPlan(db, courseId, topics, monday);
-    const Json reviews = dueReviews(db, courseId, addDays(monday, 6));
-    const Json proposed = buildWeeklyDraft(current.value("availability", defaultAvailability()),
-        suggestTopicOrder(topics, recentPerformance(db, courseId, reviews)), reviews, monday);
-    bool overridesManual = false;
-    for (const auto& entry : current.value("entries", Json::array()))
-        if (entry.value("manual", false) && std::find_if(proposed.begin(), proposed.end(),
-            [&](const Json& item) {
-                return item.value("date", "") == entry.value("date", "") &&
-                    item.value("title", "") == entry.value("title", "") &&
-                    item.value("minutes", 0) == entry.value("minutes", 0) &&
-                    item.value("order", 0) == entry.value("order", 0);
-            }) == proposed.end()) overridesManual = true;
-    if (overridesManual && !confirm) return {{"requiresConfirmation", true}, {"current", current}, {"proposed", proposed}};
-    current["entries"] = proposed;
-    current["weekStart"] = monday;
-    current["version"] = current.value("version", 1) + 1;
-    if (!db.upsert(WeeklyPlan{courseId, current.dump(), now(), current["version"]})) throw std::runtime_error("周计划保存失败");
-    return {{"requiresConfirmation", false}, {"plan", current}};
+                      const std::string& monday, bool confirm, const Json& edits, const std::string& today) {
+    std::lock_guard<std::recursive_mutex> guard(weeklyMutex);
+    const auto saved = db.getWeeklyPlan(courseId);
+    if (!saved) throw std::invalid_argument("请先读取周计划");
+    if (edits.contains("version") && edits.at("version") != saved->version)
+        throw std::invalid_argument("周计划版本已变化，请刷新后重排");
+    Json current = Json::parse(saved->payload);
+    current["version"] = saved->version;
+    if (confirm) {
+        const auto pending = weeklyProposals.find(courseId);
+        if (pending == weeklyProposals.end() || pending->second.version != saved->version ||
+            pending->second.expires < std::chrono::steady_clock::now() ||
+            (edits.contains("proposalId") && edits.at("proposalId") != pending->second.id))
+            throw std::invalid_argument("重排预览已失效，请重新重排");
+        auto proposal = pending->second;
+        proposal.plan["version"] = saved->version + 1;
+        if (!db.upsert(WeeklyPlan{courseId, proposal.plan.dump(), now(), saved->version + 1})) throw std::runtime_error("周计划保存失败");
+        weeklyProposals.erase(pending);
+        return {{"requiresConfirmation", false}, {"plan", proposal.plan}, {"changed", true},
+            {"message", proposal.message}, {"source", proposal.source}};
+    }
+    const Json availability = edits.value("availability", current.value("availability", defaultAvailability()));
+    const Json visibleEntries = edits.value("entries", current.value("entries", Json::array()));
+    if (!validAvailability(availability) || !validEntries(visibleEntries)) throw std::invalid_argument("请选择有效学习日和时长");
+    const auto from = today.empty() ? monday : today;
+    const auto start = availableWeek(availability, monday, from);
+    const auto reviews = dueReviews(db, courseId, addDays(start, 6));
+    if (topics.empty() && reviews.empty()) return {{"requiresConfirmation", false}, {"plan", current},
+        {"changed", false}, {"message", "没有待安排的课时或复习任务。"}, {"source", "rules"}};
+    const auto performance = recentPerformance(db, courseId, reviews);
+    bool usedAI = false;
+    const auto order = prioritizeTopics(db, courseId, suggestTopicOrder(topics, performance, &usedAI), performance);
+    const auto proposed = buildWeeklyDraft(availability, order, reviews, start, from);
+    Json next = current;
+    next["availability"] = availability;
+    next["entries"] = proposed;
+    next["weekStart"] = start;
+    const bool changed = current.value("weekStart", "") != start || current.at("availability") != availability ||
+        comparableEntries(current.at("entries")) != comparableEntries(proposed);
+    const bool visibleChanged = comparableEntries(visibleEntries) != comparableEntries(proposed);
+    const std::string prefix = usedAI ? "" : "AI 暂不可用，已按学习记录重排。";
+    const std::string message = prefix + (changed || visibleChanged ?
+        (start > monday ? "已顺延到下周：" : "已更新学习安排：") + start + " 至 " + addDays(start, 6) + "。" :
+        "已检查最新表现，当前安排无需变化。");
+    bool manual = comparableEntries(visibleEntries) != comparableEntries(current.at("entries"));
+    for (const auto& entry : visibleEntries) manual = manual || entry.value("manual", false);
+    if (manual && visibleChanged) {
+        const auto clock = std::chrono::steady_clock::now();
+        for (auto item = weeklyProposals.begin(); item != weeklyProposals.end(); )
+            if (item->second.expires < clock) item = weeklyProposals.erase(item); else ++item;
+        const auto id = std::to_string(clock.time_since_epoch().count()) + "-" + std::to_string(++proposalSequence);
+        weeklyProposals.insert_or_assign(courseId, WeeklyProposal{next, saved->version, id, message,
+            usedAI ? "ai" : "rules", clock + std::chrono::minutes(10)});
+        Json visible = current; visible["entries"] = visibleEntries; visible["availability"] = availability;
+        return {{"requiresConfirmation", true}, {"current", visible}, {"proposed", proposed},
+            {"proposalId", id}, {"weekStart", start}, {"message", message}, {"source", usedAI ? "ai" : "rules"}};
+    }
+    if (changed) {
+        next["version"] = saved->version + 1;
+        if (!db.upsert(WeeklyPlan{courseId, next.dump(), now(), saved->version + 1})) throw std::runtime_error("周计划保存失败");
+    }
+    weeklyProposals.erase(courseId);
+    return {{"requiresConfirmation", false}, {"plan", next}, {"changed", changed},
+        {"message", message}, {"source", usedAI ? "ai" : "rules"}};
 }
 
 Json finishClassroom(Database& db, const std::string& courseId, int phaseIndex, int topicIndex,

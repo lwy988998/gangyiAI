@@ -14,7 +14,7 @@ bool credibleOpenEvaluation(const Json& evaluation);
 bool sufficientPathEvidence(const Json& evidence, const std::string& direction);
 Json defaultAvailability();
 Json buildWeeklyDraft(const Json& availability, const Json& topics, const Json& reviews,
-                      const std::string& monday);
+                      const std::string& monday, const std::string& notBefore = {});
 Json publicQuestion(const Json& item);
 Json classroomStart(Database& db, const std::string& courseId, int phaseIndex, int topicIndex,
                     const std::string& kind, const std::string& topic);
@@ -30,10 +30,12 @@ Json submitReview(Database& db, const std::string& courseId, int phaseIndex, int
                   int day, const Json& answers, const std::string& today,
                   const std::string& reviewId = {});
 Json dueReviews(Database& db, const std::string& courseId, const std::string& today);
-Json getWeeklyPlan(Database& db, const std::string& courseId, const Json& topics, const std::string& monday);
-Json editWeeklyPlan(Database& db, const std::string& courseId, const Json& body);
+Json getWeeklyPlan(Database& db, const std::string& courseId, const Json& topics, const std::string& monday,
+                   const std::string& today = {});
+Json editWeeklyPlan(Database& db, const std::string& courseId, const Json& body, const std::string& today = {});
 Json replanWeeklyPlan(Database& db, const std::string& courseId, const Json& topics,
-                      const std::string& monday, bool confirm);
+                      const std::string& monday, bool confirm, const Json& edits = Json::object(),
+                      const std::string& today = {});
 Json finishClassroom(Database& db, const std::string& courseId, int phaseIndex, int topicIndex,
                      bool passed, const std::string& today);
 

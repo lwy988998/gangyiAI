@@ -14,6 +14,7 @@
 #include "learning_generator.hpp"
 #include "image_goal_analyzer.hpp"
 #include "profile_service.hpp"
+#include "home_recommendations.hpp"
 #include "classroom_service.hpp"
 #include "json_fix.hpp"
 
@@ -191,7 +192,7 @@ nlohmann::json courseTopics(gangyi::Database& db, const std::string& courseId, c
     nlohmann::json topics = nlohmann::json::array();
     forEachTopic(payload, [&](int phaseIndex, int topicIndex, const std::string& name) {
         const auto progress = db.findLearningCardProgress(courseId, phaseIndex, topicIndex);
-        if (!progress || progress->status != "completed") topics.push_back(name);
+        if (!progress || progress->status != "completed") topics.push_back({{"title", name}, {"phaseIndex", phaseIndex}, {"topicIndex", topicIndex}});
     });
     return topics;
 }
@@ -386,6 +387,7 @@ int main() {
     } catch (...) {}
     db.open(config.database_path);
     db.migrate();
+    gangyi::HomeRecommendations homeRecommendations(config.database_path, config.launch_session_id);
     crow::SimpleApp app;
     // 访问路径可能包含用户填写的学习目标，避免将其写入信息级访问日志。
     app.loglevel(crow::LogLevel::Warning);
@@ -396,11 +398,16 @@ int main() {
         return response;
     });
 
-    CROW_ROUTE(app, "/plan")([](const crow::request& req) {
+    CROW_ROUTE(app, "/plan")([&db](const crow::request& req) {
         const char* goal = req.url_params.get("goal");
         const char* mode = req.url_params.get("mode");
         const char* courseId = req.url_params.get("courseId");
         const char* anonymousId = req.url_params.get("anonymousId");
+        // 访问记录只用于最近课程排序，不作为掌握度证据。
+        try {
+            if (courseId && *courseId && requesterCanAccessCourse(db, req, courseId, requestAnonymousId(req)))
+                recordInteraction(db, "course-visit", nlohmann::json::object(), courseId);
+        } catch (...) { /* 记录暂时不可用时，仍允许打开课程。 */ }
         crow::response response(gangyi::renderPlanPage(goal ? goal : "", mode ? mode : "deep",
             courseId ? courseId : "", anonymousId ? anonymousId : ""));
         response.set_header("Content-Type", "text/html; charset=utf-8");
@@ -510,6 +517,15 @@ int main() {
             return std::string(item ? item : "");
         };
         const std::string anonymousId = requestAnonymousId(req);
+        try {
+            const auto courseId = value("courseId");
+            if (!courseId.empty() && requesterCanAccessCourse(db, req, courseId, anonymousId)) {
+                const int phase = std::stoi(value("phaseIndex")), index = std::stoi(value("topicIndex"));
+                const auto topic = savedTopic(db, courseId, phase, index);
+                if (!topic.empty()) recordInteraction(db, "lesson-visit",
+                    {{"phaseIndex", phase}, {"topicIndex", index}, {"topic", topic}}, courseId);
+            }
+        } catch (...) { /* 不让访问记录影响课堂页面加载。 */ }
         crow::response response(gangyi::renderLearnPage(
             value("courseId"), value("goal"), value("mode").empty() ? "deep" : value("mode"),
             value("phaseIndex"), value("phaseName"), value("topicIndex"), value("topic"),
@@ -1464,7 +1480,7 @@ int main() {
         const std::string courseId = req.url_params.get("courseId") ? req.url_params.get("courseId") : "";
         const auto found = gangyi::getCourseWithSnapshot(db, courseId);
         if (!found || !requesterCanReadCourse(db, found->course, req)) return crow::response(404, "{}");
-        try { return crow::response(200, gangyi::getWeeklyPlan(db, courseId, courseTopics(db, courseId, found->payload), mondayDate()).dump()); }
+        try { return crow::response(200, gangyi::getWeeklyPlan(db, courseId, courseTopics(db, courseId, found->payload), mondayDate(), todayDate()).dump()); }
         catch (...) { return crow::response(503, nlohmann::json{{"error", "周计划读取失败"}}.dump()); }
     });
 
@@ -1473,7 +1489,7 @@ int main() {
             const auto body = nlohmann::json::parse(req.body);
             const std::string courseId = body.at("courseId").get<std::string>();
             if (!requesterCanAccessCourse(db, req, courseId, "")) return crow::response(404, "{}");
-            return crow::response(200, gangyi::editWeeklyPlan(db, courseId, body).dump());
+            return crow::response(200, gangyi::editWeeklyPlan(db, courseId, body, todayDate()).dump());
         } catch (const std::invalid_argument& error) {
             return crow::response(409, nlohmann::json{{"error", error.what()}}.dump());
         } catch (...) { return crow::response(400, nlohmann::json{{"error", "周计划保存失败"}}.dump()); }
@@ -1486,8 +1502,9 @@ int main() {
             const auto found = gangyi::getCourseWithSnapshot(db, courseId);
             if (!found || !requesterCanReadCourse(db, found->course, req)) return crow::response(404, "{}");
             return crow::response(200, gangyi::replanWeeklyPlan(db, courseId, courseTopics(db, courseId, found->payload),
-                mondayDate(), body.value("confirm", false)).dump());
-        } catch (...) { return crow::response(400, nlohmann::json{{"error", "重排失败"}}.dump()); }
+                mondayDate(), body.value("confirm", false), body, todayDate()).dump());
+        } catch (const std::invalid_argument& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
+        catch (...) { return crow::response(400, nlohmann::json{{"error", "重排失败"}}.dump()); }
     });
 
     CROW_ROUTE(app, "/api/classroom/finish").methods(crow::HTTPMethod::POST)([&db](const crow::request& req) {
@@ -1509,6 +1526,13 @@ int main() {
             }
             return crow::response(200, gangyi::finishClassroom(db, courseId, phase, topic, passed, todayDate()).dump());
         } catch (...) { return crow::response(503, nlohmann::json{{"error", "下一步暂未保存，原课程仍可继续。"}}.dump()); }
+    });
+
+    CROW_ROUTE(app, "/api/recent-courses")([&db] {
+        crow::response response(200, nlohmann::json{{"courses", gangyi::recentCourses(db)}}.dump());
+        response.set_header("Content-Type", "application/json; charset=utf-8");
+        response.set_header("Cache-Control", "no-store");
+        return response;
     });
 
     CROW_ROUTE(app, "/api/profile")([&db] {
@@ -1538,6 +1562,13 @@ int main() {
                 {"evidenceIds", nlohmann::json::parse(value.evidenceIds, nullptr, false)},
                 {"nextReviewAt", value.nextReviewAt}, {"version", value.version}, {"updatedAt", value.updatedAt}});
         return crow::response(200, nlohmann::json{{"ok", true}, {"topics", topics}}.dump());
+    });
+
+    CROW_ROUTE(app, "/api/home/recommendations")([&homeRecommendations] {
+        crow::response response(homeRecommendations.view().dump());
+        response.set_header("Content-Type", "application/json; charset=utf-8");
+        response.set_header("Cache-Control", "no-store");
+        return response;
     });
 
     CROW_ROUTE(app, "/startup")([] {
@@ -1584,24 +1615,27 @@ int main() {
             const auto quiz = content.at("blocks").at("quiz").at("quiz");
             if (!quiz.is_array() || quiz.empty() || body["answers"].size() != quiz.size())
                 return crow::response(400, nlohmann::json{{"ok", false}, {"error", "测验答案数量不正确"}}.dump());
-            int score = 0;
+            int score = 0, unknownCount = 0;
             nlohmann::json results = nlohmann::json::array();
             for (size_t i = 0; i < quiz.size(); ++i) {
                 const auto& choice = body["answers"][i];
-                if (!choice.is_null() && (!choice.is_number_integer() || choice.get<int>() < 0 ||
+                const bool unknown = choice.is_string() && choice.get<std::string>() == "unknown";
+                if (!choice.is_null() && !unknown && (!choice.is_number_integer() || choice.get<int>() < 0 ||
                     choice.get<int>() >= static_cast<int>(quiz[i].at("options").size())))
                     return crow::response(400, nlohmann::json{{"ok", false}, {"error", "测验答案无效"}}.dump());
-                const bool correct = !choice.is_null() && choice.get<int>() == quiz[i].at("answerIndex").get<int>();
+                const bool correct = !choice.is_null() && !unknown &&
+                    choice.get<int>() == quiz[i].at("answerIndex").get<int>();
                 if (correct) ++score;
+                if (unknown) ++unknownCount;
                 results.push_back({{"questionIndex", i}, {"topic", session->topicTitle},
-                    {"correct", correct}, {"answered", !choice.is_null()}});
+                    {"correct", correct}, {"answered", !choice.is_null()}, {"unknown", unknown}});
             }
             const int total = static_cast<int>(quiz.size());
             recordInteraction(db, "quiz", {{"score", score}, {"total", total}, {"answers", body["answers"]},
                 {"results", results}, {"phaseIndex", phaseIndex}, {"topicIndex", topicIndex},
                 {"topic", session->topicTitle}}, courseId);
             return crow::response(200, nlohmann::json{{"ok", true}, {"score", score}, {"total", total},
-                {"passed", score * 10 >= total * 7}}.dump());
+                {"unknownCount", unknownCount}, {"passed", score * 10 >= total * 7}}.dump());
         } catch (...) { return crow::response(400, nlohmann::json{{"ok", false}, {"error", "测验保存失败"}}.dump()); }
     });
 
@@ -2234,6 +2268,7 @@ int main() {
             });
     }
 
+    homeRecommendations.start();
     std::atomic_bool stopProfile{false};
     std::thread profileWorker([&] {
         try {
@@ -2266,6 +2301,7 @@ int main() {
     std::cout << "gangyiAI " << gangyi::kVersion << " listening on " << config.host << ':' << config.port << '\n';
     app.bindaddr(config.host).port(config.port).multithreaded().run();
     while (socketWorkerCount > 0) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    homeRecommendations.stop();
     stopProfile = true;
     profileWorker.join();
 }

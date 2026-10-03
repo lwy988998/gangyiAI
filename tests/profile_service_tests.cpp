@@ -49,6 +49,49 @@ int main() {
     if (!db.insert(quiz) || !db.profileDirty() || db.profileAssessedRevision() != revision ||
         db.profileRevision() <= db.profileAssessedRevision()) return 9;
     if (gangyi::profileView(db)["subjects"].size() != 1) return 8; // 清除后保留旧值，等待后台重评。
+    db.setProfileAssessed(db.profileRevision());
+    for (int i = 0; i < 4; ++i) {
+        gangyi::Course course;
+        course.id = "recent-" + std::to_string(i);
+        course.goal = course.title = "课程" + std::to_string(i);
+        course.mode = "deep";
+        course.createdAt = "2026-01-0" + std::to_string(i + 4) + "T00:00:00Z";
+        course.updatedAt = "2099-01-01T00:00:00Z"; // 刷新进度不应改变最近学习排序。
+        if (i == 3) course.status = "deleted";
+        if (!db.insert(course)) return 21;
+    }
+    auto recent = gangyi::recentCourses(db);
+    if (recent.size() != 3 || recent[0]["courseId"] != "recent-2" ||
+        recent[2]["courseId"] != "recent-0") return 22;
+    gangyi::CourseSnapshot snapshot;
+    snapshot.courseId = "old";
+    snapshot.payload = R"({"courseStructure":[{"topics":["二次函数","顶点公式"]}]})";
+    snapshot.createdAt = "2026-01-01T00:00:00Z";
+    if (!db.insert(snapshot)) return 23;
+    gangyi::LearningCardProgress completed;
+    completed.courseId = "old"; completed.goal = "学习二次函数";
+    completed.phaseIndex = 1; completed.topicIndex = 1; completed.topicTitle = "二次函数";
+    completed.status = "completed";
+    if (!db.insert(completed)) return 24;
+    gangyi::LearningInteraction visit;
+    visit.courseId = "old"; visit.kind = "lesson-visit";
+    visit.createdAt = "2026-02-01T00:00:00Z";
+    visit.payload = R"({"phaseIndex":1,"topicIndex":2,"topic":"顶点公式"})";
+    if (!db.insert(visit)) return 25;
+    visit.id.clear(); visit.kind = "course-visit"; visit.payload = "{}";
+    visit.createdAt = "2026-02-02T00:00:00Z";
+    if (!db.insert(visit) || db.profileDirty()) return 26;
+    recent = gangyi::recentCourses(db);
+    if (recent.size() != 3 || recent[0]["courseId"] != "old" ||
+        recent[0]["latestTopic"] != "顶点公式" || recent[0]["totalTopics"] != 2 ||
+        recent[0]["doneTopics"] != 1 || recent[0]["percent"] != 50 ||
+        recent[0]["lastActivityAt"] != visit.createdAt || recent[1]["courseId"] != "recent-2") return 27;
+    gangyi::ClassroomActivity recentActivity;
+    recentActivity.id = "recent-practice"; recentActivity.courseId = "recent-0";
+    recentActivity.kind = "practice"; recentActivity.payload = "{}";
+    recentActivity.phaseIndex = recentActivity.topicIndex = 1;
+    recentActivity.updatedAt = "2026-02-03T00:00:00Z";
+    if (!db.upsert(recentActivity) || gangyi::recentCourses(db)[0]["courseId"] != "recent-0") return 28;
     db.close();
     std::filesystem::remove(path, ignored);
     std::filesystem::remove(path.u8string() + ".pre-v4.db", ignored);
@@ -72,6 +115,7 @@ int main() {
         db.listMastery()[0].status != "legacy" ||
         gangyi::profileView(db)["subjects"][0]["score"] != nullptr ||
         gangyi::profileView(db)["subjects"][0]["historicalScore"] != 66) return 12;
+    if (!gangyi::recentCourses(db).empty()) return 29;
     db.close();
     // 重现已标记为 v5、但缺少课堂表的真实升级路径。
     if (sqlite3_open(v4Path.u8string().c_str(), &legacy) != SQLITE_OK) return 13;

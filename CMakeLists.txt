@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(gangyiAI VERSION 5.1.1 LANGUAGES C CXX)
+project(gangyiAI VERSION 5.2.0 LANGUAGES C CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -135,7 +135,7 @@ endif()
 
 add_executable(gangyiAI src/main.cpp src/db.cpp src/ai_client.cpp src/json_fix.cpp src/plan_generator.cpp src/page_renderer.cpp
     src/plan_cache.cpp src/plan_adapter.cpp src/search_client.cpp src/quality_gate.cpp src/course_service.cpp
-    src/progress_service.cpp src/profile_service.cpp src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/classroom_service.cpp src/image_goal_analyzer.cpp
+    src/progress_service.cpp src/profile_service.cpp src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/classroom_service.cpp src/image_goal_analyzer.cpp src/home_recommendations.cpp
     ${GANGYI_SERVICE_RESOURCE})
 
 target_include_directories(gangyiAI PRIVATE
@@ -249,6 +249,8 @@ if(BUILD_TESTING)
     if(Python3_Interpreter_FOUND)
         add_test(NAME personalization-smoke COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/personalization_smoke.py $<TARGET_FILE:gangyiAI>)
+        add_test(NAME home-recommendations-smoke COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/home_recommendations_smoke.py $<TARGET_FILE:gangyiAI>)
         add_test(NAME api-smoke COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/api_smoke.py $<TARGET_FILE:gangyiAI>)
     endif()

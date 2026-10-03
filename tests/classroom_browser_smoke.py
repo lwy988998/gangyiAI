@@ -118,6 +118,23 @@ def main(executable):
                     page.goto(base + path, wait_until="networkidle")
                     if path == "/":
                         assert page.locator("#home-availability").count() == 0
+                        page.locator("#goal-examples .goal-example").first.wait_for()
+                        assert page.locator("#goal-examples .goal-example").count() == 5
+                        assert page.locator("#goal-examples img").count() == 0
+                        assert not page.evaluate("window.homeInjected || false")
+                        recommendation = page.locator("#goal-examples .goal-example").first.inner_text()
+                        page.locator("#goal-examples .goal-example").first.click()
+                        assert page.locator("#goal").input_value() == recommendation
+                        page.locator("[data-mode='lite']").click()
+                        assert page.locator("#goal-examples .goal-example").count() == 5
+                        assert "lite" in page.locator("#goal-examples .goal-example").first.inner_text()
+                        page.locator("[data-mode='deep']").click()
+                        page.locator("#recent-courses a").first.wait_for()
+                        assert "courseId=c1" in page.locator("#recent-courses a").first.get_attribute("href")
+                        home_calls = [call for call in MockAI.requests if "首页学习目标推荐助手" in call["messages"][0]["content"]]
+                        assert len(home_calls) == 1
+                        page.reload(wait_until="networkidle")
+                        assert len([call for call in MockAI.requests if "首页学习目标推荐助手" in call["messages"][0]["content"]]) == 1
                         page.locator("#due-reviews a").get_by_text("函数单调性", exact=False).wait_for()
                         page.locator("#goal-submit").focus()
                         assert page.locator("#goal-submit").evaluate("el => parseFloat(getComputedStyle(el).outlineWidth) >= 2")
@@ -195,6 +212,14 @@ def main(executable):
                         page.locator("#weekly-confirm").get_by_text("重排会覆盖手动安排").wait_for()
                         page.locator("#weekly-cancel").click()
                         assert page.locator("#weekly-confirm").is_hidden()
+                        page.locator("#weekly-replan").click()
+                        page.locator("#weekly-accept").wait_for()
+                        calls_before = len([call for call in MockAI.requests if "你是排课助手" in call["messages"][0]["content"]])
+                        page.locator("#weekly-accept").click()
+                        page.locator("#weekly-confirm").wait_for(state="hidden")
+                        assert "学习安排 · " in page.locator("#weekly-title").inner_text()
+                        assert "已" in page.locator("#weekly-message").inner_text()
+                        assert len([call for call in MockAI.requests if "你是排课助手" in call["messages"][0]["content"]]) == calls_before
                         page.locator(".primary-action").first.hover()
                         assert not page.evaluate(AUDIT), "计划页悬停态对比度不足"
                     if path.startswith("/learn"):

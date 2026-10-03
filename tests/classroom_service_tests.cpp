@@ -2,6 +2,7 @@
 #include "db_schema_version.hpp"
 
 #include <sqlite3.h>
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 
@@ -122,6 +123,57 @@ int main() {
     const auto nextWeek = gangyi::getWeeklyPlan(db, "course-1", Json::array({"A", "B", "C"}), "2026-10-05");
     check(nextWeek["weekStart"] == "2026-10-05" && nextWeek["version"] == 3 &&
         nextWeek["availability"] == gangyi::defaultAvailability(), "跨周应重新排课并保留可用时间");
+    const Json indexed = Json::array({{{"title", "A"}, {"phaseIndex", 1}, {"topicIndex", 1}},
+        {{"title", "B"}, {"phaseIndex", 1}, {"topicIndex", 2}},
+        {{"title", "C"}, {"phaseIndex", 1}, {"topicIndex", 3}}});
+    check(db.upsert(gangyi::WeeklyPlan{"course-1", Json{{"availability", gangyi::defaultAvailability()},
+        {"entries", draft}, {"weekStart", "2026-09-28"}, {"version", 20}}.dump(), "2026-09-28", 20}), "旧课表应保存");
+    const auto weekend = gangyi::replanWeeklyPlan(db, "course-1", indexed, "2026-09-28", false,
+        {{"version", 20}}, "2026-10-03");
+    check(weekend["plan"]["weekStart"] == "2026-10-05" && weekend["changed"] == true &&
+        weekend["source"] == "rules", "周末应顺延下周，AI 失败仍按规则排课");
+    for (const auto& entry : weekend["plan"]["entries"]) check(entry["date"].get<std::string>() >= "2026-10-03", "重排不得安排到过去");
+    const auto preserved = gangyi::getWeeklyPlan(db, "course-1", indexed, "2026-09-28", "2026-10-03");
+    check(preserved == weekend["plan"], "本周读取必须保留顺延结果");
+    const auto same = gangyi::replanWeeklyPlan(db, "course-1", indexed, "2026-09-28", false,
+        {{"version", 21}}, "2026-10-03");
+    check(same["changed"] == false && same["plan"]["version"] == 21, "无需变化时不得增加版本");
+    const auto saturday = gangyi::replanWeeklyPlan(db, "course-1", indexed, "2026-09-28", false,
+        {{"version", 21}, {"availability", Json::array({{{"weekday", 6}, {"minutes", 45}}})}}, "2026-10-03");
+    check(saturday["plan"]["entries"][0]["date"] == "2026-10-03" &&
+        saturday["plan"]["availability"][0]["minutes"] == 45, "应使用页面未保存的可用时间");
+    check(db.insert(gangyi::LearningInteraction{"", "quiz", Json{{"phaseIndex", 1}, {"topicIndex", 2},
+        {"topic", "B"}, {"score", 0}, {"total", 3}, {"results", Json::array({{{"answered", true}, {"unknown", true}}})}}.dump(),
+        "2026-10-03T12:00:00Z", std::string("course-1"), std::nullopt, std::nullopt}), "明确不会的证据应保存");
+    const auto weakFirst = gangyi::replanWeeklyPlan(db, "course-1", indexed, "2026-09-28", false,
+        {{"version", 22}, {"availability", gangyi::defaultAvailability()}}, "2026-09-29");
+    const auto firstLesson = std::find_if(weakFirst["plan"]["entries"].begin(), weakFirst["plan"]["entries"].end(),
+        [](const Json& entry) { return entry.value("kind", "") == "lesson"; });
+    check(firstLesson != weakFirst["plan"]["entries"].end() && (*firstLesson)["title"] == "B" && (*firstLesson)["date"] == "2026-09-30",
+        "规则应优先安排薄弱课时，跳过已过去的周一");
+    Json manual = weakFirst["plan"]["entries"]; manual[0]["minutes"] = 17;
+    const auto preview = gangyi::replanWeeklyPlan(db, "course-1", indexed, "2026-09-28", false,
+        {{"version", 23}, {"entries", manual}}, "2026-09-29");
+    check(preview["requiresConfirmation"] == true && db.getWeeklyPlan("course-1")->version == 23,
+        "未保存手动修改也必须预览，预览不写数据库");
+    const auto accepted = gangyi::replanWeeklyPlan(db, "course-1", indexed, "2026-09-28", true,
+        {{"version", 23}, {"proposalId", preview["proposalId"]}}, "2026-09-29");
+    check(accepted["plan"]["entries"] == preview["proposed"] && accepted["plan"]["version"] == 24,
+        "确认应应用相同预览并只增加一次版本");
+    const auto stale = gangyi::replanWeeklyPlan(db, "course-1", indexed, "2026-09-28", false,
+        {{"version", 24}, {"entries", manual}}, "2026-09-29");
+    gangyi::editWeeklyPlan(db, "course-1", {{"version", 24}, {"entries", accepted["plan"]["entries"]}});
+    bool conflict = false;
+    try { gangyi::replanWeeklyPlan(db, "course-1", indexed, "2026-09-28", true,
+        {{"version", 24}, {"proposalId", stale["proposalId"]}}, "2026-09-29"); }
+    catch (const std::invalid_argument&) { conflict = true; }
+    check(conflict && db.getWeeklyPlan("course-1")->version == 25, "其他窗口修改后必须拒绝旧确认");
+    for (auto row : db.listClassroomActivities("course-1")) if (row.kind == "review") {
+        Json value = Json::parse(row.payload); value["status"] = "passed"; row.payload = value.dump(); db.upsert(row);
+    }
+    const auto empty = gangyi::replanWeeklyPlan(db, "course-1", Json::array(), "2026-09-28", false,
+        {{"version", 25}}, "2026-09-29");
+    check(empty["changed"] == false && empty["plan"]["version"] == 25, "没有待安排内容时应给出明确结果");
     std::cout << (failures ? "课堂规则测试失败" : "课堂规则测试通过") << '\n';
     return failures ? 1 : 0;
 }

@@ -15,6 +15,7 @@ struct Config {
     std::string database_path = "gangyiAI.db";
     std::string admin_emails;
     std::string local_control_token;
+    std::string launch_session_id;
 
     static Config from_environment() {
         Config config;
@@ -40,6 +41,7 @@ struct Config {
 #endif
         if (const char* value = std::getenv("ADMIN_EMAILS")) config.admin_emails = value;
         if (const char* value = std::getenv("LOCAL_CONTROL_TOKEN")) config.local_control_token = value;
+        if (const char* value = std::getenv("GANGYI_LAUNCH_SESSION_ID")) config.launch_session_id = value;
         return config;
     }
 };

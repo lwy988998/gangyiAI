@@ -34,6 +34,12 @@ $marker = Join-Path $dataDir 'ci-preserve.marker'
 New-Item -ItemType Directory -Force -Path $temporary, $portableDir, $dataDir | Out-Null
 try {
     Expand-Archive -LiteralPath $portable -DestinationPath $portableDir
+    $privateFiles = Get-ChildItem -LiteralPath $portableDir -Recurse -File | Where-Object {
+        $_.Extension -in @('.db', '.log') -or $_.Name -like '.env*' -or
+        $_.Name -like 'home-recommendations.json*' -or $_.Name -eq 'settings.json' -or
+        $_.FullName -match '[\\/](verification|preview-data|backups)[\\/]'
+    }
+    if ($privateFiles) { throw '发布包包含本机数据或验证材料' }
     $portableSelfTest = Start-Process (Join-Path $portableDir 'gangyiAI-launcher.exe') -ArgumentList '--self-test' -Wait -PassThru
     if ($portableSelfTest.ExitCode -ne 0) { throw '免安装版启动器自检失败' }
 
@@ -62,6 +68,10 @@ try {
         $homeResponse = Invoke-WebRequest "http://127.0.0.1:$port/" -UseBasicParsing
         if ($homeResponse.StatusCode -ne 200 -or $homeResponse.Content -notmatch '</html>') {
             throw '未配置 API Key 时首页不可用'
+        }
+        $recommendations = Invoke-RestMethod "http://127.0.0.1:$port/api/home/recommendations"
+        if ($recommendations.items.lite.Count -ne 5 -or $recommendations.items.deep.Count -ne 5) {
+            throw '首页学习目标回退不可用'
         }
         $logo = Invoke-WebRequest "http://127.0.0.1:$port/school-logo.png" -UseBasicParsing
         if ($logo.Headers.'Content-Type' -ne 'image/png') { throw '校徽 MIME 类型错误' }

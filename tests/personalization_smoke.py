@@ -50,11 +50,14 @@ def main(executable):
                 ai_requests.append(body)
                 system = " ".join(x["content"] for x in body["messages"] if x["role"] == "system")
                 user = next((x["content"] for x in reversed(body["messages"]) if x["role"] == "user"), "")
-                if "学习诊断教师" in system:
+                if "首页学习目标推荐助手" in system:
+                    result = {mode: {"continue": [f"{mode} 继续{i}" for i in range(3)],
+                                     "explore": [f"{mode} 探索{i}" for i in range(2)]} for mode in ("lite", "deep")}
+                elif "学习诊断教师" in system:
                     events = json.loads(user)["events"]
                     last = next(item for item in reversed(events) if item["kind"] == "quiz")
                     correct = sum(x["correct"] for x in last["results"])
-                    score = 91 if correct >= 3 else 42
+                    score = 0 if all(item.get("unknown") for item in last["results"]) else 91 if correct >= 3 else 42
                     result = {"score": score, "rationale": f"依据记录 {last['id']} 的逐题结果",
                               "weakPoints": [] if score > 70 else ["二次函数"],
                               "recommendation": "进阶迁移练习" if score > 70 else "补讲基础并完成基础练习",
@@ -143,7 +146,7 @@ def main(executable):
             wait_for(lambda: request(base, "/api/topic-mastery?courseId=course")["topics"])
             assert request(base, "/api/topic-mastery?courseId=course")["topics"][0]["score"] is None
             assert request(base, "/api/profile")["subjects"] == []
-            for answers, expected in (([1, 1, 1], 42), ([0, 0, 0], 91)):
+            for answers, expected in ((["unknown", "unknown", "unknown"], 0), ([1, 1, 1], 42), ([0, 0, 0], 91)):
                 attempt = request(base, "/api/quiz-attempts", "POST",
                                   {"courseId": "course", "phaseIndex": 1, "topicIndex": 1, "answers": answers})
                 assert attempt["ok"] and attempt["total"] == 3
@@ -155,12 +158,17 @@ def main(executable):
                 assert state["evidenceIds"][0] in profile["rationale"]
                 recommendation = request(base, "/api/next-learning?courseId=course")
                 assert recommendation["score"] == expected and recommendation["evidenceIds"]
-                state = "too_hard" if expected == 42 else "too_easy"
+                if expected == 0:
+                    diagnosis = [json.loads(message["content"]) for call in ai_requests
+                                 for message in call["messages"] if message["role"] == "user"
+                                 and '"events"' in message["content"]][-1]
+                    assert all(item["unknown"] for item in diagnosis["events"][-1]["results"])
+                state = "too_hard" if expected < 70 else "too_easy"
                 request(base, "/api/learning-interactions", "POST",
                         {"courseId": "course", "phaseIndex": 1, "topicIndex": 1,
                          "kind": "review", "state": state})
                 recommendation = request(base, "/api/next-learning?courseId=course")
-                assert ("补讲基础" if expected == 42 else "进阶迁移") in recommendation["action"]
+                assert ("补讲基础" if expected < 70 else "进阶迁移") in recommendation["action"]
             ai_state["bad_evidence"] = True
             request(base, "/api/quiz-attempts", "POST",
                     {"courseId": "course", "phaseIndex": 1, "topicIndex": 1, "answers": [0, 0, 0]})

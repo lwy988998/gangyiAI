@@ -8,6 +8,7 @@ class Database;
 class AIClient;
 
 nlohmann::json profileView(Database& db);
+nlohmann::json recentCourses(Database& db);
 nlohmann::json profileEvidenceSummary(Database& db);
 std::string profileContext(Database& db);
 bool refreshProfile(Database& db, AIClient& ai, std::string& error);
