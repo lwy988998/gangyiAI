@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(gangyiAI VERSION 5.1.0 LANGUAGES C CXX)
+project(gangyiAI VERSION 5.1.1 LANGUAGES C CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -75,6 +75,24 @@ if(NOT crowRequestSource MATCHES "keep_alive\\(false\\), close_connection\\(fals
         message(FATAL_ERROR "无法修复 Crow 1.2.0 的请求初始化")
     endif()
     file(WRITE "${crowRequestHeader}" "${crowPatchedSource}")
+endif()
+# Crow 1.2.0 在客户端提前断开后仍会读取对端地址，remote_endpoint() 抛异常会让工作线程直接退出。
+set(crowSocketHeader "${crow_SOURCE_DIR}/include/crow/socket_adaptors.h")
+file(READ "${crowSocketHeader}" crowSocketSource)
+if(NOT crowSocketSource MATCHES "remote_endpoint\\(ec\\)")
+    set(crowSocketPatched "${crowSocketSource}")
+    string(REPLACE
+        "            return socket_.remote_endpoint();"
+        "            error_code ec;\n            const auto endpoint = socket_.remote_endpoint(ec);\n            return ec ? tcp::endpoint() : endpoint;"
+        crowSocketPatched "${crowSocketPatched}")
+    string(REPLACE
+        "            return raw_socket().remote_endpoint();"
+        "            error_code ec;\n            const auto endpoint = raw_socket().remote_endpoint(ec);\n            return ec ? tcp::endpoint() : endpoint;"
+        crowSocketPatched "${crowSocketPatched}")
+    if(crowSocketPatched STREQUAL crowSocketSource)
+        message(FATAL_ERROR "无法修复 Crow 1.2.0 的对端地址读取")
+    endif()
+    file(WRITE "${crowSocketHeader}" "${crowSocketPatched}")
 endif()
 if(WIN32)
     FetchContent_Declare(
