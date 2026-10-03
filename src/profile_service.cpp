@@ -56,6 +56,89 @@ json interactionSignal(const LearningInteraction& item) {
 }
 }
 
+json recentCourses(Database& db) {
+    struct Activity {
+        std::string time, topicTime, topic;
+        int phaseIndex = 0, topicIndex = 0;
+    };
+    std::map<std::string, Activity> activities;
+    const auto updateActivity = [&](const std::string& courseId, const std::string& time,
+                                    const std::string& topic, int phase, int index) {
+        if (courseId.empty() || time.empty()) return;
+        auto& current = activities[courseId];
+        current.time = std::max(current.time, time);
+        // 打开课程目录也更新排序，但不能抹掉上一节实际学习的课时。
+        if ((!topic.empty() || (phase > 0 && index > 0)) && time >= current.topicTime) {
+            current.topicTime = time;
+            current.topic = topic;
+            current.phaseIndex = phase;
+            current.topicIndex = index;
+        }
+    };
+    for (const auto& item : db.listInteractions()) {
+        const auto payload = json::parse(item.payload, nullptr, false);
+        if (!payload.is_object()) continue;
+        const std::string topic = payload.contains("topic") && payload["topic"].is_string() ?
+            payload["topic"].get<std::string>() : "";
+        const int phase = payload.contains("phaseIndex") && payload["phaseIndex"].is_number_integer() ?
+            payload["phaseIndex"].get<int>() : 0;
+        const int index = payload.contains("topicIndex") && payload["topicIndex"].is_number_integer() ?
+            payload["topicIndex"].get<int>() : 0;
+        updateActivity(item.courseId.value_or(""), item.createdAt, topic, phase, index);
+    }
+    auto courses = db.listCourses();
+    courses.erase(std::remove_if(courses.begin(), courses.end(), [](const Course& item) {
+        return item.status != "active";
+    }), courses.end());
+    for (const auto& course : courses) {
+        for (const auto& item : db.listClassroomActivities(course.id))
+            updateActivity(course.id, item.updatedAt, "", item.phaseIndex, item.topicIndex);
+    }
+    const auto activityTime = [&](const Course& course) {
+        const auto found = activities.find(course.id);
+        return found == activities.end() ? course.createdAt : std::max(course.createdAt, found->second.time);
+    };
+    std::sort(courses.begin(), courses.end(), [&](const Course& left, const Course& right) {
+        const auto leftTime = activityTime(left), rightTime = activityTime(right);
+        if (leftTime != rightTime) return leftTime > rightTime;
+        if (left.createdAt != right.createdAt) return left.createdAt > right.createdAt;
+        return left.id < right.id;
+    });
+    if (courses.size() > 3) courses.resize(3);
+    json result = json::array();
+    for (const auto& course : courses) {
+        const auto found = activities.find(course.id);
+        const Activity activity = found == activities.end() ? Activity{} : found->second;
+        int total = 0, done = 0;
+        std::string latestTopic;
+        const auto snapshots = db.findSnapshotsByCourseId(course.id);
+        const auto payload = snapshots.empty() ? json::object() : json::parse(snapshots.back().payload, nullptr, false);
+        if (payload.is_object() && payload.contains("courseStructure") && payload["courseStructure"].is_array()) {
+            int phase = 0;
+            for (const auto& stage : payload["courseStructure"]) {
+                ++phase;
+                if (!stage.is_object() || !stage.contains("topics") || !stage["topics"].is_array()) continue;
+                int index = 0;
+                for (const auto& topic : stage["topics"]) {
+                    ++index;
+                    if (!topic.is_string()) continue;
+                    ++total;
+                    const auto progress = db.findLearningCardProgress(course.id, phase, index);
+                    if (progress && progress->status == "completed") ++done;
+                    const auto title = topic.get<std::string>();
+                    if ((phase == activity.phaseIndex && index == activity.topicIndex) || title == activity.topic)
+                        latestTopic = title;
+                }
+            }
+        }
+        result.push_back({{"courseId", course.id}, {"title", course.title.empty() ? course.goal : course.title},
+            {"goal", course.goal}, {"mode", course.mode}, {"createdAt", course.createdAt},
+            {"lastActivityAt", activity.time}, {"latestTopic", latestTopic},
+            {"totalTopics", total}, {"doneTopics", done}, {"percent", total ? done * 100 / total : 0}});
+    }
+    return result;
+}
+
 json profileEvidenceSummary(Database& db) {
     json summary = {{"courses", json::array()}, {"interactions", json::array()}};
     for (const auto& course : db.listCourses()) {
@@ -147,7 +230,7 @@ bool refreshTopicMastery(Database& db, AIClient& ai, std::string& error) {
             for (const auto& result : payload["results"]) {
                 if (!result.is_object() || !result.value("answered", false)) continue;
                 event["results"].push_back({{"questionIndex", result.value("questionIndex", 0)},
-                    {"correct", result.value("correct", false)}});
+                    {"correct", result.value("correct", false)}, {"unknown", result.value("unknown", false)}});
             }
         } else event["state"] = shortText(payload.value("state", ""), 30);
         groups[key].push_back(std::move(event));
@@ -171,7 +254,7 @@ bool refreshTopicMastery(Database& db, AIClient& ai, std::string& error) {
         try {
             ChatOptions options;
             options.messages = {
-                {"system", u8"你是学习诊断教师。只能根据逐题正确情况判断当前主题掌握度；普通浏览和课程完成率不是证据。只输出 JSON：{\"score\":0到100整数,\"rationale\":\"具体依据\",\"weakPoints\":[\"薄弱点\"],\"recommendation\":\"下一步动作\",\"evidenceIds\":[\"所引用的真实记录ID\"],\"nextReviewAt\":\"YYYY-MM-DD 或空字符串\"}。不得引用输入中不存在的记录 ID。", ""},
+                {"system", u8"你是学习诊断教师。只能根据逐题正确情况判断当前主题掌握度；普通浏览和课程完成率不是证据。unknown=true 表示学习者明确反馈暂时不会，是入门诊断反馈，不是漏答或选错某个选项；依据说明必须区分这些情况。建议从基础概念开始，不得把单个主题的入门诊断外推为整门学科能力。只输出 JSON：{\"score\":0到100整数,\"rationale\":\"具体依据\",\"weakPoints\":[\"薄弱点\"],\"recommendation\":\"下一步动作\",\"evidenceIds\":[\"所引用的真实记录ID\"],\"nextReviewAt\":\"YYYY-MM-DD 或空字符串\"}。不得引用输入中不存在的记录 ID。", ""},
                 {"user", json{{"courseId", courseId}, {"phaseIndex", phase}, {"topic", topic}, {"events", events}}.dump(), ""}
             };
             options.temperature = 0.1; options.maxTokens = 900; options.responseFormat = "json_object";

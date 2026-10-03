@@ -4,6 +4,8 @@
   const message = document.getElementById('profile-message');
   const status = document.getElementById('home-profile-status');
   const refresh = document.getElementById('profile-refresh');
+  const recentCards = document.getElementById('recent-courses');
+  const recentMessage = document.getElementById('recent-courses-message');
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   let poll = 0;
 
@@ -43,6 +45,58 @@
     return item;
   }
 
+  function localTime(value) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '时间待更新' : date.toLocaleString('zh-CN', {
+      month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false
+    });
+  }
+
+  let recentLoading = false;
+  let recentSignature = '';
+  async function loadRecentCourses() {
+    if (!recentCards || recentLoading || document.hidden) return;
+    recentLoading = true;
+    try {
+      const response = await fetch('/api/recent-courses', {cache: 'no-store'});
+      if (!response.ok) throw new Error('最近课程读取失败，稍后会自动重试。');
+      const data = await response.json();
+      const courses = (data.courses || []).slice(0, 3);
+      const signature = JSON.stringify(courses);
+      recentMessage.textContent = courses.length ? `最近学习的${['零', '一', '两', '三'][courses.length]}门课程，点击卡片进入课程。` :
+        '还没有课程。从上方输入学习目标，创建你的第一门课程。';
+      // 数据未变化时保留节点，避免自动刷新打断键盘焦点。
+      if (signature === recentSignature) return;
+      recentSignature = signature;
+      recentCards.replaceChildren();
+      for (const course of courses) {
+        const card = node('a', '', 'recent-course-card');
+        card.href = `/plan?courseId=${encodeURIComponent(course.courseId)}`;
+        const completed = course.totalTopics > 0 && course.doneTopics === course.totalTopics;
+        const state = completed ? '已完成' : course.lastActivityAt ? '学习中' : '待开始';
+        card.append(node('span', state, 'recent-course-state'));
+        card.append(node('h3', course.title || course.goal || '未命名课程'));
+        card.append(node('p', course.latestTopic ? `最近课时：${course.latestTopic}` :
+          course.lastActivityAt ? '已查看课程，选择一个课时继续学习。' : '课程已生成，进入课程开始学习。', 'recent-course-topic'));
+        const progress = node('div', '', 'recent-course-progress');
+        progress.append(node('span', course.totalTopics ? `课时完成 ${course.doneTopics} / ${course.totalTopics} 节` : '课时规划待生成'));
+        if (course.totalTopics) progress.append(node('strong', `${course.percent}%`));
+        card.append(progress);
+        const track = node('div', '', 'recent-course-track');
+        const fill = node('span', '');
+        fill.style.width = `${Math.max(0, Math.min(100, course.percent || 0))}%`;
+        track.append(fill);
+        card.append(track);
+        card.append(node('small', course.lastActivityAt ? `最近学习 · ${localTime(course.lastActivityAt)}` :
+          `创建于 · ${localTime(course.createdAt)}`));
+        card.append(node('span', '进入课程 ↗', 'recent-course-open'));
+        recentCards.append(card);
+      }
+    } catch (error) {
+      recentMessage.textContent = error.message || '最近课程暂时不可用，稍后会自动重试。';
+    } finally { recentLoading = false; }
+  }
+
   function showProfile(data) {
     const subjects = (data.subjects || []).filter(item => item.score !== null && Number.isFinite(item.score));
     const time = data.subjects?.map(item => item.updatedAt).filter(Boolean).sort().at(-1);
@@ -50,7 +104,7 @@
       data.hasEvidence ? subjects.length ? '画像依据本机逐题测验与主题评估生成。' : '数据不足：完成至少 3 道测验题后再形成画像。' :
         '数据不足：暂无可靠测验记录。');
     message.textContent = text;
-    status.textContent = time ? `最近更新：${time.replace('T', ' ').slice(0, 16)}` : '数据积累中';
+    status.textContent = time ? `最近更新：${localTime(time)}` : '数据积累中';
     radar.replaceChildren();
     cards.replaceChildren();
     if (subjects.length < 3) {
@@ -91,13 +145,16 @@
     }
     for (const item of data.subjects || []) {
       const card = node('article', '', 'profile-subject-card');
+      const starting = item.score === 0 && (item.rationale || '').includes('unknown=true');
+      const explanation = starting ? '你在本次基础诊断中明确反馈“暂时不会”。当前画像只覆盖已测知识点，后续会随着你自己的作答更新。' :
+        (item.rationale || '等待更多学习证据。').replace(/\s*\[\[\s*(?:"[0-9a-f]{32}"\s*,\s*)*"[0-9a-f]{32}"\s*\]\]\s*$/i, '').replaceAll('topicStates', '已评估学习记录');
       card.append(node('h3', item.subject || '未命名学科'));
-      card.append(node('strong', item.score === null ?
+      card.append(node('strong', starting ? '入门起点' : item.score === null ?
         item.historicalScore === null ? '积累中' : `历史画像 ${item.historicalScore}%（待新测验验证）` : `${item.score}%`));
-      card.append(node('p', item.rationale || '等待更多学习证据。'));
+      card.append(node('p', explanation));
       if (item.weakPoints?.length) card.append(node('p', `待加强：${item.weakPoints.join('、')}`));
       if (item.recommendation) card.append(node('p', `建议：${item.recommendation}`));
-      card.append(node('small', `依据 ${item.evidenceCount || 0} 条 · ${item.updatedAt || '等待更新'}`));
+      card.append(node('small', `依据 ${item.evidenceCount || 0} 份学习记录 · ${item.updatedAt ? localTime(item.updatedAt) : '等待更新'}`));
       cards.append(card);
     }
   }
@@ -128,6 +185,15 @@
     finally { refresh.disabled = false; }
   });
   loadProfile();
+  loadRecentCourses();
+  if (recentCards) {
+    setInterval(loadRecentCourses, 15000);
+    setInterval(() => { if (!document.hidden) loadProfile(); }, 15000);
+    addEventListener('focus', loadRecentCourses);
+    addEventListener('focus', loadProfile);
+    addEventListener('pageshow', loadRecentCourses);
+    document.addEventListener('visibilitychange', loadRecentCourses);
+  }
   document.addEventListener('click', event => {
     const link = event.target.closest('a[href]');
     if (!link || reducedMotion.matches || event.defaultPrevented || event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || link.target || link.hasAttribute('download')) return;

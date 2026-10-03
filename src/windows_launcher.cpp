@@ -126,6 +126,7 @@ struct AppState {
     std::wstring installDir;
     std::wstring dataDir;
     std::wstring controlToken;
+    std::wstring launchSessionId;
     int port = 0;
     bool hasConfig = false;
     bool skipAiSetup = false;
@@ -786,6 +787,7 @@ bool startService(bool openWhenReady, bool resetRestart = true) {
         {L"BOCHA_API_KEY", bochaKey},
         {L"DATABASE_PATH", databasePath.wstring()},
         {L"LOCAL_CONTROL_TOKEN", g.controlToken},
+        {L"GANGYI_LAUNCH_SESSION_ID", g.launchSessionId},
     };
     const std::filesystem::path caBundle = std::filesystem::path(g.installDir) / L"curl-ca-bundle.crt";
     if (std::filesystem::is_regular_file(caBundle)) overrides.emplace_back(L"CURL_CA_BUNDLE", caBundle.wstring());
@@ -1533,6 +1535,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
         return 0;
     }
 
+    g.launchSessionId = randomToken();
     const std::wstring exe = executablePath();
     g.installDir = std::filesystem::path(exe).parent_path().wstring();
     g.dataDir = (std::filesystem::path(localAppDataPath()) / L"GangyiAI").wstring();

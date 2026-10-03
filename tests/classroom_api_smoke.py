@@ -72,8 +72,14 @@ class MockAI(BaseHTTPRequestHandler):
                 pass
             return
         prompt = body["messages"][-1]["content"]
-        if '"suggestions"' in prompt:
+        system = body['messages'][0]['content']
+        if '首页学习目标推荐助手' in system:
+            answer = {mode: {'continue': [f'{mode} 继续学习{i}' for i in range(3)],
+                             'explore': [f'{mode} 探索方向{i}' for i in range(2)]} for mode in ('lite', 'deep')}
+            answer['deep']['continue'][0] = '<img src=x onerror=window.homeInjected=1>'
+        elif '"suggestions"' in prompt:
             answer = {"suggestions": ["先讲这一步的由来", "换个数再算一遍", "这类题的通用解法是什么"]}
+        if '首页学习目标推荐助手' in system or '"suggestions"' in prompt:
             payload = json.dumps({"model": "mock", "choices": [{"message": {"content": json.dumps(answer, ensure_ascii=False)}}]}, ensure_ascii=False).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -398,7 +404,11 @@ def main(executable):
             proposal = request(base, "/api/classroom/week/replan", {"courseId": course_id})
             assert proposal["requiresConfirmation"] and proposal["current"]["version"] == edited["version"]
             assert request(base, "/api/classroom/week?courseId=" + course_id)["version"] == edited["version"]
-            accepted = request(base, "/api/classroom/week/replan", {"courseId": course_id, "confirm": True})
+            calls_before = len(MockAI.requests)
+            accepted = request(base, "/api/classroom/week/replan", {"courseId": course_id, "confirm": True,
+                "version": edited["version"], "proposalId": proposal["proposalId"]})
+            assert accepted["plan"]["entries"] == proposal["proposed"], "确认必须保存同一份预览"
+            assert len(MockAI.requests) == calls_before, "确认不得再调用排课模型"
             assert not accepted["requiresConfirmation"] and accepted["plan"]["version"] == edited["version"] + 1
             with closing(sqlite3.connect(db_path)) as db, db:
                 stored = db.execute("SELECT payload,version FROM WeeklyPlan WHERE courseId=?", (course_id,)).fetchone()
@@ -408,6 +418,9 @@ def main(executable):
             rolled = request(base, "/api/classroom/week?courseId=" + course_id)
             today = datetime.date.today()
             expected_monday = (today - datetime.timedelta(days=today.weekday())).isoformat()
+            remaining = any(today.weekday() < slot["weekday"] for slot in rolled["availability"])
+            if not remaining:
+                expected_monday = (today - datetime.timedelta(days=today.weekday()) + datetime.timedelta(days=7)).isoformat()
             assert rolled["weekStart"] == expected_monday and rolled["version"] == stored[1] + 1
             print(asyncio.run(check_ask(port, base)))
             assert asyncio.run(check_stream(port, course_id)) == 3
