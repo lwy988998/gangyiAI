@@ -831,6 +831,8 @@ void LearningFlow::prepare(Database& db, const Json& teaching, int revision) {
             session->content = kept.dump(); db.updateLearningSessionAtRevision(*session, old, revision, key, exposure);
         }
     }
+    // 备课完成只更新后台标记，与确认、取消使用同一短锁，不制造虚假的课表冲突。
+    std::lock_guard<std::mutex> guard(flowMutex);
     const auto original = db.profileMeta("learning-flow"); auto state = parse(original);
     if (db.learningRevision() == revision && state.value("attemptedRevision", 0) == revision) {
         state["preparationAttemptedRevision"] = revision;
