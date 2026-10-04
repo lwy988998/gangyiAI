@@ -351,6 +351,9 @@ std::optional<WeeklyPlan> Database::getWeeklyPlan(const std::string& courseId) c
 void Database::deleteClassroomData(const std::string& courseId) {
     Stmt activities(db_, "DELETE FROM ClassroomActivity WHERE courseId=?");text(activities,1,courseId);done(activities);
     Stmt weekly(db_, "DELETE FROM WeeklyPlan WHERE courseId=?");text(weekly,1,courseId);done(weekly);
+    const auto prefix = "lesson-reached:" + courseId + ":";
+    Stmt reached(db_, "DELETE FROM ProfileMeta WHERE substr(key,1,length(?))=?");
+    text(reached,1,prefix);text(reached,2,prefix);done(reached);
 }
 bool Database::deleteConversation(const std::string& conversationId) {
     Stmt s(db_, "DELETE FROM LearningInteraction WHERE conversationId=?");text(s,1,conversationId);

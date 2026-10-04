@@ -16,6 +16,16 @@ Json defaultAvailability();
 Json buildWeeklyDraft(const Json& availability, const Json& topics, const Json& reviews,
                       const std::string& monday, const std::string& notBefore = {});
 Json publicQuestion(const Json& item);
+// 对公开课堂及备课响应递归应用白名单，标准答案与内部生成字段仅留在本机。
+Json publicLearningContent(const Json& content);
+// 旧课程公开边界保留课纲与动态阶段键，只公开题目内容和生成来源。
+Json publicCoursePayload(const Json& content);
+Json classroomQuestions(Database& db, const Json& body);
+Json classroomQuestion(Database& db, const Json& body);
+Json classroomQuestionScope(Database& db, const Json& body);
+std::string dialogueQuestionKey(const Json& body);
+Json skipDialogueQuestion(Database& db, const Json& body);
+Json completeReviewFromEvaluations(Database& db, const Json& body, const Json& results);
 Json classroomStart(Database& db, const std::string& courseId, int phaseIndex, int topicIndex,
                     const std::string& kind, const std::string& topic, const std::string& learningContext = "");
 Json classroomSubmit(Database& db, const std::string& courseId, int phaseIndex, int topicIndex,

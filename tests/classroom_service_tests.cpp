@@ -1,5 +1,6 @@
 #include "classroom_service.hpp"
 #include "db_schema_version.hpp"
+#include "question_evidence.hpp"
 
 #include <sqlite3.h>
 #include <algorithm>
@@ -17,6 +18,14 @@ int main() {
         if (!value) { std::cerr << "失败：" << message << '\n'; ++failures; }
     };
     using gangyi::Json;
+    const Json privateQuestion = {{"question", "只公开题干"}, {"options", Json::array({Json{{"text", "选项一"}, {"correct", true}}, "选项二"})},
+        {"answerIndex", 0}, {"rubric", "私有评分"}, {"solution", "私有解析"}, {"status", "pending"}};
+    const auto publicQuestion = gangyi::publicQuestion(privateQuestion);
+    check(!publicQuestion.contains("answerIndex") && !publicQuestion.contains("rubric") && !publicQuestion.contains("solution") &&
+        publicQuestion["options"][0] == "选项一", "公开题目连嵌套选项的正确标记也必须隐藏");
+    auto correctedStandard = privateQuestion; correctedStandard["rubric"] = "校正后的评分"; correctedStandard["solution"] = "校正后的解法";
+    check(gangyi::questionIdentity("同一课程", gangyi::questionSnapshot(privateQuestion)) ==
+        gangyi::questionIdentity("同一课程", gangyi::questionSnapshot(correctedStandard)), "校正标准答案不能增加独立题目证据");
     check(gangyi::diagnosticMode(Json::array({true, false}), false) == "third", "诊断不明确应追加第三题");
     check(gangyi::diagnosticMode(Json::array({false, false}), false) == "weak", "两题均错应补弱");
     check(gangyi::diagnosticMode(Json::array({true, true}), false) == "familiar", "两题均对应精简");

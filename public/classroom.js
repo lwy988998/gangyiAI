@@ -6,7 +6,8 @@
   const topicIndex = Number(params.get('topicIndex') || 1);
   const $ = id => document.getElementById(id);
   const escape = value => { const node = document.createElement('span'); node.textContent = String(value ?? ''); return node.innerHTML; };
-  const context = {courseId, phaseIndex, topicIndex};
+  const context = {courseId, phaseIndex, topicIndex, ...(params.get('lessonTaskId') ? {lessonTaskId: params.get('lessonTaskId')} : {}), ...(params.has('review') ? {day: Number(params.get('review')), reviewId: params.get('reviewId') || ''} : {})};
+  document.addEventListener('gangyi:lesson-context', event => Object.assign(context, event.detail));
   async function api(path, data) {
     const response = await fetch(path, data ? {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)} : undefined);
     const result = await response.json();
@@ -36,135 +37,54 @@
 
   function setupLearn() {
     if (!courseId || !$('learn-loading')) return;
-    const base = {courseId, phaseIndex, topicIndex};
+    if (params.has('review') || window.gangyiLessonKind === 'review') $('complete-lesson').textContent = '保存复习记录';
+    document.addEventListener('gangyi:lesson-context', () => { if (window.gangyiLessonKind === 'review') $('complete-lesson').textContent = '保存复习记录'; });
     const lessonSection = $('learn-loading').parentElement;
-    const diagnostic = document.createElement('section');
-    diagnostic.id = 'classroom-diagnostic'; diagnostic.className = 'classroom-card';
-    diagnostic.innerHTML = '<h2>课前诊断</h2><p role="status" id="diagnostic-status">正在准备两道短题；课堂讲解同时在后台生成。</p><div id="diagnostic-questions"></div><button type="button" id="diagnostic-skip">跳过诊断，阅读完整课堂</button>';
+    const diagnostic = document.createElement('section'); diagnostic.id = 'classroom-diagnostic'; diagnostic.className = 'classroom-card';
+    diagnostic.innerHTML = '<h2>课前诊断</h2><p>可以先回答、请求提示，或暂时跳过；漏答只表示缺少信息。</p><div id="diagnostic-questions"></div>';
     lessonSection.prepend(diagnostic);
-    const interaction = document.createElement('section');
-    interaction.id = 'classroom-interaction'; interaction.className = 'classroom-card';
-    interaction.innerHTML = '<h2>边学边互动</h2><p role="status" id="interaction-status">预测、讲给 AI 听、新情境应用正在准备；活动可跳过。</p><div id="interaction-questions"></div>';
+    const interaction = document.createElement('section'); interaction.id = 'classroom-interaction'; interaction.className = 'classroom-card';
+    interaction.innerHTML = '<h2>边学边互动</h2><p>输入自己的理解或解题方法，AI 会结合实际回答帮助你。</p><div id="interaction-questions"></div>';
     $('learn-content').prepend(interaction);
-    const branch = document.createElement('section');
-    branch.id = 'classroom-branch'; branch.className = 'classroom-card'; branch.hidden = true;
-    diagnostic.after(branch);
-    const guidance = document.createElement('aside');
-    guidance.id = 'classroom-guidance'; guidance.className = 'classroom-card'; guidance.hidden = true;
-    guidance.innerHTML = '<h2>想一想</h2><p></p><button type="button">稍后再说</button>';
-    branch.after(guidance);
-    guidance.querySelector('button').onclick = () => { guidance.hidden = true; };
-    let guidedQuestion = '';
-    function guide() { if (guidedQuestion) { guidance.querySelector('p').textContent = guidedQuestion; guidance.hidden = false; } }
-    document.addEventListener('click', event => { if (event.target.closest('.step-toggle')) guide(); });
-    const next = document.createElement('section');
-    next.id = 'classroom-next'; next.className = 'classroom-card'; next.hidden = true;
+    let diagnosticStarted = false;
+    async function loadActivities() {
+      if (diagnosticStarted) return; diagnosticStarted = true;
+      await Promise.allSettled([
+        window.GangyiLearning.mountQuestionKind('diagnostic', '#diagnostic-questions'),
+        window.GangyiLearning.mountQuestionKind('interaction', '#interaction-questions')]);
+    }
+    document.addEventListener('gangyi:lesson-block', event => { if (event.detail.block === 'quiz') loadActivities(); });
+    if (window.gangyiLessonBlocks?.quiz) loadActivities();
+    const next = document.createElement('section'); next.id = 'classroom-next'; next.className = 'classroom-card'; next.hidden = true;
     $('complete-lesson').after(next);
-    function showNext(result) {
-      next.hidden = false;
-      next.innerHTML = '<h2>下一步</h2><p>' + (result.challengeRequired ? '先完成新情境挑战题，再形成掌握证据。' : result.nextStep === 'remedial' ? '建议先做短补弱并在明天复测。' : '明天开始短复习，后续第 3、7 天继续巩固。') + '</p><div id="next-due-reviews"></div><a href="/plan?courseId=' + encodeURIComponent(courseId) + '">查看课程路径与新课 →</a>';
-      api('/api/classroom/reviews?courseId=' + encodeURIComponent(courseId)).then(data => {
-        const due = data.items || [];
-        if (due.length) $('next-due-reviews').textContent = '已到期复习：' + due.map(item => item.title).join('、');
-      }).catch(() => {});
-      if (result.nextStep === 'remedial' && document.body.dataset.classroomMode !== 'weak') {
-        branch.hidden = false;
-        branch.innerHTML = '<h2>短补弱</h2><p>正在根据本节表现准备针对性补讲…</p>';
-        api('/api/classroom/remedial?' + new URLSearchParams(base)).then(data => {
-          branch.innerHTML = '<h2>' + escape(data.title) + ' · 约 ' + data.minutes + ' 分钟</h2><p class="whitespace-pre-wrap">' + escape(data.content) + '</p><p><b>自检：</b>' + escape(data.check) + '</p>';
-        }).catch(() => { branch.querySelector('p').textContent = '补讲暂未就绪，可以先回看原课堂。'; });
-      }
-    }
-    let appliedMode = '', thirdLoading = false;
-    function applyMode(mode) {
-      if (mode === appliedMode) return;
-      if (mode === 'third') {
-        if (!thirdLoading && $('diagnostic-questions').children.length < 3) {
-          thirdLoading = true;
-          api('/api/classroom/start?' + new URLSearchParams({...base, kind: 'diagnostic'})).then(data => {
-            if (data.questions[2] && $('diagnostic-questions').children.length < 3)
-              $('diagnostic-questions').append(renderItem('diagnostic', data.questions[2], 2));
-            appliedMode = 'third'; $('diagnostic-status').textContent = '前两题结果不明确，请继续第三题。';
-          }).finally(() => { thirdLoading = false; });
-        }
-        return;
-      }
-      if (!['weak', 'full', 'familiar'].includes(mode)) return;
-      appliedMode = mode;
-      document.body.dataset.classroomMode = mode;
-      diagnostic.querySelector('#diagnostic-status').textContent = mode === 'weak' ? '诊断显示需要先补弱。' : mode === 'familiar' ? '已熟悉：精简重复解释，请完成新情境挑战题。' : '展示完整课堂。';
-      branch.hidden = false;
-      if (mode === 'weak') {
-        branch.innerHTML = '<h2>7 分钟针对性补讲</h2><p>正在结合诊断错误准备补讲…</p>';
-        api('/api/classroom/remedial?' + new URLSearchParams(base)).then(data => {
-          branch.innerHTML = '<h2>' + escape(data.title) + ' · 约 ' + data.minutes + ' 分钟</h2><p class="whitespace-pre-wrap">' + escape(data.content) + '</p><p><b>自检：</b>' + escape(data.check) + '</p>';
-        }).catch(() => { branch.innerHTML = '<h2>先读完整课堂</h2><p>针对性补讲暂未就绪，原课程可以继续。</p>'; });
-      } else if (mode === 'familiar') branch.innerHTML = '<h2>精简已熟悉内容</h2><p>重复解释已收起；新情境应用题是掌握证据的必要条件。</p><button type="button" id="show-all-steps">展开完整解释</button>';
-      else branch.innerHTML = '<h2>完整课堂</h2><p>可按自己的节奏阅读、互动和测验。</p>';
-      $('show-all-steps')?.addEventListener('click', () => { document.body.dataset.classroomMode = 'full'; branch.querySelector('p').textContent = '完整解释已展开。'; });
-    }
-    document.addEventListener('gangyi:diagnostic-mode', event => applyMode(event.detail));
-    function renderItem(kind, item, index) {
-      return window.GangyiLearning.renderDialogue(kind, item, index, base);
-    }
-    async function startKind(kind) {
-      const status = $(kind === 'diagnostic' ? 'diagnostic-status' : 'interaction-status');
-      const box = $(kind === 'diagnostic' ? 'diagnostic-questions' : 'interaction-questions');
-      try {
-        const data = await api('/api/classroom/start?' + new URLSearchParams({...base, kind}));
-        box.replaceChildren(...data.questions.map((item, i) => renderItem(kind, item, i)));
-        status.textContent = kind === 'diagnostic' ? '先完成两题；结果不明确时追加第三题。' : '可按任意顺序参与，也可以跳过。';
-        if (kind === 'diagnostic') { $('diagnostic-skip').hidden = !!data.skipped; applyMode(data.mode); }
-        else guidedQuestion = data.questions[0]?.question || '';
-      } catch (error) { status.textContent = error.message + ' 可继续原课程。'; }
-    }
-    $('diagnostic-skip').onclick = async () => {
-      try { const result = await api('/api/classroom/skip', base); $('diagnostic-questions').replaceChildren(); $('diagnostic-skip').hidden = true; applyMode(result.mode); }
-      catch (error) { $('diagnostic-status').textContent = error.message; }
-    };
-    startKind('diagnostic'); startKind('interaction');
-    api('/api/classroom/state?' + new URLSearchParams(base)).then(state => { if (state.completed) showNext({nextStep: state.quizPassed ? 'review' : 'remedial'}); }).catch(() => {});
+    function showNext() { next.hidden = false; next.innerHTML = '<h2>本节记录已保存</h2><p>可以继续与 AI 交流，或让 AI 综合最新作答、课程目标和共享学习时间准备下一课。</p>'; }
+    api('/api/classroom/state?' + new URLSearchParams(context)).then(state => { if (state.completed) showNext(); }).catch(() => {});
     const saveLessonProgress = $('complete-lesson').onclick;
     $('complete-lesson').onclick = async event => {
       try {
+        if (params.has('review') || window.gangyiLessonKind === 'review') {
+          const result = await api('/api/classroom/finish', {...context, contentVersion: window.gangyiContentVersion || 1});
+          if (result.ok === false) throw new Error(result.message || '复习尚未保存');
+          if (result.evaluationStatus === 'insufficient') { $('complete-feedback').textContent = result.message || '尚无可靠作答，未推测掌握情况。'; return; }
+          $('complete-feedback').textContent = result.message || (result.passed ? '可靠复习评价已保存。' : '复习记录已保存，下一课会结合实际反馈安排。');
+          $('complete-lesson').textContent = '复习记录已保存'; showNext(); return;
+        }
         const response = await saveLessonProgress.call($('complete-lesson'), event);
         if (!response.ok) throw new Error('本节进度尚未保存');
-        showNext(await api('/api/classroom/finish', base));
-      }
-      catch (_) { next.hidden = false; next.innerHTML = '<h2>下一步</h2><p>原课程与下一课入口仍可使用；稍后可重试保存复习安排。</p>'; }
+        await api('/api/classroom/finish', context); showNext();
+      } catch (error) { next.hidden = false; next.textContent = error.message + '。可以稍后重试，下一课仍可独立准备。'; }
     };
-    const quizResult = $('quiz-result');
-    new MutationObserver(() => { if (quizResult.textContent.includes('得分')) {
-      const status = $('interaction-status'); if (status) status.textContent = '测验已完成：可以回看互动反馈或继续下一步。';
-      guide();
-    }}).observe(quizResult, {childList: true, characterData: true, subtree: true});
-    setupChat(); setupIdlePrompt(); setupReviewMode();
-  }
-
-  function setupReviewMode() {
-    if (!params.has('review') || !$('quiz-submit')) return;
-    $('quiz-submit').onclick = async () => {
-      const answers = [...$('learn-quiz').querySelectorAll('fieldset')].map((_, i) => {
-        const selected = document.querySelector('input[name="q' + i + '"]:checked'); return selected ? (selected.value === "unknown" ? "unknown" : Number(selected.value)) : null;
-      });
-      try {
-        const result = await api('/api/classroom/review/submit', {...context, day: Number(params.get('review')),
-          reviewId: params.get('reviewId') || '', questions: window.gangyiLessonBlocks?.quiz?.quiz || [], answers});
-        $('quiz-result').textContent = '复习得分 ' + result.score + ' / ' + result.total + (result.passed ? '，已通过' : '，明天再练');
-        if (result.passed) {
-          const next = $('classroom-next');
-          next.hidden = false;
-          next.innerHTML = '<h2>复习通过</h2><p>返回原课程路径，或直接继续新课。</p><a href="/plan?courseId=' + encodeURIComponent(courseId) + '">返回原课程路径 →</a>';
-        }
-      } catch (error) { $('quiz-result').textContent = error.message; }
-    };
+    setupChat(); setupIdlePrompt();
   }
 
   function setupChat() {
     const form = $('learning-chat-form'), input = $('learning-chat-input'), box = $('learning-chat-messages');
     if (!form || !input || !box) return;
     const chat = window.GangyiChat;
-    const conversation = 'lesson-' + courseId + '-' + phaseIndex + '-' + topicIndex;
+    const conversation = context.lessonTaskId ? 'lesson-task-' + context.lessonTaskId : 'lesson-' + courseId + '-' + phaseIndex + '-' + topicIndex;
+    const draftKey = 'gy:lesson-chat-draft:' + JSON.stringify(context);
+    try { input.value = localStorage.getItem(draftKey) || ''; } catch (_) {}
+    input.addEventListener('input', () => { try { localStorage.setItem(draftKey, input.value); } catch (_) {} });
     function addHistory(text, mine) {
       const row = document.createElement('article');
       row.className = mine ? 'chat-row chat-row-mine' : 'chat-row chat-row-ai';
@@ -251,6 +171,7 @@
       const sentSelection = selected;
       addHistory(question, true);
       input.value = '';
+      try { localStorage.removeItem(draftKey); } catch (_) {}
       const send = $('learning-chat-send'); send.disabled = true; stop.hidden = false; stop.disabled = false;
       const view = chat.createAssistantView(box, {scrollRoot: box});
       let finished = false;

@@ -96,7 +96,7 @@ $curlCa = Get-ChildItem -LiteralPath (Join-Path $thirdParty 'curl') -Filter 'cur
 if ($curlCa) { $cmakeArgs += "-DCMAKE_TLS_CAINFO=$($curlCa.FullName.Replace('\', '/'))" }
 cmake @cmakeArgs
 if ($LASTEXITCODE -ne 0) { throw 'CMake 配置失败' }
-cmake --build $buildDir --parallel
+cmake --build $buildDir --parallel 4
 if ($LASTEXITCODE -ne 0) { throw 'C++ 编译失败' }
 ctest --test-dir $buildDir --output-on-failure
 if ($LASTEXITCODE -ne 0) { throw 'C++ 测试失败' }

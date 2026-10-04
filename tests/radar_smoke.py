@@ -45,8 +45,17 @@ class Harness:
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
                 system = body['messages'][0]['content']
-                data = json.loads(body['messages'][-1]['content'])
-                if '六维学习能力评估教师' in system:
+                text = body['messages'][-1]['content']
+                data = json.loads(text) if text.startswith('{') else {}
+                if '课堂作答评价教师' in system:
+                    given = data['givenAnswer']
+                    unknown = '不会' in data.get('studentAnswer', '')
+                    result = {'isAnswer': True, 'correct': isinstance(given, int) and given == data['question'].get('answerIndex'),
+                        'unknown': unknown, 'confidence': .95, 'feedback': '根据本轮实际回答核对概念；未写过程时依据不足。',
+                        'misconception': '', 'methodAnalysis': '学生未提供推导过程，不能推测具体方法。'}
+                elif '课堂教师' in system:
+                    result = '依据你的本轮回答说明概念，并结合原题继续讲解。'
+                elif '六维学习能力评估教师' in system:
                     mode, score = harness.mode, harness.score
                     harness.calls.append(data)
                     tasks = data['tasks']
@@ -72,7 +81,7 @@ class Harness:
                     if mode == 'fail':
                         self.send_response(503); self.end_headers(); return
                 elif '学习诊断教师' in system:
-                    events = [event for event in data['events'] if event['kind'] == 'quiz']
+                    events = [event for event in data['events'] if event['kind'] in ('quiz', 'question-evaluation')]
                     result = {'score': 73, 'rationale': '三道虚构题目反馈', 'weakPoints': [],
                               'recommendation': '先复习基础', 'evidenceIds': [events[-1]['id']], 'nextReviewAt': ''}
                 elif '画像评估 AI' in system:
@@ -83,7 +92,7 @@ class Harness:
                     result = {mode: {'continue': [f'{mode} 基础目标{i}' for i in range(3)],
                         'explore': [f'{mode} 探索目标{i}' for i in range(2)]} for mode in ('lite', 'deep')}
                 payload = json.dumps({'model': 'isolated-mock', 'choices': [{'message': {
-                    'content': json.dumps(result, ensure_ascii=False)}}]}, ensure_ascii=False).encode()
+                    'content': result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)}}]}, ensure_ascii=False).encode()
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Content-Length', str(len(payload)))
@@ -147,6 +156,8 @@ class Harness:
             questions = [{'question': '请判断虚构概念题' + str(0 if repeated else i),
                 'options': ['甲', '乙', '丙', '丁'], 'answerIndex': 0} for i in range(3)]
             payload = {'promptVersion': 'ai-block-v1', 'blocks': {'quiz': {'quiz': questions}}}
+            # 更换虚构题组只用于证据门槛测试；独立的课堂验收覆盖已展示题的稳定性。
+            db.execute("DELETE FROM ClassroomActivity WHERE id LIKE 'classroom:fictional-course:1:1:quiz:%'")
             db.execute('INSERT OR REPLACE INTO LearningSession VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                 ('fictional-session', 'fictional-course', None, '数学概念与方法', 'deep', 1, '基础', 1,
                  '基础概念', '虚构题目', None, None, json.dumps(payload, ensure_ascii=False), None, 0, 'ai'))
@@ -189,7 +200,7 @@ def main(executable):
             assert value['abilityStatus']['source'] == 'ai'
             assert all(task['unknown'] for task in h.calls[-1]['tasks'])
             with h.db() as db:
-                result = json.loads(db.execute("SELECT payload FROM LearningInteraction WHERE kind='quiz' ORDER BY rowid DESC LIMIT 1").fetchone()[0])
+                result = json.loads(db.execute("SELECT payload FROM LearningInteraction WHERE kind='question-evaluation' ORDER BY rowid DESC LIMIT 1").fetchone()[0])
                 assert all(x['questionSnapshot']['question'] and x['questionId'] for x in result['results'])
             count = len(h.calls)
             for _ in range(5): h.request('/api/profile')

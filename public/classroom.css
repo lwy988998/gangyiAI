@@ -13,6 +13,10 @@
 .classroom-options input{accent-color:#a4e5d2}
 .classroom-options textarea{width:100%;min-height:90px;padding:10px;border:1px solid #8aa69b;border-radius:7px}
 .classroom-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+.ai-dialogue h3{color:#edf3ef;font-weight:700;line-height:1.8;margin:10px 0}
+.ai-dialogue .classroom-actions button{min-height:42px;padding:10px 16px;border:1px solid #8cdec5;border-radius:9px;background:#a4e5d2;color:#10251f;font-weight:700;cursor:pointer}
+.ai-dialogue .classroom-actions button:hover{background:#c0f5e5}
+.ai-dialogue .classroom-actions button:disabled{background:#263a34;color:#c2d4d0;border-color:#8da69d;cursor:wait}
 .classroom-feedback{min-height:1.5em;margin-top:10px}
 .availability-card{max-width:620px;margin-top:12px}
 .availability-card legend{font-weight:700;padding:0 6px}
@@ -31,7 +35,6 @@
 .due-reviews a{color:#a4e5d2;text-decoration:underline}
 .due-reviews a:hover{color:#d0fff0}
 #classroom-branch[hidden],#classroom-guidance[hidden],#classroom-next[hidden],#classroom-idle[hidden],#ask-selection[hidden]{display:none}
-body[data-classroom-mode=familiar] #learn-steps article:nth-child(-n+2) p{display:none}
 #classroom-idle{position:fixed;left:50%;bottom:18px;z-index:35;display:flex;align-items:center;gap:12px;max-width:min(90vw,560px);padding:12px;border:1px solid #8cdec5;border-radius:9px;background:#14221f;color:#edf3ef;box-shadow:0 8px 28px #0009;transform:translateX(-50%)}
 #classroom-idle button{min-width:40px}
 #ask-selection{position:fixed;z-index:45;box-shadow:0 6px 20px #0008}
