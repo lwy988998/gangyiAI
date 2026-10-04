@@ -182,6 +182,7 @@ def main(executable):
                         tuesday.check()
                         tuesday.locator("xpath=..//input[@type='number']").fill("45")
                         tuesday.dispatch_event("change")
+                        page.locator("#uc-availability-summary").get_by_text("已保存为全部课程共享预算", exact=False).wait_for()
                         assert "周二" in page.locator("#uc-availability-summary").inner_text()
                         page.wait_for_function("() => document.getElementById('uc-profile-subjects').textContent.trim().length > 0")
                         page.wait_for_function("() => document.getElementById('uc-profile-topics').textContent.trim().length > 0")
@@ -200,26 +201,32 @@ def main(executable):
                             "xpath=..//input[@type='number']").input_value() == "45"
                         first_link = page.locator(".next-action a.primary-action").first.get_attribute("href")
                         assert "phaseIndex=1&topicIndex=1" in first_link, first_link
-                        first_title = page.locator("#weekly-entries .weekly-row strong").first.inner_text()
-                        page.locator("#weekly-entries .weekly-row [data-down]").first.click()
-                        assert page.locator("#weekly-entries .weekly-row strong").first.inner_text() != first_title
+                        page.locator("#weekly-replan:not([disabled])").wait_for()
+                        if page.locator("#weekly-accept").is_visible():
+                            page.locator("#weekly-accept").click()
+                            page.locator("#weekly-confirm").wait_for(state="hidden")
+                        first_title = page.locator("#weekly-entries .weekly-row a").first.inner_text()
+                        review = page.locator("#weekly-entries .weekly-row").filter(has_text="到期复习")
+                        review.locator("[data-up]").click()
+                        review.locator("[data-up]").click()
+                        assert page.locator("#weekly-entries .weekly-row a").first.inner_text() != first_title
                         page.locator("#weekly-entries .weekly-row input[type=date]").first.fill("2026-10-01")
                         minutes = page.locator("#weekly-entries .weekly-row input[type=number]").first
                         minutes.fill("25")
                         page.locator("#weekly-save").click()
-                        page.locator("#weekly-message").get_by_text("周计划已保存").wait_for()
+                        page.locator("#weekly-message").get_by_text("修改已保存").wait_for()
                         page.locator("#weekly-replan").click()
-                        page.locator("#weekly-confirm").get_by_text("重排会覆盖手动安排").wait_for()
+                        page.locator("#weekly-confirm").get_by_text("AI 新旧安排对比").wait_for()
                         page.locator("#weekly-cancel").click()
-                        assert page.locator("#weekly-confirm").is_hidden()
+                        page.locator("#weekly-confirm").wait_for(state="hidden")
                         page.locator("#weekly-replan").click()
                         page.locator("#weekly-accept").wait_for()
-                        calls_before = len([call for call in MockAI.requests if "你是排课助手" in call["messages"][0]["content"]])
+                        calls_before = len([call for call in MockAI.requests if "学习统筹教师" in call["messages"][0]["content"]])
                         page.locator("#weekly-accept").click()
                         page.locator("#weekly-confirm").wait_for(state="hidden")
                         assert "学习安排 · " in page.locator("#weekly-title").inner_text()
                         assert "已" in page.locator("#weekly-message").inner_text()
-                        assert len([call for call in MockAI.requests if "你是排课助手" in call["messages"][0]["content"]]) == calls_before
+                        assert len([call for call in MockAI.requests if "学习统筹教师" in call["messages"][0]["content"]]) == calls_before
                         page.locator(".primary-action").first.hover()
                         assert not page.evaluate(AUDIT), "计划页悬停态对比度不足"
                     if path.startswith("/learn"):
@@ -245,7 +252,7 @@ def main(executable):
                         page.locator("#interaction-questions .classroom-question").first.wait_for()
                         page.locator("#interaction-questions .classroom-question").first.locator("input[value='1']").check()
                         page.locator("#interaction-questions .classroom-question").first.locator("[data-submit]").click()
-                        page.locator("#interaction-questions .classroom-question").first.get_by_text("追问", exact=False).wait_for()
+                        page.locator("#interaction-questions .classroom-question").first.get_by_text("先判断", exact=False).wait_for()
                     audit[path] = page.evaluate(AUDIT)
                 assert not errors, errors
                 assert all(not failures for failures in audit.values()), audit
@@ -265,7 +272,7 @@ def main(executable):
                     row = page.locator("#diagnostic-questions .classroom-question").nth(index)
                     row.locator("input[value='0']").check()
                     row.locator("[data-submit]").click()
-                    row.locator(".classroom-feedback").get_by_text("回答正确", exact=False).wait_for()
+                    row.locator(".classroom-feedback").get_by_text("先判断", exact=False).wait_for()
                 page.locator("#classroom-branch").get_by_text("精简已熟悉内容").wait_for()
                 page.reload(wait_until="networkidle")
                 assert page.locator("#diagnostic-questions .classroom-question").count() == 2
@@ -275,7 +282,7 @@ def main(executable):
                     row = page.locator("#diagnostic-questions .classroom-question").nth(index)
                     row.locator("input[value='1']").check()
                     row.locator("[data-submit]").click()
-                    row.locator(".classroom-feedback").get_by_text("先检查", exact=False).wait_for()
+                    row.locator(".classroom-feedback").get_by_text("先判断", exact=False).wait_for()
                 page.locator("#classroom-branch").get_by_text("分钟").wait_for()
                 failure = browser.new_page(viewport={"width": 1280, "height": 900})
                 failure.route("**/api/classroom/start?*", lambda route: route.fulfill(
@@ -321,6 +328,13 @@ def main(executable):
                 for path, failures in audit.items():
                     print("CONTRAST", path, json.dumps(failures, ensure_ascii=False))
                 browser.close()
+        except Exception:
+            try:
+                print("FLOW_DEBUG", urlopen(base + "/api/study-plan").read().decode(), flush=True)
+                print("FLOW_CALLS", [call["messages"][0]["content"][:32] for call in MockAI.requests], flush=True)
+                print("JS_ERRORS", errors, flush=True)
+            except Exception: pass
+            raise
         finally:
             service.terminate()
             service.wait(timeout=10)

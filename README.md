@@ -4,9 +4,9 @@ gangyiAI（钢一定制AI）是面向柳州市钢一中学的 Windows 本机 AI 
 
 平台基于 C++17、Crow、SQLite、WebView2 和原生 HTML/CSS/JavaScript 构建，支持学习目标输入与图片识别、快速或深度课程规划、阶段学习、微课程、测验、AI 对话和课程管理。深色动态界面展示依据本机学习记录生成的专属学习画像；课程和对话记录保存在本机，不需要在线账号。首次启动可暂不配置 AI 接口，先使用本地功能。
 
-当前源码版本为 **v5.3.0**。
+当前源码版本为 **v5.4.0**。
 
-v5.3.0 提供 AI 优先的学科画像与学习能力六维雷达图，支持九科任选六科、逐维证据校验与本机显示偏好保存。继续保留课程重排、启动 AI 推荐、最近课程与“暂时不会”反馈。
+v5.4.0 将真实 AI 连续对话、独立作答评价、动态备课、所有课程共享时间安排和课程路线预览串联起来。手动课表受到预览确认保护，失败保留上次真实结果。继续保留双模式六维雷达图、九科任选六科、启动推荐、最近课程与“暂时不会”反馈。
 
 v5.1.0 把“我的课程”升级为用户中心（侧栏导航，含概览、课程、学习时间、学习画像与 AI 设置），把每周可学习时间从首页搬进用户中心；AI 回答改为逐字输出、Markdown 排版、数学公式、复制与追问建议，公式引擎随包发布。
 
@@ -17,14 +17,14 @@ v4.1.0 新增“诊断 → 学习 → 互动 → 测评 → 补弱与复习 → 
 ## Windows 安装包
 
 普通用户可前往 [GitHub Releases](https://github.com/lwy988998/gangyiAI/releases/latest) 下载
-`gangyiAI-setup-v5.3.0-x64.exe`，也可下载 `gangyiAI-portable-v5.3.0-x64.zip` 解压免安装使用。
-Windows v5.3.0 使用可缩放的独立窗口展示现有动态页面，不再默认打开浏览器。冷启动播放一次光栅扫描动画，动画完成后平滑呈现真实首页。“我的课程”提供 API 接口快捷入口，可配置服务商、API 地址、API Key 和模型；密钥保存在 Windows 凭据管理器。首次启动可选择“暂不配置，直接使用”；需要 AI 生成或问答时，也可从托盘“设置”中配置。可用系统按钮最小化、最大化或关闭；关闭主窗口会退出程序。
+`gangyiAI-setup-v5.4.0-x64.exe`，也可下载 `gangyiAI-portable-v5.4.0-x64.zip` 解压免安装使用。
+Windows v5.4.0 使用可缩放的独立窗口展示现有动态页面，不再默认打开浏览器。冷启动播放一次光栅扫描动画，动画完成后平滑呈现真实首页。“我的课程”提供 API 接口快捷入口，可配置服务商、API 地址、API Key 和模型；密钥保存在 Windows 凭据管理器。首次启动可选择“暂不配置，直接使用”；需要 AI 生成或问答时，也可从托盘“设置”中配置。可用系统按钮最小化、最大化或关闭；关闭主窗口会退出程序。
 首次发布版本尚未进行代码签名，Windows SmartScreen 可能显示未知发布者提示。
 
 安装包同页提供 `SHA256SUMS.txt`，可使用以下命令校验下载文件：
 
 ```powershell
-Get-FileHash .\gangyiAI-setup-v5.3.0-x64.exe -Algorithm SHA256
+Get-FileHash .\gangyiAI-setup-v5.4.0-x64.exe -Algorithm SHA256
 ```
 
 ### 发布构建
@@ -38,8 +38,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
 脚本会下载固定版本的构建依赖、编译服务和原生 Win32 托盘启动器，并生成：
 
 ```text
-dist\installer\gangyiAI-setup-v5.3.0-x64.exe
-dist\installer\gangyiAI-portable-v5.3.0-x64.zip
+dist\installer\gangyiAI-setup-v5.4.0-x64.exe
+dist\installer\gangyiAI-portable-v5.4.0-x64.zip
 dist\installer\SHA256SUMS.txt
 ```
 

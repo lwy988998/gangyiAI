@@ -33,9 +33,6 @@ jobs:
           $text = Get-Content -Raw CMakeLists.txt
           if ($text -notmatch 'project\(gangyiAI VERSION ([0-9.]+)') { throw '无法读取项目版本' }
           if ("v$($Matches[1])" -ne '${{ github.ref_name }}') { throw '标签与项目版本不一致' }
-      - name: 构建、测试和打包
-        shell: pwsh
-        run: .\scripts\build_windows.ps1
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -43,6 +40,9 @@ jobs:
         run: |
           python -m pip install websockets==15.0.1 playwright==1.62.0
           python -m playwright install chromium
+      - name: 构建、测试和打包
+        shell: pwsh
+        run: .\scripts\build_windows.ps1
       - name: 验证发布目录的导师和课堂闭环
         shell: pwsh
         run: |
@@ -72,6 +72,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: 安装系统依赖
         run: sudo apt-get update && sudo apt-get install -y libasio-dev libcurl4-openssl-dev libsqlite3-dev libssl-dev
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 安装连续对话验收依赖
+        run: python -m pip install websockets==15.0.1
       - name: 编译 Linux 服务
         run: >-
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON

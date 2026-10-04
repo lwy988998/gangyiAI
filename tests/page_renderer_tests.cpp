@@ -39,6 +39,8 @@ int main() {
     expect(phase.find("/ )HTML") == std::string::npos, "阶段进度不得包含多余空格");
 
     const std::string home = gangyi::renderHomePage();
+    expect(home.find("/learning-flow.js") < home.find("/classroom.js") && home.find("/learning-flow.css") != std::string::npos,
+        "全流程 AI 组件必须先于课堂脚本加载并随页面提供样式");
     expect(home.find("startup-playing") == std::string::npos, "普通首页不播放开机动画");
     const std::string startup = gangyi::renderStartupPage();
     expect(startup.find("id=\"startup-overlay\"") != std::string::npos, "启动页包含动画覆盖层");

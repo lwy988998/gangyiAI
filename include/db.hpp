@@ -114,6 +114,15 @@ public:
     bool setProfileMetaAtRevision(const std::string& key, const std::string& value, int revision);
     bool replaceMasteryAtRevision(const std::vector<SubjectMastery>& values, int revision);
     bool upsertTopicMasteryAtRevision(const TopicMastery& value, int revision);
+    // 学习联动版本独立于画像评分版本；聊天可以影响教学，但不直接形成分数。
+    int learningRevision() const;
+    void markLearningDirty();
+    bool compareProfileMeta(const std::string& key, const std::string& expected, const std::string& value);
+    bool compareClassroomActivity(const ClassroomActivity& value, const std::string& expected,
+                                  const std::string& guardId = {}, const std::string& guardPayload = {});
+    bool updateLearningSessionAtRevision(const LearningSession& value, const std::string& expected,
+                                        int revision, const std::string& exposureKey,
+                                        const std::string& exposure);
 
 private: sqlite3* db_ = nullptr;
 };

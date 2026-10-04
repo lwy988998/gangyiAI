@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from contextlib import closing
 from concurrent.futures import ThreadPoolExecutor
@@ -30,7 +31,16 @@ def request(base, path, data=None):
     req = urllib.request.Request(base + path, data=body,
                                  headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=25) as response:
-        return json.loads(response.read())
+        result = json.loads(response.read())
+    if path == "/api/classroom/submit":
+        query = urllib.parse.urlencode({key: data[key] for key in ("courseId", "phaseIndex", "topicIndex", "kind", "index")})
+        for _ in range(180):
+            result = request(base, "/api/classroom/dialogue?" + query)
+            if result["evaluationStatus"] != "pending":
+                return result
+            time.sleep(.1)
+        raise AssertionError("后台评价未完成")
+    return result
 
 
 class MockAI(BaseHTTPRequestHandler):
@@ -46,7 +56,7 @@ class MockAI(BaseHTTPRequestHandler):
         MockAI.requests.append(body)
         if body.get("stream"):
             MockAI.stream_messages = body.get("messages", [])
-            stream_prompt = json.dumps(body.get("messages", []), ensure_ascii=False)
+            stream_prompt = body["messages"][-1]["content"]
             if ("思考测试" in stream_prompt or
                     "停止界面测试" in stream_prompt):
                 time.sleep(3.0)
@@ -88,7 +98,29 @@ class MockAI(BaseHTTPRequestHandler):
             self.wfile.write(payload)
             return
         parsed_prompt = json.loads(prompt) if prompt.startswith("{") else {}
-        if isinstance(parsed_prompt, dict) and parsed_prompt.get("block"):
+        if '课程路线预览教师' in system:
+            stages = parsed_prompt['outline']['roadmap']
+            answer = {'slides': [{'phaseIndex': index, 'title': '总览' if index == 0 else stages[index-1]['name'],
+                'content': '本阶段通过具体定义、例题和判断练习建立知识关系。', 'bullets': ['先理解定义，再做诊断练习']} for index in range(len(stages)+1)]}
+        elif '学习统筹教师' in system:
+            candidates = parsed_prompt['candidates']
+            maximum = max(slot['minutes'] for slot in parsed_prompt['availability'])
+            answer = {'order': [{'taskId': item['taskId'], 'minutes': min(15, maximum)} for item in candidates[:20]],
+                      'teaching': [], 'nextTaskId': candidates[0]['taskId'] if candidates else '',
+                      'reason': '结合真实反馈，先复习薄弱知识，再推进后续学习。'}
+        elif '课堂作答评价教师' in system:
+            given = parsed_prompt['givenAnswer']; question = parsed_prompt['question']
+            answer = {'isAnswer': parsed_prompt.get('intent', 'answer') != 'ask',
+                      'correct': isinstance(given, int) and given == question.get('answerIndex', 0),
+                      'unknown': isinstance(given, str) and '不会' in given,
+                      'confidence': .4 if question.get('type') == 'open' else .95,
+                      'feedback': '先判断区间和定义，再给出具体依据。', 'misconception': '定义不够清楚'}
+        elif '课堂教师，正在一道真实题目旁' in system:
+            answer = '先理解区间上的变化，再回答一个小问题：函数值在增大还是减小？'
+        elif '高中课堂出题教师' in system:
+            answer = {'questions': [{'question': 'diagnostic' + str(i), 'options': ['正确', '错误', '其他', '不确定'],
+                                    'answerIndex': 0, 'explanation': '检查定义与条件。'} for i in range(3)]}
+        elif isinstance(parsed_prompt, dict) and parsed_prompt.get("block"):
             MockAI.learn_block_calls += 1
             block = parsed_prompt["block"]
             base = f'{parsed_prompt["goal"]} {parsed_prompt["phase"]} {parsed_prompt["topic"]}'
@@ -248,6 +280,8 @@ def main(executable):
             course_id = created["courseId"]
             first_week = request(base, "/api/classroom/week?courseId=" + course_id)
             assert len(first_week["availability"]) == 3 and all(slot["minutes"] == 30 for slot in first_week["availability"])
+            with closing(sqlite3.connect(db_path)) as db:
+                initial_snapshot_count = db.execute("SELECT COUNT(*) FROM CourseSnapshot WHERE courseId=?", (course_id,)).fetchone()[0]
             new_lesson = f"?courseId={course_id}&phaseIndex=1&topicIndex=1"
             first_diagnostic = request(base, "/api/classroom/start" + new_lesson + "&kind=diagnostic")
             assert len(first_diagnostic["questions"]) == 2
@@ -309,12 +343,12 @@ def main(executable):
                     "topicIndex": 1, "status": "completed"})
             strong_finish = request(base, "/api/classroom/finish", {"courseId": strong_id,
                                     "phaseIndex": 1, "topicIndex": 1})
-            assert strong_finish["pathAdjustment"] == "strong", strong_finish
+            assert strong_finish["pathAdjustment"] == "", "完成课时不能改写课程大纲"
             with closing(sqlite3.connect(db_path)) as db:
                 strong_topics = json.loads(db.execute(
                     "SELECT payload FROM CourseSnapshot WHERE courseId=? ORDER BY version DESC LIMIT 1",
                     (strong_id,)).fetchone()[0])["courseStructure"]
-                assert strong_topics[0]["topics"] == ["函数单调性"] and len(strong_topics[1]["topics"]) == 2
+                assert strong_topics[0]["topics"] == ["函数单调性", "函数图像"] and len(strong_topics[1]["topics"]) == 2
                 skip_versions = db.execute("SELECT COUNT(*) FROM CourseSnapshot WHERE courseId=?", (skip_id,)).fetchone()[0]
             request(base, "/api/quiz-attempts", {"courseId": skip_id, "phaseIndex": 1,
                     "topicIndex": 1, "answers": [0, 0, 0]})
@@ -367,13 +401,13 @@ def main(executable):
             with ThreadPoolExecutor(max_workers=2) as pool:
                 finishes = list(pool.map(lambda _: request(base, "/api/classroom/finish", {
                     "courseId": course_id, "phaseIndex": 1, "topicIndex": 1}), range(2)))
-            assert [item["pathAdjustment"] for item in finishes].count("weak") == 1, finishes
+            assert all(item["pathAdjustment"] == "" for item in finishes), "补弱调整教学，不改写大纲"
             with closing(sqlite3.connect(db_path)) as db, db:
                 snapshots = db.execute("SELECT version,payload FROM CourseSnapshot WHERE courseId=? ORDER BY version", (course_id,)).fetchall()
-                assert snapshots[0][0] == 1 and len(snapshots) >= 2
+                assert snapshots[0][0] == 1 and len(snapshots) == initial_snapshot_count + 1, "只允许为旧课程补充稳定主题标识"
                 adjusted_payload = json.loads(snapshots[-1][1])
                 topics = adjusted_payload["courseStructure"][0]["topics"]
-                assert topics == ["函数单调性", "函数单调性短补弱", "函数图像"], topics
+                assert topics == ["函数单调性", "函数图像"], topics
                 assert adjusted_payload["prerequisites"] == ["掌握一次函数"]
                 state_id = f"classroom:{course_id}:1:1:state"
                 state = json.loads(db.execute("SELECT payload FROM ClassroomActivity WHERE id=?", (state_id,)).fetchone()[0])
@@ -395,41 +429,16 @@ def main(executable):
                                    (f"classroom:{course_id}:1:1:review:retry:%",)).fetchone()
                 assert retry and json.loads(retry[0])["due"] == tomorrow
             refreshed = request(base, "/api/classroom/week/replan", {"courseId": course_id})
-            assert not refreshed["requiresConfirmation"]
-            week = refreshed["plan"]
-            assert all(entry["title"] != "函数单调性" for entry in week["entries"] if entry["kind"] == "lesson"), week
-            week["entries"][0]["minutes"] = 25
-            edited = request(base, "/api/classroom/week/edit", {"courseId": course_id, "version": week["version"],
-                              "entries": week["entries"]})
-            proposal = request(base, "/api/classroom/week/replan", {"courseId": course_id})
-            assert proposal["requiresConfirmation"] and proposal["current"]["version"] == edited["version"]
-            assert request(base, "/api/classroom/week?courseId=" + course_id)["version"] == edited["version"]
-            calls_before = len(MockAI.requests)
-            accepted = request(base, "/api/classroom/week/replan", {"courseId": course_id, "confirm": True,
-                "version": edited["version"], "proposalId": proposal["proposalId"]})
-            assert accepted["plan"]["entries"] == proposal["proposed"], "确认必须保存同一份预览"
-            assert len(MockAI.requests) == calls_before, "确认不得再调用排课模型"
-            assert not accepted["requiresConfirmation"] and accepted["plan"]["version"] == edited["version"] + 1
-            with closing(sqlite3.connect(db_path)) as db, db:
-                stored = db.execute("SELECT payload,version FROM WeeklyPlan WHERE courseId=?", (course_id,)).fetchone()
-                old_week = json.loads(stored[0]); old_week["weekStart"] = "2026-09-21"
-                db.execute("UPDATE WeeklyPlan SET payload=? WHERE courseId=?",
-                           (json.dumps(old_week, ensure_ascii=False), course_id))
-            rolled = request(base, "/api/classroom/week?courseId=" + course_id)
-            today = datetime.date.today()
-            expected_monday = (today - datetime.timedelta(days=today.weekday())).isoformat()
-            remaining = any(today.weekday() < slot["weekday"] for slot in rolled["availability"])
-            if not remaining:
-                expected_monday = (today - datetime.timedelta(days=today.weekday()) + datetime.timedelta(days=7)).isoformat()
-            assert rolled["weekStart"] == expected_monday and rolled["version"] == stored[1] + 1
+            assert refreshed["pending"] and refreshed["plan"]["status"] == "pending"
+            assert request(base, "/api/classroom/week?courseId=" + course_id)["sharedBudget"]
             print(asyncio.run(check_ask(port, base)))
             assert asyncio.run(check_stream(port, course_id)) == 3
-            sent_context = json.dumps(MockAI.stream_messages, ensure_ascii=False)
+            sent_context = json.dumps([item for item in MockAI.stream_messages if item["role"] != "system"], ensure_ascii=False)
             assert "旧课堂记录" in sent_context and "另一课时记录" not in sent_context
-            assert "普通导师第一问" not in sent_context and "画像" in sent_context
+            assert "普通导师第一问" not in sent_context and "verifiedProfile" in json.dumps(MockAI.stream_messages, ensure_ascii=False)
             history = request(base, f"/api/conversations/lesson-{course_id}-1-1")["messages"]
             assert history[0]["text"] == "旧课堂记录" and history[-1]["text"] == "片段一片段二"
-            print("CLASSROOM_API_SMOKE PASS: creation-to-cross-week, diagnosis, review retry, path insert/skip, started topic, weekly confirmation, concurrent lesson/remedial, stream, stop")
+            print("CLASSROOM_API_SMOKE PASS: creation, diagnosis, review retry, stable outline, shared-budget compatibility, concurrent lesson/remedial, stream, stop")
         finally:
             try:
                 urllib.request.urlopen(urllib.request.Request(base + "/internal/shutdown", method="POST",

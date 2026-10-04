@@ -234,8 +234,7 @@ json adaptSlides(const json& plan, const json& roadmap, const std::string& mode)
     } else {
         result = slidesFromPhases(plan, roadmap);
     }
-    const size_t limit = mode == "lite" ? 1 : 2;
-    if (result.size() > limit) result.erase(result.begin() + static_cast<std::ptrdiff_t>(limit), result.end());
+    (void)mode;  // 展示真实 AI 预览时保留全部阶段，旧快照格式继续兼容。
     return result;
 }
 
