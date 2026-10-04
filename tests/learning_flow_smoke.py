@@ -131,7 +131,11 @@ class Harness:
         raw = None if data is None else json.dumps(data, ensure_ascii=False).encode()
         req = urllib.request.Request(self.base + path, data=raw, method=method,
             headers={"Content-Type": "application/json", "X-Gangyi-Control-Token": "flow-test"})
-        with urllib.request.urlopen(req, timeout=15) as response: return json.loads(response.read())
+        try:
+            with urllib.request.urlopen(req, timeout=15) as response: return json.loads(response.read())
+        except urllib.error.HTTPError as error:
+            print("FLOW_HTTP", path, error.code, error.read().decode(), flush=True)
+            raise
     def stop(self):
         try: self.http("/internal/shutdown", {}, "POST")
         except OSError: pass
@@ -228,6 +232,15 @@ def main(executable):
             assert item["assisted"]
             assert h.sql("SELECT COUNT(*) FROM ClassroomActivity WHERE courseId='chem' AND kind='diagnostic' AND payload LIKE '%\"status\":\"answered\"%'")[0][0] == 1
             stale = asyncio.run(h.dialogue("其他窗口", "stale", version=0)); assert stale[-1]["type"] == "error"
+            # 旧评价请求返回前出现新作答，旧分数不能覆盖新一轮的明确不会。
+            FlowModel.block_task = "evaluate"; FlowModel.blocked.clear(); FlowModel.release.clear()
+            asyncio.run(h.dialogue("旧请求回答", "obsolete-evaluation"))
+            assert FlowModel.blocked.wait(5), "旧评价请求应进入网络等待"
+            asyncio.run(h.dialogue("我不知道", "current-evaluation"))
+            FlowModel.block_task = ""; FlowModel.release.set()
+            wait_for(lambda: h.view()["evaluationStatus"] == "ready")
+            latest = json.loads(h.sql("SELECT payload FROM ClassroomActivity WHERE id='classroom:chem:1:1:diagnostic:0'")[0][0])
+            assert latest["unknown"] and not latest["correct"] and latest["answer"] == "我不知道"
             # 停止不计评价；同请求重试只保存一轮。
             events = asyncio.run(h.dialogue("停止测试", "stop", stop=True)); assert events[-1].get("cancelled")
             assert h.view()["turns"][-1]["status"] == "failed"
@@ -243,6 +256,20 @@ def main(executable):
             FlowModel.failure = ""
             h.http("/api/classroom/evaluation/retry", dict(courseId="chem", phaseIndex=1, topicIndex=1, kind="diagnostic", index=0))
             wait_for(lambda: h.view()["evaluationStatus"] == "ready")
+            # 等待本轮画像任务结束，避免测试把正确的证据版本冲突当成取消失败。
+            settled = {"version": None, "since": time.monotonic()}
+            def profile_settled():
+                meta = dict(h.sql("SELECT key,value FROM ProfileMeta"))
+                revision = int(meta.get("revision", 0)); learning_revision = int(meta.get("learning-revision", 1))
+                state = json.loads(meta.get("learning-flow", "{}"))
+                profile_done = int(meta.get("assessed", 0)) >= revision or meta.get("profile-failed-revision") == str(revision)
+                abilities_done = json.loads(meta.get("ability-profile", "{}")).get("attemptVersion", 0) >= revision
+                preparation_done = state.get("status") == "ready" and state.get("preparationAttemptedRevision") == learning_revision
+                version = (revision, learning_revision, state.get("plan", {}).get("version"))
+                if settled["version"] != version:
+                    settled.update(version=version, since=time.monotonic())
+                return profile_done and abilities_done and preparation_done and time.monotonic() - settled["since"] >= 3
+            wait_for(profile_settled)
             # 未保存的时间也用于预览；取消保留，确认同一结果。
             plan = h.plan()
             availability = [{"weekday": 1, "minutes": 45}, {"weekday": 3, "minutes": 45}, {"weekday": 5, "minutes": 45}]
@@ -271,8 +298,13 @@ def main(executable):
             FlowModel.failure = ""
             # 重启恢复对话与计划；普通读取不生成新结果。
             h.stop(); h.start()
-            assert len(h.view()["turns"]) == 4 and h.http("/api/study-plan")["entries"] == accepted["entries"]
+            assert len(h.view()["turns"]) == 6 and h.http("/api/study-plan")["entries"] == accepted["entries"]
             print("LEARNING_FLOW PASS: dialogue/retry/stop/idempotency/versions, AI preparation/exposure, shared budget/rollover, drafts/preview/CAS, cache/restart/failure")
+        except Exception:
+            print("FLOW_STATE", h.http("/api/study-plan"), flush=True)
+            print("FLOW_META", h.sql("SELECT key,value FROM ProfileMeta WHERE key IN ('learning-flow','learning-revision','revision','assessed')"), flush=True)
+            print("FLOW_TASKS", [call["messages"][0]["content"][:30] for call in FlowModel.calls], flush=True)
+            raise
         finally:
             FlowModel.failure = ""; FlowModel.release.set(); h.close()
 
