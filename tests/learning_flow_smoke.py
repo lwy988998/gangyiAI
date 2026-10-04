@@ -186,6 +186,33 @@ def main(executable):
             for index in range(3):
                 question = {"question": f"解释化合价升降 {index}", "type": "open", "rubric": "说明反应前后元素化合价变化", "status": "pending"}
                 h.sql("INSERT INTO ClassroomActivity VALUES(?,?,?,?,?,?,?)", (f"classroom:chem:1:1:diagnostic:{index}", "chem", 1, 1, "diagnostic", json.dumps(question, ensure_ascii=False), "2026-10-04"))
+            # 并发发布评价时，读取必须是同一数据库快照，不能出现已完成却缺少反馈。
+            atomic_key = "classroom:chem:1:1:interaction:2"
+            atomic_question = {"question": "虚构并发评价题", "type": "open", "status": "pending"}
+            h.sql("INSERT INTO ClassroomActivity VALUES(?,?,?,?,?,?,?)", (atomic_key, "chem", 1, 1, "interaction", json.dumps(atomic_question), "2026-10-04"))
+            h.sql("INSERT INTO ClassroomActivity VALUES(?,?,?,?,?,?,?)", (atomic_key + ":evaluation", "chem", 1, 1, "evaluation", '{"status":"waiting","dialogueVersion":0}', "2026-10-04"))
+            atomic_stop = threading.Event(); atomic_errors = []
+            def publish_atomic_evaluations():
+                try:
+                    with closing(sqlite3.connect(h.database, timeout=8)) as connection:
+                        while not atomic_stop.is_set():
+                            for ready in (False, True):
+                                question = dict(atomic_question)
+                                if ready: question.update(status="answered", correct=False, feedback="这是本轮真实评价的反馈。")
+                                with connection:
+                                    connection.execute("UPDATE ClassroomActivity SET payload=? WHERE id=?", (json.dumps(question), atomic_key))
+                                    connection.execute("UPDATE ClassroomActivity SET payload=? WHERE id=?", (json.dumps({"status": "ready" if ready else "waiting", "dialogueVersion": 0}), atomic_key + ":evaluation"))
+                except Exception as error: atomic_errors.append(error)
+            atomic_writer = threading.Thread(target=publish_atomic_evaluations); atomic_writer.start()
+            try:
+                for _ in range(250):
+                    value = h.view("interaction", 2)
+                    if value["evaluationStatus"] == "ready":
+                        assert value.get("correct") is False and value.get("feedback"), "已评价状态不能读取旧题目反馈"
+            finally:
+                atomic_stop.set(); atomic_writer.join(timeout=10)
+            assert not atomic_writer.is_alive() and not atomic_errors, atomic_errors
+            h.sql("DELETE FROM ClassroomActivity WHERE id IN (?,?)", (atomic_key, atomic_key + ":evaluation"))
             h.revision()
             # 显示过的讲解不得被新的后台模型结果覆盖。
             h.http("/api/learn/exposure", dict(courseId="chem", phaseIndex=1, topicIndex=1, contentVersion=1, blocks=["steps"]))

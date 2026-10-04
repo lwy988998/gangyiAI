@@ -308,6 +308,21 @@ std::optional<ClassroomActivity> Database::getClassroomActivity(const std::strin
     if(sqlite3_step(s.p)!=SQLITE_ROW)return std::nullopt;
     return ClassroomActivity{str(s.p,0),str(s.p,1),str(s.p,4),str(s.p,5),str(s.p,6),sqlite3_column_int(s.p,2),sqlite3_column_int(s.p,3)};
 }
+std::vector<std::string> Database::classroomPayloadSnapshot(const std::vector<std::string>& keys) const {
+    if (keys.empty() || keys.size() > 16) throw std::invalid_argument("课堂快照参数无效");
+    std::string sql = "SELECT ";
+    for (size_t index = 0; index < keys.size(); ++index) {
+        if (index) sql += ',';
+        sql += "(SELECT payload FROM ClassroomActivity WHERE id=?)";
+    }
+    Stmt statement(db_, sql.c_str());
+    for (size_t index = 0; index < keys.size(); ++index) text(statement, static_cast<int>(index + 1), keys[index]);
+    const int result = sqlite3_step(statement.p); check(result, db_, "read classroom snapshot");
+    if (result != SQLITE_ROW) throw std::runtime_error("课堂状态暂不可读");
+    std::vector<std::string> values;
+    for (size_t index = 0; index < keys.size(); ++index) values.push_back(str(statement.p, static_cast<int>(index)));
+    return values;
+}
 std::vector<ClassroomActivity> Database::listClassroomActivities(const std::string& courseId) const {
     std::vector<ClassroomActivity> rows;
     Stmt s(db_, "SELECT id,courseId,phaseIndex,topicIndex,kind,payload,updatedAt FROM ClassroomActivity WHERE courseId=? ORDER BY rowid");text(s,1,courseId);

@@ -97,6 +97,8 @@ public:
     bool insert(const LearningSession&); std::optional<LearningSession> getLearningSession(const std::string&) const; std::vector<LearningSession> listLearningSessions() const; bool update(const LearningSession&); bool deleteLearningSession(const std::string&); std::optional<LearningSession> findLearningSession(const std::string&, int, int) const;
     bool insert(const LearningInteraction&); std::vector<LearningInteraction> listInteractions() const;
     bool upsert(const ClassroomActivity&); std::optional<ClassroomActivity> getClassroomActivity(const std::string&) const;
+    // 单次查询读取关联状态，避免后台评价完成时混合新旧版本。
+    std::vector<std::string> classroomPayloadSnapshot(const std::vector<std::string>& keys) const;
     std::vector<ClassroomActivity> listClassroomActivities(const std::string&) const;
     bool upsert(const WeeklyPlan&); std::optional<WeeklyPlan> getWeeklyPlan(const std::string&) const;
     void deleteClassroomData(const std::string&);
