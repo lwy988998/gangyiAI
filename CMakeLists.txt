@@ -153,7 +153,7 @@ endif()
 add_executable(gangyiAI src/main.cpp src/db.cpp src/ai_client.cpp src/json_fix.cpp src/plan_generator.cpp src/page_renderer.cpp
     src/plan_cache.cpp src/plan_adapter.cpp src/search_client.cpp src/quality_gate.cpp src/course_service.cpp
     src/progress_service.cpp src/profile_service.cpp src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/classroom_service.cpp src/image_goal_analyzer.cpp src/home_recommendations.cpp src/learning_flow.cpp
-    src/learning_agent.cpp src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp
+    src/learning_agent.cpp src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp
     ${GANGYI_SERVICE_RESOURCE})
 
 target_include_directories(gangyiAI PRIVATE
@@ -205,7 +205,7 @@ if(BUILD_TESTING)
     target_link_libraries(agent-stream-tests PRIVATE nlohmann_json::nlohmann_json)
     add_test(NAME agent-stream COMMAND agent-stream-tests)
     add_executable(learning-agent-tests tests/learning_agent_tests.cpp src/learning_agent.cpp
-        src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/db.cpp src/ai_client.cpp src/search_client.cpp src/json_fix.cpp)
+        src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/db.cpp src/ai_client.cpp src/search_client.cpp src/json_fix.cpp)
     target_include_directories(learning-agent-tests PRIVATE include ${GANGYI_CURL_INCLUDE})
     target_link_libraries(learning-agent-tests PRIVATE nlohmann_json::nlohmann_json
         ${GANGYI_SQLITE_LIB} ${GANGYI_CURL_LINK} Threads::Threads)

@@ -1,6 +1,7 @@
 #include "learning_agent.hpp"
 #include "agent_preferences.hpp"
 #include "agent_lessons.hpp"
+#include "agent_profiles.hpp"
 #include "agent_stream.hpp"
 #include "json_fix.hpp"
 #include <algorithm>
@@ -232,6 +233,7 @@ LearningAgent::LearningAgent(std::string path, ModelCall model) : databasePath_(
     if (!model_) model_ = [](const ChatOptions& options, const auto& receiver) {
         AIClient ai; return ai.chatStream(options, receiver);
     };
+    registerAgentProfileTools(*this);
     registerTool("read_context", {"读取所有有访问权限课程的最新目标、记录、进度、画像和安排。", true,
         [](Database& db, const Json&, const Json& task, const AIResult&) {
             return PreparedAgentTool{agentContext(db, accessFor(task), task.at("event")), {}};

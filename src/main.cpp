@@ -1839,9 +1839,15 @@ int main() {
         return response;
     });
 
-    CROW_ROUTE(app, "/api/profile/refresh").methods(crow::HTTPMethod::POST)([&db] {
-        db.markProfileDirty();
-        return crow::response(202, nlohmann::json{{"ok", true}, {"updating", true}}.dump());
+    CROW_ROUTE(app, "/api/profile/refresh").methods(crow::HTTPMethod::POST)([databasePath = config.database_path] {
+        try {
+            gangyi::Database connection; connection.open(databasePath); connection.markProfileDirty();
+            static std::atomic_uint64_t sequence{0};
+            const auto task = gangyi::agentSubmit(connection, localAgentAccess(connection), {{"type", "profile_update"},
+                {"requestId", "profile-" + nowIso8601() + "-" + std::to_string(++sequence)},
+                {"text", "读取真实原题、实际回答、提示经历和可靠评价，判断哪些学科与能力维度已具备证据，并给出评分、范围和不确定性。不采用固定题数门槛；缺证据时解释还需要了解什么，保留其他有效画像。"}});
+            return crow::response(202, nlohmann::json{{"ok", true}, {"updating", true}, {"taskId", task.at("id")}}.dump());
+        } catch (const std::exception&) { return crow::response(503, nlohmann::json{{"error", "画像更新未提交，原有结果保留。"}}.dump()); }
     });
 
     CROW_ROUTE(app, "/api/conversations/<string>")([&db](const crow::request&, std::string conversationId) {
@@ -2542,73 +2548,7 @@ int main() {
         {"text", "读取真实学习情况，生成快速规划和深度课程各五条推荐，并自主决定需要准备的下一步。无记录时不推测掌握度。"}});
     learningAgent.start();
     learningFlow.start();
-    std::atomic_bool stopProfile{false};
-    std::thread profileWorker([&] {
-      while (!stopProfile) {
-        try {
-            gangyi::Database workerDb;
-            workerDb.open(config.database_path);
-            while (!stopProfile) {
-                if (workerDb.profileDirty() && workerDb.profileMeta("profile-failed-revision") != std::to_string(workerDb.profileRevision())) {
-                    const int pendingRevision = workerDb.profileRevision();
-                    for (int i = 0; i < 20 && !stopProfile && workerDb.profileRevision() == pendingRevision; ++i)
-                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                    if (stopProfile || workerDb.profileRevision() != pendingRevision) continue;
-                    // 中断后将同一版本标为等待重试，正常在途任务仍显示正在评估。
-                    if (workerDb.profileMeta("profile-attempt-revision") == std::to_string(pendingRevision)) {
-                        workerDb.setProfileMetaAtRevision("profile-failed-revision", std::to_string(pendingRevision), pendingRevision);
-                        continue;
-                    }
-                    if (!workerDb.setProfileMetaAtRevision("profile-attempt-revision", std::to_string(pendingRevision), pendingRevision)) continue;
-                    gangyi::AIClient ai;
-                    std::string error;
-                    const bool topicsReady = gangyi::refreshTopicMastery(workerDb, ai, error);
-                    if (workerDb.profileRevision() != pendingRevision) continue;
-                    if (!topicsReady) workerDb.setProfileError(u8"主题状态暂未更新，请稍后重试。");
-                    if (!topicsReady || !gangyi::refreshProfile(workerDb, ai, error)) {
-                        workerDb.setProfileMetaAtRevision("profile-failed-revision", std::to_string(pendingRevision), pendingRevision);
-                        std::cerr << "[profile] 等待下一次有效作答或手动更新\n";
-                    } else {
-                        workerDb.setProfileMetaAtRevision("profile-failed-revision", "", pendingRevision);
-                    }
-                }
-                for (int i = 0; i < 20 && !stopProfile; ++i)
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
-        } catch (const std::exception& error) {
-            std::cerr << "[profile] 后台状态暂不可读，稍后恢复：" << error.what() << '\n';
-        }
-        for (int i = 0; i < 20 && !stopProfile; ++i)
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      }
-    });
-    // 能力评估独立于学科画像；同一失败证据版本仅尝试一次。
-    std::thread abilityWorker([&] {
-      while (!stopProfile) {
-        try {
-            gangyi::Database workerDb;
-            workerDb.open(config.database_path);
-            while (!stopProfile) {
-                if (gangyi::abilityProfileView(workerDb)["state"].value("updating", false)) {
-                    const int revision = workerDb.profileRevision();
-                    for (int i = 0; i < 20 && !stopProfile && workerDb.profileRevision() == revision; ++i)
-                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                    if (!stopProfile && workerDb.profileRevision() == revision) {
-                        gangyi::AIClient ai;
-                        gangyi::refreshAbilityProfile(workerDb, ai);
-                    }
-                }
-                for (int i = 0; i < 20 && !stopProfile; ++i)
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
-
-        } catch (const std::exception& error) {
-            std::cerr << "[profile] 能力评估状态暂不可读，稍后恢复：" << error.what() << '\n';
-        }
-        for (int i = 0; i < 20 && !stopProfile; ++i)
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      }
-    });
+    // 画像由同一真实 AI 主控按学习事件更新，不再启动独立评分线程。
     std::cout << "gangyiAI " << gangyi::kVersion << " listening on " << config.host << ':' << config.port << '\n';
     app.bindaddr(config.host).port(config.port).multithreaded().run();
     learningAgent.stop();
@@ -2616,7 +2556,4 @@ int main() {
     while (socketWorkerCount > 0) std::this_thread::sleep_for(std::chrono::milliseconds(100));
     homeRecommendations.stop();
     learningFlow.stop();
-    stopProfile = true;
-    profileWorker.join();
-    abilityWorker.join();
 }
