@@ -94,6 +94,23 @@ if(NOT crowSocketSource MATCHES "remote_endpoint\\(ec\\)")
     endif()
     file(WRITE "${crowSocketHeader}" "${crowSocketPatched}")
 endif()
+# 请求处理还会调用 address()；提前断开的连接不能让服务线程异常退出。
+file(READ "${crowSocketHeader}" crowSocketSource)
+set(crowAddressPatched "${crowSocketSource}")
+string(REPLACE
+    "            return socket_.remote_endpoint().address().to_string();"
+    "            error_code ec;\n            const auto endpoint = socket_.remote_endpoint(ec);\n            return ec ? std::string() : endpoint.address().to_string();"
+    crowAddressPatched "${crowAddressPatched}")
+string(REPLACE
+    "            return ssl_socket_->lowest_layer().remote_endpoint().address().to_string();"
+    "            error_code ec;\n            const auto endpoint = ssl_socket_->lowest_layer().remote_endpoint(ec);\n            return ec ? std::string() : endpoint.address().to_string();"
+    crowAddressPatched "${crowAddressPatched}")
+if(crowAddressPatched MATCHES "remote_endpoint\\(\\)\\.address\\(\\)")
+    message(FATAL_ERROR "Crow 仍存在提前断开时会抛异常的地址读取")
+endif()
+if(NOT crowAddressPatched STREQUAL crowSocketSource)
+    file(WRITE "${crowSocketHeader}" "${crowAddressPatched}")
+endif()
 if(WIN32)
     FetchContent_Declare(
         webview
@@ -182,6 +199,12 @@ endif()
 include(CTest)
 if(BUILD_TESTING)
     find_package(Threads REQUIRED)
+    add_executable(socket-adaptor-tests tests/socket_adaptor_tests.cpp)
+    target_link_libraries(socket-adaptor-tests PRIVATE Crow::Crow Threads::Threads)
+    if(WIN32)
+        target_link_libraries(socket-adaptor-tests PRIVATE ws2_32)
+    endif()
+    add_test(NAME socket-adaptor COMMAND socket-adaptor-tests)
     add_executable(ai-client-tests tests/ai_client_tests.cpp src/ai_client.cpp src/search_client.cpp src/ask_generator.cpp
         src/json_fix.cpp src/plan_generator.cpp)
     target_include_directories(ai-client-tests PRIVATE

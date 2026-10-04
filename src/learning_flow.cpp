@@ -429,21 +429,29 @@ Json requestCoursePreview(Database& db, const std::string& courseId, bool retry)
     return value;
 }
 Json dialogueView(Database& db, const Json& body) {
-    const auto question = questionFor(db, body);
-    const auto row = db.getClassroomActivity(itemKey(body) + ":dialogue");
-    auto result = row ? parse(row->payload) : Json{{"version", 0}, {"turns", Json::array()}};
+    activeCourse(db, body.at("courseId"));
+    const auto key = itemKey(body);
+    const auto lesson = classroomKey(body.at("courseId"), body.at("phaseIndex"), body.at("topicIndex"));
+    const auto snapshot = db.classroomPayloadSnapshot({key, key + ":dialogue", key + ":evaluation",
+                                                      lesson + ":state", lesson + ":diagnostic:2"});
+    if (snapshot[0].empty()) throw std::invalid_argument("题目尚未准备好");
+    const auto question = parse(snapshot[0]);
+    auto result = snapshot[1].empty() ? Json{{"version", 0}, {"turns", Json::array()}} : parse(snapshot[1]);
     result["question"] = publicQuestion(question);
     result["questionId"] = questionIdentity(body.at("courseId"), questionSnapshot(question));
     result["evaluationStatus"] = question.value("evaluationStatus", question.value("credible", false) ? "ready" : "pending");
-    if (const auto evaluation = db.getClassroomActivity(itemKey(body) + ":evaluation"))
-        result["evaluationStatus"] = parse(evaluation->payload).value("status", "pending");
-    const auto state = db.getClassroomActivity(classroomKey(body.at("courseId"), body.at("phaseIndex"), body.at("topicIndex")) + ":state");
-    result["mode"] = state ? parse(state->payload).value("diagnosticMode", "pending") : "pending";
+    if (!snapshot[2].empty()) {
+        const auto evaluation = parse(snapshot[2]);
+        result["evaluationStatus"] = evaluation.value("dialogueVersion", result.value("version", 0)) == result.value("version", 0)
+            ? evaluation.value("status", "pending") : "pending";
+    }
+    if (!result["turns"].empty() && result["turns"].back().value("status", "") != "ready")
+        result["evaluationStatus"] = result["turns"].back().value("status", "") == "failed" ? "waiting" : "pending";
+    result["mode"] = parse(snapshot[3]).value("diagnosticMode", "pending");
     for (const auto& name : {"correct", "credible", "feedback", "followUp", "hintLevel"})
         if (question.contains(name)) result[name] = question[name];
     if (result["mode"] == "third") {
-        const auto next = db.getClassroomActivity(classroomKey(body.at("courseId"), body.at("phaseIndex"), body.at("topicIndex")) + ":diagnostic:2");
-        if (next) result["nextQuestion"] = publicQuestion(parse(next->payload));
+        if (!snapshot[4].empty()) result["nextQuestion"] = publicQuestion(parse(snapshot[4]));
     }
     return result;
 }
@@ -823,6 +831,8 @@ void LearningFlow::prepare(Database& db, const Json& teaching, int revision) {
             session->content = kept.dump(); db.updateLearningSessionAtRevision(*session, old, revision, key, exposure);
         }
     }
+    // 备课完成只更新后台标记，与确认、取消使用同一短锁，不制造虚假的课表冲突。
+    std::lock_guard<std::mutex> guard(flowMutex);
     const auto original = db.profileMeta("learning-flow"); auto state = parse(original);
     if (db.learningRevision() == revision && state.value("attemptedRevision", 0) == revision) {
         state["preparationAttemptedRevision"] = revision;

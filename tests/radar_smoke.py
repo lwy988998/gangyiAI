@@ -172,6 +172,11 @@ def main(executable):
                         dict(preferences, subjects=SUBJECTS[:5] + ['大学数学']), dict(preferences, mode='invalid')]:
                 h.request('/api/profile/radar-preferences', 'PUT', bad, 400)
             assert h.request('/api/profile/radar-preferences') == preferences
+            # 数据库暂时被占用超过忙等待时间，后台线程仍应恢复处理后续作答。
+            with h.db() as locked:
+                locked.execute('BEGIN EXCLUSIVE')
+                time.sleep(8.2)
+                locked.commit()
             h.seed_quiz(repeated=True)
             for _ in range(3): h.answer(['unknown', 'unknown', 'unknown'])
             assert all(x['score'] is None for x in h.settled()['abilities']) and not h.calls
@@ -228,6 +233,21 @@ def main(executable):
             assert [x['score'] for x in complete['abilities']] == [55, 0, 72, 44, 63, 41]
             assert len(h.calls[-1]['tasks']) == 6, '失败评价和跳过不得作为证据'
             assert all(x['evidenceCount'] == 3 for x in complete['abilities'])
+            # 恢复已中断的在途评估：保留旧画像，同一版本不再调用模型。
+            count = len(h.calls); h.stop()
+            with h.db() as db:
+                revision = int(db.execute("SELECT value FROM ProfileMeta WHERE key='revision'").fetchone()[0]) + 1
+                db.execute("UPDATE ProfileMeta SET value=? WHERE key='revision'", (str(revision),))
+                stored = json.loads(db.execute("SELECT value FROM ProfileMeta WHERE key='ability-profile'").fetchone()[0])
+                stored['pendingVersion'] = revision
+                db.execute("UPDATE ProfileMeta SET value=? WHERE key='ability-profile'", (json.dumps(stored),))
+                db.execute("INSERT INTO ProfileMeta VALUES('profile-attempt-revision',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(revision),))
+            h.start(); interrupted = h.settled()
+            assert interrupted['abilities'] == complete['abilities'] and interrupted['abilityStatus']['status'] == 'waiting'
+            assert len(h.calls) == count, '恢复时不得重复请求已中断版本'
+            h.request('/api/profile/refresh', 'POST', {}, 202)
+            retried = h.settled()
+            assert [x['score'] for x in retried['abilities']] == [x['score'] for x in complete['abilities']] and len(h.calls) == count + 1
             print('六维画像：可靠证据、独立 AI、门槛校验、失败保留、版本冲突与重启保留通过')
         finally: h.close()
 

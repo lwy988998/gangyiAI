@@ -297,6 +297,15 @@ bool refreshAbilityProfile(Database& db, AIClient& ai) {
     auto stored = json::parse(db.profileMeta("ability-profile"), nullptr, false);
     if (!stored.is_object()) stored = {{"dimensions", emptyAbilities()}, {"version", 0}, {"updatedAt", ""}, {"model", ""}};
     if (stored.value("attemptVersion", 0) >= revision) return true;
+    if (stored.value("pendingVersion", 0) >= revision) {
+        stored["attemptVersion"] = revision;
+        stored["error"] = "等待 AI 更新：上次评估已中断，已有真实画像保留，可手动重试。";
+        db.setProfileMetaAtRevision("ability-profile", stored.dump(), revision);
+        return false;
+    }
+    // 单独登记在途版本，评估完成前仍保持正在更新，恢复时不重复调用模型。
+    stored["pendingVersion"] = revision;
+    if (!db.setProfileMetaAtRevision("ability-profile", stored.dump(), revision)) return false;
     stored["attemptVersion"] = revision;
     try {
         const auto evidence = abilityEvidence(db);
