@@ -26,6 +26,16 @@ bool done(Stmt& s) { const int rc = sqlite3_step(s.p); check(rc, s.db, "execute"
 }
 
 Database::~Database() { close(); }
+void Database::transaction(const std::function<void()>& action) {
+    exec(db_, "BEGIN IMMEDIATE");
+    try {
+        action();
+        exec(db_, "COMMIT");
+    } catch (...) {
+        sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr);
+        throw;
+    }
+}
 int Database::learningRevision() const {
     const auto value = profileMeta("learning-revision");
     try { return value.empty() ? 1 : std::stoi(value); } catch (...) { return 1; }
@@ -341,6 +351,9 @@ std::optional<WeeklyPlan> Database::getWeeklyPlan(const std::string& courseId) c
 void Database::deleteClassroomData(const std::string& courseId) {
     Stmt activities(db_, "DELETE FROM ClassroomActivity WHERE courseId=?");text(activities,1,courseId);done(activities);
     Stmt weekly(db_, "DELETE FROM WeeklyPlan WHERE courseId=?");text(weekly,1,courseId);done(weekly);
+    const auto prefix = "lesson-reached:" + courseId + ":";
+    Stmt reached(db_, "DELETE FROM ProfileMeta WHERE substr(key,1,length(?))=?");
+    text(reached,1,prefix);text(reached,2,prefix);done(reached);
 }
 bool Database::deleteConversation(const std::string& conversationId) {
     Stmt s(db_, "DELETE FROM LearningInteraction WHERE conversationId=?");text(s,1,conversationId);

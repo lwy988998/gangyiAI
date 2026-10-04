@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(gangyiAI VERSION 5.4.0 LANGUAGES C CXX)
+project(gangyiAI VERSION 5.5.0 LANGUAGES C CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -64,6 +64,18 @@ FetchContent_Declare(
 set(CROW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(CROW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(Crow nlohmann_json)
+# 流式备课重放会连续发送多帧；上一轮写入完成前不能交换仍被异步使用的缓冲区。
+set(crowWebsocketHeader "${crow_SOURCE_DIR}/include/crow/websocket.h")
+file(READ "${crowWebsocketHeader}" crowWebsocketSource)
+if(NOT crowWebsocketSource MATCHES "write_buffers_\\.empty\\(\\) \\|\\| !sending_buffers_\\.empty\\(\\)")
+    string(REPLACE "if (write_buffers_.empty()) return;"
+        "if (write_buffers_.empty() || !sending_buffers_.empty()) return;"
+        crowWebsocketPatched "${crowWebsocketSource}")
+    if(crowWebsocketPatched STREQUAL crowWebsocketSource)
+        message(FATAL_ERROR "无法保护 WebSocket 在途写入缓冲区")
+    endif()
+    file(WRITE "${crowWebsocketHeader}" "${crowWebsocketPatched}")
+endif()
 # Crow 1.2.0 的空请求构造函数未初始化协议标志，复用连接时会触发未定义行为。
 set(crowRequestHeader "${crow_SOURCE_DIR}/include/crow/http_request.h")
 file(READ "${crowRequestHeader}" crowRequestSource)
@@ -152,7 +164,7 @@ endif()
 
 add_executable(gangyiAI src/main.cpp src/db.cpp src/ai_client.cpp src/json_fix.cpp src/plan_generator.cpp src/page_renderer.cpp
     src/plan_cache.cpp src/plan_adapter.cpp src/search_client.cpp src/quality_gate.cpp src/course_service.cpp
-    src/progress_service.cpp src/profile_service.cpp src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/classroom_service.cpp src/image_goal_analyzer.cpp src/home_recommendations.cpp src/learning_flow.cpp
+    src/progress_service.cpp src/profile_service.cpp src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/classroom_service.cpp src/image_goal_analyzer.cpp src/home_recommendations.cpp src/learning_flow.cpp src/next_lesson.cpp
     ${GANGYI_SERVICE_RESOURCE})
 
 target_include_directories(gangyiAI PRIVATE
@@ -198,6 +210,25 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(next-lesson-tests tests/next_lesson_tests.cpp src/learning_generator.cpp
+        src/ai_client.cpp src/search_client.cpp src/json_fix.cpp)
+    target_include_directories(next-lesson-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${GANGYI_CURL_INCLUDE})
+    target_link_libraries(next-lesson-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_CURL_LINK} Threads::Threads)
+    if(WIN32)
+        target_link_libraries(next-lesson-tests PRIVATE ws2_32)
+    endif()
+    add_test(NAME next-lesson COMMAND next-lesson-tests)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/question_dialogue_tests.cpp")
+        add_executable(question-dialogue-tests tests/question_dialogue_tests.cpp src/learning_flow.cpp
+            src/next_lesson.cpp src/classroom_service.cpp src/learning_generator.cpp src/profile_service.cpp
+            src/db.cpp src/ai_client.cpp src/search_client.cpp src/json_fix.cpp src/course_service.cpp src/progress_service.cpp)
+        target_include_directories(question-dialogue-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${GANGYI_CURL_INCLUDE})
+        target_link_libraries(question-dialogue-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_SQLITE_LIB} ${GANGYI_CURL_LINK} Threads::Threads)
+        if(WIN32)
+            target_link_libraries(question-dialogue-tests PRIVATE ws2_32)
+        endif()
+        add_test(NAME question-dialogue COMMAND question-dialogue-tests)
+    endif()
     find_package(Threads REQUIRED)
     add_executable(socket-adaptor-tests tests/socket_adaptor_tests.cpp)
     target_link_libraries(socket-adaptor-tests PRIVATE Crow::Crow Threads::Threads)
@@ -251,7 +282,8 @@ if(BUILD_TESTING)
     add_test(NAME page-renderer COMMAND page-renderer-tests)
 
     add_executable(classroom-service-tests tests/classroom_service_tests.cpp src/classroom_service.cpp
-        src/db.cpp src/ai_client.cpp src/search_client.cpp src/json_fix.cpp src/course_service.cpp)
+        src/db.cpp src/ai_client.cpp src/search_client.cpp src/json_fix.cpp src/course_service.cpp
+        src/next_lesson.cpp src/learning_flow.cpp src/learning_generator.cpp src/profile_service.cpp src/progress_service.cpp)
     target_include_directories(classroom-service-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${GANGYI_CURL_INCLUDE})
     target_link_libraries(classroom-service-tests PRIVATE nlohmann_json::nlohmann_json
         ${GANGYI_SQLITE_LIB} ${GANGYI_CURL_LINK} Threads::Threads)
@@ -268,6 +300,10 @@ if(BUILD_TESTING AND WIN32)
     add_test(NAME launcher-support COMMAND launcher-support-tests)
 endif()
 if(BUILD_TESTING)
+    add_executable(database-atomic-tests tests/database_atomic_tests.cpp src/db.cpp)
+    target_include_directories(database-atomic-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_link_libraries(database-atomic-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_SQLITE_LIB})
+    add_test(NAME database-atomic COMMAND database-atomic-tests)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
         add_test(NAME personalization-smoke COMMAND ${Python3_EXECUTABLE}
@@ -280,6 +316,8 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/api_smoke.py $<TARGET_FILE:gangyiAI>)
         add_test(NAME learning-flow-smoke COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/learning_flow_smoke.py $<TARGET_FILE:gangyiAI>)
+        add_test(NAME next-lesson-smoke COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/next_lesson_smoke.py $<TARGET_FILE:gangyiAI>)
     endif()
 endif()
 

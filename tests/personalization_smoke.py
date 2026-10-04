@@ -53,15 +53,29 @@ def main(executable):
                 if "首页学习目标推荐助手" in system:
                     result = {mode: {"continue": [f"{mode} 继续{i}" for i in range(3)],
                                      "explore": [f"{mode} 探索{i}" for i in range(2)]} for mode in ("lite", "deep")}
+                elif "课堂作答评价教师" in system:
+                    data = json.loads(user)
+                    given = data["givenAnswer"]
+                    result = {"isAnswer": True, "correct": isinstance(given, int) and given == data["question"].get("answerIndex"),
+                              "unknown": "不会" in data["studentAnswer"], "confidence": .95,
+                              "feedback": "根据实际答案评价；未写过程时方法依据不足。", "misconception": "", "methodAnalysis": "未提供推导过程。"}
+                elif "课堂教师" in system:
+                    result = "结合学生本轮作答讲解二次函数题目的判断方法。"
                 elif "学习诊断教师" in system:
                     events = json.loads(user)["events"]
-                    last = next(item for item in reversed(events) if item["kind"] == "quiz")
-                    correct = sum(x["correct"] for x in last["results"])
-                    score = 0 if all(item.get("unknown") for item in last["results"]) else 91 if correct >= 3 else 42
+                    latest = {}
+                    for event in events:
+                        for answer in event.get("results", []):
+                            latest[answer["questionId"]] = (answer, event["id"])
+                    answers = [item[0] for item in latest.values()]
+                    evidence_ids = list(dict.fromkeys(item[1] for item in latest.values()))
+                    correct = sum(x["correct"] for x in answers)
+                    score = 0 if all(item.get("unknown") for item in answers) else 91 if correct >= 3 else 42
+                    last = next(item for item in reversed(events) if item["kind"] in ("quiz", "question-evaluation"))
                     result = {"score": score, "rationale": f"依据记录 {last['id']} 的逐题结果",
                               "weakPoints": [] if score > 70 else ["二次函数"],
                               "recommendation": "进阶迁移练习" if score > 70 else "补讲基础并完成基础练习",
-                              "evidenceIds": ["fabricated-id"] if ai_state["bad_evidence"] else [last["id"]],
+                              "evidenceIds": ["fabricated-id"] if ai_state["bad_evidence"] else evidence_ids,
                               "nextReviewAt": "2026-10-01"}
                 elif "画像评估 AI" in system:
                     state = json.loads(user)["topicStates"][0]
@@ -69,6 +83,10 @@ def main(executable):
                         "rationale": "依据二次函数主题测验", "weakPoints": [],
                         "recommendation": "继续练习", "evidenceCount": 1,
                         "evidenceIds": state["evidenceIds"]}]}
+                elif "六维学习能力评估教师" in system:
+                    result = {"abilities": [{"id": key, "score": None, "rationale": "当前维度证据不足。",
+                        "recommendation": "补充相关题目。", "evidenceIds": []} for key in
+                        ("memory", "understanding", "application", "reasoning", "expression", "transfer")]}
                 elif "专业高中教师" in system:
                     data = json.loads(user)
                     result = {"title": "学习二次函数 基础 二次函数",
@@ -162,7 +180,7 @@ def main(executable):
                     diagnosis = [json.loads(message["content"]) for call in ai_requests
                                  for message in call["messages"] if message["role"] == "user"
                                  and '"events"' in message["content"]][-1]
-                    assert all(item["unknown"] for item in diagnosis["events"][-1]["results"])
+                    assert all(item["unknown"] for event in diagnosis["events"] for item in event.get("results", []))
                 state = "too_hard" if expected < 70 else "too_easy"
                 request(base, "/api/learning-interactions", "POST",
                         {"courseId": "course", "phaseIndex": 1, "topicIndex": 1,

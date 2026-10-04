@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -84,6 +85,8 @@ public:
     void open(const std::string& path);
     void migrate();
     void close();
+    // 在独立连接中一次提交完整课堂/评价；异常时恢复原有版本。
+    void transaction(const std::function<void()>& action);
 
     bool insert(const Course&); std::optional<Course> getCourse(const std::string&) const; std::vector<Course> listCourses() const; bool update(const Course&); bool deleteCourse(const std::string&);
     bool insert(const User&); std::optional<User> getUser(const std::string&) const; std::vector<User> listUsers() const; bool update(const User&); bool deleteUser(const std::string&); std::optional<User> findByEmail(const std::string&) const;
