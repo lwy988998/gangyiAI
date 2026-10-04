@@ -562,14 +562,17 @@ void LearningFlow::evaluate(Database& db, const ClassroomActivity& activity) {
             db.compareClassroomActivity(rowFor(body, activity.id, "evaluation", job), activity.payload); return;
         }
         job["status"] = "ready"; job["evaluation"] = grade; job["model"] = response.model;
-        if (!db.compareClassroomActivity(rowFor(body, activity.id, "evaluation", job), activity.payload,
-                                         currentThread->id, currentThread->payload)) return;
+        // 完成标记最后写入，读取“已评价”时，原题反馈和诊断分流必须已经一致。
+        const auto completeJob = [&] {
+            db.compareClassroomActivity(rowFor(body, activity.id, "evaluation", job), activity.payload,
+                                        currentThread->id, currentThread->payload);
+        };
         if (grade["isAnswer"].get<bool>()) {
             const auto original = db.getClassroomActivity(itemKey(body)); if (!original) return;
             auto item = parse(original->payload);
             const auto stateRow = db.getClassroomActivity(classroomKey(activity.courseId, activity.phaseIndex, activity.topicIndex) + ":state");
             if (item.value("status", "") == "skipped" || (body.at("kind") == "diagnostic" && stateRow && parse(stateRow->payload).value("diagnosticSkipped", false))) {
-                db.markLearningDirty(); return;
+                db.markLearningDirty(); completeJob(); return;
             }
             item["status"] = "answered"; item["answer"] = job["turn"]["givenAnswer"];
             item["correct"] = grade["correct"]; item["unknown"] = grade["unknown"];
@@ -603,6 +606,7 @@ void LearningFlow::evaluate(Database& db, const ClassroomActivity& activity) {
                 }
             }
         } else db.markLearningDirty();
+        completeJob();
     } catch (...) {
         job["status"] = "waiting"; job["message"] = "等待 AI 评价，之前的可靠结果保留。";
         db.compareClassroomActivity(rowFor(body, activity.id, "evaluation", job), activity.payload);
