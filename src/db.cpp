@@ -26,6 +26,16 @@ bool done(Stmt& s) { const int rc = sqlite3_step(s.p); check(rc, s.db, "execute"
 }
 
 Database::~Database() { close(); }
+void Database::transaction(const std::function<void()>& action) {
+    exec(db_, "BEGIN IMMEDIATE");
+    try {
+        action();
+        exec(db_, "COMMIT");
+    } catch (...) {
+        sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr);
+        throw;
+    }
+}
 int Database::learningRevision() const {
     const auto value = profileMeta("learning-revision");
     try { return value.empty() ? 1 : std::stoi(value); } catch (...) { return 1; }
@@ -274,7 +284,7 @@ bool Database::insert(const LearningInteraction& value) {
     const bool saved=done(s);
     if(saved && (value.kind=="quiz" || value.kind=="practice" || value.kind=="review")) markProfileDirty();
     if(saved && (value.kind=="quiz" || value.kind=="practice" || value.kind=="review" ||
-        value.kind=="chat-assistant" || value.kind=="lesson" || value.kind=="step")) markLearningDirty();
+        value.kind=="chat-user" || value.kind=="lesson" || value.kind=="step")) markLearningDirty();
     return saved;
 }
 std::vector<LearningInteraction> Database::listInteractions() const {

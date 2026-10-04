@@ -17,6 +17,9 @@
 #include "question_evidence.hpp"
 #include "home_recommendations.hpp"
 #include "learning_flow.hpp"
+#include "learning_agent.hpp"
+#include "agent_preferences.hpp"
+#include "agent_lessons.hpp"
 #include "classroom_service.hpp"
 #include "json_fix.hpp"
 
@@ -279,6 +282,13 @@ bool requesterCanAccessCourse(gangyi::Database& db, const crow::request&, const 
     return course && course->status == "active";
 }
 
+gangyi::AgentAccess localAgentAccess(gangyi::Database& db) {
+    // 当前桌面服务共用本机档案；可访问课程列表由服务端读取，不接收客户端扩大范围。
+    gangyi::AgentAccess access{"local-profile", {}};
+    for (const auto& course : db.listCourses()) if (course.status == "active") access.courseIds.push_back(course.id);
+    return access;
+}
+
 std::string queryValueFromUrl(const std::string& url, const std::string& key) {
     const std::string needle = key + "=";
     const auto queryStart = url.find('?');
@@ -391,6 +401,9 @@ int main() {
     db.migrate();
     gangyi::HomeRecommendations homeRecommendations(config.database_path, config.launch_session_id);
     gangyi::LearningFlow learningFlow(config.database_path);
+    gangyi::LearningAgent learningAgent(config.database_path);
+    gangyi::registerAgentPreferenceTools(learningAgent);
+    gangyi::registerAgentLessonTools(learningAgent);
     crow::SimpleApp app;
     // 访问路径可能包含用户填写的学习目标，避免将其写入信息级访问日志。
     app.loglevel(crow::LogLevel::Warning);
@@ -1747,12 +1760,78 @@ int main() {
         return crow::response(200, nlohmann::json{{"ok", true}, {"topics", topics}}.dump());
     });
 
-    CROW_ROUTE(app, "/api/home/recommendations")([&homeRecommendations] {
-        crow::response response(homeRecommendations.view().dump());
+    CROW_ROUTE(app, "/api/home/recommendations")([&homeRecommendations, databasePath = config.database_path](const crow::request&) {
+        gangyi::Database connection; connection.open(databasePath);
+        auto current = gangyi::agentRecommendationView(connection, localAgentAccess(connection));
+        if (current.empty()) current = homeRecommendations.view();
+        crow::response response(current.dump());
         response.set_header("Content-Type", "application/json; charset=utf-8");
         response.set_header("Cache-Control", "no-store");
         return response;
     });
+
+    CROW_ROUTE(app, "/api/learning-agent/events").methods(crow::HTTPMethod::POST)([databasePath = config.database_path](const crow::request& req) {
+        try {
+            gangyi::Database connection; connection.open(databasePath);
+            const auto value = gangyi::agentSubmit(connection, localAgentAccess(connection), nlohmann::json::parse(req.body));
+            crow::response response(202, value.dump()); response.set_header("Content-Type", "application/json; charset=utf-8");
+            response.set_header("Cache-Control", "no-store"); return response;
+        } catch (const std::exception& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/learning-agent")([databasePath = config.database_path](const crow::request& req) {
+        try {
+            gangyi::Database connection; connection.open(databasePath);
+            const auto access = localAgentAccess(connection);
+            auto value = gangyi::agentView(connection, access, req.url_params.get("taskId") ? req.url_params.get("taskId") : "");
+            value["adjustments"] = gangyi::agentChanges(connection, access);
+            crow::response response(value.dump()); response.set_header("Content-Type", "application/json; charset=utf-8");
+            response.set_header("Cache-Control", "no-store"); return response;
+        } catch (const std::exception& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/learning-agent/control").methods(crow::HTTPMethod::POST)([databasePath = config.database_path](const crow::request& req) {
+        try {
+            gangyi::Database connection; connection.open(databasePath);
+            crow::response response(gangyi::agentControl(connection, localAgentAccess(connection), nlohmann::json::parse(req.body)).dump());
+            response.set_header("Content-Type", "application/json; charset=utf-8"); return response;
+        } catch (const std::exception& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/learning-agent/lesson")([databasePath = config.database_path](const crow::request& req) {
+        try {
+            gangyi::Database connection; connection.open(databasePath);
+            crow::response response(gangyi::agentLessonView(connection, localAgentAccess(connection),
+                req.url_params.get("lessonId") ? req.url_params.get("lessonId") : "").dump());
+            response.set_header("Content-Type", "application/json; charset=utf-8"); return response;
+        } catch (const std::exception& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_WEBSOCKET_ROUTE(app, "/ws/learning-agent").onopen(socketOpen).onclose(socketClose)
+        .onmessage([&, databasePath = config.database_path](crow::websocket::connection& connection, const std::string& message, bool binary) {
+            std::shared_ptr<ClassroomSocket> state;
+            { std::lock_guard<std::mutex> guard(socketMapMutex); const auto found = socketMap.find(&connection);
+              if (found != socketMap.end()) state = found->second; }
+            if (!state || binary || state->busy.exchange(true)) return;
+            const auto body = nlohmann::json::parse(message, nullptr, false);
+            if (!body.is_object() || !body.value("taskId", nlohmann::json()).is_string()) {
+                state->send({{"type", "failed"}, {"message", "任务标识无效。"}}); state->busy = false; return;
+            }
+            ++socketWorkerCount;
+            std::thread([state, body, databasePath, &socketWorkerCount] {
+                try {
+                    gangyi::Database connection; connection.open(databasePath);
+                    const auto access = localAgentAccess(connection); int sequence = body.value("afterSeq", 0);
+                    while (!state->cancelled) {
+                        const auto task = gangyi::agentView(connection, access, body.at("taskId"));
+                        for (const auto& event : task.value("events", nlohmann::json::array())) if (event.value("seq", 0) > sequence) {
+                            auto value = event; value["taskId"] = task["id"]; state->send(value); sequence = event["seq"];
+                        }
+                        state->send({{"type", "state"}, {"task", task}});
+                        const auto status = task.value("status", "");
+                        if (status != "pending" && status != "running") break;
+                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    }
+                } catch (const std::exception& error) { state->send({{"type", "failed"}, {"message", error.what()}}); }
+                state->busy = false; --socketWorkerCount;
+            }).detach();
+        });
 
     CROW_ROUTE(app, "/startup")([] {
         crow::response response(gangyi::renderStartupPage());
@@ -2458,7 +2537,10 @@ int main() {
             });
     }
 
-    homeRecommendations.start();
+    const auto launchId = config.launch_session_id.empty() ? nowIso8601() : config.launch_session_id;
+    gangyi::agentSubmit(db, localAgentAccess(db), {{"type", "startup"}, {"requestId", "startup-" + launchId},
+        {"text", "读取真实学习情况，生成快速规划和深度课程各五条推荐，并自主决定需要准备的下一步。无记录时不推测掌握度。"}});
+    learningAgent.start();
     learningFlow.start();
     std::atomic_bool stopProfile{false};
     std::thread profileWorker([&] {
@@ -2488,7 +2570,6 @@ int main() {
                         std::cerr << "[profile] 等待下一次有效作答或手动更新\n";
                     } else {
                         workerDb.setProfileMetaAtRevision("profile-failed-revision", "", pendingRevision);
-                        workerDb.markLearningDirty();
                     }
                 }
                 for (int i = 0; i < 20 && !stopProfile; ++i)
@@ -2514,7 +2595,7 @@ int main() {
                         std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     if (!stopProfile && workerDb.profileRevision() == revision) {
                         gangyi::AIClient ai;
-                        if (gangyi::refreshAbilityProfile(workerDb, ai)) workerDb.markLearningDirty();
+                        gangyi::refreshAbilityProfile(workerDb, ai);
                     }
                 }
                 for (int i = 0; i < 20 && !stopProfile; ++i)
@@ -2530,6 +2611,8 @@ int main() {
     });
     std::cout << "gangyiAI " << gangyi::kVersion << " listening on " << config.host << ':' << config.port << '\n';
     app.bindaddr(config.host).port(config.port).multithreaded().run();
+    learningAgent.stop();
+    { std::lock_guard<std::mutex> guard(socketMapMutex); for (const auto& [connection, state] : socketMap) state->cancelled = true; }
     while (socketWorkerCount > 0) std::this_thread::sleep_for(std::chrono::milliseconds(100));
     homeRecommendations.stop();
     learningFlow.stop();
