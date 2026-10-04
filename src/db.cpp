@@ -26,6 +26,34 @@ bool done(Stmt& s) { const int rc = sqlite3_step(s.p); check(rc, s.db, "execute"
 }
 
 Database::~Database() { close(); }
+int Database::learningRevision() const {
+    const auto value = profileMeta("learning-revision");
+    try { return value.empty() ? 1 : std::stoi(value); } catch (...) { return 1; }
+}
+void Database::markLearningDirty() {
+    exec(db_, "INSERT INTO ProfileMeta(key,value) VALUES('learning-revision','2') ON CONFLICT(key) DO UPDATE SET value=CAST(value AS INTEGER)+1");
+}
+bool Database::compareProfileMeta(const std::string& key, const std::string& expected, const std::string& value) {
+    Stmt s(db_, "INSERT INTO ProfileMeta(key,value) SELECT ?,? WHERE COALESCE((SELECT value FROM ProfileMeta WHERE key=?),'')=? ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE ProfileMeta.value=? RETURNING key");
+    text(s,1,key);text(s,2,value);text(s,3,key);text(s,4,expected);text(s,5,expected);
+    const int result = sqlite3_step(s.p); check(result, db_, "compare and save"); return result == SQLITE_ROW;
+}
+bool Database::compareClassroomActivity(const ClassroomActivity& value, const std::string& expected,
+                                        const std::string& guardId, const std::string& guardPayload) {
+    Stmt s(db_, "INSERT INTO ClassroomActivity(id,courseId,phaseIndex,topicIndex,kind,payload,updatedAt) SELECT ?,?,?,?,?,?,? WHERE COALESCE((SELECT payload FROM ClassroomActivity WHERE id=?),'')=? AND EXISTS(SELECT 1 FROM Course WHERE id=? AND status='active') AND (?='' OR EXISTS(SELECT 1 FROM ClassroomActivity WHERE id=? AND payload=?)) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,updatedAt=excluded.updatedAt WHERE ClassroomActivity.payload=? RETURNING id");
+    text(s,1,value.id);text(s,2,value.courseId);integer(s,3,value.phaseIndex);integer(s,4,value.topicIndex);
+    text(s,5,value.kind);text(s,6,value.payload);text(s,7,value.updatedAt);text(s,8,value.id);
+    text(s,9,expected);text(s,10,value.courseId);text(s,11,guardId);text(s,12,guardId);text(s,13,guardPayload);text(s,14,expected);
+    const int result = sqlite3_step(s.p); check(result, db_, "compare and save"); return result == SQLITE_ROW;
+}
+bool Database::updateLearningSessionAtRevision(const LearningSession& value, const std::string& expected,
+                                               int revision, const std::string& exposureKey,
+                                               const std::string& exposure) {
+    Stmt s(db_, "UPDATE LearningSession SET content=?,title=?,summary=?,`references`=? WHERE id=? AND content=? AND COALESCE((SELECT CAST(value AS INTEGER) FROM ProfileMeta WHERE key='learning-revision'),1)=? AND COALESCE((SELECT value FROM ProfileMeta WHERE key=?),'')=? AND EXISTS(SELECT 1 FROM Course WHERE id=LearningSession.courseId AND status='active') RETURNING id");
+    text(s,1,value.content);text(s,2,value.title);opt(s,3,value.summary);opt(s,4,value.references);
+    text(s,5,value.id);text(s,6,expected);integer(s,7,revision);text(s,8,exposureKey);text(s,9,exposure);
+    const int result = sqlite3_step(s.p); check(result, db_, "compare and save"); return result == SQLITE_ROW;
+}
 void Database::open(const std::string& path) { close(); check(sqlite3_open(path.c_str(), &db_), db_, "open database"); sqlite3_extended_result_codes(db_, 1); sqlite3_busy_timeout(db_, 5000); }
 void Database::close() { if (db_) { sqlite3_close(db_); db_ = nullptr; } }
 void Database::migrate() {
@@ -175,7 +203,18 @@ std::optional<CourseProgress> Database::findProgressByCourseId(const std::string
 // ---- CourseSnapshot ----
 static void bind_CourseSnapshot(Stmt&s,const CourseSnapshot&v){text(s,1,v.id);text(s,2,v.courseId);integer(s,3,v.version);text(s,4,v.payload);text(s,5,v.createdAt);}
 static CourseSnapshot map_CourseSnapshot(sqlite3_stmt*s){CourseSnapshot v;v.id=str(s,0);v.courseId=str(s,1);v.version=sqlite3_column_int(s,2);v.payload=str(s,3);v.createdAt=str(s,4);return v;}
-bool Database::insert(const CourseSnapshot&v){ if(v.id.empty()) { CourseSnapshot copy=v; copy.id=id(); return insert(copy); } Stmt s(db_,"INSERT INTO CourseSnapshot(id,courseId,version,payload,createdAt) VALUES(?,?,?,?,?)");bind_CourseSnapshot(s,v);return done(s);}
+bool Database::insert(const CourseSnapshot&v){ if(v.id.empty()) { CourseSnapshot copy=v; copy.id=id(); return insert(copy); } Stmt s(db_,"INSERT INTO CourseSnapshot(id,courseId,version,payload,createdAt) VALUES(?,?,?,?,?)");bind_CourseSnapshot(s,v);const bool saved=done(s);
+    if (saved) {
+        markLearningDirty();
+        const auto previous=getClassroomActivity("course-preview:"+v.courseId);
+        auto payload=previous?nlohmann::json::parse(previous->payload,nullptr,false):nlohmann::json::object();
+        if (!payload.is_object()) payload=nlohmann::json::object();
+        payload["status"]="pending";payload["assessedCourseVersion"]=v.version;payload["learningVersion"]=learningRevision();
+        payload["message"]="真实 AI 正在生成课程路线预览…";
+        if (!payload.contains("slides")) payload["slides"]=nlohmann::json::array();
+        upsert(ClassroomActivity{"course-preview:"+v.courseId,v.courseId,"preview",payload.dump(),v.createdAt,0,0});
+    }
+    return saved;}
 std::optional<CourseSnapshot> Database::getCourseSnapshot(const std::string&key)const{Stmt s(db_,"SELECT id,courseId,version,payload,createdAt FROM CourseSnapshot WHERE id=?");text(s,1,key);if(sqlite3_step(s.p)!=SQLITE_ROW)return std::nullopt;return map_CourseSnapshot(s.p);}
 std::vector<CourseSnapshot> Database::listCourseSnapshots()const{std::vector<CourseSnapshot>r;Stmt s(db_,"SELECT id,courseId,version,payload,createdAt FROM CourseSnapshot ORDER BY id");while(sqlite3_step(s.p)==SQLITE_ROW)r.push_back(map_CourseSnapshot(s.p));return r;}
 bool Database::update(const CourseSnapshot&v){Stmt s(db_,"UPDATE CourseSnapshot SET courseId=?,version=?,payload=?,createdAt=? WHERE id=?");text(s,1,v.courseId);integer(s,2,v.version);text(s,3,v.payload);text(s,4,v.createdAt);text(s,5,v.id);return done(s);}
@@ -234,6 +273,8 @@ bool Database::insert(const LearningInteraction& value) {
     opt(s,4,value.subject);text(s,5,value.kind);text(s,6,value.payload);text(s,7,value.createdAt);
     const bool saved=done(s);
     if(saved && (value.kind=="quiz" || value.kind=="practice" || value.kind=="review")) markProfileDirty();
+    if(saved && (value.kind=="quiz" || value.kind=="practice" || value.kind=="review" ||
+        value.kind=="chat-assistant" || value.kind=="lesson" || value.kind=="step")) markLearningDirty();
     return saved;
 }
 std::vector<LearningInteraction> Database::listInteractions() const {
@@ -257,7 +298,7 @@ bool Database::upsert(const ClassroomActivity& value) {
             bool changed = !old.is_object() || old.value("status", "") != "answered" || !old.value("credible", false);
             for (const char* key : {"question", "options", "rubric", "type", "answer", "correct", "unknown"})
                 if (!old.is_object() || old.value(key, nlohmann::json()) != payload.value(key, nlohmann::json())) changed = true;
-            if (changed) markProfileDirty();
+            if (changed) { markProfileDirty(); markLearningDirty(); }
         }
     }
     return saved;

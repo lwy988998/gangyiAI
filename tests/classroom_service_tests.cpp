@@ -43,9 +43,14 @@ int main() {
 
     gangyi::Database db;
     db.open(":memory:"); db.migrate();
+    bool diagnosticFailed = false;
+    try { gangyi::classroomStart(db, "course-fast", 1, 1, "diagnostic", "函数单调性"); }
+    catch (...) { diagnosticFailed = true; }
+    check(diagnosticFailed, "没有真实 AI 或已保存题目时不能生成模板诊断题");
+    for (int i = 0; i < 3; ++i) db.upsert(gangyi::ClassroomActivity{"classroom:course-fast:1:1:diagnostic:" + std::to_string(i),
+        "course-fast", "diagnostic", Json{{"question", "虚构题"}, {"type", "open"}, {"status", "pending"}}.dump(), "2026-09-28", 1, 1});
     const auto immediate = gangyi::classroomStart(db, "course-fast", 1, 1, "diagnostic", "函数单调性");
-    check(immediate["questions"].size() == 2 && immediate["questions"][0]["type"] == "open",
-          "未生成课堂时应立即提供两道诊断题");
+    check(immediate["questions"].size() == 2, "已有真实题目应直接读取");
     check(gangyi::classroomStart(db, "course-fast", 1, 1, "diagnostic", "函数单调性")["questions"] == immediate["questions"],
           "刷新后应复用已保存诊断题");
     check(db.upsert(gangyi::ClassroomActivity{"activity-1", "course-1", "interaction", "{}", "2026-09-28", 1, 1}), "课堂活动应保存");

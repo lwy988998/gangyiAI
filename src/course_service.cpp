@@ -315,7 +315,7 @@ bool deleteCourseForIdentity(Database& db, const std::string& courseId, const st
         db.deleteClassroomData(courseId);
         db.deleteTopicMasteryForCourse(courseId);
         const bool deleted = db.deleteCourse(courseId);
-        if (deleted) db.markProfileDirty();
+        if (deleted) { db.markProfileDirty(); db.markLearningDirty(); }
         return deleted;
     } catch (...) {
         return false;

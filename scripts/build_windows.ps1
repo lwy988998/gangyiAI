@@ -69,10 +69,10 @@ Require-Command 'cmake'
 Require-Command 'g++'
 
 if (-not $SkipDependencies) {
-    Install-Archive 'Crow 1.2.0' `
-        'https://github.com/CrowCpp/Crow/archive/refs/tags/v1.2.0.zip' `
-        $thirdParty 'Crow-1.2.0' `
-        'f76bacc050cdc8f253f4a0241650cdf1f58c208a89f47f7127de06dcbabe9211'
+    Install-Archive 'Crow 1.3.0' `
+        'https://github.com/CrowCpp/Crow/archive/refs/tags/v1.3.0.zip' `
+        $thirdParty 'Crow-1.3.0' `
+        'da99fcf439a3725c5bd48a4d6c04a7994163e1c711003ec5aa881c2e4156763e'
     Install-Archive 'nlohmann/json 3.11.3' `
         'https://github.com/nlohmann/json/archive/refs/tags/v3.11.3.zip' `
         $thirdParty 'json-3.11.3' `
@@ -132,7 +132,7 @@ $caBundle = Join-Path $buildDir 'curl-ca-bundle.crt'
 if (Test-Path -LiteralPath $caBundle) { Copy-Item -LiteralPath $caBundle -Destination $distDir }
 $publicDist = Join-Path $distDir 'public'
 New-Item -ItemType Directory -Force -Path $publicDist | Out-Null
-foreach ($asset in @('styles.css', 'plan.css', 'dark.css', 'dark.js', 'profile-radar.js', 'profile-radar.css', 'startup.css', 'startup.js', 'ask.js', 'classroom.js', 'classroom.css', 'chat-render.js', 'user-center.js', 'school-logo.png', 'campus-background.jpg')) {
+foreach ($asset in @('styles.css', 'plan.css', 'dark.css', 'dark.js', 'profile-radar.js', 'profile-radar.css', 'startup.css', 'startup.js', 'ask.js', 'classroom.js', 'classroom.css', 'learning-flow.js', 'learning-flow.css', 'chat-render.js', 'user-center.js', 'school-logo.png', 'campus-background.jpg')) {
     Copy-Item -LiteralPath (Join-Path $repoRoot "public\$asset") -Destination $publicDist
 }
 # 公式渲染引擎随包发布：断网也能显示数学公式。
@@ -141,7 +141,7 @@ $requiredFiles = @(
     'gangyiAI.exe', 'gangyiAI-launcher.exe', 'libcurl-x64.dll',
     'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll',
     'public\styles.css', 'public\dark.css', 'public\dark.js', 'public\startup.css', 'public\startup.js', 'public\ask.js',
-    'public\profile-radar.js', 'public\profile-radar.css', 'public\classroom.js', 'public\classroom.css', 'public\chat-render.js', 'public\user-center.js',
+    'public\profile-radar.js', 'public\profile-radar.css', 'public\classroom.js', 'public\classroom.css', 'public\learning-flow.js', 'public\learning-flow.css', 'public\chat-render.js', 'public\user-center.js',
     'public\vendor\katex\katex.min.js', 'public\vendor\katex\katex.min.css',
     'public\vendor\katex\fonts\KaTeX_Main-Regular.woff2',
     'public\school-logo.png', 'public\campus-background.jpg'

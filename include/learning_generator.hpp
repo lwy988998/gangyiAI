@@ -20,7 +20,16 @@ public:
                                  int topicIndex, const std::string& mode,
                                  const std::string& block,
                                  const nlohmann::json& previousBlocks,
-                                 const std::vector<SearchResource>& resources) const;
+                                 const std::vector<SearchResource>& resources,
+                                 int maxAttempts = 3,
+                                 std::function<bool()> cancelled = {}) const;
+
+    // 一次请求重备所有未展示板块，逐项沿用正式课堂的结构与主题检查。
+    nlohmann::json adaptBlocks(const std::string& goal, const nlohmann::json& coursePlan,
+                               const std::string& phaseName, const std::string& topic,
+                               const std::vector<std::string>& blocks,
+                               const nlohmann::json& previousBlocks,
+                               std::function<bool()> cancelled) const;
 
 private:
     AIClient& client_;

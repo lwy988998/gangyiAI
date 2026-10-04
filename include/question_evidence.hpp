@@ -12,6 +12,13 @@ inline nlohmann::json questionSnapshot(const nlohmann::json& question) {
         if (question.contains(key)) snapshot[key] = question[key];
     return snapshot;
 }
+// 逐题核对用户实际看到的快照，防止后台换题后按旧下标判分。
+inline bool questionSnapshotsMatch(const nlohmann::json& displayed, const nlohmann::json& stored) {
+    if (!displayed.is_array() || !stored.is_array() || displayed.size() != stored.size()) return false;
+    for (std::size_t index = 0; index < stored.size(); ++index)
+        if (questionSnapshot(displayed[index]) != questionSnapshot(stored[index])) return false;
+    return true;
+}
 inline std::string questionIdentity(const std::string& scope, const nlohmann::json& snapshot) {
     auto identity = snapshot;
     // 答案校正和难度描述变更不应把同一道原题算成新的独立证据。

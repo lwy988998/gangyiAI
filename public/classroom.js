@@ -15,99 +15,7 @@
   }
 
   async function setupWeeklyPlan() {
-    if (!courseId || !$('plan-view')) return;
-    const container = document.createElement('section');
-    container.id = 'weekly-plan';
-    container.className = 'classroom-card weekly-plan';
-    container.innerHTML = '<h2 id="weekly-title">学习安排</h2><p id="weekly-message" role="status">正在读取可编辑初稿…</p><div id="weekly-availability"></div><div id="weekly-entries"></div><div class="classroom-actions"><button type="button" id="weekly-save">保存修改</button><button type="button" id="weekly-replan">根据最新表现重排</button></div><div id="weekly-confirm" hidden></div>';
-    $('plan-view').before(container);
-    let plan, busy = false;
-    function setBusy(value) {
-      busy = value;
-      container.querySelectorAll('input, button').forEach(item => { item.disabled = value; });
-      $('weekly-replan').textContent = value ? '正在重排…' : '根据最新表现重排';
-      container.setAttribute('aria-busy', String(value));
-    }
-    const names = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-    function render() {
-      const end = new Date(plan.weekStart + 'T12:00:00'); end.setDate(end.getDate() + 6);
-      const endText = [end.getFullYear(), String(end.getMonth() + 1).padStart(2, '0'), String(end.getDate()).padStart(2, '0')].join('-');
-      $('weekly-title').textContent = '学习安排 · ' + plan.weekStart + ' 至 ' + endText;
-      $('weekly-message').textContent = '可修改日期、顺序和时长；手动安排不会被自动覆盖。';
-      $('weekly-availability').innerHTML = '<h3>可用时间</h3><div class="availability-grid">' + names.map((name, i) => {
-        const slot = plan.availability.find(item => item.weekday === i + 1);
-        return '<label><input type="checkbox" data-weekday="' + (i + 1) + '" ' + (slot ? 'checked' : '') + '><span>' + name + '</span><input type="number" min="10" max="240" step="5" value="' + (slot?.minutes || 30) + '" aria-label="' + name + '分钟数"><span>分钟</span></label>';
-      }).join('') + '</div>';
-      $('weekly-entries').innerHTML = '<h3>每日安排</h3>' + (plan.entries.length ? plan.entries.map((entry, i) => '<div class="weekly-row" data-index="' + i + '"><input type="date" value="' + escape(entry.date) + '" aria-label="学习日期"><strong>' + escape(entry.title) + '</strong><input type="number" min="5" max="240" value="' + entry.minutes + '" aria-label="学习分钟数"><span>分钟</span><button type="button" data-up="' + i + '" aria-label="上移">↑</button><button type="button" data-down="' + i + '" aria-label="下移">↓</button></div>').join('') : '<p>这一周暂无待安排内容。</p>');
-    }
-    function gather() {
-      const availability = [...$('weekly-availability').querySelectorAll('label')].filter(label => label.querySelector('[type=checkbox]').checked)
-        .map(label => ({weekday: Number(label.querySelector('[type=checkbox]').dataset.weekday), minutes: Number(label.querySelector('[type=number]').value)}));
-      const entries = [...$('weekly-entries').querySelectorAll('.weekly-row')].map((row, i) => ({...plan.entries[Number(row.dataset.index)], date: row.querySelector('[type=date]').value, minutes: Number(row.querySelector('[type=number]').value), order: i}));
-      return {availability, entries};
-    }
-    async function save() {
-      if (busy || !plan) return;
-      const values = gather(); setBusy(true);
-      try {
-        plan = await api('/api/classroom/week/edit', {courseId, version: plan.version, ...values});
-        $('weekly-confirm').hidden = true; render(); $('weekly-message').textContent = '周计划已保存。';
-      } catch (error) { $('weekly-message').textContent = error.message; }
-      finally { setBusy(false); }
-    }
-    $('weekly-save').onclick = save;
-    $('weekly-replan').onclick = async () => {
-      if (busy || !plan) return;
-      const values = gather();
-      setBusy(true); $('weekly-confirm').hidden = true;
-      $('weekly-message').textContent = '正在结合最新作答和可用时间重排…';
-      try {
-        const result = await api('/api/classroom/week/replan', {courseId, confirm: false, version: plan.version, ...values});
-        if (!result.requiresConfirmation) { plan = result.plan; render(); $('weekly-message').textContent = result.message; return; }
-        const box = $('weekly-confirm');
-        box.hidden = false;
-        box.innerHTML = '<h3>重排会覆盖手动安排</h3><p>当前安排：' + result.current.entries.map(entry => escape(entry.date + ' ' + entry.title + ' ' + entry.minutes + '分钟')).join('；') + '</p><p>建议安排：' + result.proposed.map(entry => escape(entry.date + ' ' + entry.title + ' ' + entry.minutes + '分钟')).join('；') + '</p><button type="button" id="weekly-accept">确认覆盖</button><button type="button" id="weekly-cancel">保留手动安排</button>';
-        $('weekly-message').textContent = '建议已生成，确认后才会替换手动安排。';
-        $('weekly-cancel').onclick = () => { box.hidden = true; $('weekly-message').textContent = '已保留当前手动安排。'; };
-        $('weekly-accept').onclick = async () => {
-          if (busy) return;
-          setBusy(true); $('weekly-message').textContent = '正在保存预览中的安排…';
-          try {
-            const accepted = await api('/api/classroom/week/replan', {courseId, confirm: true, version: plan.version, proposalId: result.proposalId});
-            plan = accepted.plan; box.hidden = true; render(); $('weekly-message').textContent = accepted.message;
-          } catch (error) { box.hidden = true; $('weekly-message').textContent = error.message; }
-          finally { setBusy(false); }
-        };
-      } catch (error) { $('weekly-message').textContent = error.message; }
-      finally { setBusy(false); }
-    };
-    function invalidatePreview() {
-      if (!$('weekly-confirm').hidden) {
-        $('weekly-confirm').hidden = true;
-        $('weekly-message').textContent = '编辑内容已变化，请重新重排以查看最新建议。';
-      }
-    }
-    container.addEventListener('input', invalidatePreview);
-    $('weekly-entries').onclick = event => {
-      const up = event.target.closest('[data-up]'), down = event.target.closest('[data-down]');
-      if ((!up && !down) || busy) return;
-      invalidatePreview();
-      const gathered = gather(); plan.availability = gathered.availability; plan.entries = gathered.entries;
-      const i = Number((up || down).dataset[up ? 'up' : 'down']);
-      const j = i + (up ? -1 : 1);
-      if (j < 0 || j >= plan.entries.length) return;
-      [plan.entries[i], plan.entries[j]] = [plan.entries[j], plan.entries[i]];
-      render();
-    };
-    try {
-      plan = await api('/api/classroom/week?courseId=' + encodeURIComponent(courseId));
-      if (localStorage.getItem('gangyi-week-pending') === '1') {
-        const availability = JSON.parse(localStorage.getItem('gangyi-week-availability') || 'null');
-        if (Array.isArray(availability) && availability.length) plan = await api('/api/classroom/week/edit', {courseId, version: plan.version, availability});
-        localStorage.removeItem('gangyi-week-pending');
-      }
-      render();
-    } catch (error) { $('weekly-message').textContent = error.message; }
+    if (courseId && $('plan-view')) window.GangyiLearning.mountStudyPlan('#plan-view');
   }
 
   async function setupReviews() {
@@ -167,8 +75,22 @@
         }).catch(() => { branch.querySelector('p').textContent = '补讲暂未就绪，可以先回看原课堂。'; });
       }
     }
+    let appliedMode = '', thirdLoading = false;
     function applyMode(mode) {
+      if (mode === appliedMode) return;
+      if (mode === 'third') {
+        if (!thirdLoading && $('diagnostic-questions').children.length < 3) {
+          thirdLoading = true;
+          api('/api/classroom/start?' + new URLSearchParams({...base, kind: 'diagnostic'})).then(data => {
+            if (data.questions[2] && $('diagnostic-questions').children.length < 3)
+              $('diagnostic-questions').append(renderItem('diagnostic', data.questions[2], 2));
+            appliedMode = 'third'; $('diagnostic-status').textContent = '前两题结果不明确，请继续第三题。';
+          }).finally(() => { thirdLoading = false; });
+        }
+        return;
+      }
       if (!['weak', 'full', 'familiar'].includes(mode)) return;
+      appliedMode = mode;
       document.body.dataset.classroomMode = mode;
       diagnostic.querySelector('#diagnostic-status').textContent = mode === 'weak' ? '诊断显示需要先补弱。' : mode === 'familiar' ? '已熟悉：精简重复解释，请完成新情境挑战题。' : '展示完整课堂。';
       branch.hidden = false;
@@ -181,38 +103,9 @@
       else branch.innerHTML = '<h2>完整课堂</h2><p>可按自己的节奏阅读、互动和测验。</p>';
       $('show-all-steps')?.addEventListener('click', () => { document.body.dataset.classroomMode = 'full'; branch.querySelector('p').textContent = '完整解释已展开。'; });
     }
+    document.addEventListener('gangyi:diagnostic-mode', event => applyMode(event.detail));
     function renderItem(kind, item, index) {
-      const row = document.createElement('article');
-      row.className = 'classroom-question'; row.dataset.index = index;
-      const answered = item.status === 'answered' || item.status === 'skipped';
-      const options = item.type === 'open' ? '<textarea rows="3" aria-label="你的回答" placeholder="用自己的话说一说"></textarea>' : (item.options || []).map((option, i) => '<label><input type="radio" name="' + kind + '-' + index + '" value="' + i + '"><span>' + escape(option) + '</span></label>').join('');
-      row.innerHTML = '<h3>' + escape(item.question) + '</h3><div class="classroom-options">' + options + '</div><div class="classroom-actions"><button type="button" data-submit>提交回答</button>' + (kind === 'interaction' ? '<button type="button" data-skip>跳过活动</button>' : '') + '</div><p role="status" class="classroom-feedback"></p>';
-      const feedback = row.querySelector('.classroom-feedback');
-      if (answered) { row.querySelector('.classroom-actions').hidden = true; feedback.textContent = item.feedback || (item.status === 'skipped' ? '已跳过' : '已作答'); }
-      row.querySelector('[data-submit]').onclick = async () => {
-        const answer = item.type === 'open' ? row.querySelector('textarea').value.trim() : Number(row.querySelector('input:checked')?.value);
-        if (item.type === 'open' && !answer || item.type !== 'open' && !row.querySelector('input:checked')) { feedback.textContent = '请先作答。'; return; }
-        row.querySelector('[data-submit]').disabled = true; feedback.textContent = '正在校验答案…';
-        try {
-          const result = await api('/api/classroom/submit', {...base, kind, index, answer});
-          feedback.textContent = result.feedback + (result.followUp ? ' 追问：' + result.followUp : '') + (!result.credible ? ' 此评价未计入掌握证据。' : '');
-          row.querySelector('.classroom-actions').hidden = true;
-          if (!result.correct && kind === 'interaction') {
-            const hint = document.createElement('button'); hint.type = 'button'; hint.textContent = '逐级提示';
-            feedback.after(hint);
-            hint.onclick = async () => { try { const data = await api('/api/classroom/hint', {...base, kind, index}); feedback.textContent += ' 提示 ' + data.level + '：' + data.hint; if (data.level >= 3) hint.remove(); } catch (error) { feedback.textContent = error.message; } };
-          }
-          if (kind === 'diagnostic') {
-            if (result.nextQuestion) $('diagnostic-questions').appendChild(renderItem('diagnostic', result.nextQuestion, 2));
-            applyMode(result.mode);
-          } else guide();
-        } catch (error) { row.querySelector('[data-submit]').disabled = false; feedback.textContent = error.message; }
-      };
-      row.querySelector('[data-skip]')?.addEventListener('click', async () => {
-        try { await api('/api/classroom/activity/skip', {...base, index}); row.querySelector('.classroom-actions').hidden = true; feedback.textContent = '已跳过；可以继续阅读。'; }
-        catch (error) { feedback.textContent = error.message; }
-      });
-      return row;
+      return window.GangyiLearning.renderDialogue(kind, item, index, base);
     }
     async function startKind(kind) {
       const status = $(kind === 'diagnostic' ? 'diagnostic-status' : 'interaction-status');
@@ -252,11 +145,11 @@
     if (!params.has('review') || !$('quiz-submit')) return;
     $('quiz-submit').onclick = async () => {
       const answers = [...$('learn-quiz').querySelectorAll('fieldset')].map((_, i) => {
-        const selected = document.querySelector('input[name="q' + i + '"]:checked'); return selected ? Number(selected.value) : null;
+        const selected = document.querySelector('input[name="q' + i + '"]:checked'); return selected ? (selected.value === "unknown" ? "unknown" : Number(selected.value)) : null;
       });
       try {
         const result = await api('/api/classroom/review/submit', {...context, day: Number(params.get('review')),
-          reviewId: params.get('reviewId') || '', answers});
+          reviewId: params.get('reviewId') || '', questions: window.gangyiLessonBlocks?.quiz?.quiz || [], answers});
         $('quiz-result').textContent = '复习得分 ' + result.score + ' / ' + result.total + (result.passed ? '，已通过' : '，明天再练');
         if (result.passed) {
           const next = $('classroom-next');

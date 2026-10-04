@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(gangyiAI VERSION 5.3.0 LANGUAGES C CXX)
+project(gangyiAI VERSION 5.4.0 LANGUAGES C CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -32,13 +32,13 @@ endif()
 include(FetchContent)
 
 # 优先使用本地依赖；缺失时由 FetchContent 拉取。
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/Crow-1.2.0)
-    set(FETCHCONTENT_SOURCE_DIR_CROW ${CMAKE_CURRENT_SOURCE_DIR}/third_party/Crow-1.2.0)
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/Crow-1.3.0)
+    set(FETCHCONTENT_SOURCE_DIR_CROW ${CMAKE_CURRENT_SOURCE_DIR}/third_party/Crow-1.3.0)
 endif()
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/json-3.11.3)
     set(FETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON ${CMAKE_CURRENT_SOURCE_DIR}/third_party/json-3.11.3)
 endif()
-# Crow 1.2.0 依赖旧版 Asio 接口；Windows 使用本地 1.28.2。
+# Windows 使用固定版本的 Asio，Crow 使用正式版本修复连接释放问题。
 if(WIN32)
     set(ASIO_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/asio-asio-1-28-2/asio/include)
     if(EXISTS ${ASIO_INCLUDE_DIR}/asio.hpp)
@@ -50,8 +50,8 @@ endif()
 FetchContent_Declare(
     Crow
     GIT_REPOSITORY https://github.com/CrowCpp/Crow.git
-    GIT_TAG v1.2.0
-    GIT_SHALLOW TRUE
+    GIT_TAG 537b44d3d3faa88095885c876aad2059d3315e93
+    GIT_SHALLOW FALSE
 )
 
 FetchContent_Declare(
@@ -135,7 +135,7 @@ endif()
 
 add_executable(gangyiAI src/main.cpp src/db.cpp src/ai_client.cpp src/json_fix.cpp src/plan_generator.cpp src/page_renderer.cpp
     src/plan_cache.cpp src/plan_adapter.cpp src/search_client.cpp src/quality_gate.cpp src/course_service.cpp
-    src/progress_service.cpp src/profile_service.cpp src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/classroom_service.cpp src/image_goal_analyzer.cpp src/home_recommendations.cpp
+    src/progress_service.cpp src/profile_service.cpp src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/classroom_service.cpp src/image_goal_analyzer.cpp src/home_recommendations.cpp src/learning_flow.cpp
     ${GANGYI_SERVICE_RESOURCE})
 
 target_include_directories(gangyiAI PRIVATE
@@ -255,6 +255,8 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/home_recommendations_smoke.py $<TARGET_FILE:gangyiAI>)
         add_test(NAME api-smoke COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/api_smoke.py $<TARGET_FILE:gangyiAI>)
+        add_test(NAME learning-flow-smoke COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/learning_flow_smoke.py $<TARGET_FILE:gangyiAI>)
     endif()
 endif()
 

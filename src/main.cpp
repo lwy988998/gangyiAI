@@ -16,6 +16,7 @@
 #include "profile_service.hpp"
 #include "question_evidence.hpp"
 #include "home_recommendations.hpp"
+#include "learning_flow.hpp"
 #include "classroom_service.hpp"
 #include "json_fix.hpp"
 
@@ -155,7 +156,7 @@ std::string todayDate() {
     return output.str();
 }
 
-std::string mondayDate() {
+[[maybe_unused]] std::string mondayDate() {
     const std::string today = todayDate();
     std::tm day{};
     std::istringstream input(today);
@@ -189,7 +190,7 @@ void forEachTopic(const nlohmann::json& payload, Callback callback) {
     }
 }
 
-nlohmann::json courseTopics(gangyi::Database& db, const std::string& courseId, const nlohmann::json& payload) {
+[[maybe_unused]] nlohmann::json courseTopics(gangyi::Database& db, const std::string& courseId, const nlohmann::json& payload) {
     nlohmann::json topics = nlohmann::json::array();
     forEachTopic(payload, [&](int phaseIndex, int topicIndex, const std::string& name) {
         const auto progress = db.findLearningCardProgress(courseId, phaseIndex, topicIndex);
@@ -389,6 +390,7 @@ int main() {
     db.open(config.database_path);
     db.migrate();
     gangyi::HomeRecommendations homeRecommendations(config.database_path, config.launch_session_id);
+    gangyi::LearningFlow learningFlow(config.database_path);
     crow::SimpleApp app;
     // 访问路径可能包含用户填写的学习目标，避免将其写入信息级访问日志。
     app.loglevel(crow::LogLevel::Warning);
@@ -590,7 +592,9 @@ int main() {
             }
 
             const int profileVersion = db.profileAssessedRevision();
+            const int learningVersion = db.learningRevision();
             nlohmann::json stored = {{"schemaVersion", 2}, {"promptVersion", "ai-block-v1"},
+                {"contentVersion", 1}, {"learningVersion", learningVersion},
                 {"blocks", nlohmann::json::object()}, {"generations", nlohmann::json::object()},
                 {"references", nlohmann::json::array()}, {"profileVersion", profileVersion}};
             std::optional<gangyi::LearningSession> existing;
@@ -603,6 +607,9 @@ int main() {
 
             }
             bool touched = false;
+            const std::string initialExposure = db.profileMeta("learning-exposure:" + courseId + ":" + std::to_string(phaseNumber) + ":" + std::to_string(topicNumber));
+            const auto seenContent = nlohmann::json::parse(initialExposure, nullptr, false);
+            if (seenContent.is_object() && !seenContent.value("blocks", nlohmann::json::array()).empty()) touched = true;
             if (const auto progress = db.findLearningCardProgress(courseId, phaseNumber, topicNumber))
                 touched = progress->status != "not_started";
             if (!touched) for (const auto& item : db.listInteractions()) {
@@ -624,13 +631,13 @@ int main() {
                     !content["generations"][name].is_object()) return false;
                 const auto& generation = content["generations"][name];
                 return generation.value("source", "") == "ai" &&
-                    generation.value("promptVersion", "") == "ai-block-v1" &&
+                    (generation.value("promptVersion", "") == "ai-block-v1" || generation.value("promptVersion", "") == "ai-adaptation-v1") &&
                     !generation.value("model", "").empty();
             };
             if (block.empty()) {
                 return crow::response(200, nlohmann::json{{"ok", true}, {"cached", true}, {"goal", goal},
                     {"phaseName", phaseName}, {"topicTitle", topic}, {"blocks", stored["blocks"]},
-                    {"generations", stored["generations"]}, {"references", stored["references"]}}.dump());
+                    {"generations", stored["generations"]}, {"contentVersion", stored.value("contentVersion", 1)}, {"references", stored["references"]}}.dump());
             }
             if (!generateAll && std::find(allowed.begin(), allowed.end(), block) == allowed.end()) {
                 return crow::response(400, nlohmann::json{{"ok", false}, {"type", "invalid_request"}, {"error", "未知课堂板块"}}.dump());
@@ -643,7 +650,7 @@ int main() {
                     [&](const std::string& name) { return hasAiBlock(stored, name); })) {
                 return crow::response(200, nlohmann::json{{"ok", true}, {"cached", true},
                     {"phaseName", phaseName}, {"topicTitle", topic}, {"blocks", stored["blocks"]},
-                    {"generations", stored["generations"]}, {"references", stored["references"]}}.dump());
+                    {"generations", stored["generations"]}, {"contentVersion", stored.value("contentVersion", 1)}, {"references", stored["references"]}}.dump());
             }
             if (!generateAll && !regenerateAll && !retryBlock && hasAiBlock(stored, block)) {
                 return crow::response(200, nlohmann::json{{"ok", true}, {"cached", true}, {"block", block},
@@ -693,7 +700,10 @@ int main() {
                 session.references = content["references"].dump();
                 session.fallbackUsed = 0;
                 session.source = "ai";
-                const bool saved = existing ? db.update(session) : db.insert(session);
+                const std::string exposureKey = "learning-exposure:" + courseId + ":" + std::to_string(phaseNumber) + ":" + std::to_string(topicNumber);
+                const auto exposure = initialExposure;
+                const bool saved = existing ? db.updateLearningSessionAtRevision(session, existing->content, learningVersion, exposureKey, exposure) :
+                    (db.learningRevision() == learningVersion && db.insert(session));
                 if (!saved) throw std::runtime_error("课堂板块保存失败");
                 existing = session;
             };
@@ -703,9 +713,13 @@ int main() {
             const auto generate = [&](const std::string& name) {
                 activeBlock = name;
                 nlohmann::json learningPlan = plan;
-                learningPlan["personalLearning"] = gangyi::profileContext(db);
+                learningPlan["personalLearning"] = gangyi::learningContext(db, courseId);
+                learningPlan["latestLearning"] = nlohmann::json::parse(gangyi::learningContext(db, courseId));
+                for (const auto& instruction : learningPlan["latestLearning"].value("teaching", nlohmann::json::array()))
+                    if (instruction.value("courseId", "") == courseId && instruction.value("phaseIndex", 0) == phaseNumber &&
+                        instruction.value("topicIndex", 0) == topicNumber) learningPlan["teachingInstruction"] = instruction;
                 nlohmann::json generated = generator.generateBlock(goal, learningPlan, phaseName, topic, topicNumber,
-                    mode, name, working["blocks"], resources);
+                    mode, name, working["blocks"], resources, 1);
                 const nlohmann::json metadata = generated.value("_generation", nlohmann::json::object());
                 if (metadata.value("source", "") != "ai") throw gangyi::AIClientError("invalid_response", "AI 生成来源校验失败");
                 generated.erase("_generation");
@@ -729,7 +743,7 @@ int main() {
                 activeBlock.clear();
                 return crow::response(200, nlohmann::json{{"ok", true}, {"cached", !generatedAny},
                     {"phaseName", phaseName}, {"topicTitle", topic}, {"blocks", working["blocks"]},
-                    {"generations", working["generations"]}, {"references", working["references"]}}.dump());
+                    {"generations", working["generations"]}, {"contentVersion", working.value("contentVersion", 1)}, {"references", working["references"]}}.dump());
             }
 
             auto [generated, metadata] = generate(block);
@@ -1159,7 +1173,7 @@ int main() {
             const std::string conversationId = body.value("conversationId", std::string("general")).substr(0, 100);
             gangyi::AIClient ai;
             gangyi::AskGenerator generator(ai);
-            const auto answer = generator.generate(question, gangyi::profileContext(db), chatHistory(db, conversationId, body));
+            const auto answer = generator.generate(question, gangyi::learningContext(db), chatHistory(db, conversationId, body));
             recordInteraction(db, "chat-user", {{"text", question}, {"topic", ""}}, "", conversationId);
             recordInteraction(db, "chat-assistant", {{"text", answer.content}, {"model", answer.model}}, "", conversationId);
             return crow::response(200, nlohmann::json{{"ok", true}, {"answer", answer.content},
@@ -1188,8 +1202,8 @@ int main() {
                 options.messages.push_back({"user", nlohmann::json{{"question", question}, {"answer", answer},
                     {"topic", topic}}.dump() + u8"\n输出格式：{\"suggestions\":[\"\",\"\",\"\"]}"});
                 options.temperature = 0.6;
-                options.maxTokens = 260;
-                options.timeoutMs = 12000;
+                options.maxTokens = 8192;
+                options.timeoutMs = 60000;
                 options.maxAttempts = 1;
                 const auto parsed = gangyi::parseAIJson(ai.chat(options).content);
                 if (parsed.is_object() && parsed.contains("suggestions") && parsed["suggestions"].is_array()) {
@@ -1224,7 +1238,7 @@ int main() {
                 {"contextSummary", body.value("contextSummary", "")}
             };
             std::vector<gangyi::ChatMessage> messages;
-            messages.push_back({"system", u8"你是钢一定制AI的课堂辅导老师。请严格结合给定的课程目标、阶段和当前主题回答问题；优先解释当前主题，必要时给出分步骤示例和练习提示。默认使用简体中文，不要编造资料，不要把无关主题的内容混进来。\n课堂上下文：" + context.dump() + u8"\n本机学习画像：" + gangyi::profileContext(db), ""});
+            messages.push_back({"system", u8"你是钢一定制AI的课堂辅导老师。请严格结合给定的课程目标、阶段和当前主题回答问题；优先解释当前主题，必要时给出分步骤示例和练习提示。默认使用简体中文，不要编造资料，不要把无关主题的内容混进来。\n课堂上下文：" + context.dump() + u8"\n本机学习画像：" + gangyi::learningContext(db), ""});
             if (body.contains("messages") && body["messages"].is_array()) {
                 const auto& history = body["messages"];
                 const size_t start = history.size() > 8 ? history.size() - 8 : 0;
@@ -1240,9 +1254,9 @@ int main() {
             gangyi::ChatOptions options;
             options.messages = std::move(messages);
             options.temperature = 0.45;
-            options.maxTokens = 3500;
-            options.timeoutMs = 45000;
-            options.maxAttempts = 2;
+            options.maxTokens = 8192;
+            options.timeoutMs = 60000;
+            options.maxAttempts = 1;
             const std::string searchCourseId = body.value("courseId", "");
             const auto searchCourse = searchCourseId.empty() ? std::optional<gangyi::Course>{} : db.getCourse(searchCourseId);
             options.searchQuery = searchCourse ? searchCourse->goal : u8"高中学科知识";
@@ -1274,7 +1288,7 @@ int main() {
             std::lock_guard<std::mutex> guard(socketMapMutex);
             socketMap[&connection] = std::move(state);
         };
-    const auto socketClose = [&](crow::websocket::connection& connection, const std::string&) {
+    const auto socketClose = [&](crow::websocket::connection& connection, const std::string&, uint16_t) {
             std::shared_ptr<ClassroomSocket> state;
             {
                 std::lock_guard<std::mutex> guard(socketMapMutex);
@@ -1308,6 +1322,8 @@ int main() {
             try {
                 const std::string question = body.at("question").get<std::string>();
                 std::string courseId, title, selection, conversation = "general";
+                nlohmann::json dialogueTurn;
+                const bool dialogue = classroom && body.contains("kind");
                 gangyi::ChatOptions options;
                 if (classroom) {
                     courseId = body.at("courseId").get<std::string>();
@@ -1322,16 +1338,26 @@ int main() {
                     const auto session = db.findLearningSession(courseId, phase, topic);
                     conversation = "lesson-" + courseId + "-" + std::to_string(phase) + "-" + std::to_string(topic);
                     options.temperature = 0.4;
-                    options.maxTokens = 2200;
+                    options.maxTokens = 8192;
+                    options.maxAttempts = 1;
                     options.searchQuery = course->goal;
                     options.messages.push_back({"system", u8"你是课堂辅导老师，只回答当前已保存课程和课时相关的问题。先定位具体误解，再引导学生思考；默认简体中文。课堂上下文：" +
                         nlohmann::json{{"goal", course->goal}, {"topic", title},
                             {"summary", session ? session->summary.value_or("") : ""}}.dump() +
-                        u8"\n本机学习画像（仅作辅助）：" + gangyi::profileContext(db)});
+                        u8"\n最新学习上下文：" + gangyi::learningContext(db, courseId)});
                     for (const auto& item : chatHistory(db, conversation)) options.messages.push_back(item);
                     options.messages.push_back({"user", selection.empty() ? question : u8"选中文字：" + selection + u8"\n问题：" + question});
+                    if (dialogue) {
+                        dialogueTurn = gangyi::beginDialogue(db, body);
+                        if (dialogueTurn.value("cached", false)) {
+                            state->send({{"type", "delta"}, {"text", dialogueTurn.value("answer", "")}});
+                            state->send({{"type", "done"}, {"version", dialogueTurn["version"]}, {"cached", true}});
+                            state->busy = false; --socketWorkerCount; return;
+                        }
+                        options = gangyi::dialogueOptions(db, body, dialogueTurn);
+                    }
                 } else {
-                    options = gangyi::AskGenerator::options(question, gangyi::profileContext(db), chatHistory(db, conversation, body));
+                    options = gangyi::AskGenerator::options(question, gangyi::learningContext(db), chatHistory(db, conversation, body));
                 }
                 options.timeoutMs = 60000;
                 options.cancelled = [state] { return state->cancelled.load(); };
@@ -1343,10 +1369,17 @@ int main() {
                 });
                 if (state->cancelled) terminal = {{"type", "done"}, {"message", "已停止"}, {"cancelled", true}};
                 else {
-                    recordInteraction(db, "chat-user", {{"text", question}, {"topic", title}, {"selection", selection}}, courseId, conversation);
-                    recordInteraction(db, "chat-assistant", {{"text", result.content}, {"model", result.model}}, courseId, conversation);
+                    if (!dialogue) {
+                        recordInteraction(db, "chat-user", {{"text", question}, {"topic", title}, {"selection", selection},
+                            {"phaseIndex", body.value("phaseIndex", 0)}, {"topicIndex", body.value("topicIndex", 0)}}, courseId, conversation);
+                        recordInteraction(db, "chat-assistant", {{"text", result.content}, {"model", result.model}}, courseId, conversation);
+                    }
                     terminal = {{"type", "done"}, {"model", result.model}, {"searchStatus", result.searchStatus},
                                 {"sources", result.sources}, {"profileVersion", db.profileAssessedRevision()}, {"cancelled", false}};
+                    if (dialogue) {
+                        const auto saved = gangyi::finishDialogue(db, body, dialogueTurn, result.content, result.model);
+                        for (const auto& field : saved.items()) terminal[field.key()] = field.value();
+                    }
                 }
             } catch (const gangyi::AIClientError& error) {
                 terminal = {{"type", error.errorType == "cancelled" ? "done" : "error"},
@@ -1354,6 +1387,24 @@ int main() {
                             {"message", error.errorType == "cancelled" ? "已停止" : publicAIErrorMessage(error)}};
             } catch (const std::exception&) {
                 terminal = {{"type", "error"}, {"message", "问题格式无效或回答未保存，请重试。"}};
+            }
+            if (classroom && !terminal.is_null() && (terminal.value("cancelled", false) || terminal.value("type", "") == "error") && body.contains("kind")) {
+                // 中断状态由对话接口保存，刷新后可以重新发送同一次用户输入。
+                try {
+                    auto view = gangyi::dialogueView(db, body);
+                    const auto row = db.getClassroomActivity(gangyi::classroomKey(body.at("courseId"), body.at("phaseIndex"), body.at("topicIndex")) + ":" + body.at("kind").get<std::string>() + ":" + std::to_string(body.at("index").get<int>()) + ":dialogue");
+                    if (row && view.value("turns", nlohmann::json::array()).size()) {
+                        auto thread = nlohmann::json::parse(row->payload);
+                        if (thread["turns"].back().value("status", "") == "pending" &&
+                            thread["turns"].back().value("requestId", "") == body.value("requestId", "")) {
+                            thread["turns"].back()["status"] = "failed";
+                            thread["turns"].back()["error"] = terminal.value("message", "等待 AI 回复，可重试。");
+                            thread["version"] = thread.value("version", 0) + 1;
+                            auto saved = *row; saved.payload = thread.dump(); db.compareClassroomActivity(saved, row->payload);
+                            terminal["version"] = thread["version"];
+                        }
+                    }
+                } catch (...) { /* 保留用户输入，后台启动时恢复中断状态。 */ }
             }
             state->busy = false;
             state->send(terminal);
@@ -1378,7 +1429,7 @@ int main() {
                 return crow::response(404, nlohmann::json{{"ok", false}, {"error", "课程不存在"}}.dump());
             const std::string title = savedTopic(db, courseId, phase, topic);
             if (title.empty()) return crow::response(400, nlohmann::json{{"ok", false}, {"error", "课时不存在"}}.dump());
-            return crow::response(200, gangyi::classroomStart(db, courseId, phase, topic, kind, title).dump());
+            return crow::response(200, gangyi::classroomStart(db, courseId, phase, topic, kind, title, gangyi::learningContext(db, courseId)).dump());
         } catch (const std::exception& error) {
             return crow::response(503, nlohmann::json{{"ok", false}, {"error", "活动题准备失败，可先继续阅读课程。"}}.dump());
         }
@@ -1391,8 +1442,34 @@ int main() {
             const int phase = body.at("phaseIndex").get<int>(), topic = body.at("topicIndex").get<int>();
             if (!requesterCanAccessCourse(db, req, courseId, "") || savedTopic(db, courseId, phase, topic).empty())
                 return crow::response(404, nlohmann::json{{"ok", false}, {"error", "课时不存在"}}.dump());
-            const auto result = gangyi::classroomSubmit(db, courseId, phase, topic,
-                body.at("kind").get<std::string>(), body.at("index").get<int>(), body.at("answer"));
+            auto submission = body;
+            const auto view = gangyi::dialogueView(db, body);
+            const auto answer = body.at("answer");
+            if (!answer.is_string() && !answer.is_number_integer()) throw std::invalid_argument("回答格式无效");
+            std::string text = answer.is_string() ? answer.get<std::string>() : "";
+            if (answer.is_number_integer()) {
+                const int choice = answer.get<int>(); const auto choices = view["question"].value("options", nlohmann::json::array());
+                if (choice == 4) text = "我暂时不会这道题";
+                else if (choice < 0 || choice >= static_cast<int>(choices.size())) throw std::invalid_argument("选择无效");
+                else text = choices[choice].get<std::string>();
+            }
+            submission["question"] = text;
+            submission["questionId"] = body.value("questionId", view.value("questionId", ""));
+            submission["version"] = body.value("version", view.value("version", 0));
+            submission["requestId"] = body.value("requestId", "compat:" + gangyi::questionIdentity(courseId, nlohmann::json{{"question", view["questionId"]}, {"answer", answer}}));
+            const auto turn = gangyi::beginDialogue(db, submission);
+            if (!turn.value("cached", false)) {
+                try {
+                    gangyi::AIClient ai; const auto response = ai.chat(gangyi::dialogueOptions(db, submission, turn));
+                    if (response.content.empty() || response.finishReason == "length") throw std::runtime_error("AI 回答不完整");
+                    gangyi::finishDialogue(db, submission, turn, response.content, response.model);
+                } catch (...) {
+                    gangyi::finishDialogue(db, submission, turn, "", "", "等待 AI 回答，输入保留，可重试。");
+                    throw;
+                }
+            }
+            auto result = gangyi::dialogueView(db, submission); result["ok"] = true;
+            result["pending"] = result.value("evaluationStatus", "") == "pending";
             return crow::response(200, result.dump());
         } catch (const std::invalid_argument& error) {
             return crow::response(400, nlohmann::json{{"ok", false}, {"error", error.what()}}.dump());
@@ -1465,8 +1542,9 @@ int main() {
                 return crow::response(404, "{}");
             return crow::response(200, gangyi::submitReview(db, courseId, phase, topic,
                 body.at("day").get<int>(), body.at("answers"), todayDate(),
-                body.value("reviewId", "")).dump());
+                body.value("reviewId", ""), body.value("questions", nlohmann::json())).dump());
         } catch (const std::invalid_argument& error) { return crow::response(400, nlohmann::json{{"error", error.what()}}.dump()); }
+        catch (const std::runtime_error& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
         catch (...) { return crow::response(503, nlohmann::json{{"error", "复习结果未保存"}}.dump()); }
     });
 
@@ -1481,16 +1559,33 @@ int main() {
         const std::string courseId = req.url_params.get("courseId") ? req.url_params.get("courseId") : "";
         const auto found = gangyi::getCourseWithSnapshot(db, courseId);
         if (!found || !requesterCanReadCourse(db, found->course, req)) return crow::response(404, "{}");
-        try { return crow::response(200, gangyi::getWeeklyPlan(db, courseId, courseTopics(db, courseId, found->payload), mondayDate(), todayDate()).dump()); }
+        try {
+            auto plan = gangyi::studyPlanView(db); auto entries = nlohmann::json::array();
+            for (const auto& entry : plan["entries"]) if (entry.value("courseId", "") == courseId) entries.push_back(entry);
+            plan["entries"] = entries; plan["sharedBudget"] = true;
+            return crow::response(200, plan.dump());
+        }
         catch (...) { return crow::response(503, nlohmann::json{{"error", "周计划读取失败"}}.dump()); }
     });
 
     CROW_ROUTE(app, "/api/classroom/week/edit").methods(crow::HTTPMethod::POST)([&db](const crow::request& req) {
         try {
-            const auto body = nlohmann::json::parse(req.body);
+            auto body = nlohmann::json::parse(req.body);
             const std::string courseId = body.at("courseId").get<std::string>();
             if (!requesterCanAccessCourse(db, req, courseId, "")) return crow::response(404, "{}");
-            return crow::response(200, gangyi::editWeeklyPlan(db, courseId, body, todayDate()).dump());
+            auto all = gangyi::studyPlanView(db);
+            if (body.contains("entries")) {
+                auto merged = nlohmann::json::array();
+                for (const auto& entry : all["entries"]) if (entry.value("courseId", "") != courseId) merged.push_back(entry);
+                for (auto entry : body["entries"]) {
+                    entry["courseId"] = courseId;
+                    if (!entry.contains("taskId")) entry["taskId"] = "lesson:" + courseId + ":" +
+                        std::to_string(entry.value("phaseIndex", 1)) + ":" + std::to_string(entry.value("topicIndex", 1));
+                    merged.push_back(entry);
+                }
+                body["entries"] = merged;
+            }
+            return crow::response(200, gangyi::editStudyPlan(db, body).dump());
         } catch (const std::invalid_argument& error) {
             return crow::response(409, nlohmann::json{{"error", error.what()}}.dump());
         } catch (...) { return crow::response(400, nlohmann::json{{"error", "周计划保存失败"}}.dump()); }
@@ -1498,12 +1593,24 @@ int main() {
 
     CROW_ROUTE(app, "/api/classroom/week/replan").methods(crow::HTTPMethod::POST)([&db](const crow::request& req) {
         try {
-            const auto body = nlohmann::json::parse(req.body);
+            auto body = nlohmann::json::parse(req.body);
             const std::string courseId = body.at("courseId").get<std::string>();
             const auto found = gangyi::getCourseWithSnapshot(db, courseId);
             if (!found || !requesterCanReadCourse(db, found->course, req)) return crow::response(404, "{}");
-            return crow::response(200, gangyi::replanWeeklyPlan(db, courseId, courseTopics(db, courseId, found->payload),
-                mondayDate(), body.value("confirm", false), body, todayDate()).dump());
+            if (!body.contains("version")) body["version"] = gangyi::studyPlanView(db)["version"];
+            if (body.contains("previewId")) body["proposalId"] = body["previewId"];
+            if (body.contains("entries")) {
+                auto all = gangyi::studyPlanView(db), merged = nlohmann::json::array();
+                for (const auto& entry : all["entries"]) if (entry.value("courseId", "") != courseId) merged.push_back(entry);
+                for (auto entry : body["entries"]) {
+                    entry["courseId"] = courseId;
+                    if (!entry.contains("taskId")) entry["taskId"] = "lesson:" + courseId + ":" +
+                        std::to_string(entry.value("phaseIndex", 1)) + ":" + std::to_string(entry.value("topicIndex", 1));
+                    merged.push_back(entry);
+                }
+                body["entries"] = merged;
+            }
+            return crow::response(200, gangyi::studyPlanProposal(db, body, body.value("confirm", false) ? "confirm" : "replan").dump());
         } catch (const std::invalid_argument& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
         catch (...) { return crow::response(400, nlohmann::json{{"error", "重排失败"}}.dump()); }
     });
@@ -1540,6 +1647,68 @@ int main() {
         crow::response response(200, gangyi::profileView(db).dump());
         response.set_header("Cache-Control", "no-store");
         return response;
+    });
+
+    CROW_ROUTE(app, "/api/classroom/dialogue")([&db](const crow::request& req) {
+        try {
+            const auto value = [&](const char* name) { const char* raw = req.url_params.get(name); return std::string(raw ? raw : ""); };
+            nlohmann::json body = {{"courseId", value("courseId")}, {"phaseIndex", std::stoi(value("phaseIndex"))},
+                {"topicIndex", std::stoi(value("topicIndex"))}, {"kind", value("kind")}, {"index", std::stoi(value("index"))}};
+            crow::response response(200, gangyi::dialogueView(db, body).dump()); response.set_header("Cache-Control", "no-store"); return response;
+        } catch (...) { return crow::response(404, nlohmann::json{{"error", "题目或对话不存在"}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/classroom/evaluation/retry").methods(crow::HTTPMethod::POST)([&db](const crow::request& req) {
+        try {
+            const auto body = nlohmann::json::parse(req.body);
+            gangyi::dialogueView(db, body);
+            const auto id = gangyi::classroomKey(body.at("courseId"), body.at("phaseIndex"), body.at("topicIndex")) + ":" +
+                body.at("kind").get<std::string>() + ":" + std::to_string(body.at("index").get<int>()) + ":evaluation";
+            const auto row = db.getClassroomActivity(id); if (!row) throw std::invalid_argument("没有待重试的评价");
+            auto payload = nlohmann::json::parse(row->payload); payload["status"] = "pending";
+            auto next = *row; next.payload = payload.dump();
+            if (!db.compareClassroomActivity(next, row->payload)) throw std::invalid_argument("评价已变化");
+            return crow::response(202, nlohmann::json{{"ok", true}}.dump());
+        } catch (...) { return crow::response(409, nlohmann::json{{"error", "评价状态已变化，请刷新"}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/learn/exposure").methods(crow::HTTPMethod::POST)([&db](const crow::request& req) {
+        try { return crow::response(200, gangyi::exposeLearningBlocks(db, nlohmann::json::parse(req.body)).dump()); }
+        catch (...) { return crow::response(409, nlohmann::json{{"error", "课堂版本变化，请刷新"}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/classroom/preparation")([&db](const crow::request& req) {
+        const char* course = req.url_params.get("courseId");
+        crow::response response(200, gangyi::preparationView(db, course ? course : "").dump());
+        response.set_header("Cache-Control", "no-store"); return response;
+    });
+    CROW_ROUTE(app, "/api/classroom/preparation/retry").methods(crow::HTTPMethod::POST)([&db](const crow::request&) {
+        db.markLearningDirty(); return crow::response(202, nlohmann::json{{"ok", true}, {"status", "pending"}}.dump());
+    });
+    CROW_ROUTE(app, "/api/study-plan")([&db](const crow::request&) {
+        crow::response response(200, gangyi::studyPlanView(db).dump()); response.set_header("Cache-Control", "no-store"); return response;
+    });
+    CROW_ROUTE(app, "/api/study-plan").methods(crow::HTTPMethod::PUT)([&db](const crow::request& req) {
+        try { return crow::response(200, gangyi::editStudyPlan(db, nlohmann::json::parse(req.body)).dump()); }
+        catch (const std::exception& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/study-plan/draft").methods(crow::HTTPMethod::POST)([&db](const crow::request& req) {
+        try { return crow::response(200, gangyi::studyPlanDraft(db, nlohmann::json::parse(req.body)).dump()); }
+        catch (...) { return crow::response(409, nlohmann::json{{"error", "编辑状态无效，请刷新"}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/study-plan/<string>").methods(crow::HTTPMethod::POST)([&db](const crow::request& req, const std::string& action) {
+        try { return crow::response(200, gangyi::studyPlanProposal(db, nlohmann::json::parse(req.body), action).dump()); }
+        catch (const std::exception& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/home/next-step")([&db](const crow::request& req) {
+        const char* course = req.url_params.get("courseId");
+        crow::response response(200, gangyi::nextStepView(db, course ? course : "").dump());
+        response.set_header("Cache-Control", "no-store"); return response;
+    });
+    CROW_ROUTE(app, "/api/courses/<string>/preview")([&db](const crow::request&, const std::string& course) {
+        try { crow::response response(200, gangyi::coursePreviewView(db, course).dump()); response.set_header("Cache-Control", "no-store"); return response; }
+        catch (...) { return crow::response(404, nlohmann::json{{"error", "课程不存在"}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/courses/<string>/preview").methods(crow::HTTPMethod::POST)([&db](const crow::request& req, const std::string& course) {
+        try { const auto body = nlohmann::json::parse(req.body); return crow::response(202, gangyi::requestCoursePreview(db, course, body.value("retry", false)).dump()); }
+        catch (...) { return crow::response(409, nlohmann::json{{"error", "预览状态变化，请刷新"}}.dump()); }
     });
 
     CROW_ROUTE(app, "/api/profile/radar-preferences")([&db] {
@@ -1627,6 +1796,10 @@ int main() {
             if (!session) return crow::response(404, nlohmann::json{{"ok", false}, {"error", "测验尚未生成"}}.dump());
             const auto content = nlohmann::json::parse(session->content);
             const auto quiz = content.at("blocks").at("quiz").at("quiz");
+            const bool matchingQuestions = body.contains("questions") && gangyi::questionSnapshotsMatch(body.at("questions"), quiz);
+            if ((body.contains("questions") && !matchingQuestions) ||
+                (!matchingQuestions && body.contains("contentVersion") && body.at("contentVersion") != content.value("contentVersion", 1)))
+                return crow::response(409, nlohmann::json{{"error", "测验内容已更新，请刷新，旧答案不会按新题判分。"}}.dump());
             if (!quiz.is_array() || quiz.empty() || body["answers"].size() != quiz.size())
                 return crow::response(400, nlohmann::json{{"ok", false}, {"error", "测验答案数量不正确"}}.dump());
             int score = 0, unknownCount = 0;
@@ -1737,7 +1910,7 @@ int main() {
                     std::cerr << "[generate-plan] attempt=" << (attempt + 1)
                               << " mode=" << mode << std::endl;
                     try {
-                        const auto plan = generator.generate(goal, mode, feedback, gangyi::profileContext(db));
+                        const auto plan = generator.generate(goal, mode, feedback, gangyi::learningContext(db));
                         generatedModel = plan.generationModel;
                         searchStatus = plan.searchStatus;
                         searchSources = plan.searchSources;
@@ -2212,7 +2385,7 @@ int main() {
             try { gangyi::SearchClient search; resources = search.search(goal, 8); } catch (...) {}
             gangyi::AIClient ai;
             gangyi::PhaseGenerator generator(ai);
-            auto generated = *generator.generate(goal, mode, phaseIndex, stage, topics, resources, gangyi::profileContext(db));
+            auto generated = *generator.generate(goal, mode, phaseIndex, stage, topics, resources, gangyi::learningContext(db));
             auto metadata = generated.value("_generation", nlohmann::json::object());
             metadata["profileVersion"] = db.profileAssessedRevision();
             if (metadata.value("source", "") != "ai") throw gangyi::AIClientError("invalid_response", "阶段生成来源校验失败");
@@ -2286,6 +2459,7 @@ int main() {
     }
 
     homeRecommendations.start();
+    learningFlow.start();
     std::atomic_bool stopProfile{false};
     std::thread profileWorker([&] {
         try {
@@ -2307,6 +2481,7 @@ int main() {
                         std::cerr << "[profile] 等待下一次有效作答或手动更新\n";
                     } else {
                         workerDb.setProfileMetaAtRevision("profile-failed-revision", "", pendingRevision);
+                        workerDb.markLearningDirty();
                     }
                 }
                 for (int i = 0; i < 20 && !stopProfile; ++i)
@@ -2328,12 +2503,13 @@ int main() {
                         std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     if (!stopProfile && workerDb.profileRevision() == revision) {
                         gangyi::AIClient ai;
-                        gangyi::refreshAbilityProfile(workerDb, ai);
+                        if (gangyi::refreshAbilityProfile(workerDb, ai)) workerDb.markLearningDirty();
                     }
                 }
                 for (int i = 0; i < 20 && !stopProfile; ++i)
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
+
         } catch (const std::exception&) {
             std::cerr << "[profile] 能力评估线程停止，重新打开软件后可继续更新\n";
         }
@@ -2342,6 +2518,7 @@ int main() {
     app.bindaddr(config.host).port(config.port).multithreaded().run();
     while (socketWorkerCount > 0) std::this_thread::sleep_for(std::chrono::milliseconds(100));
     homeRecommendations.stop();
+    learningFlow.stop();
     stopProfile = true;
     profileWorker.join();
     abilityWorker.join();

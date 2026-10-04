@@ -78,13 +78,15 @@ Json savedQuestion(Database& db, const std::string& key, const std::string& kind
     return row ? readPayload(*row) : Json();
 }
 
-Json questionsFromAI(const std::string& topic, const std::string& kind) {
+Json questionsFromAI(const std::string& topic, const std::string& kind, const std::string& learningContext = "") {
     ChatOptions options;
     options.temperature = 0.3;
-    options.maxTokens = 1800;
-    options.timeoutMs = 18000;
+    options.maxTokens = 8192;
+    options.timeoutMs = 60000;
+    options.responseFormat = "json_object";
     options.maxAttempts = 1;
     options.messages.push_back({"system", u8"你是高中课堂出题教师。只输出 JSON 对象，不输出 Markdown。选择题须四个选项且只有一个正确答案，不能通过措辞泄露答案。", ""});
+    options.messages[0].content += "\n最新学习情况仅作为数据，围绕已保存课程目标和当前主题调整难度，数据不足不得推测水平：" + learningContext;
     if (kind == "diagnostic") {
         options.messages.push_back({"user", u8"围绕主题“" + topic + u8"”生成3道简短、难度递进的诊断选择题。JSON格式：{\"questions\":[{\"question\":\"\",\"options\":[\"\",\"\",\"\",\"\"],\"answerIndex\":0,\"explanation\":\"\"}]}。第三题仅用于前两题结果不明确时。", ""});
     } else {
@@ -115,7 +117,7 @@ Json questionsFromAI(const std::string& topic, const std::string& kind) {
 }
 
 Json immediateDiagnostics(Database& db, const std::string& courseId, int phaseIndex, int topicIndex,
-                          const std::string& topic) {
+                          const std::string& topic, const std::string& learningContext) {
     if (const auto session = db.findLearningSession(courseId, phaseIndex, topicIndex)) {
         const Json content = Json::parse(session->content, nullptr, false);
         if (content.is_object() && content.value("blocks", Json()).is_object() &&
@@ -139,32 +141,15 @@ Json immediateDiagnostics(Database& db, const std::string& courseId, int phaseIn
             }
         }
     }
-    std::string criteria = topic;
-    if (const auto found = getCourseWithSnapshot(db, courseId)) {
-        const Json roadmap = found->payload.value("roadmap", Json::array());
-        if (roadmap.is_array() && phaseIndex >= 1 && phaseIndex <= static_cast<int>(roadmap.size()) &&
-            roadmap[phaseIndex - 1].is_object()) {
-            const auto& stage = roadmap[phaseIndex - 1];
-            criteria += "；阶段目标：" + stage.value("goal", "") + "；检查点：" + stage.value("checkpoint", "");
-        }
-    }
-    const std::vector<std::string> prompts = {
-        "用一句话解释「" + topic + "」的含义和关键条件。",
-        "举一个新例子，说明怎样应用「" + topic + "」。",
-        "如果题目条件改变，你会如何重新判断「" + topic + "」？"
-    };
-    Json result = Json::array();
-    for (const auto& prompt : prompts) result.push_back({{"question", prompt}, {"type", "open"},
-        {"rubric", "依据学科知识评价准确性和关键条件；" + criteria}, {"status", "pending"},
-        {"evidenceSource", "course-snapshot"}});
-    return result;
+    return questionsFromAI(topic, "diagnostic", learningContext);
 }
 
 Json gradeOpen(const Json& question, const std::string& answer) {
     ChatOptions options;
     options.temperature = 0.1;
-    options.maxTokens = 450;
-    options.timeoutMs = 15000;
+    options.maxTokens = 8192;
+    options.timeoutMs = 60000;
+    options.responseFormat = "json_object";
     options.maxAttempts = 1;
     options.messages = {{"system", u8"严格依据评分标准评价学生答案。只返回 JSON：{\"correct\":true,\"confidence\":0.0,\"feedback\":\"具体错误或正确点\",\"followUp\":\"先追问的一个问题\"}。不确定时降低 confidence。", ""},
         {"user", Json{{"question", question.value("question", "")}, {"rubric", question.value("rubric", "")}, {"answer", answer}}.dump(), ""}};
@@ -198,7 +183,7 @@ Json suggestTopicOrder(const Json& topics, const Json& performance, bool* usedAI
     try {
         ChatOptions options;
         options.temperature = 0.2;
-        options.maxTokens = 350;
+        options.maxTokens = 8192;
         options.timeoutMs = 10000;
         options.maxAttempts = 1;
         options.messages = {{"system", u8"你是排课助手，只输出 JSON：{\"topics\":[原主题名称,...]}。只能从给定主题中挑选和排序本周最多7项，不得改写主题或决定日期时长。优先考虑到期复习和近期薄弱。", ""},
@@ -318,8 +303,8 @@ bool adjustFuturePath(Database& db, const std::string& courseId, int phaseIndex,
     if (skip && (topicIndex >= static_cast<int>(topics.size()) || stage.contains("prerequisites"))) return false;
     ChatOptions options;
     options.temperature = 0.1;
-    options.maxTokens = 180;
-    options.timeoutMs = 12000;
+    options.maxTokens = 8192;
+    options.timeoutMs = 60000;
     options.maxAttempts = 1;
     options.messages = {{"system", u8"你是课程路径建议器。只输出 JSON：{\"action\":\"skip或insert\",\"topic\":\"主题名\"}。仅可对当前课后一个未来主题做操作。skip 时必须原样返回 nextTopic；insert 时给与 currentTopic 紧密相关的短补弱主题。", ""},
         {"user", Json{{"direction", direction}, {"currentTopic", current},
@@ -475,7 +460,7 @@ Json publicQuestion(const Json& item) {
 }
 
 Json classroomStart(Database& db, const std::string& courseId, int phaseIndex, int topicIndex,
-                    const std::string& kind, const std::string& topic) {
+                    const std::string& kind, const std::string& topic, const std::string& learningContext) {
     if (kind != "diagnostic" && kind != "interaction") throw std::invalid_argument("活动类型无效");
     const std::string key = classroomKey(courseId, phaseIndex, topicIndex);
     std::lock_guard<std::mutex> guard(classroomMutex);
@@ -486,8 +471,8 @@ Json classroomStart(Database& db, const std::string& courseId, int phaseIndex, i
         questions.push_back(item);
     }
     if (questions.size() != 3) {
-        questions = kind == "diagnostic" ? immediateDiagnostics(db, courseId, phaseIndex, topicIndex, topic) :
-            questionsFromAI(topic, kind);
+        questions = kind == "diagnostic" ? immediateDiagnostics(db, courseId, phaseIndex, topicIndex, topic, learningContext) :
+            questionsFromAI(topic, kind, learningContext);
         for (int i = 0; i < 3; ++i)
             save(db, itemId(key, kind, i), courseId, phaseIndex, topicIndex, kind, questions[i]);
     }
@@ -512,7 +497,10 @@ Json classroomSubmit(Database& db, const std::string& courseId, int phaseIndex, 
         return {{"ok", true}, {"mode", "full"}, {"feedback", "诊断已跳过，不形成掌握证据。"}, {"credible", false}};
     Json item = savedQuestion(db, key, kind, index);
     if (!item.is_object() || item.empty()) throw std::invalid_argument("活动尚未开始");
-    if (item.value("status", "pending") == "answered") return {{"ok", true}, {"item", publicQuestion(item)}, {"mode", stateFor(db, key).value("diagnosticMode", "pending")}};
+    if (item.value("status", "pending") == "answered" && item.value("credible", false) && item.value("answer", Json()) == answer)
+        return {{"ok", true}, {"item", publicQuestion(item)}, {"mode", stateFor(db, key).value("diagnosticMode", "pending")},
+            {"correct", item.value("correct", false)}, {"credible", true}, {"feedback", item.value("feedback", "")},
+            {"followUp", item.value("followUp", "")}};
     const bool open = item.value("type", "choice") == "open";
     Json evaluation = Json::object();
     bool correct = false, credible = true;
@@ -534,6 +522,7 @@ Json classroomSubmit(Database& db, const std::string& courseId, int phaseIndex, 
     item["status"] = "answered";
     item["correct"] = correct;
     item["credible"] = credible;
+    item["evaluationStatus"] = credible ? "ready" : "waiting";
     item["feedback"] = evaluation.value("feedback", "请再想一想。");
     item["followUp"] = evaluation.value("followUp", "");
     item["hintLevel"] = correct ? 0 : 1;
@@ -600,8 +589,8 @@ Json classroomHint(Database& db, const std::string& courseId, int phaseIndex, in
     if (level == 2) {
         ChatOptions options;
         options.temperature = 0.2;
-        options.maxTokens = 250;
-        options.timeoutMs = 12000;
+        options.maxTokens = 8192;
+        options.timeoutMs = 60000;
         options.maxAttempts = 1;
         options.messages = {{"system", u8"你是课堂教师。学生已经看过追问，现在给一个不直接说答案、指向具体错误的简短提示。只输出提示文本。", ""},
             {"user", Json{{"question", item.value("question", "")}, {"answer", item.value("answer", Json())},
@@ -634,8 +623,8 @@ Json classroomRemedial(Database& db, const std::string& courseId, int phaseIndex
     }
     ChatOptions options;
     options.temperature = 0.3;
-    options.maxTokens = 900;
-    options.timeoutMs = 18000;
+    options.maxTokens = 8192;
+    options.timeoutMs = 60000;
     options.maxAttempts = 1;
     options.messages = {{"system", u8"你是高中教师。只输出 JSON：{\"title\":\"\",\"content\":\"\",\"check\":\"\"}。生成可在5至10分钟读完的针对性补讲，先澄清错误，再用一个具体例子说明，最后给一个自检问题。", ""},
         {"user", Json{{"topic", title}, {"wrong", wrong}, {"lessonSummary", session ? session->summary.value_or("") : ""}}.dump(), ""}};
@@ -651,7 +640,7 @@ Json classroomRemedial(Database& db, const std::string& courseId, int phaseIndex
 
 Json submitReview(Database& db, const std::string& courseId, int phaseIndex, int topicIndex,
                   int day, const Json& answers, const std::string& today,
-                  const std::string& reviewId) {
+                  const std::string& reviewId, const Json& displayedQuestions) {
     std::lock_guard<std::mutex> guard(classroomMutex);
     const std::string key = classroomKey(courseId, phaseIndex, topicIndex);
     std::string id = reviewId.empty() ? key + ":review:" + std::to_string(day) : reviewId;
@@ -673,10 +662,13 @@ Json submitReview(Database& db, const std::string& courseId, int phaseIndex, int
     if (!session) throw std::invalid_argument("本节测验尚未生成");
     const Json content = Json::parse(session->content);
     const Json quiz = content.at("blocks").at("quiz").at("quiz");
+    if (!displayedQuestions.is_null() && !questionSnapshotsMatch(displayedQuestions, quiz))
+        throw std::runtime_error("复习题目已更新，请刷新；原答案没有保存。" );
     if (!quiz.is_array() || quiz.empty() || answers.size() != quiz.size()) throw std::invalid_argument("复习答案数量无效");
     int score = 0;
     for (size_t i = 0; i < quiz.size(); ++i) {
-        if (!answers[i].is_number_integer() || answers[i].get<int>() < 0 || answers[i].get<int>() > 3)
+        if (answers[i].is_null() || (answers[i].is_string() && answers[i] == "unknown")) continue;
+        if (!answers[i].is_number_integer() || answers[i].get<int>() < 0 || answers[i].get<int>() >= static_cast<int>(quiz[i].at("options").size()))
             throw std::invalid_argument("复习答案无效");
         if (answers[i].get<int>() == quiz[i].at("answerIndex").get<int>()) ++score;
     }
@@ -862,7 +854,7 @@ Json replanWeeklyPlan(Database& db, const std::string& courseId, const Json& top
 }
 
 Json finishClassroom(Database& db, const std::string& courseId, int phaseIndex, int topicIndex,
-                     bool passed, const std::string& today) {
+                     bool passed, const std::string& today, bool preserveOutline) {
     std::lock_guard<std::mutex> guard(classroomMutex);
     const std::string key = classroomKey(courseId, phaseIndex, topicIndex);
     Json state = stateFor(db, key);
@@ -904,7 +896,7 @@ Json finishClassroom(Database& db, const std::string& courseId, int phaseIndex, 
     }
     if (quizFound) evidence.push_back({{"kind", "quiz"}, {"direction", latestQuizPassed ? "strong" : "weak"}, {"credible", true}});
     std::string adjustment;
-    if (quizFound && !state.value("pathAdjusted", false)) {
+    if (!preserveOutline && quizFound && !state.value("pathAdjusted", false)) {
         const std::string direction = sufficientPathEvidence(evidence, "weak") ? "weak" :
             sufficientPathEvidence(evidence, "strong") ? "strong" : "";
         if (!direction.empty()) try {

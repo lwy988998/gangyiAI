@@ -6,6 +6,12 @@
   const DEFAULT_AVAILABILITY = [{ weekday: 1, minutes: 30 }, { weekday: 3, minutes: 30 }, { weekday: 5, minutes: 30 }];
   const AVAILABILITY_KEY = 'gangyi-week-availability';
   const PENDING_KEY = 'gangyi-week-pending';
+  let studyVersion = 0, studyEntries = [], saveTimer = null, saving = false;
+  const timeEditorId = 'time-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now());
+  function protectTimeDraft(active) {
+    return fetch('/api/study-plan/draft', {method: 'POST', keepalive: true, headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({clientId: timeEditorId, version: studyVersion, active, availability: collectAvailability(), entries: studyEntries})}).catch(() => {});
+  }
 
   function readAvailability() {
     try {
@@ -36,22 +42,36 @@
       items.map(item => NAMES[item.weekday - 1]).join('、');
   }
 
-  function saveAvailability() {
+  async function saveAvailability() {
     const items = collectAvailability();
-    if (items.length) {
-      localStorage.setItem(AVAILABILITY_KEY, JSON.stringify(items));
-      localStorage.setItem(PENDING_KEY, '1');
-    } else {
-      localStorage.removeItem(AVAILABILITY_KEY);
-      localStorage.removeItem(PENDING_KEY);
-    }
-    updateAvailabilitySummary();
+    if (!items.length) { $('uc-availability-summary').textContent = '请至少选择一个学习日。'; return; }
+    if (saving) { clearTimeout(saveTimer); saveTimer = setTimeout(saveAvailability, 600); return; }
+    saving = true;
+    try {
+      const response = await fetch('/api/study-plan', {method: 'PUT', keepalive: true, headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({version: studyVersion, availability: items})});
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || '保存失败');
+      studyVersion = result.version;
+      studyEntries = result.entries; protectTimeDraft(false);
+      localStorage.removeItem(AVAILABILITY_KEY); localStorage.removeItem(PENDING_KEY);
+      updateAvailabilitySummary(); $('uc-availability-summary').textContent += ' · 已保存为全部课程共享预算';
+    } catch (error) {
+      $('uc-availability-summary').textContent = error.message + '，你的输入已保留；重新修改可重试。';
+      try { const current = await (await fetch('/api/study-plan')).json(); studyVersion = current.version; } catch (_) {}
+    } finally { saving = false; }
   }
 
-  function setupAvailability() {
+  async function setupAvailability() {
     const grid = $('uc-availability-grid');
     if (!grid) return;
-    const saved = readAvailability();
+    let saved = readAvailability();
+    try {
+      const response = await fetch('/api/study-plan'); if (!response.ok) throw new Error();
+      const result = await response.json(); studyVersion = result.version; studyEntries = result.entries; saved = result.availability;
+    } catch (_) {
+      $('uc-availability-summary').textContent = '总学习时间读取失败，请刷新后设置。'; return;
+    }
     grid.innerHTML = '';
     NAMES.forEach((name, index) => {
       const slot = saved.find(item => Number(item.weekday) === index + 1);
@@ -62,7 +82,7 @@
         '" aria-label="' + name + '分钟数"><span>分钟</span>';
       grid.append(label);
     });
-    grid.addEventListener('change', saveAvailability);
+    grid.addEventListener('change', () => { protectTimeDraft(true); clearTimeout(saveTimer); saveTimer = setTimeout(saveAvailability, 600); });
     grid.addEventListener('input', updateAvailabilitySummary);
     updateAvailabilitySummary();
   }

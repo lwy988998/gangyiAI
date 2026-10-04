@@ -152,7 +152,7 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
 }
 
 struct StreamState {
-    std::string pending, content, model;
+    std::string pending, content, model, finishReason;
     std::function<bool(const std::string&)> onChunk;
     bool cancelled = false;
     std::function<bool()> shouldCancel;
@@ -183,6 +183,7 @@ size_t writeStream(char* data, size_t size, size_t count, void* user) {
         if (event.contains("model") && event["model"].is_string()) state.model = event["model"].get<std::string>();
         if (!event["choices"][0].is_object()) continue;
         const auto& choice = event["choices"][0];
+        if (choice.value("finish_reason", json()).is_string()) state.finishReason = choice["finish_reason"].get<std::string>();
         if (choice.value("finish_reason", json()) == "stop") state.completed = true;
         const auto delta = choice.value("delta", json::object());
         if (!delta.is_object() || !delta.value("content", json()).is_string()) continue;
@@ -210,7 +211,7 @@ AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int
     curl_slist* headers = nullptr;
     headers = curl_slist_append(headers, "Content-Type: application/json");
     headers = curl_slist_append(headers, authorization.c_str());
-    StreamState state{{}, {}, model, onChunk, false, options.cancelled};
+    StreamState state{{}, {}, model, {}, onChunk, false, options.cancelled};
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postBody.c_str());
@@ -231,7 +232,7 @@ AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int
     if (state.cancelled) throw AIClientError("cancelled", "stream cancelled");
     if (code != CURLE_OK || status < 200 || status >= 300)
         throw errorFor(code, status, code == CURLE_OK ? "AI provider returned HTTP " + std::to_string(status) : curl_easy_strerror(code));
-    if (state.content.empty() || !state.completed) throw AIClientError("invalid_response", "AI stream is incomplete");
+    if (state.content.empty() || !state.completed || state.finishReason == "length") throw AIClientError("invalid_response", "AI stream is incomplete");
     return {state.content, state.model, static_cast<int>(status), "stop", "not_requested", {}};
 }
 
