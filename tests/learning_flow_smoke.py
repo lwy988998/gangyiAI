@@ -183,6 +183,8 @@ def main(executable):
                 "generations": {name: {"source": "ai", "model": "fixture-ai", "promptVersion": "ai-block-v1"} for name in blocks}}
             h.sql("INSERT INTO LearningSession VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", ("fixture-session", "chem", "fixture",
                 "高中化学氧化还原", "deep", 1, "基础", 1, "化合价", "化合价", "", "", json.dumps(content, ensure_ascii=False), "[]", 0, "ai"))
+            # 测试装入课堂后立即登记展示，避免后面的压力验收期间后台先完成重备。
+            h.http("/api/learn/exposure", dict(courseId="chem", phaseIndex=1, topicIndex=1, contentVersion=1, blocks=["steps"]))
             for index in range(3):
                 question = {"question": f"解释化合价升降 {index}", "type": "open", "rubric": "说明反应前后元素化合价变化", "status": "pending"}
                 h.sql("INSERT INTO ClassroomActivity VALUES(?,?,?,?,?,?,?)", (f"classroom:chem:1:1:diagnostic:{index}", "chem", 1, 1, "diagnostic", json.dumps(question, ensure_ascii=False), "2026-10-04"))
@@ -216,7 +218,6 @@ def main(executable):
             h.sql("DELETE FROM ClassroomActivity WHERE id IN (?,?)", (atomic_key, atomic_key + ":evaluation"))
             h.revision()
             # 显示过的讲解不得被新的后台模型结果覆盖。
-            h.http("/api/learn/exposure", dict(courseId="chem", phaseIndex=1, topicIndex=1, contentVersion=1, blocks=["steps"]))
             plan = h.plan(); assert plan["status"] == "ready", plan
             assert set(x["courseId"] for x in plan["entries"]) == {"chem", "math"}
             assert all(x["date"] >= "2026-10-05" for x in plan["entries"])
