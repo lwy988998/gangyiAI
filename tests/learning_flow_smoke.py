@@ -202,6 +202,7 @@ def main(executable):
                                 with connection:
                                     connection.execute("UPDATE ClassroomActivity SET payload=? WHERE id=?", (json.dumps(question), atomic_key))
                                     connection.execute("UPDATE ClassroomActivity SET payload=? WHERE id=?", (json.dumps({"status": "ready" if ready else "waiting", "dialogueVersion": 0}), atomic_key + ":evaluation"))
+                                time.sleep(.002)
                 except Exception as error: atomic_errors.append(error)
             atomic_writer = threading.Thread(target=publish_atomic_evaluations); atomic_writer.start()
             try:

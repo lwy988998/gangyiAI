@@ -2462,6 +2462,7 @@ int main() {
     learningFlow.start();
     std::atomic_bool stopProfile{false};
     std::thread profileWorker([&] {
+      while (!stopProfile) {
         try {
             gangyi::Database workerDb;
             workerDb.open(config.database_path);
@@ -2471,6 +2472,8 @@ int main() {
                     for (int i = 0; i < 20 && !stopProfile && workerDb.profileRevision() == pendingRevision; ++i)
                         std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     if (stopProfile || workerDb.profileRevision() != pendingRevision) continue;
+                    // 先登记本次尝试；数据库临时繁忙或评价失败都不重复调用同一版本。
+                    if (!workerDb.setProfileMetaAtRevision("profile-failed-revision", std::to_string(pendingRevision), pendingRevision)) continue;
                     gangyi::AIClient ai;
                     std::string error;
                     const bool topicsReady = gangyi::refreshTopicMastery(workerDb, ai, error);
@@ -2488,11 +2491,15 @@ int main() {
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
         } catch (const std::exception& error) {
-            std::cerr << "[profile] worker stopped: " << error.what() << '\n';
+            std::cerr << "[profile] 后台状态暂不可读，稍后恢复：" << error.what() << '\n';
         }
+        for (int i = 0; i < 20 && !stopProfile; ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
     });
     // 能力评估独立于学科画像；同一失败证据版本仅尝试一次。
     std::thread abilityWorker([&] {
+      while (!stopProfile) {
         try {
             gangyi::Database workerDb;
             workerDb.open(config.database_path);
@@ -2510,9 +2517,12 @@ int main() {
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
 
-        } catch (const std::exception&) {
-            std::cerr << "[profile] 能力评估线程停止，重新打开软件后可继续更新\n";
+        } catch (const std::exception& error) {
+            std::cerr << "[profile] 能力评估状态暂不可读，稍后恢复：" << error.what() << '\n';
         }
+        for (int i = 0; i < 20 && !stopProfile; ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
     });
     std::cout << "gangyiAI " << gangyi::kVersion << " listening on " << config.host << ':' << config.port << '\n';
     app.bindaddr(config.host).port(config.port).multithreaded().run();

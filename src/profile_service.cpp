@@ -298,6 +298,9 @@ bool refreshAbilityProfile(Database& db, AIClient& ai) {
     if (!stored.is_object()) stored = {{"dimensions", emptyAbilities()}, {"version", 0}, {"updatedAt", ""}, {"model", ""}};
     if (stored.value("attemptVersion", 0) >= revision) return true;
     stored["attemptVersion"] = revision;
+    // 保存尝试版本后再调用模型，后台恢复时不会重复请求失败版本。
+    stored["error"] = "等待 AI 更新：正在评估，已有真实画像保留。";
+    if (!db.setProfileMetaAtRevision("ability-profile", stored.dump(), revision)) return false;
     try {
         const auto evidence = abilityEvidence(db);
         if (evidence.size() < 3) {
