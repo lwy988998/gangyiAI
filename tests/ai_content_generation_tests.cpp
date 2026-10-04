@@ -192,6 +192,25 @@ int main() {
         expect(server.count() == 3, "板块生成失败必须自动尝试三次");
     }
     {
+        const nlohmann::json overview = {{"title", topic}, {"summary", topic + "：先比较反应前后化合价，再说明电子得失。"},
+            {"inferredDomain", "化学"}, {"keyConcepts", nlohmann::json::array({"化合价", "升降", "电子得失"})}};
+        MockServer server(providerResponse({{"overview", overview}}), 1);
+        auto client = clientFor(server); gangyi::LearningGenerator generator(client);
+        const auto adapted = generator.adaptBlocks(goal, plan, phase, topic, {"overview"}, nlohmann::json::object(), {});
+        server.wait();
+        expect(adapted["overview"]["_generation"]["promptVersion"] == "ai-adaptation-v1", "重备必须来自真实模型请求");
+        expect(adapted["overview"]["title"] == topic && server.count() == 1, "重备围绕原主题，单次请求无需重复完整课程名");
+    }
+    {
+        MockServer server(providerResponse({{"overview", {{"title", "无关课程"}, {"summary", "无关的知识内容"},
+            {"inferredDomain", "其他"}, {"keyConcepts", nlohmann::json::array({"一", "二", "三"})}}}}), 1);
+        auto client = clientFor(server); gangyi::LearningGenerator generator(client);
+        try { generator.adaptBlocks(goal, plan, phase, topic, {"overview"}, nlohmann::json::object(), {});
+            expect(false, "离开当前主题的备课不得保存");
+        } catch (const gangyi::AIClientError& error) { expect(error.errorType == "quality_rejected", "无关备课应拒绝且保留旧内容"); }
+        server.wait(); expect(server.count() == 1, "备课失败不得自动循环请求");
+    }
+    {
         MockServer server(providerResponse({{"objective", "氧化还原基础"}}), 3);
         auto client = clientFor(server);
         gangyi::PhaseGenerator generator(client);

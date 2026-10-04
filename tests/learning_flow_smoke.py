@@ -16,6 +16,7 @@ from contextlib import closing
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 import websockets
+if hasattr(sys.stdout, 'reconfigure'): sys.stdout.reconfigure(encoding='utf-8')
 from classroom_api_smoke import MockAI, free_port
 
 def wait_for(predicate, seconds=30):
@@ -99,7 +100,7 @@ class FlowModel(MockAI):
             # 测试模型明确优先化学课程，程序仍独立验证候选、预算和前置关系。
             lessons.sort(key=lambda x: (x["courseId"] != "chem", x["phaseIndex"], x["topicIndex"]))
             ordered = reviews + lessons
-            result = {"order": [{"taskId": x["taskId"], "minutes": 10 if x["kind"] == "review" else 15} for x in ordered],
+            result = {"order": [{"taskId": x["taskId"], "minutes": min(10 if x["kind"] == "review" else 15, max(slot["minutes"] for slot in data["availability"]))} for x in ordered],
                       "teaching": [{"courseId": "chem", "phaseIndex": 1, "topicIndex": 1,
                           "instruction": "先补讲化合价的升降，再用更简单的反应判断。", "supplement": "铁由零价变为二价，化合价升高。"}],
                       "nextTaskId": ordered[0]["taskId"] if ordered else "",
@@ -123,8 +124,9 @@ class Harness:
             GANGYI_FLOW_TODAY="2026-10-04", LOCAL_CONTROL_TOKEN="flow-test")
         self.start()
     def start(self):
+        self.log = (self.database.parent / "service.log").open("ab")
         self.process = subprocess.Popen([str(self.executable)], cwd=self.executable.parent, env=self.env,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            stdout=self.log, stderr=subprocess.STDOUT,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         wait_for(lambda: self.http("/health"), 10)
     def http(self, path, data=None, method=None):
@@ -140,6 +142,7 @@ class Harness:
         try: self.http("/internal/shutdown", {}, "POST")
         except OSError: pass
         self.process.wait(timeout=15)
+        self.log.close()
     def close(self):
         if self.process.poll() is None: self.stop()
         self.model.shutdown(); self.model.server_close(); self.thread.join(timeout=2)
@@ -288,6 +291,10 @@ def main(executable):
                 raise AssertionError("旧版本不应覆盖已确认计划")
             except urllib.error.HTTPError as error: assert error.code == 409
             h.http("/api/study-plan/draft", dict(clientId="editor", active=False))
+            # 已在学课时仍计入预算；缩减到无法容纳时不得保存超预算新计划。
+            h.http("/api/study-plan/replan", dict(version=accepted["version"], availability=[{"weekday":1,"minutes":10},{"weekday":3,"minutes":10},{"weekday":5,"minutes":10}]))
+            insufficient = h.plan()
+            assert insufficient["status"] == "waiting" and insufficient["entries"] == accepted["entries"]
             FlowModel.failure = "plan"
             h.http("/api/study-plan/replan", dict(version=accepted["version"]))
             failed = h.plan(); assert failed["status"] == "waiting" and failed["entries"] == accepted["entries"]
@@ -304,6 +311,7 @@ def main(executable):
             print("FLOW_STATE", h.http("/api/study-plan"), flush=True)
             print("FLOW_META", h.sql("SELECT key,value FROM ProfileMeta WHERE key IN ('learning-flow','learning-revision','revision','assessed')"), flush=True)
             print("FLOW_TASKS", [call["messages"][0]["content"][:30] for call in FlowModel.calls], flush=True)
+            print("FLOW_LOG", (h.database.parent / "service.log").read_text(encoding="utf8", errors="replace")[-6000:], flush=True)
             raise
         finally:
             FlowModel.failure = ""; FlowModel.release.set(); h.close()
