@@ -2472,8 +2472,12 @@ int main() {
                     for (int i = 0; i < 20 && !stopProfile && workerDb.profileRevision() == pendingRevision; ++i)
                         std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     if (stopProfile || workerDb.profileRevision() != pendingRevision) continue;
-                    // 先登记本次尝试；数据库临时繁忙或评价失败都不重复调用同一版本。
-                    if (!workerDb.setProfileMetaAtRevision("profile-failed-revision", std::to_string(pendingRevision), pendingRevision)) continue;
+                    // 中断后将同一版本标为等待重试，正常在途任务仍显示正在评估。
+                    if (workerDb.profileMeta("profile-attempt-revision") == std::to_string(pendingRevision)) {
+                        workerDb.setProfileMetaAtRevision("profile-failed-revision", std::to_string(pendingRevision), pendingRevision);
+                        continue;
+                    }
+                    if (!workerDb.setProfileMetaAtRevision("profile-attempt-revision", std::to_string(pendingRevision), pendingRevision)) continue;
                     gangyi::AIClient ai;
                     std::string error;
                     const bool topicsReady = gangyi::refreshTopicMastery(workerDb, ai, error);
