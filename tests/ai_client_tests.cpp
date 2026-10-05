@@ -171,6 +171,25 @@ int main() {
                "JSON 解析器应提取推理文本末尾的完整对象");
     }
     {
+        // 真实模型偶尔漏写嵌套对象的右花括号；补全只能加括号，不能改写已有字段。
+        const std::string valid = R"({"message":"先标化合价","actions":[{"id":"a1","tool":"create_lesson","args":{"courseId":"c1","title":"氧化还原"}}],"state":"completed"})";
+        const auto missing = valid.find("}}],\"state\"");
+        expect(missing != std::string::npos, "测试用例应包含行动对象与行动数组的连续右括号");
+        std::string broken = valid;
+        if (missing != std::string::npos) broken.erase(missing, 1);
+        const auto parsed = gangyi::parseAIJson(broken);
+        expect(parsed.value("message", "") == "先标化合价" && parsed.at("actions").size() == 1,
+               "缺少一个右花括号时应补齐括号并保留顶层消息与行动");
+        expect(parsed.at("actions")[0].at("args").at("title") == "氧化还原",
+               "括号补全不得改写行动参数内容");
+        expect(parsed.value("state", "") == "completed", "括号补全后应保留状态字段");
+    }
+    {
+        bool rejected = false;
+        try { gangyi::parseAIJson("这不是 JSON，也没有任何对象"); } catch (...) { rejected = true; }
+        expect(rejected, "完全无法解析的文本必须报错，不能伪造主控结构");
+    }
+    {
         MockServer server(response(200, R"({"choices":[{"message":{"content":" 好的 "}}]})"));
         auto client = clientFor(server, "/v1", "configured-ask-model");
         gangyi::AskGenerator generator(client);

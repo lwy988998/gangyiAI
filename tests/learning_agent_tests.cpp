@@ -101,6 +101,28 @@ int main() {
         mixed.process(db, mixedTask["id"]);
         assert(mixedCalls == 5 && gangyi::agentView(db, access, mixedTask["id"])["status"] == "failed");
 
+        // 保留模型的原始错误响应并反馈具体解析错误，不能补齐半成品后执行。
+        const std::string malformed = R"({"message":"准备调整","actions":[{"id":"syntax-write","tool":"syntax_fixture","args":{}}],"state":"completed")";
+        int syntaxCalls = 0, syntaxWrites = 0;
+        gangyi::LearningAgent corrected(path, [&](const auto& options, const auto& sink) -> gangyi::AIResult {
+            if (++syntaxCalls == 1) { sink(malformed); return {malformed, "fixture", 200, "stop", "not_requested", {}}; }
+            assert(syntaxWrites == 0);
+            bool original = false, preciseError = false;
+            for (const auto& message : options.messages) {
+                original = original || (message.role == "assistant" && message.content == malformed);
+                preciseError = preciseError || message.content.find("parse_error") != std::string::npos;
+            }
+            assert(original && preciseError);
+            return output({{"message", "模型已修正完整响应"}, {"actions", {{{"id", "syntax-write"}, {"tool", "syntax_fixture"}, {"args", Json::object()}}}}, {"state", "completed"}}, sink);
+        });
+        corrected.registerTool("syntax_fixture", {"验证只执行完整响应", false,
+            [&](gangyi::Database&, const Json&, const Json&, const gangyi::AIResult&) {
+                return gangyi::PreparedAgentTool{{{"ok", true}}, [&](gangyi::Database&) { ++syntaxWrites; }};
+            }});
+        const auto syntaxTask = gangyi::agentSubmit(db, access, {{"type", "adjust"}, {"requestId", "syntax"}});
+        corrected.process(db, syntaxTask["id"]);
+        assert(syntaxCalls == 2 && syntaxWrites == 1 && gangyi::agentView(db, access, syntaxTask["id"])["status"] == "ready");
+
         const auto atomic = gangyi::agentSubmit(db, access, {{"type", "adjust"}, {"requestId", "atomic"}});
         gangyi::LearningAgent rollback(path, [&](const auto&, const auto& sink) {
             return output({{"message", "调整"}, {"actions", {{{"id", "rollback"}, {"tool", "rollback_fixture"}, {"args", Json::object()}}}},
