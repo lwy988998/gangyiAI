@@ -629,9 +629,12 @@ void openApiSettings(const char* id, const char*, void*) {
 }
 
 const char* kDesktopScript = R"JS((() => {
+  // 应用页面骨架：服务端页面用 .site-header，独立页面（备课/课堂）用 body > header 与 main。
+  // WebView2 自带的连接失败页不含这些元素，仍会被判定为未就绪。
+  const landmark = () => document.querySelector('.site-header, body > header, main');
   const report = () => {
-    const header = document.querySelector('.site-header');
-    if (header && header.getBoundingClientRect().width > 0 &&
+    const node = landmark();
+    if (node && node.getBoundingClientRect().width > 0 &&
         document.documentElement.clientWidth > 0 && document.body.innerText.trim()) {
       window.gangyiPageReady();
     } else {

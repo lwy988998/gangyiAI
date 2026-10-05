@@ -52,6 +52,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw '统一主控课堂与备课页面验收失败' }
           python tests/radar_browser_smoke.py dist/windows/gangyiAI.exe
           if ($LASTEXITCODE -ne 0) { throw '双模式六维雷达页面验收失败' }
+          python tests/page_ready_browser_smoke.py dist/windows/gangyiAI.exe
+          if ($LASTEXITCODE -ne 0) { throw '页面就绪判定回归失败' }
       - name: 验收安装包和免安装版
         shell: pwsh
         run: .\scripts\test_windows_release.ps1
