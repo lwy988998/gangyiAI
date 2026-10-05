@@ -1,6 +1,7 @@
 """检查课堂页面交互和主要页面文字对比度。"""
 
 import json
+import io
 import os
 import sqlite3
 import subprocess
@@ -15,6 +16,57 @@ from playwright.sync_api import sync_playwright
 from classroom_api_smoke import MockAI, free_port
 from http.server import ThreadingHTTPServer
 from threading import Thread
+
+
+class BrowserAI(MockAI):
+    """新备课任务真实走本地 HTTP/SSE，测试模型仅返回虚构课程。"""
+    def do_POST(self):
+        raw = self.rfile.read(int(self.headers['Content-Length']))
+        body = json.loads(raw)
+        system = body['messages'][0]['content']
+        if not body.get('stream') or not ('全课程教学统筹教师' in system or '钢一定制AI的备课教师' in system):
+            self.rfile = io.BytesIO(raw)
+            return super().do_POST()
+        MockAI.requests.append(body)
+        data = json.loads(body['messages'][-1]['content'])
+        if '全课程教学统筹教师' in system:
+            candidates = data['candidates']
+            item = next(candidate for candidate in candidates if candidate['kind'] == 'lesson' and candidate['topicIndex'] == 1)
+            result = {'reason': '根据本次实际回答，先巩固区间与定义。', 'taskId': item['taskId'],
+                      'action': 'consolidate', 'minutes': min(10, item['availableMinutes']),
+                      'instruction': '结合已写出的解题过程补讲', 'knowledgePoints': ['区间', '定义']}
+        else:
+            block, topic = data['block'], data['topic']
+            if block == 'overview':
+                result = {'title': topic + '巩固课堂', 'summary': topic + '通过具体判断理解变化。',
+                          'inferredDomain': '数学', 'keyConcepts': ['定义', '区间', '方向']}
+            elif block == 'steps':
+                result = {'lessonSteps': [{'title': topic + '步骤' + str(i), 'explanation': '先确定区间，再比较函数值。',
+                    'example': '观察 y=x 的变化', 'action': '写出判断依据', 'check': '私有自检秘密'} for i in range(4)]}
+            elif block == 'examples':
+                result = {'examples': [{'title': topic + '例题' + str(i), 'content': '请判断区间中的变化' + str(i),
+                    'solution': '私有例题答案秘密'} for i in range(2)]}
+            elif block == 'practice':
+                result = {'practice': [{'title': topic + '练习' + str(i), 'task': '说明区间与变化依据' + str(i),
+                    'check': '私有练习检查秘密'} for i in range(3)]}
+            elif block == 'quiz':
+                result = {'quiz': [{'question': topic + '判断题' + str(i), 'options': ['甲', '乙', '丙', '丁'],
+                    'answerIndex': 0, 'explanation': '私有测验解析秘密'} for i in range(3)]}
+            else:
+                result = {'checkpoint': [topic + '说明定义', '能判断变化方向'], 'commonMistakes': ['遗漏条件', '忽略区间'],
+                          'resourceSummary': topic + '参考教材'}
+        encoded = json.dumps(result, ensure_ascii=False)
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
+        self.end_headers()
+        try:
+            for offset in range(0, len(encoded), 25):
+                event = {'model': 'mock-browser-v550', 'choices': [{'delta': {'content': encoded[offset:offset+25]}}]}
+                self.wfile.write(('data: ' + json.dumps(event, ensure_ascii=False) + '\n\n').encode())
+                self.wfile.flush(); time.sleep(.025)
+            self.wfile.write(b'data: [DONE]\n\n'); self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
 
 
 AUDIT = """() => {
@@ -49,12 +101,13 @@ AUDIT = """() => {
 def main(executable):
     with tempfile.TemporaryDirectory(prefix="classroom-browser-") as directory:
         database = Path(directory) / "ui.db"
-        ai = ThreadingHTTPServer(("127.0.0.1", free_port()), MockAI)
+        ai = ThreadingHTTPServer(("127.0.0.1", free_port()), BrowserAI)
         worker = Thread(target=ai.serve_forever, daemon=True)
         worker.start()
         port = free_port()
         env = dict(os.environ, HOST="127.0.0.1", PORT=str(port), DATABASE_PATH=str(database),
                    AI_BASE_URL=f"http://127.0.0.1:{ai.server_port}/v1", AI_API_KEY="mock-key",
+                   BOCHA_API_KEY="", SEARCH_FALLBACK_PROVIDER="", RESOURCE_SEARCH_CACHE_DIR=str(Path(directory) / 'search'),
                    LOCAL_CONTROL_TOKEN="ui-test")
         service = subprocess.Popen([str(executable)], cwd=executable.parent, env=env,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -231,7 +284,7 @@ def main(executable):
                         assert not page.evaluate(AUDIT), "计划页悬停态对比度不足"
                     if path.startswith("/learn"):
                         page.locator("#diagnostic-questions .classroom-question").first.wait_for()
-                        assert page.locator("#diagnostic-questions .classroom-question").count() == 2
+                        assert page.locator("#diagnostic-questions .classroom-question").count() == 3
                         page.locator("#learn-content").wait_for(state="visible")
                         page.evaluate("""() => {
                           const node = document.querySelector('#learn-content-summary').firstChild;
@@ -246,66 +299,82 @@ def main(executable):
                         page.locator("#learning-chat-messages").get_by_text("片段一片段二", exact=True).wait_for()
                         assert "导师界面上下文" not in page.locator("#learning-chat-messages").inner_text()
                         assert page.locator("#learning-chat-stop").count() == 1
-                        page.locator("#diagnostic-skip").click()
-                        page.locator("#classroom-branch").wait_for(state="visible")
-                        assert "完整课堂" in page.locator("#classroom-branch").inner_text()
-                        page.locator("#interaction-questions .classroom-question").first.wait_for()
-                        page.locator("#interaction-questions .classroom-question").first.locator("input[value='1']").check()
-                        page.locator("#interaction-questions .classroom-question").first.locator("[data-submit]").click()
-                        page.locator("#interaction-questions .classroom-question").first.get_by_text("先判断", exact=False).wait_for()
+                        for target in ('diagnostic-questions', 'interaction-questions', 'learn-examples', 'learn-practice', 'learn-quiz'):
+                            page.locator('#' + target + ' .ai-dialogue').first.wait_for()
+                            row = page.locator('#' + target + ' .ai-dialogue').first
+                            assert row.locator('textarea').count() == 1
+                            # 同一浏览器帧取两者位置，避免流式自动滚动夹在两次读取之间。
+                            assert row.evaluate("el=>el.querySelector('h3').getBoundingClientRect().top<el.querySelector('textarea').getBoundingClientRect().top"), target
+                            assert row.get_by_role('button', name='跳过本题').count() == 1
+                        assert page.locator('#quiz-submit').count() == 0
+                        assert '解析：' not in page.locator('#learn-examples').inner_text()
+                        row = page.locator('#interaction-questions .classroom-question').first
+                        row.locator("input[value='1']").check()
+                        row.locator('textarea').fill('我比较区间两端的函数值，所以认为递增。')
+                        row.locator('[data-submit]').click()
+                        row.locator('.ai-dialogue-history').get_by_text('片段一片段二', exact=True).wait_for()
+                        row.locator('[data-submit]:not([disabled])').wait_for()
+                        assert row.locator('textarea').is_visible()
                     audit[path] = page.evaluate(AUDIT)
                 assert not errors, errors
                 assert all(not failures for failures in audit.values()), audit
-                def reset_diagnostic():
-                    with closing(sqlite3.connect(database)) as db, db:
-                        db.execute("DELETE FROM ClassroomActivity WHERE id='classroom:c1:1:1:state'")
-                        for index in range(3):
-                            key = f"classroom:c1:1:1:diagnostic:{index}"
-                            item = json.loads(db.execute("SELECT payload FROM ClassroomActivity WHERE id=?", (key,)).fetchone()[0])
-                            item.update(status="pending")
-                            for field in ("answer", "correct", "credible", "feedback", "followUp", "hintLevel"):
-                                item.pop(field, None)
-                            db.execute("UPDATE ClassroomActivity SET payload=? WHERE id=?", (json.dumps(item, ensure_ascii=False), key))
-                reset_diagnostic()
-                page.goto(base + "/learn?courseId=c1&phaseIndex=1&topicIndex=1", wait_until="networkidle")
-                for index in range(2):
-                    row = page.locator("#diagnostic-questions .classroom-question").nth(index)
-                    row.locator("input[value='0']").check()
-                    row.locator("[data-submit]").click()
-                    row.locator(".classroom-feedback").get_by_text("先判断", exact=False).wait_for()
-                page.locator("#classroom-branch").get_by_text("精简已熟悉内容").wait_for()
-                page.reload(wait_until="networkidle")
-                assert page.locator("#diagnostic-questions .classroom-question").count() == 2
-                reset_diagnostic()
-                page.goto(base + "/learn?courseId=c1&phaseIndex=1&topicIndex=1", wait_until="networkidle")
-                for index in range(2):
-                    row = page.locator("#diagnostic-questions .classroom-question").nth(index)
-                    row.locator("input[value='1']").check()
-                    row.locator("[data-submit]").click()
-                    row.locator(".classroom-feedback").get_by_text("先判断", exact=False).wait_for()
-                page.locator("#classroom-branch").get_by_text("分钟").wait_for()
-                failure = browser.new_page(viewport={"width": 1280, "height": 900})
-                failure.route("**/api/classroom/start?*", lambda route: route.fulfill(
-                    status=503, content_type="application/json", body='{"error":"数据库暂不可用"}'))
-                failure.goto(base + "/learn?courseId=c1&phaseIndex=1&topicIndex=1", wait_until="networkidle")
-                failure.locator("#learn-content").wait_for(state="visible")
-                assert "可继续原课程" in failure.locator("#diagnostic-status").inner_text()
+                page.goto(base + '/learn?courseId=c1&phaseIndex=1&topicIndex=1', wait_until='networkidle')
+                row = page.locator('#diagnostic-questions .classroom-question').first
+                row.locator("input[value='0']").check(); row.locator('[data-submit]').click()
+                row.locator('.ai-dialogue-history').get_by_text('片段一片段二', exact=True).wait_for()
+                row.locator('[data-submit]:not([disabled])').wait_for()
+                row.locator('textarea').fill('请解释比较过程'); row.locator('[data-submit]').click()
+                row.locator('.ai-dialogue-history').get_by_text('片段一片段二', exact=True).nth(1).wait_for()
+                row.locator('[data-submit]:not([disabled])').wait_for()
+                page.reload(wait_until='networkidle')
+                row = page.locator('#diagnostic-questions .classroom-question').first
+                assert row.locator('.ai-dialogue-history').get_by_text('片段一片段二', exact=True).count() == 2
+                failure = browser.new_page(viewport={'width': 1280, 'height': 900})
+                failure.route('**/api/classroom/questions?*kind=diagnostic*', lambda route: route.fulfill(
+                    status=503, content_type='application/json', body=json.dumps({'error':'数据库暂不可用'})))
+                failure.goto(base + '/learn?courseId=c1&phaseIndex=1&topicIndex=1', wait_until='networkidle')
+                failure.locator('#learn-content').wait_for(state='visible')
+                assert '数据库暂不可用' in failure.locator('#diagnostic-questions').inner_text()
+                assert failure.locator('#diagnostic-questions').get_by_role('button', name='重试读取题目').count() == 1
                 failure.close()
-                review_page = browser.new_page(viewport={"width": 1280, "height": 900})
-                review_page.goto(base + "/learn?courseId=c1&phaseIndex=1&topicIndex=1&review=1",
-                                 wait_until="networkidle")
-                review_page.locator("#learn-quiz fieldset").first.wait_for()
-                for fieldset in review_page.locator("#learn-quiz fieldset").all():
-                    fieldset.locator("input[value='0']").check()
-                review_page.locator("#quiz-submit").click()
-                review_page.locator("#quiz-result").get_by_text("已通过", exact=False).wait_for()
-                review_page.locator("#classroom-next a").get_by_text("返回原课程路径", exact=False).wait_for()
+                review_page = browser.new_page(viewport={'width': 1280, 'height': 900})
+                review_page.goto(base + '/learn?courseId=c1&phaseIndex=1&topicIndex=1&review=1&reviewId=classroom%3Ac1%3A1%3A1%3Areview%3A1', wait_until='networkidle')
+                review_page.locator('#learn-quiz .ai-dialogue').first.wait_for()
+                assert review_page.locator('#learn-quiz .ai-dialogue').first.get_attribute('data-kind') == 'review'
+                for row in review_page.locator('#learn-quiz .ai-dialogue').all():
+                    row.locator("input[value='0']").check(); row.locator('[data-submit]').click()
+                    row.locator('.ai-dialogue-history').get_by_text('片段一片段二', exact=True).wait_for()
+                    row.locator('[data-submit]:not([disabled])').wait_for()
+                review_page.locator('#complete-lesson').click()
+                review_page.locator('#complete-feedback').get_by_text('已保存', exact=False).wait_for()
                 review_page.close()
-                with closing(sqlite3.connect(database)) as db:
-                    pending_reviews = db.execute(
-                        "SELECT COUNT(*) FROM ClassroomActivity WHERE courseId='c1' AND kind='review' AND payload LIKE '%\"status\":\"pending\"%'"
-                    ).fetchone()[0]
-                    assert pending_reviews == 3
+                # 主动点击只创建一次任务，刷新与实际 WebSocket 订阅不重复发模型请求。
+                page.goto(base + '/learn?courseId=c1&phaseIndex=1&topicIndex=1', wait_until='networkidle')
+                # 这一项检查稳定版本的正常保存；画像异步更新导致的过期另有留页验收。
+                page.wait_for_function("""async () => {
+                  const profile = await fetch('/api/profile').then(r=>r.json());
+                  const plan = await fetch('/api/study-plan').then(r=>r.json());
+                  return !profile.updating && !profile.abilityStatus.updating && plan.status === 'ready';
+                }""", timeout=30000)
+                before = len([call for call in MockAI.requests if call.get('stream') and ('全课程教学统筹教师' in call['messages'][0]['content'] or '钢一定制AI的备课教师' in call['messages'][0]['content'])])
+                prep_events = []
+                page.on('websocket', lambda connection: connection.on('framereceived', lambda payload: prep_events.append(payload)))
+                page.locator('#lesson-next').click()
+                page.wait_for_url('**/learn/next?id=*')
+                page.locator('#next-lesson-blocks [data-stage=decision]').wait_for(state='visible')
+                page.reload()
+                page.wait_for_url('**/learn?**lessonTaskId=*', timeout=30000)
+                page.locator('#learn-content').wait_for(state='visible')
+                page.wait_for_function("""() => document.querySelectorAll('#learn-examples .ai-dialogue').length === 2 &&
+                  document.querySelectorAll('#learn-practice .ai-dialogue').length === 3 &&
+                  document.querySelectorAll('#learn-quiz .ai-dialogue').length === 3""")
+                assert page.locator('#learn-examples .ai-dialogue').count() == 2
+                assert page.locator('#learn-practice .ai-dialogue').count() == 3
+                assert page.locator('#learn-quiz .ai-dialogue').count() == 3
+                assert page.locator('#lesson-next').inner_text() == '让 AI 准备下一课'
+                assert '秘密' not in json.dumps(prep_events, ensure_ascii=False)
+                after = len([call for call in MockAI.requests if call.get('stream') and ('全课程教学统筹教师' in call['messages'][0]['content'] or '钢一定制AI的备课教师' in call['messages'][0]['content'])])
+                assert after - before == 7, (before, after)
                 idle = browser.new_page(viewport={"width": 1280, "height": 900})
                 idle.clock.install()
                 idle.goto(base + "/learn?courseId=c1&phaseIndex=1&topicIndex=1", wait_until="networkidle")
@@ -323,13 +392,33 @@ def main(executable):
                 idle.clock.fast_forward(121000)
                 assert not idle.locator("#classroom-idle").is_visible()
                 idle.close()
-                print("BROWSER_UI pages=7 diagnostic=2 skip=full interaction=feedback weekly_edit_confirm=PASS review_return=PASS JS_ERRORS=0")
-                print("BROWSER_BRANCH familiar=PASS weak=PASS failure_continue=PASS idle_2min=PASS")
+                print("BROWSER_UI pages=7 all_question_types=PASS dialogue_restore=PASS weekly_edit_confirm=PASS review_save=PASS JS_ERRORS=0")
+                print("BROWSER_PREPARATION real_http_sse=PASS reload_subscribe=PASS hidden_answers=PASS requests=7 idle_2min=PASS")
                 for path, failures in audit.items():
                     print("CONTRAST", path, json.dumps(failures, ensure_ascii=False))
                 browser.close()
         except Exception:
             try:
+                print("PAGE_URL", page.url, flush=True)
+                if '/learn/next?id=' in page.url:
+                    task_id = page.url.split('id=', 1)[1].split('&', 1)[0]
+                    task = json.loads(urlopen(base + '/api/learn/next/' + task_id).read())
+                    print("PREPARATION_DEBUG", {key: task.get(key) for key in ('id', 'status', 'stage', 'message', 'latestSeq')}, flush=True)
+                    with closing(sqlite3.connect(database)) as check:
+                        stored = json.loads(check.execute('SELECT payload FROM ClassroomActivity WHERE id=?', ('next-preparation:' + task_id,)).fetchone()[0])
+                        versions = stored.get('versions', {})
+                        meta = dict(check.execute('SELECT key,value FROM ProfileMeta'))
+                        changed = []
+                        if versions.get('learningVersion') != int(meta.get('learning-revision', '1')):
+                            changed.append(('learningVersion', versions.get('learningVersion'), meta.get('learning-revision')))
+                        for row_id, saved in versions.get('sessions', {}).items():
+                            current = check.execute('SELECT content FROM LearningSession WHERE id=?', (row_id,)).fetchone()
+                            if current and current[0] != saved: changed.append(('session', row_id))
+                        for key, saved in versions.get('exposures', {}).items():
+                            if meta.get(key, '') != saved: changed.append(('exposure', key))
+                        if json.loads(meta.get('learning-flow', '{}')).get('plan') != versions.get('studyPlan'): changed.append(('studyPlan',))
+                        if meta.get('study-drafts', '') != versions.get('drafts'): changed.append(('drafts',))
+                        print('FINGERPRINT_CHANGED', changed, flush=True)
                 print("FLOW_DEBUG", urlopen(base + "/api/study-plan").read().decode(), flush=True)
                 print("FLOW_CALLS", [call["messages"][0]["content"][:32] for call in MockAI.requests], flush=True)
                 print("JS_ERRORS", errors, flush=True)

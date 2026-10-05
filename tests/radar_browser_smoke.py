@@ -8,9 +8,10 @@ from radar_smoke import Harness, IDS, NAMES, SUBJECTS
 
 def main(executable, screenshots=None):
     with tempfile.TemporaryDirectory(prefix='gangyi-radar-browser-') as directory:
-        h = Harness(executable, directory)
+        h = Harness(executable, directory, unified=True)
         try:
             h.settled()
+            calls = len(h.calls)
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch(headless=True)
                 context = browser.new_context(viewport={'width': 1366, 'height': 1000}, reduced_motion='reduce')
@@ -85,7 +86,7 @@ def main(executable, screenshots=None):
                 user_widget.get_by_role('button', name='学习能力', exact=True).focus()
                 page.keyboard.press('Enter')
                 page.wait_for_function("document.querySelector('#uc-profile-radar .radar-axis-name')?.textContent === '知识记忆'")
-                assert not h.calls, '显示操作不得触发 AI 评估'
+                assert len(h.calls) == calls, '显示操作不得触发 AI 评估'
                 touch = browser.new_context(viewport={'width': 375, 'height': 812}, is_mobile=True,
                     has_touch=True, reduced_motion='reduce')
                 mobile = touch.new_page()

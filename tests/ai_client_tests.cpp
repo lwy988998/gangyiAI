@@ -171,6 +171,25 @@ int main() {
                "JSON 解析器应提取推理文本末尾的完整对象");
     }
     {
+        // 真实模型偶尔漏写嵌套对象的右花括号；补全只能加括号，不能改写已有字段。
+        const std::string valid = R"({"message":"先标化合价","actions":[{"id":"a1","tool":"create_lesson","args":{"courseId":"c1","title":"氧化还原"}}],"state":"completed"})";
+        const auto missing = valid.find("}}],\"state\"");
+        expect(missing != std::string::npos, "测试用例应包含行动对象与行动数组的连续右括号");
+        std::string broken = valid;
+        if (missing != std::string::npos) broken.erase(missing, 1);
+        const auto parsed = gangyi::parseAIJson(broken);
+        expect(parsed.value("message", "") == "先标化合价" && parsed.at("actions").size() == 1,
+               "缺少一个右花括号时应补齐括号并保留顶层消息与行动");
+        expect(parsed.at("actions")[0].at("args").at("title") == "氧化还原",
+               "括号补全不得改写行动参数内容");
+        expect(parsed.value("state", "") == "completed", "括号补全后应保留状态字段");
+    }
+    {
+        bool rejected = false;
+        try { gangyi::parseAIJson("这不是 JSON，也没有任何对象"); } catch (...) { rejected = true; }
+        expect(rejected, "完全无法解析的文本必须报错，不能伪造主控结构");
+    }
+    {
         MockServer server(response(200, R"({"choices":[{"message":{"content":" 好的 "}}]})"));
         auto client = clientFor(server, "/v1", "configured-ask-model");
         gangyi::AskGenerator generator(client);
@@ -197,12 +216,27 @@ int main() {
         auto client = clientFor(server);
         gangyi::ChatOptions options;
         options.messages = {{"user", "测试", ""}};
+        options.responseFormat = "json_object";
         std::vector<std::string> chunks;
         const auto result = client.chatStream(options, [&](const std::string& chunk) { chunks.push_back(chunk); return true; });
         server.wait();
         expect(chunks.size() == 2 && chunks[0] == "第一段" && chunks[1] == "第二段", "流式回调应逐段返回内容");
         expect(result.content == "第一段第二段" && result.model == "mock", "流式结果应合并内容和模型");
         expect(server.request().find("\"stream\":true") != std::string::npos, "流式请求应启用 stream 字段");
+        expect(server.request().find("\"response_format\":{\"type\":\"json_object\"}") != std::string::npos,
+            "流式教学主控应向模型请求 JSON 对象格式");
+    }
+    {
+        const std::string events = "data: {\"model\":\"mock\",\"choices\":[{\"delta\":{\"content\":\"测试\"}}]}\n\ndata: [DONE]\n\n";
+        MockServer server("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: " +
+            std::to_string(events.size()) + "\r\nConnection: close\r\n\r\n" + events);
+        gangyi::ChatOptions options; options.messages = {{"user", "回调异常测试"}};
+        bool caught = false;
+        try {
+            clientFor(server).chatStream(options, [](const std::string&) -> bool { throw std::runtime_error("回调保存失败"); });
+        } catch (const std::runtime_error& error) { caught = std::string(error.what()) == "回调保存失败"; }
+        server.wait();
+        expect(caught, "流式回调异常应在释放 C 客户端资源后保持原始原因");
     }
     {
         MockServer server(response(200, R"({"data":[{"id":"z-model"},{"id":"a-model"},{"id":"a-model"}]})"));

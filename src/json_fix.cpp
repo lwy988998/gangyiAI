@@ -16,45 +16,66 @@ std::string trim(std::string value) {
 
 std::string repair(std::string value) {
     value.erase(std::remove(value.begin(), value.end(), '\r'), value.end());
-    // 全角引号 → 半角（CJK 模型常见）
-    for (size_t i = 0; i < value.size(); ++i) {
-        const unsigned char c = static_cast<unsigned char>(value[i]);
-        if (c == 0xE2 && i + 2 < value.size()) {
-            const unsigned char c1 = static_cast<unsigned char>(value[i + 1]);
-            const unsigned char c2 = static_cast<unsigned char>(value[i + 2]);
-            if (c1 == 0x80) {
-                if (c2 == 0x9C) { value.replace(i, 3, "\""); }        // “
-                else if (c2 == 0x9D) { value.replace(i, 3, "\""); }   // ”
-                else if (c2 == 0x98) { value.replace(i, 3, "'"); }    // ‘
-                else if (c2 == 0x99) { value.replace(i, 3, "'"); }    // ’
-            }
-        }
-    }
     std::string result;
-    bool inString = false;
+    result.reserve(value.size() + 8);
+    bool inString = false, escaped = false;
     for (size_t i = 0; i < value.size(); ++i) {
         const unsigned char c = static_cast<unsigned char>(value[i]);
-        if (c == '\n' && inString) {
-            result += "\\n";
+        // 全角引号 → 半角（CJK 模型常见）；只在字符串外替换分隔符，正文里的引号原样保留。
+        if (!inString && c == 0xE2 && i + 2 < value.size() &&
+            static_cast<unsigned char>(value[i + 1]) == 0x80) {
+            const unsigned char tail = static_cast<unsigned char>(value[i + 2]);
+            if (tail == 0x9C || tail == 0x9D) { result += '"'; i += 2; continue; }   // “ ”
+            if (tail == 0x98 || tail == 0x99) { result += '\''; i += 2; continue; }  // ‘ ’
+        }
+        if (inString) {
+            if (escaped) { escaped = false; result += value[i]; continue; }
+            if (c == '\\') { escaped = true; result += value[i]; continue; }
+            if (c == '"') { inString = false; result += value[i]; continue; }
+            if (c == '\n') { result += "\\n"; continue; }
+            if (c == '\t') { result += "\\t"; continue; }
+            if (c < 0x20) { result += ' '; continue; }
+            result += value[i];
             continue;
         }
+        if (c == '"') { inString = true; result += value[i]; continue; }
         if (c == '\n') {
             size_t j = i + 1;
             while (j < value.size() && (value[j] == ' ' || value[j] == '\t')) ++j;
-            if (value.compare(j, 2, "//") == 0) { i = value.find('\n', j); if (i == std::string::npos) break; }
-            else result += '\n';
+            if (value.compare(j, 2, "//") == 0) {
+                const auto comment = value.find('\n', j);
+                if (comment == std::string::npos) break;
+                i = comment;
+                continue;
+            }
+            result += '\n';
             continue;
         }
-        if (c < 0x20 && c != '\n' && c != '\t') { result += ' '; continue; }
-        if (c == '"') inString = !inString;
+        if (c < 0x20 && c != '\t') { result += ' '; continue; }
         result += value[i];
     }
-    for (size_t pos = 0; (pos = result.find(',', pos)) != std::string::npos;) {
-        size_t next = pos + 1; while (next < result.size() && std::isspace(static_cast<unsigned char>(result[next]))) ++next;
-        if (next < result.size() && (result[next] == '}' || result[next] == ']')) result.erase(pos, next - pos);
-        else ++pos;
+    // 去掉对象或数组结尾前多余的逗号，只在字符串外处理。
+    std::string cleaned;
+    cleaned.reserve(result.size());
+    bool string = false, escape = false;
+    for (size_t i = 0; i < result.size(); ++i) {
+        const char c = result[i];
+        if (string) {
+            cleaned += c;
+            if (escape) escape = false;
+            else if (c == '\\') escape = true;
+            else if (c == '"') string = false;
+            continue;
+        }
+        if (c == '"') { string = true; cleaned += c; continue; }
+        if (c == ',') {
+            size_t next = i + 1;
+            while (next < result.size() && (result[next] == ' ' || result[next] == '\t' || result[next] == '\n')) ++next;
+            if (next < result.size() && (result[next] == '}' || result[next] == ']')) continue;
+        }
+        cleaned += c;
     }
-    return result;
+    return cleaned;
 }
 
 std::string closeTruncated(const std::string& value) {
@@ -83,6 +104,39 @@ std::string closeTruncated(const std::string& value) {
         }
         result += '"';
     }
+    while (!stack.empty()) { result += stack.back(); stack.pop_back(); }
+    return result;
+}
+
+std::string balanceBrackets(const std::string& value, bool insertMissing = true) {
+    // 模型偶尔漏写或多写闭合括号。这里只按栈补齐缺失的 } 或 ]、丢弃多余的闭合符号，
+    // 不添加、删除或改写任何实际内容；补全后的结果仍需通过主控结构校验。
+    std::string result;
+    result.reserve(value.size() + 8);
+    std::vector<char> stack;
+    bool string = false, escaped = false;
+    for (char c : value) {
+        if (string) {
+            result += c;
+            if (escaped) escaped = false;
+            else if (c == '\\') escaped = true;
+            else if (c == '"') string = false;
+            continue;
+        }
+        if (c == '"') { string = true; result += c; continue; }
+        if (c == '{') { stack.push_back('}'); result += c; continue; }
+        if (c == '[') { stack.push_back(']'); result += c; continue; }
+        if (c == '}' || c == ']') {
+            if (insertMissing) while (!stack.empty() && stack.back() != c) { result += stack.back(); stack.pop_back(); }
+            if (stack.empty()) continue;
+            if (stack.back() != c) continue;  // 丢弃多余的闭合符号
+            stack.pop_back();
+            result += c;
+            continue;
+        }
+        result += c;
+    }
+    if (string) result += '"';
     while (!stack.empty()) { result += stack.back(); stack.pop_back(); }
     return result;
 }
@@ -128,7 +182,8 @@ nlohmann::json parseAIJson(const std::string& content) {
     const auto left = value.find('{'); const auto right = value.rfind('}');
     if (left != std::string::npos) value = value.substr(left, right == std::string::npos ? std::string::npos : right - left + 1);
     const std::string repaired = repair(value);
-    for (const auto& candidate : {value, repaired, closeTruncated(repaired)}) {
+    for (const auto& candidate : {value, balanceBrackets(value), balanceBrackets(value, false), repaired,
+                                  balanceBrackets(repaired), balanceBrackets(repaired, false), closeTruncated(repaired)}) {
         try { return nlohmann::json::parse(candidate); } catch (...) {}
     }
     const auto objects = completeObjects(repaired);

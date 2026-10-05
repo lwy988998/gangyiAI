@@ -43,9 +43,15 @@ json interactionSignal(const LearningInteraction& item) {
     json signal = {{"kind", item.kind}, {"subject", item.subject.value_or("")},
         {"date", item.createdAt.substr(0, std::min<size_t>(10, item.createdAt.size()))}};
     if (!payload.is_object()) return signal;
-    if (item.kind == "quiz") {
+    if (item.kind == "quiz" || item.kind == "question-evaluation") {
         signal["score"] = payload.value("score", 0);
         signal["total"] = payload.value("total", 0);
+        if (item.kind == "question-evaluation") {
+            int total = 0, score = 0;
+            for (const auto& result : payload.value("results", json::array()))
+                if (result.value("answered", false) && result.value("credible", false)) { ++total; if (result.value("correct", false)) ++score; }
+            signal["score"] = score; signal["total"] = total; signal["source"] = "ai-evaluation";
+        }
         signal["topic"] = shortText(payload.value("topic", ""), 100);
     } else if (item.kind == "chat-user") {
         signal["topic"] = shortText(payload.value("topic", ""), 100);
@@ -233,13 +239,15 @@ json abilityEvidence(Database& db) {
         const auto snapshot = item.value("questionSnapshot", json());
         if (!snapshot.is_object() || !snapshot.value("question", json()).is_string() || snapshot["question"].get<std::string>().empty()) return;
         const auto id = questionIdentity(courseId, snapshot);
-        if (item.value("questionId", "") != id) return;
+        if (item.value("questionId", "") != id && item.value("questionId", "") != legacyQuestionIdentity(courseId, snapshot)) return;
         json event = {{"id", id}, {"courseId", courseId}, {"course", courses[courseId]}, {"topic", topic},
             {"question", snapshot}, {"answer", item.value("givenAnswer", json())}, {"correct", item.value("correct", false)},
-            {"unknown", item.value("unknown", false)}, {"assisted", item.value("assisted", false)}, {"date", time}};
+            {"unknown", item.value("unknown", false)}, {"assisted", item.value("assisted", false)},
+            {"evidenceSource", item.value("evidenceSource", "historical")},
+            {"model", item.value("model", item.value("evaluationModel", ""))}, {"date", time}};
         if (!latest.count(id) || latest[id]["date"].get<std::string>() <= time) latest[id] = std::move(event);
     };
-    for (const auto& row : db.listInteractions()) if (row.kind == "quiz" && row.courseId) {
+    for (const auto& row : db.listInteractions()) if ((row.kind == "quiz" || row.kind == "question-evaluation") && row.courseId) {
         const auto payload = json::parse(row.payload, nullptr, false);
         if (!payload.is_object() || !payload.value("results", json()).is_array()) continue;
         for (const auto& result : payload["results"]) if (result.is_object())
@@ -248,7 +256,8 @@ json abilityEvidence(Database& db) {
     for (const auto& [courseId, title] : courses) {
         (void)title;
         for (const auto& row : db.listClassroomActivities(courseId)) {
-            if (row.kind != "diagnostic" && row.kind != "interaction") continue;
+            if (row.kind != "diagnostic" && row.kind != "interaction" && row.kind != "example" && row.kind != "practice" &&
+                row.kind != "quiz" && row.kind != "review") continue;
             auto item = json::parse(row.payload, nullptr, false);
             if (!item.is_object() || item.value("status", "") != "answered") continue;
             // 课堂题本身保留了原题，旧版本的可靠课堂记录也可以直接使用。
@@ -389,7 +398,7 @@ bool refreshTopicMastery(Database& db, AIClient& ai, std::string& error) {
     std::map<Key, json> groups;
     std::map<Key, std::set<std::string>> ids;
     for (const auto& item : db.listInteractions()) {
-        if (!item.courseId || (item.kind != "quiz" && item.kind != "practice" && item.kind != "review")) continue;
+        if (!item.courseId || (item.kind != "quiz" && item.kind != "practice" && item.kind != "review" && item.kind != "question-evaluation")) continue;
         const json payload = json::parse(item.payload, nullptr, false);
         if (!payload.is_object() || !payload.value("topic", json()).is_string()) continue;
         const std::string topic = shortText(payload.value("topic", ""), 120);
@@ -397,7 +406,7 @@ bool refreshTopicMastery(Database& db, AIClient& ai, std::string& error) {
         if (topic.empty() || phase < 1) continue;
         const Key key{*item.courseId, phase, topic};
         json event = {{"id", item.id}, {"kind", item.kind}};
-        if (item.kind == "quiz") {
+        if (item.kind == "quiz" || item.kind == "question-evaluation") {
             if (!payload.contains("results") || !payload["results"].is_array()) continue;
             event["results"] = json::array();
             for (const auto& result : payload["results"]) {
@@ -420,10 +429,11 @@ bool refreshTopicMastery(Database& db, AIClient& ai, std::string& error) {
         state.version = revision; state.updatedAt = nowIso8601();
         state.evidenceCount = static_cast<int>(events.size());
         std::set<std::string> answers;
-        for (const auto& event : events) if (event.value("kind", "") == "quiz")
+        for (const auto& event : events) if (event.value("kind", "") == "quiz" || event.value("kind", "") == "question-evaluation")
             for (const auto& answer : event["results"]) answers.insert(answer["questionId"].get<std::string>());
+        state.evidenceCount = static_cast<int>(answers.size());
         if (answers.size() < 3) {
-            state.rationale = "数据不足：至少需要 3 道不同的已作答测验题。";
+            state.rationale = "数据不足：至少需要 3 道不同题目的可靠反馈。";
             if (!db.upsertTopicMasteryAtRevision(state, revision)) return true;
             continue;
         }
@@ -452,7 +462,8 @@ bool refreshTopicMastery(Database& db, AIClient& ai, std::string& error) {
                     !cited.insert(citedId.get<std::string>()).second) throw std::runtime_error("主题评估引用了无效记录");
             }
             std::set<std::string> citedQuestions;
-            for (const auto& event : events) if (cited.count(event["id"].get<std::string>()) && event.value("kind", "") == "quiz")
+            for (const auto& event : events) if (cited.count(event["id"].get<std::string>()) &&
+                (event.value("kind", "") == "quiz" || event.value("kind", "") == "question-evaluation"))
                 for (const auto& answer : event["results"]) citedQuestions.insert(answer["questionId"].get<std::string>());
             if (citedQuestions.size() < 3) throw std::runtime_error("主题评估未引用足够的不同题目");
             for (const auto& point : result["weakPoints"]) if (!point.is_string()) throw std::runtime_error("薄弱点格式无效");
@@ -501,7 +512,7 @@ json nextLearning(Database& db, const std::string& courseId) {
             (progress && progress->lastPhaseIndex == value.phaseIndex ? 10 : 0);
         if (priority > best) { best = priority; chosen = &value; }
     }
-    if (!chosen) return {{"status", "insufficient"}, {"reason", "数据不足：尚无可靠的逐题测验评估。"}};
+    if (!chosen) return {{"status", "insufficient"}, {"reason", "数据不足：尚无可靠的逐题评估。"}};
     const auto key = std::make_pair(chosen->phaseIndex, chosen->topic);
     const auto [state, feedbackId] = feedback[key];
     std::string action = chosen->recommendation;

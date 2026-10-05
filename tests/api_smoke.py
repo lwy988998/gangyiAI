@@ -35,18 +35,35 @@ def main(executable):
                 raw = self.rfile.read(int(self.headers["Content-Length"]))
                 mock_state["requests"].append(raw)
                 messages = json.loads(raw)["messages"]
-                user = json.loads(next(item["content"] for item in messages if item["role"] == "user"))
-                if "recentQuizzes" in user:
+                text = next(item["content"] for item in messages if item["role"] == "user")
+                user = json.loads(text) if text.startswith('{') else {}
+                system = messages[0]['content']
+                if '课堂作答评价教师' in system:
+                    given = user['givenAnswer']
+                    result = {'isAnswer': True, 'correct': isinstance(given, int) and given == user['question'].get('answerIndex'),
+                        'unknown': '不会' in user.get('studentAnswer', ''), 'confidence': .95,
+                        'feedback': '依据学生实际作答判断；未写过程时不能推测方法。', 'misconception': '', 'methodAnalysis': '本轮没有完整过程。'}
+                elif '课堂教师' in system:
+                    result = '结合这道题和实际回答讲解，并说明推导依据。'
+                elif "recentQuizzes" in user:
                     result = {mode: {"continue": [f"{mode} 继续{i}" for i in range(3)],
                                      "explore": [f"{mode} 探索{i}" for i in range(2)]} for mode in ("lite", "deep")}
                 elif "events" in user:
+                    latest = {}
+                    for event in user["events"]:
+                        for answer in event.get("results", []):
+                            latest[answer["questionId"]] = event["id"]
                     result = {"score": mock_state["score"], "rationale": "依据逐题测验", "weakPoints": ["二次函数"],
-                              "recommendation": "复盘错题", "evidenceIds": [user["events"][-1]["id"]], "nextReviewAt": ""}
-                else:
+                              "recommendation": "复盘错题", "evidenceIds": list(dict.fromkeys(latest.values())), "nextReviewAt": ""}
+                elif "topicStates" in user:
                     result = {"subjects": [{"subject": "数学", "score": mock_state["score"],
                         "rationale": "根据测验和学习记录", "weakPoints": ["二次函数"],
                         "recommendation": "复盘错题", "evidenceIds": user["topicStates"][0]["evidenceIds"]}]}
-                content = "[]" if mock_state["invalid"] else json.dumps(result, ensure_ascii=False)
+                else:
+                    result = {"abilities": [{"id": key, "score": None, "rationale": "该维度缺少三道直接相关的可靠题目。",
+                        "recommendation": "继续积累反馈。", "evidenceIds": []} for key in
+                        ("memory", "understanding", "application", "reasoning", "expression", "transfer")]}
+                content = "[]" if mock_state["invalid"] else result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
                 data = json.dumps({"model": "mock-profile", "choices": [{"message": {"content": content}}]},
                                   ensure_ascii=False).encode()
                 self.send_response(200)
@@ -107,17 +124,17 @@ def main(executable):
                                        "answers": ["unknown", None, 2]})
             assert status == 200 and attempt["score"] == 1 and attempt["unknownCount"] == 1
             with closing(sqlite3.connect(database)) as db:
-                saved = json.loads(db.execute("SELECT payload FROM LearningInteraction WHERE kind='quiz' ORDER BY rowid DESC LIMIT 1").fetchone()[0])
-                assert saved["answers"] == ["unknown", None, 2]
-                assert saved["results"][0]["answered"] and saved["results"][0]["unknown"] and not saved["results"][0]["correct"]
-                assert not saved["results"][1]["answered"] and not saved["results"][1]["unknown"]
-                assert saved["results"][2]["correct"] and not saved["results"][2]["unknown"]
+                rows = db.execute("SELECT payload FROM LearningInteraction WHERE kind='question-evaluation' ORDER BY rowid").fetchall()
+                saved = [json.loads(row[0])['results'][0] for row in rows]
+                assert len(saved) == 2, '漏答不形成新的评价或不会记录'
+                assert saved[0]['answered'] and saved[0]['unknown'] and not saved[0]['correct']
+                assert saved[1]['correct'] and not saved[1]['unknown']
             try:
                 request(base, "/api/quiz-attempts", "POST", {"courseId": "old", "phaseIndex": 1,
-                        "topicIndex": 1, "answers": ["invalid", 1, 2]})
+                        "topicIndex": 1, "answers": [{"invalid": True}, 1, 2]})
                 raise AssertionError("非法答案未拒绝")
             except urllib.error.HTTPError as error:
-                assert error.code == 400
+                assert error.code == 409
             status, attempt = request(base, "/api/quiz-attempts", "POST",
                                       {"courseId": "old", "phaseIndex": 1, "topicIndex": 1,
                                        "answers": [0, 1, 2]})
@@ -161,6 +178,18 @@ def main(executable):
             assert request(base, "/api/recent-courses")[1]["courses"] == []
             with closing(sqlite3.connect(database)) as db, db:
                 assert db.execute("SELECT count(*) FROM LearningInteraction WHERE courseId='old'").fetchone()[0] == 0
+            # 删除课程不能通过新增题目或备课入口继续读取、写入或请求模型。
+            calls_before = len(mock_state["requests"])
+            for path, body in (
+                ("/api/learn/next", {"courseId": "old", "phaseIndex": 1, "topicIndex": 1, "requestId": "deleted-next"}),
+                ("/api/classroom/question/skip", {"courseId": "old", "phaseIndex": 1, "topicIndex": 1, "kind": "quiz", "index": 0}),
+                ("/api/classroom/submit", {"courseId": "old", "phaseIndex": 1, "topicIndex": 1, "kind": "quiz", "index": 0, "answer": 0})):
+                try:
+                    request(base, path, "POST", body)
+                    raise AssertionError("已删除课程仍可访问")
+                except urllib.error.HTTPError as error:
+                    assert error.code == 404
+            assert len(mock_state["requests"]) == calls_before
             print("API_SMOKE PASS: pages, quiz persistence, AI profile, retry, conversation clear, course deletion")
         except Exception:
             print("验证失败时服务进程状态：", process.poll())

@@ -74,6 +74,18 @@ int main() {
         "全课生成期间必须显示已持久化的真实 AI 板块进度");
     expect(learn.find("data.generations?.[block]?.source==='ai'") != std::string::npos,
         "进度只能统计具有真实 AI 来源元数据的板块");
+    expect(learn.find("item.solution") == std::string::npos && learn.find("item.check") == std::string::npos &&
+        learn.find("id=\"quiz-submit\"") == std::string::npos,
+        "题目作答前不得渲染答案、自检结果或旧批量测验入口");
+    expect(learn.find("mountQuestionKind") != std::string::npos && learn.find("lessonTaskId") != std::string::npos,
+        "全部课堂题目应转统一对话，并按备课任务读取已保存内容");
+    expect(learn.find("让 AI 准备下一课") != std::string::npos && learn.find("继续下一节 →") == std::string::npos,
+        "每个课堂必须提供主动备课入口，不直接跳入另一课");
+    const std::string preparation = gangyi::renderNextLessonPage();
+    expect(preparation.find("id=\"next-lesson-page\"") != std::string::npos &&
+        preparation.find("id=\"next-lesson-stop\"") != std::string::npos &&
+        preparation.find("id=\"next-lesson-retry\"") != std::string::npos,
+        "备课页面必须能恢复、停止和重试任务");
 
     const std::string planPage = gangyi::renderPlanPage("掌握函数单调性", "deep", "", "anonymous-1");
     expect(planPage.find("&phaseIndex=0&topicIndex=0") == std::string::npos &&

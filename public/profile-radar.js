@@ -160,9 +160,9 @@
       this.select.hidden = abilities;
       const valid = this.dimensions.filter(item => item.score !== null).length;
       const state = abilities ? (data.abilityStatus || {}) : data;
-      this.notice.textContent = state.updating ? 'AI 正在评估 · 当前结果仍可查看。' : state.error ?
+      this.notice.textContent = state.updating ? 'AI 正在处理最新学习记录 · 当前结果仍可查看。' : state.error ?
         '等待 AI 更新 · 当前保留上次真实评估。' : valid ? `已评估 ${valid} / 6 维 · 评分仅覆盖已测内容` :
-          '待评估 · 每个维度需要至少 3 道不同题目的可靠反馈';
+          '待评估 · AI 会根据真实作答判断证据是否充分';
       const signature = JSON.stringify([this.preferences, this.dimensions.map(item => [item.name, item.score])]);
       if (signature !== this.signature) {
         this.signature = signature;

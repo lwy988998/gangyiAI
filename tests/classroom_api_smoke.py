@@ -112,11 +112,11 @@ class MockAI(BaseHTTPRequestHandler):
             given = parsed_prompt['givenAnswer']; question = parsed_prompt['question']
             answer = {'isAnswer': parsed_prompt.get('intent', 'answer') != 'ask',
                       'correct': isinstance(given, int) and given == question.get('answerIndex', 0),
-                      'unknown': isinstance(given, str) and '不会' in given,
+                      'unknown': isinstance(given, str) and ('不会' in given or given == 'unknown'),
                       'confidence': .4 if question.get('type') == 'open' else .95,
-                      'feedback': '先判断区间和定义，再给出具体依据。', 'misconception': '定义不够清楚'}
-        elif '课堂教师，正在一道真实题目旁' in system:
-            answer = '先理解区间上的变化，再回答一个小问题：函数值在增大还是减小？'
+                      'feedback': '先判断区间和定义，再给出具体依据。', 'methodAnalysis': '没有写出推理过程，方法依据不足。', 'misconception': '定义不够清楚'}
+        elif '正在原题旁连续辅导' in system:
+            answer = '根据你的实际回答，重点解释区间、条件和函数值变化的关系。'
         elif '高中课堂出题教师' in system:
             answer = {'questions': [{'question': 'diagnostic' + str(i), 'options': ['正确', '错误', '其他', '不确定'],
                                     'answerIndex': 0, 'explanation': '检查定义与条件。'} for i in range(3)]}
@@ -364,6 +364,9 @@ def main(executable):
                 lessons = list(pool.map(lambda _: request(base, "/api/learn" + q + "&block=all"), range(2)))
             assert all(len(item["blocks"]) == 6 for item in lessons) and MockAI.learn_block_calls == 6, lessons
             assert len(request(base, "/api/classroom/start" + q + "&kind=diagnostic")["questions"]) == 2
+            public_questions = request(base, "/api/classroom/questions" + q)["questions"]
+            assert {item["kind"] for item in public_questions} >= {"diagnostic", "example", "practice", "quiz"}
+            assert all(not any(field in item for field in ("answerIndex", "rubric", "solution", "check", "explanation")) for item in public_questions), "作答前公开接口不能下发标准答案"
             assert request(base, "/api/classroom/submit", {"courseId": course_id, "phaseIndex": 1, "topicIndex": 1,
                        "kind": "diagnostic", "index": 0, "answer": 1})["mode"] == "pending"
             weak_quiz = request(base, "/api/quiz-attempts", {"courseId": course_id, "phaseIndex": 1,
@@ -387,7 +390,7 @@ def main(executable):
             assert len(request(base, "/api/classroom/start" + q + "&kind=interaction")["questions"]) == 3
             prediction = request(base, "/api/classroom/submit", {"courseId": course_id, "phaseIndex": 1,
                                  "topicIndex": 1, "kind": "interaction", "index": 0, "answer": 1})
-            assert not prediction["correct"] and prediction["followUp"]
+            assert not prediction["correct"] and prediction["turns"][-1]["assistant"]
             hint2 = request(base, "/api/classroom/hint", {"courseId": course_id, "phaseIndex": 1,
                             "topicIndex": 1, "kind": "interaction", "index": 0})
             hint3 = request(base, "/api/classroom/hint", {"courseId": course_id, "phaseIndex": 1,
@@ -395,7 +398,7 @@ def main(executable):
             assert hint2["level"] == 2 and hint3["level"] == 3
             open_result = request(base, "/api/classroom/submit", {"courseId": course_id, "phaseIndex": 1,
                                   "topicIndex": 1, "kind": "interaction", "index": 1, "answer": "我认为是递增。"})
-            assert open_result["credible"] is False
+            assert open_result.get("credible", False) is False
             assert request(base, "/api/classroom/activity/skip", {"courseId": course_id, "phaseIndex": 1,
                            "topicIndex": 1, "index": 2})["item"]["status"] == "skipped"
             with ThreadPoolExecutor(max_workers=2) as pool:

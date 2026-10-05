@@ -40,7 +40,7 @@ try {
         $_.FullName -match '[\\/](verification|preview-data|backups)[\\/]'
     }
     if ($privateFiles) { throw '发布包包含本机数据或验证材料' }
-    $portableSelfTest = Start-Process (Join-Path $portableDir 'gangyiAI-launcher.exe') -ArgumentList '--self-test' -Wait -PassThru
+    $portableSelfTest = Start-Process (Join-Path $portableDir 'gangyiAI-launcher.exe') -ArgumentList '--self-test' -Wait -PassThru -WindowStyle Hidden
     if ($portableSelfTest.ExitCode -ne 0) { throw '免安装版启动器自检失败' }
 
     $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
@@ -70,14 +70,14 @@ try {
             throw '未配置 API Key 时首页不可用'
         }
         $recommendations = Invoke-RestMethod "http://127.0.0.1:$port/api/home/recommendations"
-        if ($recommendations.items.lite.Count -ne 5 -or $recommendations.items.deep.Count -ne 5) {
-            throw '首页学习目标回退不可用'
+        if ($recommendations.items.lite.Count -ne 0 -or $recommendations.items.deep.Count -ne 0) {
+            throw '未配置真实 AI 时不应编造首页推荐'
         }
         $logo = Invoke-WebRequest "http://127.0.0.1:$port/school-logo.png" -UseBasicParsing
         if ($logo.Headers.'Content-Type' -ne 'image/png') { throw '校徽 MIME 类型错误' }
         $background = Invoke-WebRequest "http://127.0.0.1:$port/campus-background.jpg" -UseBasicParsing
         if ($background.Headers.'Content-Type' -ne 'image/jpeg') { throw '校园背景图 MIME 类型错误' }
-        foreach ($resource in @('profile-radar.js', 'profile-radar.css', 'classroom.js', 'classroom.css', 'ask.js', 'chat-render.js', 'user-center.js',
+        foreach ($resource in @('profile-radar.js', 'profile-radar.css', 'classroom.js', 'classroom.css', 'ask.js', 'chat-render.js', 'user-center.js', 'learning-agent.js', 'agent-shell.js', 'agent-classroom.html', 'agent-classroom.js', 'agent-classroom.css', 'agent-prepare.html', 'agent-prepare.js',
                                 'vendor/katex/katex.min.js', 'vendor/katex/katex.min.css',
                                 'vendor/katex/fonts/KaTeX_Main-Regular.woff2')) {
             $response = Invoke-WebRequest "http://127.0.0.1:$port/$resource" -UseBasicParsing
@@ -92,16 +92,16 @@ try {
 
     Set-Content -LiteralPath $marker -Value 'preserve' -Encoding ascii
     $setupArgs = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /NOICONS /DIR=`"$installDir`""
-    $setup = Start-Process $installer -ArgumentList $setupArgs -Wait -PassThru
+    $setup = Start-Process $installer -ArgumentList $setupArgs -Wait -PassThru -WindowStyle Hidden
     if ($setup.ExitCode -ne 0) { throw "静默安装失败：$($setup.ExitCode)" }
-    $installedSelfTest = Start-Process (Join-Path $installDir 'gangyiAI-launcher.exe') -ArgumentList '--self-test' -Wait -PassThru
+    $installedSelfTest = Start-Process (Join-Path $installDir 'gangyiAI-launcher.exe') -ArgumentList '--self-test' -Wait -PassThru -WindowStyle Hidden
     if ($installedSelfTest.ExitCode -ne 0) { throw '已安装启动器自检失败' }
     foreach ($name in @('gangyiAI.exe', 'gangyiAI-launcher.exe')) {
         $actualVersion = (Get-Item (Join-Path $installDir $name)).VersionInfo.ProductVersion.Trim()
         if ($actualVersion -ne $version) { throw "$name 版本不正确：$actualVersion" }
     }
     $uninstall = Start-Process (Join-Path $installDir 'unins000.exe') `
-        -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
+        -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru -WindowStyle Hidden
     for ($attempt = 0; $attempt -lt 20 -and (Test-Path $installDir); $attempt++) {
         Start-Sleep -Milliseconds 250
     }

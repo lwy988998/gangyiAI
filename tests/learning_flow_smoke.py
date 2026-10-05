@@ -84,7 +84,7 @@ class FlowModel(MockAI):
             unknown = "不会" in data["studentAnswer"] or "不知道" in data["studentAnswer"]
             result = {"isAnswer": data.get("intent") != "ask", "correct": not unknown,
                       "unknown": unknown, "confidence": .95,
-                      "feedback": "先从化合价是否变化开始，说明判断依据。", "misconception": "化合价的升降还不熟悉" if unknown else ""}
+                      "feedback": "先从化合价是否变化开始，说明判断依据。", "methodAnalysis": "学生未写出推导过程，方法分析依据不足。", "misconception": "化合价的升降还不熟悉" if unknown else ""}
         elif kind == "preview":
             stages = data["outline"]["roadmap"]
             result = {"slides": [{"phaseIndex": i, "title": "课程总览" if i == 0 else stage["name"],
@@ -158,7 +158,7 @@ class Harness:
     async def dialogue(self, text, request_id, intent="answer", stop=False, version=None):
         view = self.view()
         message = dict(type="ask", courseId="chem", phaseIndex=1, topicIndex=1, kind="diagnostic", index=0,
-            questionId=view["questionId"], version=view["version"] if version is None else version,
+            questionId=view["questionId"], contentVersion=view["contentVersion"], version=view["version"] if version is None else version,
             requestId=request_id, question=text, answer=text, intent=intent)
         async with websockets.connect(f"ws://127.0.0.1:{self.port}/ws/classroom") as socket:
             await socket.send(json.dumps(message, ensure_ascii=False))
@@ -246,7 +246,11 @@ def main(executable):
             for _ in range(4): h.http("/api/courses/chem/preview")
             assert len(FlowModel.calls) == count
             # 连续对话、可靠评价和同题去重。
+            begin_calls = len(FlowModel.calls)
             events = asyncio.run(h.dialogue("我不知道", "turn-1")); assert events[-1]["type"] == "done", events
+            dialogue_calls = [call for call in FlowModel.calls[begin_calls:] if "课堂作答评价教师" in call["messages"][0]["content"] or (call.get("stream") and "正在原题旁连续辅导" in call["messages"][0]["content"])]
+            assert len(dialogue_calls) == 2 and not dialogue_calls[0].get("stream") and dialogue_calls[1].get("stream"), "真实评价必须先于真实流式讲解且每阶段只请求一次"
+            assert "先用通俗中文解释一小点" not in dialogue_calls[1]["messages"][0]["content"]
             view = wait_for(lambda: (x if (x := h.view())["evaluationStatus"] == "ready" else None))
             assert len(view["turns"]) == 1 and "升高" in view["turns"][0]["assistant"]
             item = json.loads(h.sql("SELECT payload FROM ClassroomActivity WHERE id='classroom:chem:1:1:diagnostic:0'")[0][0])
@@ -266,16 +270,22 @@ def main(executable):
             stale = asyncio.run(h.dialogue("其他窗口", "stale", version=0)); assert stale[-1]["type"] == "error"
             # 旧评价请求返回前出现新作答，旧分数不能覆盖新一轮的明确不会。
             FlowModel.block_task = "evaluate"; FlowModel.blocked.clear(); FlowModel.release.clear()
-            asyncio.run(h.dialogue("旧请求回答", "obsolete-evaluation"))
-            assert FlowModel.blocked.wait(5), "旧评价请求应进入网络等待"
+            with __import__("concurrent.futures").futures.ThreadPoolExecutor(max_workers=1) as pool:
+                prior = pool.submit(lambda: asyncio.run(h.dialogue("旧请求回答", "obsolete-evaluation")))
+                assert FlowModel.blocked.wait(5), "作答必须先进入真实评价请求"
+                conflict = asyncio.run(h.dialogue("我不知道", "conflicting-window"))
+                assert conflict[-1]["type"] == "error", "评价在途时其他窗口不能覆盖当前输入"
+                assert h.view()["turns"][-1]["status"] == "pending"
+                FlowModel.block_task = ""; FlowModel.release.set()
+                assert prior.result(timeout=15)[-1]["type"] == "done"
             asyncio.run(h.dialogue("我不知道", "current-evaluation"))
-            FlowModel.block_task = ""; FlowModel.release.set()
             wait_for(lambda: h.view()["evaluationStatus"] == "ready")
             latest = json.loads(h.sql("SELECT payload FROM ClassroomActivity WHERE id='classroom:chem:1:1:diagnostic:0'")[0][0])
             assert latest["unknown"] and not latest["correct"] and latest["answer"] == "我不知道"
             # 停止不计评价；同请求重试只保存一轮。
             events = asyncio.run(h.dialogue("停止测试", "stop", stop=True)); assert events[-1].get("cancelled")
-            assert h.view()["turns"][-1]["status"] == "failed"
+            assert h.view()["turns"][-1]["status"] in ("failed", "cancelled")
+            assert h.view()["turns"][-1]["partialAssistant"] and h.view()["turns"][-1]["incomplete"]
             events = asyncio.run(h.dialogue("停止测试", "stop")); assert events[-1]["type"] == "done"
             assert len([x for x in h.view()["turns"] if x["requestId"] == "stop"]) == 1
             wait_for(lambda: h.view()["evaluationStatus"] == "ready")

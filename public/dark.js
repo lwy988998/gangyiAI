@@ -101,7 +101,7 @@
     const subjects = (data.subjects || []).filter(item => item.score !== null && Number.isFinite(item.score));
     const time = data.subjects?.map(item => item.updatedAt).filter(Boolean).sort().at(-1);
     const text = data.error || (data.updating ? '画像正在更新；当前显示最近一次有效结果。' :
-      data.hasEvidence ? subjects.length ? '画像依据本机逐题测验与主题评估生成。' : '数据不足：完成至少 3 道测验题后再形成画像。' :
+      data.hasEvidence ? subjects.length ? '画像由 AI 根据真实原题、作答与提示经历评估。' : '等待 AI 根据真实作答评估，证据是否充分由 AI 判断。' :
         '数据不足：暂无可靠测验记录。');
     message.textContent = text;
     if (status) status.textContent = time ? `最近更新：${localTime(time)}` : '数据积累中';

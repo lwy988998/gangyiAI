@@ -13,7 +13,7 @@
   const clear = $('ask-clear'), stop = $('ask-stop');
   submit.disabled = true; clear.disabled = true;
 
-  const FALLBACK_SUGGESTIONS = ['能用更简单的说法再讲一遍吗？', '举个例子说明一下', '出一道类似的练习题'];
+  const FALLBACK_SUGGESTIONS = [];
 
   function addMine(text) {
     $('ask-empty')?.remove();

@@ -22,6 +22,8 @@ std::string renderLearnPage(const std::string& courseId, const std::string& goal
                             const std::string& anonymousId, const std::string& regenerate = {},
                             const std::string& forceLearn = {}, const std::string& retry = {});
 std::string renderAskPage(const std::string& question = {});
+// 备课任务页仅订阅真实生成过程，完整保存后再进入课堂。
+std::string renderNextLessonPage();
 std::string renderMyCoursesPage(const nlohmann::json& data = {});
 
 }  // namespace gangyi

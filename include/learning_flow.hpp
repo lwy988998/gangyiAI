@@ -23,6 +23,10 @@ FlowJson requestCoursePreview(Database& db, const std::string& courseId, bool re
 FlowJson exposeLearningBlocks(Database& db, const FlowJson& body);
 FlowJson dialogueView(Database& db, const FlowJson& body);
 FlowJson beginDialogue(Database& db, const FlowJson& body);
+FlowJson evaluateDialogue(Database& db, const FlowJson& body, FlowJson& turn,
+                         const std::function<bool()>& cancelled = {});
+// 只追加真实分片的展示记录；对话版本已变更时拒绝继续显示旧回复。
+bool recordDialogueAssistance(Database& db, const FlowJson& turn, const std::string& chunk);
 ChatOptions dialogueOptions(Database& db, const FlowJson& body, const FlowJson& turn);
 FlowJson finishDialogue(Database& db, const FlowJson& body, const FlowJson& turn,
                         const std::string& answer, const std::string& model,
@@ -40,7 +44,8 @@ private:
     void preview(Database& db, const ClassroomActivity& activity);
     void coordinate(Database& db, int revision);
     void prepare(Database& db, const FlowJson& teaching, int revision);
-    AIResult call(const std::string& system, const FlowJson& input);
+    AIResult call(const std::string& system, const FlowJson& input,
+                  const std::function<bool()>& additionalCancelled = {});
     std::string databasePath_;
     std::atomic_bool stopped_{false};
     std::thread worker_;
