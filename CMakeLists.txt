@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(gangyiAI VERSION 5.5.1 LANGUAGES C CXX)
+project(gangyiAI VERSION 5.5.2 LANGUAGES C CXX)
 
 if(WIN32)
     enable_language(RC)

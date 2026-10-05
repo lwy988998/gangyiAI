@@ -153,7 +153,39 @@ std::wstring boolText(bool value) {
     return value ? L"是" : L"否";
 }
 
+constexpr int kMinimumWindowWidth = 1024;
+constexpr int kMinimumWindowHeight = 640;
+
+// 只调整位置与尺寸，不改变用户是否最大化的选择；越界时整体收回工作区内。
+WindowPlacement clampToWorkArea(const WindowRect& workArea, int x, int y, int width, int height,
+                               bool maximized) {
+    if (width > workArea.width) width = workArea.width;
+    if (height > workArea.height) height = workArea.height;
+    if (x < workArea.x) x = workArea.x;
+    if (y < workArea.y) y = workArea.y;
+    if (x + width > workArea.x + workArea.width) x = workArea.x + workArea.width - width;
+    if (y + height > workArea.y + workArea.height) y = workArea.y + workArea.height - height;
+    return {x, y, width, height, maximized};
+}
+
 }  // namespace
+
+WindowPlacement computeWindowPlacement(const WindowRect& workArea, bool hasSavedGeometry,
+                                       const WindowRect& savedGeometry, bool savedVisible,
+                                       bool savedMaximized) {
+    if (workArea.width <= 0 || workArea.height <= 0) return {};
+    if (hasSavedGeometry && savedVisible && savedGeometry.width >= kMinimumWindowWidth &&
+        savedGeometry.height >= kMinimumWindowHeight)
+        return clampToWorkArea(workArea, savedGeometry.x, savedGeometry.y, savedGeometry.width,
+                               savedGeometry.height, savedMaximized);
+    // 没有可用的保存值时取工作区九成并居中；工作区本身更小时不超过工作区。
+    int width = workArea.width * 9 / 10;
+    int height = workArea.height * 9 / 10;
+    width = std::max(width, std::min(workArea.width, kMinimumWindowWidth));
+    height = std::max(height, std::min(workArea.height, kMinimumWindowHeight));
+    return {workArea.x + (workArea.width - width) / 2, workArea.y + (workArea.height - height) / 2,
+            width, height, false};
+}
 
 const ProviderProfile& providerProfile(AIProvider provider) {
     for (const auto& profile : kProfiles) if (profile.provider == provider) return profile;

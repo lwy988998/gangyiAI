@@ -53,6 +53,27 @@ struct DiagnosticInfo {
     int restartFailures = 0;
 };
 
+// 主窗口几何：用物理像素记录位置与大小，供跨启动恢复使用。
+struct WindowRect {
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+};
+
+struct WindowPlacement {
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+    bool maximized = false;
+};
+
+// 默认取工作区九成并居中；保存值可见且不小于最小尺寸时优先沿用，超出当前工作区则收缩进去。
+WindowPlacement computeWindowPlacement(const WindowRect& workArea, bool hasSavedGeometry,
+                                       const WindowRect& savedGeometry, bool savedVisible,
+                                       bool savedMaximized);
+
 bool writeDiagnosticReport(const std::filesystem::path& destination, const DiagnosticInfo& info,
                            std::wstring& error);
 
