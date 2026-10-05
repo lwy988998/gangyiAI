@@ -60,7 +60,7 @@
         requestId: nextId, previousTaskId: current.id, navigate: true, text: input.value.trim(),
         ...(query.has('topicId') ? { topicId: query.get('topicId') } : {}) });
       query.set('taskId', next.id); query.set('requestId', nextId); history.replaceState(null, '', `?${query}`);
-      api.storage.remove(`prepare-draft:${requestId}`); input.value = ''; follow(next);
+      api.storage.remove(`prepare-draft:${requestId}`); requestId = nextId; input.value = ''; follow(next);
     } catch (error) { status.textContent = error.message; } finally { button.disabled = false; }
   });
   const opening = taskId ? api.request(`/api/learning-agent?taskId=${encodeURIComponent(taskId)}`) :

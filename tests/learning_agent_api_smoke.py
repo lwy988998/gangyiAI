@@ -64,6 +64,9 @@ class ProtocolAI(BaseHTTPRequestHandler):
             else:
                 actions = [dict(id='finish', tool='finish_lesson', args=dict(lessonId=lesson))]
                 state = 'waiting_student'
+        elif event['type'] == 'course_preview':
+            actions = [dict(id='preview', tool='update_course_preview', args=dict(courseId=event['courseId'],
+                slides=[dict(title='概念路线', content='先比较变化'), dict(title='巩固路线', content='根据实际回答调整')], reason='模型自主选择两页路线说明'))]
         elif event['type'] == 'question_answer':
             inputs = event.get('batchAnswers', [event])
             for index, item in enumerate(inputs):
@@ -157,6 +160,12 @@ def main(executable):
             outline = api('/api/courses/' + course)['snapshot']['payload']
             assert len(outline['courseStructure']) == 1 and len(outline['courseStructure'][0]['topics']) == 2
             assert outline['generation']['model'] == 'fixture-agent-http'
+            calls = len(ProtocolAI.calls)
+            preview_before = api('/api/courses/' + course + '/preview')
+            assert preview_before['status'] in ('missing', 'waiting'), preview_before
+            assert len(ProtocolAI.calls) == calls, '读取预览不能启动独立教学模型'
+            preview = api('/api/courses/' + course + '/preview', dict(requestId='preview'), 202); wait(preview['id'])
+            assert len(api('/api/courses/' + course + '/preview')['slides']) == 2
             prepared = submit(dict(type='prepare_next', courseId=course, navigate=True))
             lesson = prepared['lesson']['id']
             shown = api('/api/learning-agent/lesson?lessonId=' + lesson)
@@ -164,6 +173,7 @@ def main(executable):
             api('/api/learning-agent/control', dict(command='enter_lesson', lessonId=lesson))
             same = api('/api/learning-agent/control', dict(command='enter_lesson', lessonId=lesson))
             assert same['id'] == lesson
+            assert api('/api/learning-agent?taskId=' + prepared['id'])['lesson']['entered']
             for section in shown['sections']:
                 answered = submit(dict(type='question_answer', courseId=course, lessonId=lesson, sectionId=section['id'],
                     sectionVersion=section['version'], text='化合价升高'), 'waiting_student')
@@ -261,6 +271,24 @@ def main(executable):
             assert api('/api/learn?courseId=' + course + '&phaseIndex=1&topicIndex=1')['id'] == old['id']
             with closing(sqlite3.connect(database)) as db:
                 assert json.loads(db.execute("SELECT content FROM LearningSession WHERE id='old-session'").fetchone()[0]) == old_content
+            prepared_content = json.loads(json.dumps(old_content)); prepared_content['blocks']['practice']['practice'][0]['question'] = '原已备巩固题，与推进课不同'
+            legacy_prepared = dict(lessonTaskId='old-prepare', courseId=course, phaseIndex=1, topicIndex=1, topicTitle='原独立巩固课',
+                kind='consolidation', content=prepared_content, progress=dict(status='completed'))
+            with closing(sqlite3.connect(database)) as db:
+                with db:
+                    db.execute('INSERT INTO ClassroomActivity(id,courseId,kind,payload,updatedAt,phaseIndex,topicIndex) VALUES(?,?,?,?,?,?,?)',
+                        ('prepared-lesson:old-prepare', course, 'prepared-lesson', json.dumps(legacy_prepared), '2026-01-01', 1, 1))
+                    db.execute('INSERT INTO ClassroomActivity(id,courseId,kind,payload,updatedAt,phaseIndex,topicIndex) VALUES(?,?,?,?,?,?,?)',
+                        ('next-preparation:old-prepare', course, 'next-preparation', json.dumps(dict(status='ready', classroomUrl='/learn?courseId='+course+'&lessonTaskId=old-prepare')), '2026-01-01', 1, 1))
+                    db.execute('INSERT INTO ClassroomActivity(id,courseId,kind,payload,updatedAt,phaseIndex,topicIndex) VALUES(?,?,?,?,?,?,?)',
+                        ('classroom:' + course + ':1:1:task:old-prepare:practice:0:dialogue', course, 'dialogue', json.dumps(old_dialog), '2026-01-01', 1, 1))
+            kept = api('/api/learn?courseId=' + course + '&lessonTaskId=old-prepare')
+            assert kept['id'] != old['id'] and kept['completed']
+            kept_question = next(item for item in kept['sections'] if item.get('legacyKind') == 'practice')
+            assert kept_question['question']['question'] == '原已备巩固题，与推进课不同'
+            assert len(kept_question['dialog']) == 2 and 'PRIVATE-' not in json.dumps(kept)
+            with urlopen(base + '/learn/next?id=old-prepare', timeout=10) as response:
+                assert 'lessonId=' + kept['id'] in response.url
             legacy_rating = dict(score=74, sufficient=True, evidenceIds=['old-practice-evidence'], rationale='引用保留的旧课堂真实回答', recommendation='继续说明比较过程', uncertainty='仅反映此道历史题')
             tool('update_profiles', dict(abilities=[dict(legacy_rating, id='expression')]))
             assert next(item for item in api('/api/profile')['abilities'] if item['id'] == 'expression')['score'] == 74

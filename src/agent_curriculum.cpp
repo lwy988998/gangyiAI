@@ -120,14 +120,33 @@ Json agentLegacyLesson(Database& db, const AgentAccess& access, const Json& scop
         }
         if (!found) throw std::invalid_argument("原知识点已调整，请查看最新课程路线");
     }
-    const auto key = alias(course.id, phase, topic), previous = db.profileMeta(key);
+    const auto preparedTaskId = scope.value("lessonTaskId", "");
+    auto session = db.findLearningSession(course.id, phase, topic);
+    Json prepared;
+    if (!preparedTaskId.empty()) {
+        const auto row = db.getClassroomActivity("prepared-lesson:" + preparedTaskId);
+        if (!row || row->kind != "prepared-lesson" || row->courseId != course.id) throw std::invalid_argument("原已备课堂不存在或所属课程不匹配");
+        prepared = parse(row->payload);
+        if (prepared.value("lessonTaskId", "") != preparedTaskId || !prepared.value("content", Json()).is_object()) throw std::invalid_argument("原已备课堂内容无效");
+        phase = prepared.at("phaseIndex"); topic = prepared.at("topicIndex");
+        LearningSession original; original.id = "prepared-" + preparedTaskId; original.courseId = course.id;
+        original.phaseIndex = phase; original.topicIndex = topic; original.content = prepared.at("content").dump();
+        original.title = prepared.value("topicTitle", course.title); session = original;
+    }
+    const auto key = preparedTaskId.empty() ? alias(course.id, phase, topic) : "agent-legacy-prepared:" + preparedTaskId;
+    const auto previous = db.profileMeta(key);
     if (!previous.empty()) return {{"lessonId", previous}, {"href", "/agent-classroom.html?lessonId=" + previous}};
-    const auto session = db.findLearningSession(course.id, phase, topic);
     if (!session) return Json::object();
     Json lesson = {{"id", "legacy-" + session->id}, {"scopeId", access.scopeId}, {"courseId", course.id},
         {"title", session->title}, {"purpose", "继续原有课堂，保留已展示课件与实际作答。"}, {"status", "ready"},
         {"version", 1}, {"sourceLearningVersion", db.learningRevision()}, {"entered", true}, {"updatedAt", now()},
         {"phaseIndex", phase}, {"topicIndex", topic}, {"legacySessionId", session->id}, {"sections", Json::array()}, {"model", ""}};
+    if (!preparedTaskId.empty()) {
+        const auto kind = prepared.value("kind", "lesson");
+        lesson["intent"] = kind == "lesson" ? "advance" : kind == "review" ? "review" : "reinforce";
+        lesson["completed"] = prepared.value("progress", Json::object()).value("status", "") == "completed";
+        if (kind != "lesson") lesson.erase("legacySessionId");
+    }
     const auto content = parse(session->content), blocks = content.value("blocks", content);
     const auto add = [&](const std::string& kind, int index, const Json& input, const std::string& title, bool question) {
         Json section = {{"id", lesson.at("id").get<std::string>() + ":" + kind + ":" + std::to_string(index)},
@@ -141,7 +160,8 @@ Json agentLegacyLesson(Database& db, const AgentAccess& access, const Json& scop
             if (!value.contains("expectedAnswer")) value["expectedAnswer"] = value.value("solution", value.value("check", ""));
             section["question"] = value; section["questionId"] = questionIdentity(course.id, value);
             section["legacyDialog"] = Json::array();
-            const auto sourceKey = "classroom:" + course.id + ":" + std::to_string(phase) + ":" + std::to_string(topic) + ":" + kind + ":" + std::to_string(index);
+            const auto sourceKey = "classroom:" + course.id + ":" + std::to_string(phase) + ":" + std::to_string(topic) +
+                (preparedTaskId.empty() ? "" : ":task:" + preparedTaskId) + ":" + kind + ":" + std::to_string(index);
             const auto history = db.getClassroomActivity(sourceKey + ":dialogue");
             if (history) for (const auto& turn : parse(history->payload).value("turns", Json::array())) {
                 if (turn.value("user", Json()).is_string()) section["legacyDialog"].push_back({{"role", "user"}, {"text", turn.at("user")}});
@@ -170,7 +190,9 @@ Json agentLegacyLesson(Database& db, const AgentAccess& access, const Json& scop
     std::map<std::string, int> legacyIndices;
     for (const auto& row : db.listClassroomActivities(course.id)) if (row.phaseIndex == phase && row.topicIndex == topic &&
         (row.kind == "diagnostic" || row.kind == "interaction")) {
-        const auto input = parse(row.payload); add(row.kind, input.value("index", legacyIndices[row.kind]++), input, row.kind == "diagnostic" ? "原诊断题" : "原互动题", true);
+        const auto input = parse(row.payload);
+        if (input.value("lessonTaskId", "") != preparedTaskId) continue;
+        add(row.kind, input.value("index", legacyIndices[row.kind]++), input, row.kind == "diagnostic" ? "原诊断题" : "原互动题", true);
         if (!lesson.at("sections").empty()) lesson["sections"].back()["sourceActivityId"] = row.id;
     }
     for (const auto* name : {"steps", "examples", "practice", "quiz"}) {

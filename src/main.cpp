@@ -399,8 +399,17 @@ int main() {
         } catch (const std::exception& error) { return crow::response(409, error.what()); }
     });
 
-    CROW_ROUTE(app, "/learn/next")([](const crow::request& req) {
+    CROW_ROUTE(app, "/learn/next")([&db](const crow::request& req) {
         crow::response response(302);
+        if (const char* id = req.url_params.get("id")) {
+            if (const auto row = db.getClassroomActivity(std::string("next-preparation:") + id)) {
+                const auto saved = nlohmann::json::parse(row->payload, nullptr, false);
+                if (saved.is_object() && saved.value("status", "") == "ready" && saved.value("classroomUrl", "").rfind("/learn?", 0) == 0) {
+                    response.set_header("Location", saved.at("classroomUrl").get<std::string>()); return response;
+                }
+                response.set_header("Location", "/agent-prepare.html?courseId=" + queryValue(row->courseId)); return response;
+            }
+        }
         response.set_header("Location", "/agent-prepare.html" + (req.raw_url.find('?') == std::string::npos ? std::string() : req.raw_url.substr(req.raw_url.find('?'))));
         return response;
     });
@@ -937,7 +946,21 @@ int main() {
         return crow::response(200, task.dump());
     });
     CROW_ROUTE(app, "/api/courses/<string>/preview")([&db](const crow::request&, const std::string& course) {
-        try { crow::response response(200, gangyi::coursePreviewView(db, course).dump()); response.set_header("Cache-Control", "no-store"); return response; }
+        try {
+            auto value = gangyi::coursePreviewView(db, course);
+            if (value.value("status", "") == "pending") {
+                const auto task = gangyi::agentView(db, localAgentAccess(db)); bool preparing = false;
+                if (task.value("status", "") == "pending" || task.value("status", "") == "running") {
+                    const auto row = db.getClassroomActivity(task.at("id"));
+                    if (row && row->courseId == course) {
+                        const auto saved = nlohmann::json::parse(row->payload);
+                        preparing = saved.at("event").value("type", "") == "course_preview";
+                    }
+                }
+                if (!preparing) { value["status"] = "waiting"; value["message"] = "路线说明等待 AI 更新，可按最新情况重新准备。"; }
+            }
+            crow::response response(200, value.dump()); response.set_header("Cache-Control", "no-store"); return response;
+        }
         catch (...) { return crow::response(404, nlohmann::json{{"error", "课程不存在"}}.dump()); }
     });
     CROW_ROUTE(app, "/api/courses/<string>/preview").methods(crow::HTTPMethod::POST)([&db](const crow::request& req, const std::string& course) {

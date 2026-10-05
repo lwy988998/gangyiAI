@@ -210,7 +210,15 @@ Json agentView(Database& db, const AgentAccess& access, const std::string& taskI
     const auto scope = parsed(db.profileMeta(scopeKey(access)));
     const auto id = taskId.empty() ? scope.value("latestTaskId", "") : taskId;
     if (id.empty()) return {{"status", "idle"}, {"version", 0}, {"events", Json::array()}};
-    auto result = publicTask(taskFor(db, access, id)); result["paused"] = scope.value("paused", false); result["changeHistory"] = agentChanges(db, access); return result;
+    auto result = publicTask(taskFor(db, access, id)); result["paused"] = scope.value("paused", false); result["changeHistory"] = agentChanges(db, access);
+    if (result.contains("lesson")) {
+        const auto row = db.getClassroomActivity(result.at("lesson").at("id"));
+        if (row && row->kind == "agent-lesson") {
+            const auto saved = parsed(row->payload);
+            if (saved.value("scopeId", "") == access.scopeId) result["lesson"]["entered"] = saved.value("entered", false);
+        }
+    }
+    return result;
 }
 
 Json agentControl(Database& db, const AgentAccess& access, const Json& body) {

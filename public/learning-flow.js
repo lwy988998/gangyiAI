@@ -238,7 +238,7 @@
     let host = byId('course-preview');
     if (!host) { const card = element('section', '', 'plan-card full-card'); card.append(element('h2', 'AI 课程路线预览')); host = element('div', ''); host.id = 'course-preview'; card.append(host); byId('plan-view').prepend(card); }
     if (host.dataset.mounted) return; host.dataset.mounted = '1';
-    let active = 0;
+    let active = 0, previewTaskId = readLocal('gy:preview-task:' + context.courseId);
     const tabs = element('div', '', 'slide-tabs'), content = element('article', '', 'slide-content'), status = element('p', '', 'ai-muted');
     const update = element('button', '更新 AI 预览'); update.type = 'button'; host.replaceChildren(status, tabs, content, update);
     function display(slides) {
@@ -252,11 +252,16 @@
       try {
         const value = await api('/api/courses/' + encodeURIComponent(context.courseId) + '/preview');
         display(value.slides || []); status.textContent = (value.message || '正在等待真实 AI 生成课程路线预览…') + (value.updatedAt ? ' · ' + localTime(value.updatedAt) : '');
-        update.disabled = value.status === 'pending';
+        update.disabled = false;
+        if (previewTaskId) {
+          const task = await api('/api/learning-agent?taskId=' + encodeURIComponent(previewTaskId));
+          update.disabled = ['pending', 'running'].includes(task.status);
+          if (update.disabled || ['failed', 'paused', 'superseded', 'waiting_student'].includes(task.status)) status.textContent = task.error || task.message || 'AI 正在准备路线说明。';
+        } else if (value.status === 'pending') status.textContent = '原预览尚未完成，可以让 AI 按最新情况重新准备。';
 
       } catch (error) { status.textContent = error.message; }
     }
-    update.onclick = async () => { update.disabled = true; try { await api('/api/courses/' + encodeURIComponent(context.courseId) + '/preview', {retry: true}); await load(); } catch (error) { status.textContent = error.message; update.disabled = false; } };
+    update.onclick = async () => { update.disabled = true; try { const task = await api('/api/courses/' + encodeURIComponent(context.courseId) + '/preview', {retry: true, requestId: requestIdentity()}); previewTaskId = task.id; saveLocal('gy:preview-task:' + context.courseId, previewTaskId); await load(); } catch (error) { status.textContent = error.message; update.disabled = false; } };
     load(); setInterval(() => { if (!document.hidden) load(); }, 4000);
   }
 

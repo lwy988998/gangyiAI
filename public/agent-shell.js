@@ -21,12 +21,13 @@
       const task = await api.request('/api/learning-agent'); current = task;
       if (!task.id) { panel.hidden = true; return; } panel.hidden = false;
       const active = ['pending', 'running'].includes(task.status), paused = task.paused || task.status === 'paused';
+      const prepared = ['ready', 'waiting_student'].includes(task.status) && task.lesson && !task.lesson.entered;
       const text = paused ? 'AI 已暂停，输入和有效结果已保存。' : ({ pending: 'AI 正在等待处理最新学习情况。', running: 'AI 正在结合真实学习情况处理。', ready: 'AI 已完成本次处理。', waiting_student: 'AI 正在等待你的下一次回答。', failed: 'AI 连续请求失败，已停止并保留有效结果，可手动重试。', superseded: '学习情况已有更新，旧结果没有应用。', cancelled: '本次处理已停止。' })[task.status] || 'AI 状态已保存。';
       if (state.textContent !== text) state.textContent = text;
-      label.textContent = active ? 'AI 教学进行中' : paused ? 'AI 已暂停' : task.status === 'ready' && task.lesson ? 'AI 已备好下一课，点击进入' : 'AI 教学状态'; actions.replaceChildren();
+      label.textContent = active ? 'AI 教学进行中' : paused ? 'AI 已暂停' : prepared ? 'AI 已备好下一课，点击进入' : 'AI 教学状态'; actions.replaceChildren();
       if (paused) button('恢复 AI', 'resume'); else button('暂停 AI', 'pause');
       if (['failed', 'superseded', 'cancelled'].includes(task.status)) button('重试', 'retry');
-      if (task.status === 'ready' && task.lesson) {
+      if (prepared) {
         const link = document.createElement('a'); link.textContent = `已备好：${task.lesson.title} →`;
         link.href = `/agent-prepare.html?taskId=${encodeURIComponent(task.id)}`; actions.append(link);
       }
