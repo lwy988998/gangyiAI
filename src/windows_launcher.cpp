@@ -568,6 +568,52 @@ void resizeDesktopWidget(HWND window) {
         MoveWindow(widget, 0, 0, bounds.right, bounds.bottom, TRUE);
 }
 
+// 只记录还原态位置与尺寸，窗口最大化或最小化关闭时下次仍能回到同样的大小。
+void saveDesktopGeometry(HWND window) {
+    if (g.smokeMode || !window) return;
+    WINDOWPLACEMENT placement{};
+    placement.length = sizeof(placement);
+    if (!GetWindowPlacement(window, &placement)) return;
+    const RECT normal = placement.rcNormalPosition;
+    const int width = normal.right - normal.left;
+    const int height = normal.bottom - normal.top;
+    if (width <= 0 || height <= 0) return;
+    writeRegistryDword(L"WindowX", static_cast<DWORD>(normal.left));
+    writeRegistryDword(L"WindowY", static_cast<DWORD>(normal.top));
+    writeRegistryDword(L"WindowWidth", static_cast<DWORD>(width));
+    writeRegistryDword(L"WindowHeight", static_cast<DWORD>(height));
+    writeRegistryDword(L"WindowMaximized", placement.showCmd == SW_SHOWMAXIMIZED ? 1u : 0u);
+}
+
+// 读取上次保存的几何；落在已移除的显示器外时按无效处理，由调用方回退默认尺寸。
+// 保存值可见时以它所在显示器的工作区为界，多屏下不会把窗口拉回主屏。
+gangyi::launcher::WindowPlacement desktopWindowPlacement(const RECT& primaryWorkArea) {
+    gangyi::launcher::WindowRect area{primaryWorkArea.left, primaryWorkArea.top,
+        primaryWorkArea.right - primaryWorkArea.left, primaryWorkArea.bottom - primaryWorkArea.top};
+    bool hasSaved = false, visible = false, savedMaximized = false;
+    gangyi::launcher::WindowRect saved{};
+    if (!g.smokeMode) {
+        const DWORD width = readRegistryDword(L"WindowWidth", 0);
+        const DWORD height = readRegistryDword(L"WindowHeight", 0);
+        if (width > 0 && height > 0) {
+            saved = {static_cast<int>(readRegistryDword(L"WindowX", 0)),
+                     static_cast<int>(readRegistryDword(L"WindowY", 0)),
+                     static_cast<int>(width), static_cast<int>(height)};
+            const RECT candidate{saved.x, saved.y, saved.x + saved.width, saved.y + saved.height};
+            MONITORINFO info{};
+            info.cbSize = sizeof(info);
+            const HMONITOR monitor = MonitorFromRect(&candidate, MONITOR_DEFAULTTONULL);
+            visible = monitor && GetMonitorInfoW(monitor, &info);
+            if (visible)
+                area = {info.rcWork.left, info.rcWork.top, info.rcWork.right - info.rcWork.left,
+                        info.rcWork.bottom - info.rcWork.top};
+            hasSaved = true;
+            savedMaximized = readRegistryDword(L"WindowMaximized", 0) != 0;
+        }
+    }
+    return gangyi::launcher::computeWindowPlacement(area, hasSaved, saved, visible, savedMaximized);
+}
+
 void desktopPageReady(const char* id, const char*, void*) {
     g.pageReady = true;
     if (g.desktopWindow) KillTimer(g.desktopWindow, kDesktopLoadTimer);
@@ -612,6 +658,18 @@ void closeDesktopView() {
 
 LRESULT CALLBACK desktopWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
+    case WM_GETMINMAXINFO: {
+        // 保证课堂与备课界面不会被拉伸到无法使用的尺寸。
+        auto* info = reinterpret_cast<MINMAXINFO*>(lParam);
+        if (info) {
+            info->ptMinTrackSize.x = 1024;
+            info->ptMinTrackSize.y = 640;
+        }
+        return 0;
+    }
+    case WM_EXITSIZEMOVE:
+        saveDesktopGeometry(window);
+        return 0;
     case WM_SIZE:
         resizeDesktopWidget(window);
         return 0;
@@ -648,6 +706,7 @@ LRESULT CALLBACK desktopWindowProc(HWND window, UINT message, WPARAM wParam, LPA
         DestroyWindow(window);
         return 0;
     case WM_DESTROY:
+        saveDesktopGeometry(window);
         g.desktopWindow = nullptr;
         g.displayPort = 0;
         if (g.window && !g.shuttingDown) DestroyWindow(g.window);
@@ -662,12 +721,10 @@ void openDesktop() {
         RECT workArea{};
         if (!SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0))
             SetRect(&workArea, 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
-        const int width = static_cast<int>(std::min<LONG>(1120, (workArea.right - workArea.left) * 9 / 10));
-        const int height = static_cast<int>(std::min<LONG>(760, (workArea.bottom - workArea.top) * 9 / 10));
+        const auto placement = desktopWindowPlacement(workArea);
         g.desktopWindow = CreateWindowExW(0, kDesktopWindowClass, L"钢一定制AI", WS_OVERLAPPEDWINDOW,
-            workArea.left + (workArea.right - workArea.left - width) / 2,
-            workArea.top + (workArea.bottom - workArea.top - height) / 2,
-            width, height, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+            placement.x, placement.y, placement.width, placement.height,
+            nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
         if (!g.desktopWindow) { showFailure(L"无法创建桌面主窗口。"); return; }
         g.desktopView = webview_create(0, g.desktopWindow);
         if (!g.desktopView) {
@@ -699,7 +756,8 @@ void openDesktop() {
         g.browser->add_NewWindowRequested(newWindow, &g.newWindowToken);
         newWindow->Release();
         resizeDesktopWidget(g.desktopWindow);
-        ShowWindow(g.desktopWindow, SW_SHOW);
+        // 上次最大化关闭时沿用最大化；还原态尺寸已在创建时确定。
+        ShowWindow(g.desktopWindow, placement.maximized ? SW_SHOWMAXIMIZED : SW_SHOW);
     }
     if (g.displayPort != g.port) {
         if (g.browser && !g.desktopOrigin.empty()) {
@@ -717,7 +775,8 @@ void openDesktop() {
         SetTimer(g.desktopWindow, kDesktopLoadTimer, 15000, nullptr);
         webview_navigate(g.desktopView, toUtf8(g.desktopOrigin + g.desktopRoute).c_str());
     }
-    ShowWindow(g.desktopWindow, IsIconic(g.desktopWindow) ? SW_RESTORE : SW_SHOW);
+    if (IsIconic(g.desktopWindow)) ShowWindow(g.desktopWindow, SW_RESTORE);
+    else if (!IsZoomed(g.desktopWindow) && !IsWindowVisible(g.desktopWindow)) ShowWindow(g.desktopWindow, SW_SHOW);
     SetForegroundWindow(g.desktopWindow);
 }
 

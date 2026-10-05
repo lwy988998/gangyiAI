@@ -107,6 +107,52 @@ int main() {
     const std::string contents((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
     expect(contents.find("secret") == std::string::npos, "诊断报告不得泄漏地址凭据");
 
+    {
+        // 无保存值：工作区九成并居中；工作区本身更小时不超过工作区。
+        const WindowPlacement fresh = computeWindowPlacement({0, 0, 1280, 720}, false, {}, false, false);
+        expect(fresh.x == 64 && fresh.y == 36 && fresh.width == 1152 && fresh.height == 648,
+               "默认窗口应占工作区九成并居中");
+        expect(!fresh.maximized, "首次打开不应自动最大化");
+        const WindowPlacement smallArea = computeWindowPlacement({0, 0, 800, 600}, false, {}, false, false);
+        expect(smallArea.width == 800 && smallArea.height == 600,
+               "工作区小于最小尺寸时窗口不超过工作区");
+    }
+    {
+        // 保存值可见且不小于最小尺寸：沿用用户上次的大小与位置。
+        const WindowPlacement kept =
+            computeWindowPlacement({0, 0, 1920, 1080}, true, {120, 90, 1500, 900}, true, false);
+        expect(kept.x == 120 && kept.y == 90 && kept.width == 1500 && kept.height == 900,
+               "保存的窗口尺寸与位置应原样沿用");
+        const WindowPlacement left =
+            computeWindowPlacement({-1920, 0, 1920, 1080}, true, {-1800, 100, 1200, 800}, true, false);
+        expect(left.x == -1800 && left.y == 100 && left.width == 1200,
+               "副屏负坐标的保存位置不应被拉回主屏");
+        const WindowPlacement zoomed =
+            computeWindowPlacement({0, 0, 1920, 1080}, true, {100, 100, 1200, 800}, true, true);
+        expect(zoomed.maximized && zoomed.width == 1200, "上次最大化关闭时应沿用最大化");
+    }
+    {
+        // 保存值异常：越界收缩、落在已移除显示器外或小到不可用时回退默认尺寸。
+        const WindowPlacement larger =
+            computeWindowPlacement({0, 0, 1280, 720}, true, {0, 0, 1600, 900}, true, false);
+        expect(larger.width == 1280 && larger.height == 720 && larger.x == 0 && larger.y == 0,
+               "保存尺寸超出工作区时应收缩进工作区");
+        const WindowPlacement partial =
+            computeWindowPlacement({0, 0, 1280, 720}, true, {600, 300, 1200, 800}, true, false);
+        expect(partial.x == 80 && partial.y == 0 && partial.width == 1200 && partial.height == 720,
+               "超出右下的保存位置应整体收回工作区");
+        const WindowPlacement removed =
+            computeWindowPlacement({0, 0, 1280, 720}, true, {-3000, 200, 1200, 800}, false, false);
+        expect(removed.x == 64 && removed.y == 36 && removed.width == 1152,
+               "保存位置落在已移除的显示器外时应回退默认居中");
+        const WindowPlacement tiny =
+            computeWindowPlacement({0, 0, 1280, 720}, true, {10, 10, 800, 600}, true, false);
+        expect(tiny.width == 1152 && tiny.height == 648, "保存尺寸小于最小可用尺寸时应回退默认");
+        const WindowPlacement empty =
+            computeWindowPlacement({0, 0, 1280, 720}, true, {10, 10, 0, 0}, true, false);
+        expect(empty.width == 1152, "保存尺寸为零时应回退默认");
+    }
+
     std::filesystem::remove_all(root, filesystemError);
     return failures == 0 ? 0 : 1;
 }
