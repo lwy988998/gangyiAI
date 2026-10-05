@@ -239,17 +239,6 @@ def main(executable):
                 assert db.execute("SELECT count(*) FROM LearningInteraction WHERE kind='practice'").fetchone()[0] == 8
                 actions = [json.loads(row[0]).get('action') for row in db.execute("SELECT payload FROM LearningInteraction WHERE kind='chat-user'")]
                 assert 'omitted' in actions and 'unknown' in actions
-            failed = submit(dict(type='acceptance_fail'), 'failed')
-            assert failed['calls'] == 3
-            count = len(ProtocolAI.calls); time.sleep(.3); api('/api/learning-agent?taskId=' + failed['id'])
-            assert len(ProtocolAI.calls) == count
-            paused = api('/api/learning-agent/control', dict(command='pause', taskId=failed['id']))
-            assert paused['status'] == 'paused'
-            # 拒绝不存在的题目标识，原输入和可靠评价不能被错题覆盖。
-            api('/api/classroom/submit', dict(courseId=course, lessonId=lesson, sectionId='does-not-exist', kind='diagnostic', index=0, answer='升高'), 409)
-            api('/api/learning-agent/lesson?lessonId=' + lesson)
-            with closing(sqlite3.connect(database)) as db:
-                assert db.execute('PRAGMA quick_check').fetchone()[0] == 'ok'
             # v5.3/v5.4 的原课堂与连续对话保持身份，公开内容不泄露旧答案。
             old_content = dict(blocks=dict(steps=dict(lessonSteps=[dict(title='原讲解', explanation='旧课件说明')]),
                 practice=dict(practice=[dict(question='旧题：比较化合价', expectedAnswer='PRIVATE-OLD')]),
@@ -261,6 +250,10 @@ def main(executable):
                         ('old-session', course, '化合价', 'lite', 1, '概念', 1, '化合价', '原有课堂', json.dumps(old_content)))
                     db.execute('INSERT INTO ClassroomActivity(id,courseId,kind,payload,updatedAt,phaseIndex,topicIndex) VALUES(?,?,?,?,?,?,?)',
                         ('classroom:' + course + ':1:1:practice:0:dialogue', course, 'dialogue', json.dumps(old_dialog), '2026-01-01', 1, 1))
+            with closing(sqlite3.connect(database)) as db:
+                with db:
+                    db.execute('INSERT INTO ClassroomActivity(id,courseId,kind,payload,updatedAt,phaseIndex,topicIndex) VALUES(?,?,?,?,?,?,?)',
+                        ('old-practice-evidence', course, 'practice', json.dumps(dict(status='answered', credible=True, questionSnapshot=dict(question='旧题：比较化合价'), answer='我原来写过的回答')), '2026-01-01', 1, 1))
             old = api('/api/learn?courseId=' + course + '&phaseIndex=1&topicIndex=1')
             assert old['id'] == 'legacy-old-session' and 'PRIVATE-' not in json.dumps(old)
             old_question = next(item for item in old['sections'] if item.get('legacyKind') == 'practice')
@@ -268,6 +261,20 @@ def main(executable):
             assert api('/api/learn?courseId=' + course + '&phaseIndex=1&topicIndex=1')['id'] == old['id']
             with closing(sqlite3.connect(database)) as db:
                 assert json.loads(db.execute("SELECT content FROM LearningSession WHERE id='old-session'").fetchone()[0]) == old_content
+            legacy_rating = dict(score=74, sufficient=True, evidenceIds=['old-practice-evidence'], rationale='引用保留的旧课堂真实回答', recommendation='继续说明比较过程', uncertainty='仅反映此道历史题')
+            tool('update_profiles', dict(abilities=[dict(legacy_rating, id='expression')]))
+            assert next(item for item in api('/api/profile')['abilities'] if item['id'] == 'expression')['score'] == 74
+            failed = submit(dict(type='acceptance_fail'), 'failed')
+            assert failed['calls'] == 3
+            count = len(ProtocolAI.calls); time.sleep(.3); api('/api/learning-agent?taskId=' + failed['id'])
+            assert len(ProtocolAI.calls) == count
+            paused = api('/api/learning-agent/control', dict(command='pause', taskId=failed['id']))
+            assert paused['status'] == 'paused'
+            # 拒绝不存在的题目标识，原输入和可靠评价不能被错题覆盖。
+            api('/api/classroom/submit', dict(courseId=course, lessonId=lesson, sectionId='does-not-exist', kind='diagnostic', index=0, answer='升高'), 409)
+            api('/api/learning-agent/lesson?lessonId=' + lesson)
+            with closing(sqlite3.connect(database)) as db:
+                assert db.execute('PRAGMA quick_check').fetchone()[0] == 'ok'
             print('主控 HTTP、多步自主规划、六类题型、先评价后讲解、追问不评分、一题画像、撤回、自由复习日期、对话恢复、缓存与三次失败停止通过（协议夹具）')
         finally:
             if process.poll() is None:

@@ -97,7 +97,7 @@ Json agentProfileEvidence(Database& db, const AgentAccess& access) {
                 item.value("questionSnapshot", Json()) != input->second.value("questionSnapshot", Json())) continue;
             append(row.id, *row.courseId, item.value("questionSnapshot", Json()), item.value("response", Json()), row.createdAt,
                 input->second.value("action", "") == "unknown", item.value("assisted", false), item.value("hintHistory", Json::array()), item.value("topic", ""));
-        } else if (row.kind == "quiz" && item.value("results", Json()).is_array()) {
+        } else if ((row.kind == "quiz" || row.kind == "question-evaluation") && item.value("results", Json()).is_array()) {
             size_t index = 0;
             for (const auto& answer : item.at("results")) {
                 if (answer.value("answered", false) && answer.value("credible", false))
@@ -110,7 +110,8 @@ Json agentProfileEvidence(Database& db, const AgentAccess& access) {
     }
     for (const auto& courseId : access.courseIds) if (allowed(db, access, courseId)) {
         for (const auto& row : db.listClassroomActivities(courseId)) {
-            if (row.kind != "diagnostic" && row.kind != "interaction" && row.kind != "question") continue;
+            if (row.kind != "diagnostic" && row.kind != "interaction" && row.kind != "question" &&
+                row.kind != "example" && row.kind != "practice" && row.kind != "quiz" && row.kind != "review") continue;
             const auto item = parse(row.payload);
             if (item.value("status", "") != "answered" || !item.value("credible", false) ||
                 item.value("evaluationStatus", "valid") == "failed" || item.value("evaluationStatus", "valid") == "pending") continue;
