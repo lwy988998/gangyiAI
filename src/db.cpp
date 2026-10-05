@@ -26,6 +26,11 @@ bool done(Stmt& s) { const int rc = sqlite3_step(s.p); check(rc, s.db, "execute"
 }
 
 Database::~Database() { close(); }
+void Database::readSnapshot(const std::function<void()>& action) {
+    exec(db_, "BEGIN");
+    try { action(); exec(db_, "COMMIT"); }
+    catch (...) { sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr); throw; }
+}
 void Database::transaction(const std::function<void()>& action) {
     exec(db_, "BEGIN IMMEDIATE");
     try {

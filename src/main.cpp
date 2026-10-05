@@ -237,6 +237,12 @@ gangyi::AgentAccess localAgentAccess(gangyi::Database& db) {
     return access;
 }
 
+nlohmann::json localAgentView(gangyi::Database& db, const std::string& taskId = {}) {
+    nlohmann::json result;
+    db.readSnapshot([&] { result = gangyi::agentView(db, localAgentAccess(db), taskId); });
+    return result;
+}
+
 nlohmann::json studyPlanAgentAction(gangyi::Database& db, nlohmann::json body, const std::string& action) {
     const auto access = localAgentAccess(db);
     const auto result = gangyi::studyPlanProposal(db, body, action);
@@ -423,7 +429,7 @@ int main() {
         } catch (const std::exception& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
     });
     CROW_ROUTE(app, "/api/learn/next/<string>")([&config](const crow::request&, const std::string& id) {
-        try { gangyi::Database db; db.open(config.database_path); auto task = gangyi::agentView(db, localAgentAccess(db), id);
+        try { gangyi::Database db; db.open(config.database_path); auto task = localAgentView(db, id);
             if (task.contains("lesson")) task["href"] = task["lesson"]["href"];
             return crow::response(200, task.dump());
         } catch (const std::exception& error) { return crow::response(404, nlohmann::json{{"error", error.what()}}.dump()); }
@@ -660,7 +666,7 @@ int main() {
                 if (state->stopRequested) gangyi::agentControl(db, access, {{"command", "cancel"}, {"taskId", taskId}});
                 int sequence = 0;
                 while (!state->cancelled) {
-                    const auto task = gangyi::agentView(db, localAgentAccess(db), taskId);
+                    const auto task = localAgentView(db, taskId);
                     for (const auto& item : task.at("events")) if (item.value("seq", 0) > sequence) {
                         sequence = item.at("seq");
                         if (item.value("type", "") == "delta" && item.value("field", "") == "message")
@@ -706,7 +712,7 @@ int main() {
                 gangyi::Database db; db.open(databasePath); int sequence = body.value("afterSeq", 0);
                 const auto taskId = body.value("taskId", body.value("id", ""));
                 while (!state->cancelled) {
-                    const auto task = gangyi::agentView(db, localAgentAccess(db), taskId);
+                    const auto task = localAgentView(db, taskId);
                     for (const auto& event : task.value("events", nlohmann::json::array())) if (event.value("seq", 0) > sequence) {
                         auto value = event; value["taskId"] = task.at("id");
                         if (value.value("type", "") == "ready" && task.contains("lesson")) value["href"] = task.at("lesson").at("href");
@@ -882,9 +888,10 @@ int main() {
         return response;
     });
 
-    CROW_ROUTE(app, "/api/profile")([&db] {
+    CROW_ROUTE(app, "/api/profile")([&config] {
+        gangyi::Database db; db.open(config.database_path);
         auto view = gangyi::profileView(db);
-        const auto task = gangyi::agentView(db, localAgentAccess(db));
+        const auto task = localAgentView(db);
         const auto state = task.value("status", "idle");
         const bool active = (state == "pending" || state == "running") && !task.value("paused", false);
         const auto error = state == "failed" ? task.value("error", "AI 已暂停，可保留结果后重试。") : std::string();
@@ -917,7 +924,7 @@ int main() {
     });
     CROW_ROUTE(app, "/api/classroom/preparation")([&config](const crow::request&) {
         gangyi::Database db; db.open(config.database_path);
-        return crow::response(200, gangyi::agentView(db, localAgentAccess(db)).dump());
+        return crow::response(200, localAgentView(db).dump());
     });
     CROW_ROUTE(app, "/api/classroom/preparation/retry").methods(crow::HTTPMethod::POST)([&config](const crow::request& req) {
         try { gangyi::Database db; db.open(config.database_path); auto body = nlohmann::json::parse(req.body.empty() ? "{}" : req.body);
@@ -941,15 +948,16 @@ int main() {
         catch (const std::exception& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
     });
     CROW_ROUTE(app, "/api/home/next-step")([&config](const crow::request&) {
-        gangyi::Database db; db.open(config.database_path); auto task = gangyi::agentView(db, localAgentAccess(db));
+        gangyi::Database db; db.open(config.database_path); auto task = localAgentView(db);
         if (task.value("status", "") == "ready" && task.contains("lesson")) task["next"] = task.at("lesson");
         return crow::response(200, task.dump());
     });
-    CROW_ROUTE(app, "/api/courses/<string>/preview")([&db](const crow::request&, const std::string& course) {
+    CROW_ROUTE(app, "/api/courses/<string>/preview")([&config](const crow::request&, const std::string& course) {
+        gangyi::Database db; db.open(config.database_path);
         try {
             auto value = gangyi::coursePreviewView(db, course);
             if (value.value("status", "") == "pending") {
-                const auto task = gangyi::agentView(db, localAgentAccess(db)); bool preparing = false;
+                const auto task = localAgentView(db); bool preparing = false;
                 if (task.value("status", "") == "pending" || task.value("status", "") == "running") {
                     const auto row = db.getClassroomActivity(task.at("id"));
                     if (row && row->courseId == course) {
@@ -979,8 +987,9 @@ int main() {
         catch (...) { return crow::response(400, nlohmann::json{{"error", "请选择九科中的六门不同学科，并指定有效的显示模式。"}}.dump()); }
     });
 
-    CROW_ROUTE(app, "/api/next-learning")([&db](const crow::request&) {
-        const auto task = gangyi::agentView(db, localAgentAccess(db));
+    CROW_ROUTE(app, "/api/next-learning")([&config](const crow::request&) {
+        gangyi::Database db; db.open(config.database_path);
+        const auto task = localAgentView(db);
         nlohmann::json result = {{"ok", true}, {"action", "waiting"}, {"reason", task.value("message", "等待 AI 根据实际表现准备下一步。")}};
         if (task.contains("lesson")) { result["action"] = "prepared"; result["href"] = task.at("lesson").at("href"); result["lesson"] = task.at("lesson"); }
         return crow::response(200, result.dump());
@@ -1023,9 +1032,8 @@ int main() {
     CROW_ROUTE(app, "/api/learning-agent")([databasePath = config.database_path](const crow::request& req) {
         try {
             gangyi::Database connection; connection.open(databasePath);
-            const auto access = localAgentAccess(connection);
-            auto value = gangyi::agentView(connection, access, req.url_params.get("taskId") ? req.url_params.get("taskId") : "");
-            value["adjustments"] = gangyi::agentChanges(connection, access);
+            auto value = localAgentView(connection, req.url_params.get("taskId") ? req.url_params.get("taskId") : "");
+            value["adjustments"] = value.value("changeHistory", nlohmann::json::array());
             crow::response response(value.dump()); response.set_header("Content-Type", "application/json; charset=utf-8");
             response.set_header("Cache-Control", "no-store"); return response;
         } catch (const std::exception& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
@@ -1158,8 +1166,8 @@ int main() {
     });
 
     // POST /api/courses —— 保存课程 + 快照（质量门禁 + 脱敏 + upsert）
-    CROW_ROUTE(app, "/api/courses").methods(crow::HTTPMethod::POST)([&db](const crow::request& req) {
-        try { const auto body = nlohmann::json::parse(req.body); const auto task = gangyi::agentView(db, localAgentAccess(db), body.at("taskId"));
+    CROW_ROUTE(app, "/api/courses").methods(crow::HTTPMethod::POST)([&config](const crow::request& req) {
+        try { gangyi::Database db; db.open(config.database_path); const auto body = nlohmann::json::parse(req.body); const auto task = localAgentView(db, body.at("taskId"));
             if (task.at("status") != "ready" || !task.contains("course")) throw std::invalid_argument("课程尚未由主控完整保存");
             return crow::response(200, nlohmann::json{{"ok", true}, {"courseId", task.at("course").at("id")}, {"href", task.at("course").at("href")}}.dump());
         } catch (const std::exception& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }

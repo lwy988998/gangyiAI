@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <exception>
 #include <iostream>
 #include <thread>
 #include <utility>
@@ -157,15 +158,18 @@ struct StreamState {
     bool cancelled = false;
     std::function<bool()> shouldCancel;
     bool completed = false;
+    std::exception_ptr callbackError = nullptr;
 };
 
 int streamProgress(void* user, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
     auto& state = *static_cast<StreamState*>(user);
-    if (state.shouldCancel && state.shouldCancel()) { state.cancelled = true; return 1; }
+    try {
+        if (state.shouldCancel && state.shouldCancel()) { state.cancelled = true; return 1; }
+    } catch (...) { state.callbackError = std::current_exception(); return 1; }
     return 0;
 }
 
-size_t writeStream(char* data, size_t size, size_t count, void* user) {
+size_t writeStreamContent(char* data, size_t size, size_t count, void* user) {
     auto& state = *static_cast<StreamState*>(user);
     const size_t bytes = size * count;
     state.pending.append(data, bytes);
@@ -195,6 +199,15 @@ size_t writeStream(char* data, size_t size, size_t count, void* user) {
     return bytes;
 }
 
+size_t writeStream(char* data, size_t size, size_t count, void* user) {
+    // C 回调边界不传播 C++ 异常；释放 libcurl 资源后再交给主控处理。
+    try { return writeStreamContent(data, size, count, user); }
+    catch (...) {
+        static_cast<StreamState*>(user)->callbackError = std::current_exception();
+        return 0;
+    }
+}
+
 AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int timeoutMs,
                        const std::function<bool(const std::string&)>& onChunk) {
     if (endpoint.key.empty()) throw AIClientError("missing_config", "AI_API_KEY is not configured");
@@ -203,6 +216,7 @@ AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int
     const std::string model = options.model.empty() ? endpoint.model : options.model;
     json body{{"model", model}, {"temperature", options.temperature},
               {"max_tokens", options.maxTokens}, {"stream", true}, {"messages", json::array()}};
+    if (!options.responseFormat.empty()) body["response_format"] = {{"type", options.responseFormat}};
     for (const auto& message : options.messages)
         body["messages"].push_back({{"role", message.role}, {"content", message.content}});
     const std::string postBody = body.dump();
@@ -229,6 +243,7 @@ AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
     curl_easy_cleanup(curl);
     curl_slist_free_all(headers);
+    if (state.callbackError) std::rethrow_exception(state.callbackError);
     if (state.cancelled) throw AIClientError("cancelled", "stream cancelled");
     if (code != CURLE_OK || status < 200 || status >= 300)
         throw errorFor(code, status, code == CURLE_OK ? "AI provider returned HTTP " + std::to_string(status) : curl_easy_strerror(code));

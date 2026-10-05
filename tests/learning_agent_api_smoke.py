@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 from contextlib import closing
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
@@ -32,6 +33,7 @@ class ProtocolAI(BaseHTTPRequestHandler):
     def do_POST(self):
         request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         assert '教学主控' in request['messages'][0]['content'], '运行时不能启动独立教学模型'
+        assert request.get('response_format') == {'type': 'json_object'}, '主控应请求有效的 JSON 对象输出'
         context = json.loads(request['messages'][1]['content'])
         event = context['event']
         type(self).calls.append(event['requestId'])
@@ -156,7 +158,12 @@ def main(executable):
                 api('/api/home/recommendations'); api('/api/profile'); api('/api/learning-agent')
             assert len(ProtocolAI.calls) == calls
             planned = api('/api/generate-plan', dict(goal='化合价', mode='lite', requestId='plan'), 202)
-            planned = wait(planned['id']); course = planned['course']['id']
+            # 课程与任务在同一事务保存；并发轮询不能把新任务与旧访问列表混合。
+            with ThreadPoolExecutor(max_workers=4) as readers:
+                polls = [readers.submit(wait, planned['id']) for _ in range(4)]
+                planned = polls[0].result()
+                assert all(result.result()['course']['id'] == planned['course']['id'] for result in polls)
+            course = planned['course']['id']
             outline = api('/api/courses/' + course)['snapshot']['payload']
             assert len(outline['courseStructure']) == 1 and len(outline['courseStructure'][0]['topics']) == 2
             assert outline['generation']['model'] == 'fixture-agent-http'

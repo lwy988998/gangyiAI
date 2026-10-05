@@ -314,6 +314,7 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
                 return;
             }
             ChatOptions options; options.maxTokens = 8192; options.timeoutMs = 60000; options.maxAttempts = 1;
+            options.responseFormat = "json_object";
             options.temperature = 0.25;
             Json catalog = Json::array();
             for (const auto& [name, tool] : tools_) catalog.push_back({{"name", name}, {"description", tool.description}});
