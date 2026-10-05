@@ -259,12 +259,12 @@ def main(executable):
                 with db:
                     db.execute('INSERT INTO LearningSession(id,courseId,goal,mode,phaseIndex,phaseName,topicIndex,topicTitle,title,content) VALUES(?,?,?,?,?,?,?,?,?,?)',
                         ('old-session', course, '化合价', 'lite', 1, '概念', 1, '化合价', '原有课堂', json.dumps(old_content)))
-                    db.execute('INSERT INTO ClassroomActivity VALUES(?,?,?,?,?,?,?)',
+                    db.execute('INSERT INTO ClassroomActivity(id,courseId,kind,payload,updatedAt,phaseIndex,topicIndex) VALUES(?,?,?,?,?,?,?)',
                         ('classroom:' + course + ':1:1:practice:0:dialogue', course, 'dialogue', json.dumps(old_dialog), '2026-01-01', 1, 1))
             old = api('/api/learn?courseId=' + course + '&phaseIndex=1&topicIndex=1')
             assert old['id'] == 'legacy-old-session' and 'PRIVATE-' not in json.dumps(old)
             old_question = next(item for item in old['sections'] if item.get('legacyKind') == 'practice')
-            assert [item['text'] for item in old_question['dialog']] == ['我原来写过的回答', '我实际看过的旧讲解']
+            assert [item['text'] for item in old_question['dialog']] == ['我原来写过的回答', '我实际看过的旧讲解'], old_question['dialog']
             assert api('/api/learn?courseId=' + course + '&phaseIndex=1&topicIndex=1')['id'] == old['id']
             with closing(sqlite3.connect(database)) as db:
                 assert json.loads(db.execute("SELECT content FROM LearningSession WHERE id='old-session'").fetchone()[0]) == old_content
