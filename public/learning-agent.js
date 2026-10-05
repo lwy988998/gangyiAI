@@ -15,16 +15,25 @@
     remove(key) { try { localStorage.removeItem(`gangyi-agent:${key}`); } catch (_) { /* 不影响已保存记录。 */ } },
   };
   const id = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const exposures = new Map();
+  const flushExposure = async () => {
+    await Promise.all([...exposures].map(async ([taskId, seq]) => {
+      await request('/api/learn/exposure', { taskId, seq });
+      if (exposures.get(taskId) === seq) exposures.delete(taskId);
+    }));
+  };
   function watch(taskId, handlers = {}) {
     let sequence = handlers.afterSeq || 0, socket, timer, stopped = false;
     const events = new Set();
     const receive = event => {
       if (!Number.isInteger(event.seq) || event.seq <= sequence || events.has(event.seq)) return;
       events.add(event.seq); sequence = event.seq; handlers.onEvent?.(event);
+      exposures.set(taskId, sequence);
     };
     const state = task => {
       for (const event of task.events || []) receive(event);
       handlers.onState?.(task);
+      flushExposure().catch(() => { /* 下一次学生提交前再次保存已展示序号。 */ });
       if (!['pending', 'running'].includes(task.status)) { stopped = true; clearTimeout(timer); socket?.close(); }
     };
     async function poll() {
@@ -54,7 +63,11 @@
     else element.textContent = String(value);
   };
   window.GangyiAgent = { request, watch, storage, id, richText,
-    submit: event => request('/api/learning-agent/events', event),
+    submit: async event => { await flushExposure(); return request('/api/learning-agent/events', event); },
     control: value => request('/api/learning-agent/control', value),
   };
+  window.addEventListener('pagehide', () => {
+    for (const [taskId, seq] of exposures) navigator.sendBeacon('/api/learn/exposure',
+      new Blob([JSON.stringify({ taskId, seq })], { type: 'application/json' }));
+  });
 })();

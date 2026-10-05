@@ -11,7 +11,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
 from urllib.request import Request, urlopen
+from contextlib import closing, contextmanager
 from playwright.sync_api import sync_playwright
+
+
+@contextmanager
+def open_database(path):
+    # sqlite 的事务上下文不会关闭连接，Windows 清理临时目录前必须关闭句柄。
+    with closing(sqlite3.connect(path)) as connection:
+        with connection:
+            yield connection
 
 
 def port():
@@ -102,8 +111,9 @@ def main(executable):
         env = dict(os.environ, DATABASE_PATH=str(database), PORT=base.rsplit(':', 1)[1], HOST='127.0.0.1',
             AI_BASE_URL=f'http://127.0.0.1:{ai.server_port}/v1', AI_API_KEY='fictional-test-key',
             AI_MODEL='fixture-agent-protocol', GANGYI_LAUNCH_SESSION_ID='isolated-browser-launch')
+        log = open(Path(directory) / 'service.log', 'w+', encoding='utf-8')
         process = subprocess.Popen([str(Path(executable).resolve())], cwd=repository, env=env,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            stdout=log, stderr=log,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
         def get(path):
             with urlopen(base + path, timeout=10) as response:
@@ -126,7 +136,7 @@ def main(executable):
             else:
                 diagnostic = {key: last_state.get(key) for key in ('status', 'calls', 'error')}
                 raise AssertionError('启动推荐未完成：' + json.dumps(diagnostic, ensure_ascii=False))
-            with sqlite3.connect(database) as db:
+            with open_database(database) as db:
                 db.execute('INSERT INTO Course(id,anonymousId,goal,mode,title,source,status,createdAt,updatedAt) VALUES(?,?,?,?,?,?,?,?,?)',
                     ('fixture', 'fictional', '化合价', 'deep', '虚构化学课程', 'ai', 'active', '2026-10-04', '2026-10-04'))
             with sync_playwright() as playwright:
@@ -135,7 +145,16 @@ def main(executable):
                 errors = []
                 page.on('pageerror', lambda error: errors.append(str(error)))
                 page.goto(base + '/agent-prepare.html?courseId=fixture&requestId=browser-preparation')
-                page.wait_for_url('**/agent-classroom.html?lessonId=*', timeout=60000)
+                try:
+                    page.wait_for_url('**/agent-classroom.html?lessonId=*', timeout=60000)
+                except Exception:
+                    print('隔离服务退出码：', process.poll())
+                    log.flush(); log.seek(0); print(log.read()[-6000:])
+                    if process.poll() is None:
+                        diagnostic = get('/api/learning-agent')
+                        print(json.dumps({key: diagnostic.get(key) for key in ('id', 'status', 'calls', 'error', 'lesson')}, ensure_ascii=False))
+                        print(page.locator('#prepare-status').inner_text())
+                    raise
                 page.get_by_role('heading', name='化合价入门', exact=True).wait_for()
                 assert page.locator('#lesson-sections .agent-card').count() == 2
                 assert '由0升高到+2' not in page.locator('#lesson-sections').inner_text()
@@ -165,7 +184,7 @@ def main(executable):
                 assert page.locator('#lesson-sections textarea').evaluate('(element) => element === document.activeElement')
                 assert not errors, errors
                 browser.close()
-            with sqlite3.connect(database) as db:
+            with open_database(database) as db:
                 rows = db.execute("SELECT payload FROM LearningInteraction WHERE kind='practice'").fetchall()
                 actual = [json.loads(row[0]) for row in rows if 'questionId' in json.loads(row[0])]
                 assert len(actual) == 1 and actual[0]['response'] == '我认为从0升高到+2。'
@@ -177,6 +196,7 @@ def main(executable):
                 process.wait(timeout=20)
             ai.shutdown()
             ai.server_close()
+            log.close()
 
 
 if __name__ == '__main__':

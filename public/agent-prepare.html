@@ -3,5 +3,6 @@
 <header><a href="/my-courses">← 用户中心</a><span>真实 AI 备课</span></header><main><p class="eyebrow">读取实际回答与最新反馈</p>
 <h1>为你准备下一步学习</h1><p id="prepare-status" role="status" aria-live="polite">正在提交备课请求</p>
 <div id="prepare-stream"></div><button id="prepare-stop" type="button">暂停</button><button id="prepare-retry" type="button" hidden>重试</button>
-<a id="prepare-enter" hidden>进入已准备好的课堂 →</a></main>
-<script src="/learning-agent.js"></script><script src="/agent-prepare.js"></script></body></html>
+<a id="prepare-enter" hidden>进入已准备好的课堂 →</a>
+<form id="prepare-feedback" hidden><label for="prepare-input">补充你的情况或偏好</label><textarea id="prepare-input" rows="4"></textarea><button type="submit">补充后继续备课</button></form></main>
+<script src="/learning-agent.js"></script><script src="/agent-shell.js"></script><script src="/agent-prepare.js"></script></body></html>

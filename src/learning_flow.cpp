@@ -91,8 +91,8 @@ void checkAvailability(const Json& value) {
         if (!item.is_object() || !item.value("weekday", Json()).is_number_integer() ||
             !item.value("minutes", Json()).is_number_integer()) throw std::invalid_argument("学习时间无效");
         const int day = item["weekday"], minutes = item["minutes"];
-        if (day < 1 || day > 7 || !seen.insert(day).second || minutes < 10 || minutes > 240)
-            throw std::invalid_argument("每天的总学习时间须为 10 至 240 分钟");
+        if (day < 1 || day > 7 || !seen.insert(day).second || minutes < 1 || minutes > 1440)
+            throw std::invalid_argument("每天的总学习时间须为 1 至 1440 分钟");
     }
 }
 Json initialState(Database& db) {
@@ -188,7 +188,7 @@ void validateEntries(Database& db, const Json& plan, const Json& entries, bool e
         const auto courseId = item.value("courseId", ""); activeCourse(db, courseId);
         const auto date = item.value("date", ""), id = item.value("taskId", "");
         if (addDays(date, 0) != date || !item.value("minutes", Json()).is_number_integer() ||
-            item["minutes"].get<int>() < 5 || item["minutes"].get<int>() > 240 || id.empty() || dates.count(id))
+            item["minutes"].get<int>() < 1 || item["minutes"].get<int>() > 1440 || id.empty() || dates.count(id))
             throw std::invalid_argument("课时、日期或时长无效");
         dates[id] = date;
         positions[id] = positions.size();
@@ -276,7 +276,7 @@ Json studyPlanView(Database& db) {
     result["proposal"] = state.value("proposal", Json());
     result["learningVersion"] = db.learningRevision();
     result["model"] = state.value("model", "");
-    if (state.value("attemptedRevision", 0) != db.learningRevision()) {
+    if (!state.value("agentControlled", false) && state.value("attemptedRevision", 0) != db.learningRevision()) {
         result["status"] = "pending";
         if (state.value("status", "") != "pending") result["message"] = "真实 AI 正在结合最新表现更新安排…";
         result["proposal"] = Json();

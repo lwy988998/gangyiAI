@@ -201,14 +201,14 @@
         const slot = value.availability.find(item => item.weekday === index + 1), label = element('label', ''); label.dataset.weekday = index + 1;
         const check = document.createElement('input'); check.type = 'checkbox'; check.checked = !!slot;
         check.dataset.weekday = index + 1;
-        const minutes = document.createElement('input'); minutes.type = 'number'; minutes.min = 10; minutes.max = 240; minutes.step = 5;
+        const minutes = document.createElement('input'); minutes.type = 'number'; minutes.min = 1; minutes.max = 1440; minutes.step = 1;
         minutes.value = slot?.minutes || 30; minutes.setAttribute('aria-label', name + '总分钟数'); label.append(check, element('span', name), minutes, element('span', '分钟')); grid.append(label);
       }); availability.append(element('h3', '每天可用总时间'), grid);
       entries.append(element('h3', '全部课程安排'));
       (value.entries || []).forEach((item, index) => {
         const row = element('div', '', 'weekly-row'); row.dataset.index = index;
         const date = document.createElement('input'); date.type = 'date'; date.value = item.date; date.setAttribute('aria-label', '学习日期');
-        const minutes = document.createElement('input'); minutes.type = 'number'; minutes.value = item.minutes; minutes.min = 5; minutes.max = 240; minutes.setAttribute('aria-label', '学习分钟数');
+        const minutes = document.createElement('input'); minutes.type = 'number'; minutes.value = item.minutes; minutes.min = 1; minutes.max = 1440; minutes.setAttribute('aria-label', '学习分钟数');
         if (item.completed) date.disabled = minutes.disabled = true;
         const link = element('a', item.title + (item.completed ? ' · 已完成' : '')); link.href = '/learn?' + new URLSearchParams({courseId: item.courseId, phaseIndex: item.phaseIndex, topicIndex: item.topicIndex, ...(item.kind === 'review' ? {reviewId: item.reviewId, review: item.day} : {})});
         row.append(date, link, minutes, element('span', '分钟'));
@@ -238,7 +238,7 @@
     let host = byId('course-preview');
     if (!host) { const card = element('section', '', 'plan-card full-card'); card.append(element('h2', 'AI 课程路线预览')); host = element('div', ''); host.id = 'course-preview'; card.append(host); byId('plan-view').prepend(card); }
     if (host.dataset.mounted) return; host.dataset.mounted = '1';
-    let active = 0, queued = false;
+    let active = 0;
     const tabs = element('div', '', 'slide-tabs'), content = element('article', '', 'slide-content'), status = element('p', '', 'ai-muted');
     const update = element('button', '更新 AI 预览'); update.type = 'button'; host.replaceChildren(status, tabs, content, update);
     function display(slides) {
@@ -253,7 +253,7 @@
         const value = await api('/api/courses/' + encodeURIComponent(context.courseId) + '/preview');
         display(value.slides || []); status.textContent = (value.message || '正在等待真实 AI 生成课程路线预览…') + (value.updatedAt ? ' · ' + localTime(value.updatedAt) : '');
         update.disabled = value.status === 'pending';
-        if (!queued && (value.status === 'missing' || value.stale && value.status === 'ready')) { queued = true; await api('/api/courses/' + encodeURIComponent(context.courseId) + '/preview', {}); }
+
       } catch (error) { status.textContent = error.message; }
     }
     update.onclick = async () => { update.disabled = true; try { await api('/api/courses/' + encodeURIComponent(context.courseId) + '/preview', {retry: true}); await load(); } catch (error) { status.textContent = error.message; update.disabled = false; } };
@@ -269,8 +269,8 @@
     async function load() {
       try {
         const data = await api('/api/home/next-step');
-        detail.textContent = data.title ? data.title + '：' + (data.reason || data.message) : data.message;
-        link.href = data.href || '/#weekly-plan'; link.textContent = data.title ? '前往 AI 建议的学习内容 →' : '查看学习安排 →';
+        detail.textContent = data.lesson ? data.lesson.title + '：' + (data.message || 'AI 已完成备课') : data.message || '等待 AI 更新';
+        link.href = data.lesson ? '/agent-prepare.html?taskId='+encodeURIComponent(data.id) : '/#weekly-plan'; link.textContent = data.lesson ? '查看 AI 已备好的学习内容 →' : '查看学习安排 →';
       } catch (_) { detail.textContent = '等待 AI 更新，已保存的课程仍可继续阅读。'; }
     }
     load(); setInterval(() => { if (!document.hidden) load(); }, 4000);

@@ -186,9 +186,11 @@ std::optional<json> recomputeCourseProgress(Database& db, const std::string& cou
         if (cards == 0) cards = stageItemCount(payload, "roadmap", {"topics", "learningCards", "cards"});
         const size_t tasks = stageItemCount(payload, "roadmap", {"tasks", "checklist", "practices", "projects"});
         const size_t steps = stageItemCount(payload, "roadmap", {"steps"});
-        const int completed = completedTaskCount(db, courseId) + understoodStepCount(db, courseId) +
+        int completed = completedTaskCount(db, courseId) + understoodStepCount(db, courseId) +
             completedCardCount(db, courseId);
-        const int total = std::max(completed, static_cast<int>(cards + tasks + steps));
+        const bool agentOutline = payload.value("generation", json::object()).value("promptVersion", "") == "ai-agent-v551";
+        if (agentOutline) completed = completedCardCount(db, courseId);
+        const int total = std::max(completed, static_cast<int>(agentOutline ? cards : cards + tasks + steps));
         const int percent = total == 0 ? 0 : std::clamp(static_cast<int>(std::round(completed * 100.0 / total)), 0, 100);
 
         auto existing = db.findProgressByCourseId(courseId);

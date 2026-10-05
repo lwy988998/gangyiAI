@@ -1,4 +1,5 @@
 #include "agent_preferences.hpp"
+#include "agent_curriculum.hpp"
 #include <algorithm>
 #include <chrono>
 #include <ctime>
@@ -194,6 +195,11 @@ Json agentChanges(Database& db, const AgentAccess& access) {
     }
     return result;
 }
+Json agentChangeRecord(Database& db, const Json& task, const AIResult& source, const Json& args,
+    const std::string& kind, const std::string& target, const Json& before, const Json& after) {
+    return journal(db, task, source, args, kind, target, before, after);
+}
+void agentSaveChange(Database& db, const Json& change, const std::string& courseId) { saveChange(db, change, courseId); }
 Json agentRecommendationView(Database& db, const AgentAccess& access) {
     return parse(db.profileMeta(recommendationKey(access)));
 }
@@ -227,7 +233,7 @@ void registerAgentPreferenceTools(LearningAgent& agent) {
             Json plan = old; plan["availability"] = args.at("availability"); plan["entries"] = args.at("entries");
             validatePlan(db, access, old, plan);
             plan["version"] = old.value("version", 0) + 1; plan["source"] = "ai"; plan["updatedAt"] = now();
-            auto after = state; after["plan"] = plan; after["status"] = "ready"; after["model"] = source.model;
+            auto after = state; after["plan"] = plan; after["status"] = "ready"; after["model"] = source.model; after["agentControlled"] = true;
             after["reason"] = requireText(args, "reason"); after.erase("proposal");
             const auto change = journal(db, task, source, args, "schedule", "learning-flow", raw, after.dump());
             const auto draftRaw = db.profileMeta("study-drafts");
@@ -237,9 +243,16 @@ void registerAgentPreferenceTools(LearningAgent& agent) {
             for (const auto& draft : drafts.items()) editing = editing || draft.value().value("expires", 0LL) > time;
             if (editing) return PreparedAgentTool{{{"changed", false}, {"draftProtected", true},
                 {"message", "编辑中的内容已保留，AI 新安排作为候选保存。"}},
-                [after, draftRaw](Database& connection) {
+                [after, draftRaw, raw, old, change](Database& connection) {
                     if (connection.profileMeta("study-drafts") != draftRaw) throw std::invalid_argument("编辑状态已经变化");
                     connection.setProfileMeta("agent-schedule-proposal", after.dump());
+                    auto candidate = change; candidate["status"] = "candidate";
+                    auto state = parse(raw); state["agentControlled"] = true; state["status"] = "ready";
+                    state["proposal"] = {{"id", change.at("id")}, {"plan", after.at("plan")}, {"previousPlan", old},
+                        {"reason", change.at("reason")}, {"learningVersion", connection.learningRevision()}};
+                    state["message"] = "编辑内容已保留，可查看并确认 AI 候选安排。";
+                    if (!connection.compareProfileMeta("learning-flow", raw, state.dump())) throw std::invalid_argument("课表版本已变化");
+                    saveChange(connection, candidate);
                 }};
             return PreparedAgentTool{{{"changed", true}, {"change", publicChange(change)}},
                 [raw, after, change, draftRaw](Database& connection) {
@@ -249,10 +262,10 @@ void registerAgentPreferenceTools(LearningAgent& agent) {
                     connection.markLearningDirty(); saveChange(connection, change);
                 }};
         }});
-    agent.registerTool("update_recommendations", {"根据最新真实表现决定更新首页推荐；无需固定补弱与探索比例。参数 lite、deep 各五条非重复纯文本目标，以及 reason。", false,
+    agent.registerTool("update_recommendations", {"根据最新真实表现决定更新首页推荐；无需固定补弱与探索比例。参数 lite、deep 两组非重复纯文本目标，以及 reason；每组数量自行决定。", false,
         [](Database& db, const Json& args, const Json& task, const AIResult& source) {
             for (const auto* mode : {"lite", "deep"}) {
-                if (!args.value(mode, Json()).is_array() || args[mode].size() != 5) throw std::invalid_argument("每组推荐须为五条");
+                if (!args.value(mode, Json()).is_array() || args[mode].empty()) throw std::invalid_argument("每组推荐须有实际目标");
                 std::set<std::string> seen;
                 for (const auto& item : args[mode]) if (!item.is_string() || item.get<std::string>().empty() ||
                     !seen.insert(item.get<std::string>()).second) throw std::invalid_argument("推荐文字无效或重复");
@@ -288,6 +301,15 @@ Json agentUndoChange(Database& db, const AgentAccess& access, const Json& body) 
             before["plan"]["version"] = after["plan"].value("version", 0) + 1;
             before["plan"]["updatedAt"] = now();
             if (!db.compareProfileMeta(key, raw, before.dump())) throw std::invalid_argument("撤回时课表已经变化");
+        } else if (change.at("kind") == "outline") {
+            const auto courseId = change.at("target").get<std::string>(); requireCourse(db, access, courseId);
+            const auto snapshots = db.findSnapshotsByCourseId(courseId);
+            if (snapshots.empty()) throw std::invalid_argument("大纲不存在");
+            const auto latest = std::max_element(snapshots.begin(), snapshots.end(), [](const auto& a, const auto& b) { return a.version < b.version; });
+            if (parse(latest->payload) != change.at("after")) throw std::invalid_argument("大纲已有后续修改，不能覆盖");
+            agentValidateOutline(db, courseId, change.at("after"), change.at("before"));
+            if (!db.insert(CourseSnapshot{newId(), courseId, latest->version + 1, change.at("before").dump(), now()}))
+                throw std::runtime_error("大纲撤回失败");
         } else throw std::invalid_argument("该调整暂不支持撤回");
         db.markLearningDirty(); change["status"] = "undone"; change["undoneAt"] = now();
         change["undoFingerprint"] = agentLearnerFingerprint(db, access);

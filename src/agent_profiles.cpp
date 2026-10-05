@@ -1,5 +1,6 @@
 #include "agent_profiles.hpp"
 #include "question_evidence.hpp"
+#include "agent_curriculum.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -122,6 +123,27 @@ Json agentProfileEvidence(Database& db, const AgentAccess& access) {
 }
 
 void registerAgentProfileTools(LearningAgent& agent) {
+    agent.registerTool("update_topic_mastery", {"AI 判断具体知识点的证据充分性与掌握情况，不使用三题门槛。参数 courseId,topicId,score:0..100或null,sufficient:bool,evidenceIds,rationale,recommendation,uncertainty,weakPoints:[]可选,nextReviewAt:日期或空。引用 read_profile_evidence 中同一课程的实际证据。", false,
+        [](Database& db, const Json& args, const Json& task, const AIResult& source) {
+            const auto access = accessFor(task); const auto courseId = text(args, "courseId");
+            if (!allowed(db, access, courseId)) throw std::invalid_argument("无权评估该课程");
+            auto evidence = agentProfileEvidence(db, access); Json relevant = Json::array();
+            for (const auto& item : evidence) if (item.at("courseId") == courseId) relevant.push_back(item);
+            const auto rating = checked(args, relevant); const auto outline = agentOutline(db, access, courseId); Json topic;
+            for (const auto& stage : outline.at("courseStructure")) for (const auto& item : stage.at("topics")) if (item.at("id") == text(args, "topicId")) topic = item;
+            if (topic.empty()) throw std::invalid_argument("评估知识点不存在");
+            TopicMastery value; value.courseId = courseId; value.topic = topic.at("title"); value.phaseIndex = topic.at("legacyPhaseIndex");
+            value.score = rating.score; value.rationale = rating.rationale + "；不确定性：" + rating.uncertainty; value.recommendation = rating.recommendation;
+            const auto weakPoints = args.value("weakPoints", Json::array()); if (!weakPoints.is_array()) throw std::invalid_argument("薄弱点应为文字列表");
+            for (const auto& point : weakPoints) if (!point.is_string()) throw std::invalid_argument("薄弱点应为文字");
+            value.weakPoints = weakPoints.dump(); value.evidenceIds = rating.references.dump(); value.evidenceCount = rating.distinctQuestions;
+            value.nextReviewAt = args.value("nextReviewAt", ""); value.model = source.model; value.status = rating.score ? "ready" : "insufficient";
+            value.updatedAt = now(); value.version = db.profileRevision();
+            return PreparedAgentTool{{{"topicUpdated", true}, {"evidenceCount", rating.distinctQuestions}}, [value](Database& connection) {
+                if (connection.profileRevision() != value.version) throw std::invalid_argument("知识点评估证据已变化");
+                if (!connection.upsert(value)) throw std::runtime_error("知识点画像保存失败");
+            }};
+        }});
     agent.registerTool("read_profile_evidence", {"读取有权限的真实原题、实际回答、不会反馈、提示经历和评价来源。返回稳定题目标识，同题多轮仍是一道题；漏答、跳过与失败不纳入。画像充分性、适用维度和评分由 AI 判断，不要求三道题。", true,
         [](Database& db, const Json&, const Json& task, const AIResult&) { return PreparedAgentTool{agentProfileEvidence(db, accessFor(task)), {}}; }});
     agent.registerTool("update_profiles", {"由真实 AI 更新学科和学习能力画像。参数 subjects:[{subject,score:0..100或null,sufficient:bool,rationale,recommendation,uncertainty,evidenceIds,weakPoints:[]}],abilities:[{id:memory|understanding|application|reasoning|expression|transfer,score,sufficient,rationale,recommendation,uncertainty,evidenceIds}]。可只更新相关维度，保留其他真实结果。每项正式评分引用 read_profile_evidence 的实际记录ID，由你判断证据是否充分及题目是否适用；不机械复制正确率或学科分数，不把教师答案、浏览及完成标记当证据。维度含义：事实回忆、概念解释、已知方法解题、有依据的推导、说明过程、新情境运用。", false,

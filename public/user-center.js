@@ -28,7 +28,7 @@
       .filter(label => label.querySelector('[type=checkbox]').checked)
       .map(label => ({
         weekday: Number(label.querySelector('[type=checkbox]').dataset.weekday),
-        minutes: Math.max(10, Math.min(240, Number(label.querySelector('[type=number]').value) || 30)),
+        minutes: Math.max(1, Math.min(1440, Number(label.querySelector('[type=number]').value) || 30)),
       }));
   }
 
@@ -75,10 +75,10 @@
     grid.innerHTML = '';
     NAMES.forEach((name, index) => {
       const slot = saved.find(item => Number(item.weekday) === index + 1);
-      const minutes = slot ? Math.max(10, Math.min(240, Number(slot.minutes) || 30)) : 30;
+      const minutes = slot ? Math.max(1, Math.min(1440, Number(slot.minutes) || 30)) : 30;
       const label = document.createElement('label');
       label.innerHTML = '<input type="checkbox" data-weekday="' + (index + 1) + '"' + (slot ? ' checked' : '') +
-        '><span>' + name + '</span><input type="number" min="10" max="240" step="5" value="' + minutes +
+        '><span>' + name + '</span><input type="number" min="1" max="1440" step="1" value="' + minutes +
         '" aria-label="' + name + '分钟数"><span>分钟</span>';
       grid.append(label);
     });

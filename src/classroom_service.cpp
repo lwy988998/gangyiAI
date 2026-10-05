@@ -485,7 +485,7 @@ Json publicLearningContent(const Json& content) {
         "phaseName", "topicTitle", "title", "summary", "goal", "mode", "source", "model", "generatedAt", "promptVersion", "schemaVersion",
         "contentVersion", "learningVersion", "courseVersion", "planVersion", "version", "dialogueVersion", "requestId", "createdAt", "updatedAt",
         "content", "blocks", "overview", "steps", "examples", "practice", "quiz", "assessment", "diagnostic", "interaction", "review",
-        "questions", "question", "questionId", "type", "kind", "index", "task", "materials", "options", "difficulty", "knowledgePoints",
+        "questions", "question", "questionId", "type", "kind", "index", "task", "topicId", "legacyPhaseIndex", "legacyTopicIndex", "materials", "options", "difficulty", "knowledgePoints",
         "objectives", "keyPoints", "commonMistakes", "takeaways", "nextSteps", "tips", "bullets", "duration", "minutes", "text",
         "caption", "latex", "formula", "imageUrl", "alt", "rows", "columns", "headers", "values", "cells", "table", "image", "label",
         "references", "sources", "searchQuery", "searchStatus", "fallbackUsed", "generations", "generation", "progress", "exposure", "href", "classroomUrl",

@@ -31,7 +31,7 @@ def wait_for(predicate, seconds=20):
     raise AssertionError('画像未在期限内达到预期状态')
 
 class Harness:
-    def __init__(self, executable, root):
+    def __init__(self, executable, root, unified=False):
         self.executable, self.root = Path(executable).resolve(), Path(root)
         self.calls = []
         self.mode = 'valid'
@@ -98,6 +98,11 @@ class Harness:
                 self.send_header('Content-Length', str(len(payload)))
                 self.end_headers()
                 self.wfile.write(payload)
+        if unified:
+            from learning_agent_api_smoke import ProtocolAI
+            ProtocolAI.calls.clear()
+            Model = ProtocolAI
+            self.calls = ProtocolAI.calls
         self.model = ThreadingHTTPServer(('127.0.0.1', 0), Model)
         threading.Thread(target=self.model.serve_forever, daemon=True).start()
         with socket.socket() as sock:

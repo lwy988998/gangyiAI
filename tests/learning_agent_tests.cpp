@@ -253,7 +253,10 @@ int main() {
         auto minute45 = entry; minute45["minutes"] = 45;
         toolArgs["availability"] = {{{"weekday", day}, {"minutes", 45}}}; toolArgs["entries"] = {minute45};
         const auto protectedDraft = apply(); assert(protectedDraft["status"] == "ready");
-        assert(Json::parse(db.profileMeta("learning-flow")) == savedPlan);
+        const auto protectedPlan = Json::parse(db.profileMeta("learning-flow"));
+        assert(protectedPlan.at("plan") == savedPlan.at("plan"));
+        assert(protectedPlan.at("proposal").at("previousPlan") == savedPlan.at("plan"));
+        assert(protectedPlan.at("proposal").at("plan").at("entries")[0].at("minutes") == 45);
         assert(!db.profileMeta("agent-schedule-proposal").empty());
         assert(Json::parse(db.profileMeta("study-drafts"))["editing-window"]["text"] == "用户未保存的编辑");
 
