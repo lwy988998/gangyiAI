@@ -56,8 +56,11 @@ def main(executable):
             page = browser.new_page(viewport={'width':1180,'height':820}, reduced_motion='reduce')
             failures = []
             for path in paths:
-                response = page.goto(info['base'] + path, wait_until='domcontentloaded')
-                if response is None or response.status != 200:
+                target = info['base'] + path
+                response = page.goto(target, wait_until='domcontentloaded')
+                # 页内画像页签只改变锚点，没有新的 HTTP 响应；仍核对目标与实际就绪状态。
+                hash_navigation = response is None and '#' in path and page.url == target
+                if (response is None and not hash_navigation) or (response is not None and response.status != 200):
                     failures.append(path + ' 未正常返回页面')
                     continue
                 if not signals_ready(page, script, 3):
