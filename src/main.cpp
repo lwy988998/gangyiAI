@@ -362,7 +362,7 @@ int main() {
         std::string courseId = courseIdP ? courseIdP : "";
         std::string anonymousId = anonymousIdP ? anonymousIdP : "";
         std::string goal = goalP ? goalP : "";
-        std::string mode = modeP && *modeP ? modeP : "deep";
+        std::string mode = modeP && *modeP ? modeP : "";
         std::string phaseIndex = phaseIndexP ? phaseIndexP : "1";
         std::string phaseName = phaseNameP ? phaseNameP : "";
         nlohmann::json plan = nlohmann::json::object();
@@ -387,23 +387,38 @@ int main() {
                 }
             }
         }
+        if (mode.empty()) mode = "deep";
         crow::response response(gangyi::renderPhasePage(courseId, anonymousId, goal, mode, phaseIndex, phaseName,
             gangyi::publicCoursePayload(plan), card));
         response.set_header("Content-Type", "text/html; charset=utf-8");
         return response;
     });
 
-    // /learn 微课程页：课程页和阶段页仍会生成此链接，必须保持与学习 API 配套注册。
-    CROW_ROUTE(app, "/learn")([&db](const crow::request& req) {
+    // 三个课堂页面共用已保存课时；旧索引只做身份解析。
+    const auto classroomPage = [&db](const crow::request& req, const std::string& view) {
         try {
             const auto scope = questionRequestBody(req);
+            const std::string target = req.url_params.get("review") ? "practice" : view;
+            if (!scope.value("lessonId", "").empty()) {
+                gangyi::agentLessonView(db, localAgentAccess(db), scope.at("lessonId"));
+                if (target != view) { crow::response response(302); response.set_header("Location", "/practice?" + req.raw_url.substr(req.raw_url.find('?') + 1)); return response; }
+                crow::response response(gangyi::renderClassroomPage(view));
+                response.set_header("Content-Type", "text/html; charset=utf-8"); return response;
+            }
             const auto saved = gangyi::agentLegacyLesson(db, localAgentAccess(db), scope);
             crow::response response(302);
-            if (!saved.empty()) response.set_header("Location", saved.at("href").get<std::string>());
-            else response.set_header("Location", "/agent-prepare.html?" + (req.raw_url.find('?') == std::string::npos ? std::string() : req.raw_url.substr(req.raw_url.find('?') + 1)));
+            if (!saved.empty()) response.set_header("Location", "/" + target + "?lessonId=" + saved.at("lessonId").get<std::string>() +
+                (req.raw_url.find('?') == std::string::npos ? std::string() : "&" + req.raw_url.substr(req.raw_url.find('?') + 1)));
+            else response.set_header("Location", "/agent-prepare.html?" + (req.raw_url.find('?') == std::string::npos ? std::string() : req.raw_url.substr(req.raw_url.find('?') + 1)) + "&view=" + target);
             return response;
-        } catch (const std::exception& error) { return crow::response(409, error.what()); }
-    });
+        } catch (const std::exception&) {
+            crow::response response(409, "课堂入口已失效，请返回课程选择知识点，或让 AI 重新备课。");
+            response.set_header("Content-Type", "text/plain; charset=utf-8"); return response;
+        }
+    };
+    CROW_ROUTE(app, "/learn")([classroomPage](const crow::request& req) { return classroomPage(req, "learn"); });
+    CROW_ROUTE(app, "/practice")([classroomPage](const crow::request& req) { return classroomPage(req, "practice"); });
+    CROW_ROUTE(app, "/summary")([classroomPage](const crow::request& req) { return classroomPage(req, "summary"); });
 
     CROW_ROUTE(app, "/learn/next")([&db](const crow::request& req) {
         crow::response response(302);
@@ -1212,8 +1227,14 @@ int main() {
                 {"summary", found->course.summary ? nlohmann::json(*found->course.summary) : nlohmann::json(nullptr)},
                 {"source", found->course.source},
                 {"createdAt", found->course.createdAt}, {"updatedAt", found->course.updatedAt}};
+            nlohmann::json cards = nlohmann::json::array();
+            forEachTopic(found->payload, [&](int phaseIndex, int topicIndex, const std::string&) {
+                const auto saved = db.findLearningCardProgress(courseId, phaseIndex, topicIndex);
+                cards.push_back({{"phaseIndex", phaseIndex}, {"topicIndex", topicIndex},
+                    {"status", saved ? saved->status : "not_started"}});
+            });
             return crow::response(200, nlohmann::json{{"course", course},
-                {"snapshot", {{"payload", gangyi::publicCoursePayload(found->payload)}}}}.dump());
+                {"snapshot", {{"payload", gangyi::publicCoursePayload(found->payload)}}}, {"cards", cards}}.dump());
         } catch (...) {
             return crow::response(500, nlohmann::json{{"error", "课程读取失败，请稍后重试。"}}.dump());
         }

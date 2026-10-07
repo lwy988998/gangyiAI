@@ -16,7 +16,7 @@
   }
 
   async function setupWeeklyPlan() {
-    if (courseId && $('plan-view')) window.GangyiLearning.mountStudyPlan('#plan-view');
+    // 学习安排只在我的课程中显示。
   }
 
   async function setupReviews() {
@@ -31,7 +31,7 @@
       const courses = (await api('/api/courses')).courses || [];
       const results = await Promise.all(courses.map(async course => ({course, items: (await api('/api/classroom/reviews?courseId=' + encodeURIComponent(course.id))).items || []})));
       const items = results.flatMap(({course, items}) => items.map(item => ({course, item})));
-      section.innerHTML = '<h2>待复习</h2>' + (items.length ? '<ul>' + items.map(({course, item}) => '<li><a href="/learn?' + new URLSearchParams({courseId: course.id, phaseIndex: item.phaseIndex, topicIndex: item.topicIndex, review: item.day, reviewId: item.reviewId}).toString() + '">' + escape(course.title + ' · ' + item.title + ' · 到期 ' + item.due) + '</a></li>').join('') + '</ul>' : '<p>目前没有到期复习。</p>');
+      section.innerHTML = '<details><summary>待复习 · ' + items.length + ' 项</summary>' + (items.length ? '<ul>' + items.map(({course, item}) => '<li><a href="/learn?' + new URLSearchParams({courseId: course.id, phaseIndex: item.phaseIndex, topicIndex: item.topicIndex, review: item.day, reviewId: item.reviewId}).toString() + '">' + escape(course.title + ' · ' + item.title + ' · 到期 ' + item.due) + '</a></li>').join('') + '</ul>' : '<p>目前没有到期复习。</p>') + '</details>';
     } catch (_) { section.querySelector('p').textContent = '复习清单暂未更新，课程仍可继续。'; }
   }
 

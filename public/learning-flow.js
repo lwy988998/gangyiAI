@@ -162,7 +162,7 @@
     const actions = element('div', '', 'classroom-actions'), save = element('button', '保存修改'), replan = element('button', '根据最新表现重排');
     save.id = 'weekly-save'; replan.id = 'weekly-replan'; save.type = replan.type = 'button'; actions.append(save, replan);
     const confirm = element('div', '', 'ai-plan-preview'); confirm.id = 'weekly-confirm'; confirm.hidden = true;
-    box.append(title, message, element('p', '每天的分钟数是全部课程的总预算。手动安排会先展示对比，经确认后更新。', 'ai-muted'), availability, entries, actions, confirm); host.before(box);
+    const timeDetails = element('details', ''); timeDetails.append(element('summary', '调整每天可用时间'), availability); box.append(title, message, timeDetails, entries, actions, confirm); host.before(box);
     let plan = null, dirty = false, busy = false, editEpoch = 0;
     const names = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
     function gather() {
@@ -270,12 +270,16 @@
     const host = home; if (!host || byId('ai-next-step')) return;
     const box = element('section', '', 'classroom-card ai-next-step'); box.id = 'ai-next-step';
     const detail = element('p', '正在读取真实 AI 的下一步建议…'), link = element('a', '查看学习安排 →');
-    link.href = '/#weekly-plan'; link.className = 'ai-next-action'; box.append(element('h2', 'AI 推荐的下一步'), detail, link); host.after(box);
+    const fullDetail=element('details','','course-more'), fullText=element('p','','ai-next-full');
+    fullText.style.whiteSpace='pre-wrap';fullDetail.append(element('summary','展开 AI 完整说明'),fullText);fullDetail.hidden=true;
+    link.href = '/my-courses#weekly-plan'; link.className = 'ai-next-action'; box.append(detail, fullDetail, link); home.querySelector('.home-intro').after(box);
     async function load() {
       try {
         const data = await api('/api/home/next-step');
-        detail.textContent = data.lesson ? data.lesson.title + '：' + (data.message || 'AI 已完成备课') : data.message || '等待 AI 更新';
-        link.href = data.lesson ? '/agent-prepare.html?taskId='+encodeURIComponent(data.id) : '/#weekly-plan'; link.textContent = data.lesson ? '查看 AI 已备好的学习内容 →' : '查看学习安排 →';
+        const text=data.lesson ? data.lesson.title + '：' + (data.message || 'AI 已完成备课') : data.message || '等待 AI 更新';
+        const sentence=(text.match(/^[\s\S]*?[。！？\n]/)?.[0]||text).trim();
+        detail.textContent=sentence;fullText.textContent=text;fullDetail.hidden=sentence===text.trim();
+        link.href = data.lesson ? '/agent-prepare.html?taskId='+encodeURIComponent(data.id) : '/my-courses#weekly-plan'; link.hidden = !data.lesson; link.textContent = data.lesson ? '查看 AI 已备好的学习内容 →' : '查看学习安排 →';
       } catch (_) { detail.textContent = '等待 AI 更新，已保存的课程仍可继续阅读。'; }
     }
     load(); setInterval(() => { if (!document.hidden) load(); }, 4000);
@@ -429,7 +433,7 @@
   window.GangyiLearning = {renderDialogue, mountStudyPlan, mountQuestionKind, collectDrafts};
   document.dispatchEvent(new CustomEvent('gangyi:learning-ready'));
   const initial = () => {
-    if (document.querySelector('.home-hero')) { mountNextStep(); mountStudyPlan(document.querySelector('.home-hero').nextElementSibling || document.querySelector('.dark-footer')); }
+    if (document.querySelector('.home-hero')) mountNextStep(); if (byId('uc-study-plan-anchor')) mountStudyPlan('#uc-study-plan-anchor');
     mountPreview(); mountNextStep(); mountPreparation(); mountNextLessonAction(); mountNextLessonPage();
   };
   const monitor = new MutationObserver(initial); monitor.observe(document.body, {childList: true, subtree: true});

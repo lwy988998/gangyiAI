@@ -58,6 +58,7 @@ jobs:
         shell: pwsh
         run: .\scripts\test_windows_release.ps1
       - name: 保存 Windows 产物
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: gangyiAI-windows-${{ github.run_id }}

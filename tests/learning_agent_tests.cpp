@@ -313,11 +313,76 @@ int main() {
         assert(shown.dump().find("expectedAnswer") == std::string::npos && shown.dump().find("rubric") == std::string::npos);
         assert(shown.dump().find("由0升高到+2") == std::string::npos);
         const auto entered = gangyi::agentControl(db, access, {{"command", "enter_lesson"}, {"lessonId", preparedLessonId}});
-        assert(entered["href"].get<std::string>().find("agent-classroom.html") != std::string::npos);
+        assert(entered["href"].get<std::string>().find("/learn?lessonId=") == 0);
+        // 同一课时复用开课任务；真实主控选择教学焦点，读取不增加调用或掌握证据。
+        const auto beforeStartRecords = db.listInteractions().size();
+        const auto start = gangyi::agentControl(db, access, {{"command", "start_lesson"}, {"lessonId", preparedLessonId}});
+        assert(gangyi::agentControl(db, access, {{"command", "start_lesson"}, {"lessonId", preparedLessonId}})["id"] == start["id"]);
+        assert(db.listInteractions().size() == beforeStartRecords);
+        int teachingCalls = 0; std::string interactionSectionId;
+        gangyi::LearningAgent teacher(path, [&](const auto& options, const auto& sink) {
+            Json actions = Json::array();
+            if (++teachingCalls == 1) {
+                actions.push_back({{"id", "interaction"}, {"tool", "append_section"}, {"args", {{"lessonId", preparedLessonId},
+                    {"section", {{"kind", "question"}, {"title", "当前段先想一想"}, {"questionKind", "interaction"},
+                        {"question", {{"question", "化合价升高和电子变化有什么联系？"}, {"type", "open"}, {"expectedAnswer", "失去电子"}}}}}}}});
+            } else {
+                const auto returned = Json::parse(options.messages.back().content);
+                interactionSectionId = returned.at("toolResults")[0]["result"]["sectionId"];
+                actions.push_back({{"id", "focus"}, {"tool", "select_teaching_focus"}, {"args", {{"lessonId", preparedLessonId},
+                    {"sectionId", shown["sections"][0]["id"]}, {"interactionSectionId", interactionSectionId},
+                    {"practiceSectionId", shown["sections"][1]["id"]}}}});
+            }
+            return output({{"message", teachingCalls == 1 ? "工具处理中，这段还没有显示。" : "先比较化合价，再说说你对电子变化的理解。"},
+                {"actions", actions}, {"state", teachingCalls == 1 ? "continue" : "waiting_student"}}, sink);
+        });
+        gangyi::registerAgentLessonTools(teacher);
+        teacher.process(db, start["id"]);
+        const auto teaching = gangyi::agentView(db, access, start["id"]);
+        assert(teaching["status"] == "waiting_student" && teachingCalls == 2);
+        const auto focused = gangyi::agentLessonView(db, access, preparedLessonId);
+        assert(focused["teachingFocus"]["interactionSectionId"] == interactionSectionId);
+        assert(focused["teachingFocus"]["sectionId"] == shown["sections"][0]["id"]);
+        assert(focused["teachingTaskId"] == start["id"] && focused["initialTeachingTaskId"] == start["id"]);
+        assert(!focused["sections"][0]["displayed"].get<bool>());
+        bool exposureDenied = false;
+        try { gangyi::agentExposeTask(db, access, {{"lessonId", preparedLessonId}, {"sections", {{{"id", shown["sections"][0]["id"]}, {"version", 99}}}}}); }
+        catch (...) { exposureDenied = true; }
+        assert(exposureDenied && db.profileMeta("agent-section-exposure:" + preparedLessonId).empty());
+        gangyi::agentExposeTask(db, access, {{"lessonId", preparedLessonId}, {"sections", {{{"id", shown["sections"][0]["id"]}, {"version", 1}}}}});
+        const auto displayedLesson = gangyi::agentLessonView(db, access, preparedLessonId);
+        assert(displayedLesson["sections"][0]["displayed"].get<bool>() && !displayedLesson["sections"][1]["displayed"].get<bool>());
+        Json displayed = Json::array();
+        for (const auto& item : teaching["events"])
+            if (item.value("type", "") == "delta" && item.value("field", "") == "message" && item.value("step", 0) == 2)
+                displayed.push_back(item.at("seq"));
+        assert(!displayed.empty());
+        gangyi::agentExposeTask(db, access, {{"taskId", start["id"]}, {"seq", teaching.at("seq")}, {"displayedSequences", displayed}});
+        const auto readFocus = gangyi::agentLessonView(db, access, preparedLessonId);
+        assert(readFocus["teachingDialog"].size() == 1);
+        assert(readFocus["teachingDialog"][0]["text"] == "先比较化合价，再说说你对电子变化的理解。");
+        assert(readFocus.dump().find("失去电子") == std::string::npos);
+        for (int i = 0; i < 5; ++i) gangyi::agentControl(db, access, {{"command", "start_lesson"}, {"lessonId", preparedLessonId}});
+        teacher.process(db, start["id"]);
+        assert(teachingCalls == 2 && db.listInteractions().size() == beforeStartRecords);
+        // 程序拒绝把练习题误选为讲解段，不允许用错误焦点覆盖已保存位置。
+        const auto invalidFocus = gangyi::agentSubmit(db, access, {{"type", "lesson_focus_request"}, {"courseId", "chem"},
+            {"lessonId", preparedLessonId}, {"requestId", "invalid-focus"}});
+        gangyi::LearningAgent invalidTeacher(path, [&](const auto&, const auto& sink) {
+            return output({{"message", "错误的板块类型"}, {"actions", {{{"id", "wrong-focus"}, {"tool", "select_teaching_focus"},
+                {"args", {{"lessonId", preparedLessonId}, {"sectionId", shown["sections"][1]["id"]}}}}}}, {"state", "waiting_student"}}, sink);
+        });
+        gangyi::registerAgentLessonTools(invalidTeacher);
+        invalidTeacher.process(db, invalidFocus["id"]);
+        assert(gangyi::agentView(db, access, invalidFocus["id"])["status"] == "failed");
+        assert(gangyi::agentLessonView(db, access, preparedLessonId)["teachingFocus"] == focused["teachingFocus"]);
         Json responseEvent = {{"type", "question_answer"}, {"requestId", "real-input"}, {"courseId", "chem"},
             {"lessonId", preparedLessonId}, {"sectionId", shown["sections"][1]["id"]}, {"sectionVersion", 1},
             {"text", "我认为由0到+2，升高了"}};
         const auto answering = gangyi::agentSubmit(db, access, responseEvent);
+        const auto currentInputs = gangyi::agentContext(db, access, responseEvent).at("currentInputs");
+        assert(currentInputs.size() == 1 && currentInputs[0].at("interactionId").get<std::string>().find("student-") == 0);
+        assert(currentInputs[0].at("sectionId") == responseEvent.at("sectionId") && currentInputs[0].at("requestId") == "real-input");
         const auto beforeDuplicate = db.listInteractions().size();
         assert(gangyi::agentSubmit(db, access, responseEvent)["id"] == answering["id"]);
         assert(db.listInteractions().size() == beforeDuplicate);
@@ -329,7 +394,11 @@ int main() {
 
         std::string actualAnswerId;
         for (const auto& item : db.listInteractions()) if (item.kind == "chat-user" &&
-            Json::parse(item.payload).value("requestId", "") == "real-input") actualAnswerId = item.id;
+            Json::parse(item.payload).value("requestId", "") == "real-input") {
+                actualAnswerId = item.id;
+                const auto input = Json::parse(item.payload);
+                assert(input["assisted"].get<bool>() && input["hintHistory"][0] == "从元素化合价的变化开始比较。");
+            }
         assert(!actualAnswerId.empty());
         gangyi::LearningAgent evaluation(path, [&](const auto&, const auto& sink) {
             return output({{"message", "你指出了化合价升高，可进一步联系失电子。"},
@@ -351,6 +420,9 @@ int main() {
             }
         }
         assert(assessmentFound);
+        const auto summary = gangyi::agentLessonView(db, access, preparedLessonId);
+        assert(summary["evaluations"].size() == 1 && summary["evaluations"][0]["score"] == 80);
+        assert(summary.dump().find("expectedAnswer") == std::string::npos && summary.dump().find("rubric") == std::string::npos);
     }
     std::filesystem::remove_all(root);
     std::cout << "多步 AI 主控、幂等、访问隔离、失败停止与事务回滚测试通过\n";

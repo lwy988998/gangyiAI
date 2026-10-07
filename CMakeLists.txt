@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(gangyiAI VERSION 5.5.3 LANGUAGES C CXX)
+project(gangyiAI VERSION 5.6.0 LANGUAGES C CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -319,6 +319,13 @@ if(BUILD_TESTING)
     target_link_libraries(database-atomic-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_SQLITE_LIB})
     add_test(NAME database-atomic COMMAND database-atomic-tests)
     find_package(Python3 COMPONENTS Interpreter QUIET)
+    find_program(GANGYI_NODE_EXECUTABLE NAMES node)
+    if(GANGYI_NODE_EXECUTABLE)
+        add_test(NAME legacy-drafts COMMAND ${GANGYI_NODE_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/legacy_draft_tests.cjs)
+        add_test(NAME agent-watch COMMAND ${GANGYI_NODE_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/agent_watch_tests.cjs)
+    endif()
     if(Python3_Interpreter_FOUND)
         # 旧独立后台与固定教学规则的运行时验收迁移为统一主控协议验收。
         add_test(NAME learning-agent-api COMMAND ${Python3_EXECUTABLE}

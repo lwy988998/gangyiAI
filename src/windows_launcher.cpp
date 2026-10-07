@@ -1573,7 +1573,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
         CoUninitialize();
         return 1;
     }
-    const std::wstring arguments = commandLine ? commandLine : L"";
+    std::wstring arguments = commandLine ? commandLine : L"";
+    // Start-Process 可能在参数末尾保留空格，命令模式仍应准确识别。
+    const auto firstArgument = arguments.find_first_not_of(L" \t\r\n");
+    arguments = firstArgument == std::wstring::npos ? L"" :
+        arguments.substr(firstArgument, arguments.find_last_not_of(L" \t\r\n") - firstArgument + 1);
     if (arguments.find(L"--remove-credentials") != std::wstring::npos) {
         removeLocalSettings();
         WSACleanup();

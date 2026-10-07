@@ -1,14 +1,6 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AI 课堂 · 钢一定制AI</title><link rel="stylesheet" href="/classroom.css"><link rel="stylesheet" href="/agent-classroom.css">
-<link rel="stylesheet" href="/vendor/katex/katex.min.css"></head>
-<body><header><a href="/my-courses">← 用户中心</a><span>真实 AI 课堂</span></header>
-<main><p class="eyebrow">根据你的实际学习情况准备</p><h1 id="lesson-title">正在读取课堂</h1><p id="lesson-purpose"></p>
-<p id="page-status" role="status" aria-live="polite"></p><section id="lesson-sections" aria-label="教学内容"></section>
-<section class="agent-card"><h2>和 AI 老师继续交流</h2><p>你可以改变学习方向、请求补讲或告诉老师你的感受。</p>
-<form id="lesson-chat"><label for="lesson-input">你的问题或学习反馈</label><textarea id="lesson-input" rows="3"></textarea>
-<button type="submit">发送给 AI</button></form><div id="lesson-dialog" class="agent-dialog"></div></section>
-<section class="agent-card"><h2>下一步</h2><p>点击后，AI 会先读取最新记录并流式备课，完整保存后再进入课堂。</p>
-<button id="prepare-next" type="button">请 AI 准备下一课 →</button></section></main>
-<script src="/vendor/katex/katex.min.js"></script><script src="/chat-render.js"></script>
-<script src="/learning-agent.js"></script><script src="/agent-shell.js"></script><script src="/agent-classroom.js"></script></body></html>
+<title>正在进入钢一课堂</title><link rel="stylesheet" href="/dark.css"></head>
+<body class="dark-app"><main><p role="status">正在恢复已保存的课时…</p><a href="/my-courses">返回我的课程</a></main>
+<script>/* 旧链接保留课时、备课和复习参数，由统一课堂解析。 */location.replace('/learn'+location.search);</script>
+</body></html>
