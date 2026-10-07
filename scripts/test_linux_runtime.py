@@ -37,10 +37,15 @@ def main(executable):
                     except OSError:
                         time.sleep(.1)
                 else: raise AssertionError('隔离服务没有启动')
-                for path in ('/', '/ask', '/my-courses', '/agent-prepare.html', '/agent-classroom.html'):
-                    data, _ = request(path); assert '钢一定制AI'.encode() in data
+                for path in ('/', '/ask', '/my-courses', '/agent-prepare.html'):
+                    data, _ = request(path); assert '钢一定制AI'.encode() in data, path
+                # 旧课堂链接负责转入统一课堂，并保留课时和复习参数。
+                data, _ = request('/agent-classroom.html?lessonId=legacy&review=1')
+                assert "location.replace('/learn'+location.search)".encode() in data
+                assert '正在恢复已保存的课时'.encode() in data
                 for path, mime in (('/styles.css', 'text/css'), ('/learning-agent.js', 'javascript'), ('/agent-shell.js', 'javascript'),
-                    ('/agent-classroom.css', 'text/css'), ('/school-logo.png', 'image/png'), ('/campus-background.jpg', 'image/jpeg')):
+                    ('/agent-classroom.css', 'text/css'), ('/app-layout.css', 'text/css'), ('/app-layout.js', 'javascript'),
+                    ('/school-logo.png', 'image/png'), ('/campus-background.jpg', 'image/jpeg')):
                     data, headers = request(path); assert len(data) > 100 and mime in headers['Content-Type']
                 request('/../CMakeLists.txt', status=404)
                 request('/api/ask', 'POST', b'{', status=409)

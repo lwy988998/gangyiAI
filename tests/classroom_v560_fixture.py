@@ -171,7 +171,9 @@ def start_session(executable=None):
             lesson = wait(prepare['id'])['lesson']['id']
             api('/api/learning-agent/control', dict(command='enter_lesson', lessonId=lesson))
             info = dict(base=base, fixture=f'http://127.0.0.1:{ai.server_port}', database=str(database), pid=process.pid, lessonId=lesson, courseId=course, status='ready')
-            (repo/'verification/v560-ui-session.json').write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding='utf-8')
+            report = repo / 'verification/v560-ui-session.json'
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding='utf-8')
             yield info, api, process
         finally:
             if process.poll() is None:
