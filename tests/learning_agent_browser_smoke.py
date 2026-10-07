@@ -4,7 +4,7 @@ import sqlite3
 import sys
 from contextlib import closing
 from urllib.request import Request, urlopen
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 from classroom_v560_fixture import start_session
 
 
@@ -20,7 +20,9 @@ def main(executable):
             page.get_by_role('heading',name='先比较同一种元素',exact=True).wait_for()
             page.get_by_role('heading',name='说说你的观察',exact=True).wait_for()
             page.get_by_text('你可以继续回答或追问',exact=True).wait_for()
-            assert page.locator('.course-directory-topic[aria-current=page]').count()==1
+            # 桌面目录和窄屏目录各保留一份当前项，CSS 决定显示哪一份。
+            expect(page.locator('.course-directory .course-directory-topic[aria-current=page]')).to_have_count(1)
+            expect(page.locator('.course-directory-mobile .course-directory-topic[aria-current=page]')).to_have_count(1)
             assert page.locator('.current-explanation').count()==1
             assert page.locator('#lesson-sections').inner_text().find('PRIVATE-')<0
             before=api('/api/learning-agent/lesson?lessonId='+lesson)
