@@ -19,7 +19,7 @@ def main(executable):
             page.goto(info['base']+'/learn?lessonId='+lesson)
             page.get_by_role('heading',name='先比较同一种元素',exact=True).wait_for()
             page.get_by_role('heading',name='说说你的观察',exact=True).wait_for()
-            page.get_by_text('你可以继续回答或追问',exact=True).wait_for()
+            page.locator('#lesson-sections').get_by_text('你可以继续回答或追问',exact=True).wait_for()
             # 桌面目录和窄屏目录各保留一份当前项，CSS 决定显示哪一份。
             expect(page.locator('.course-directory .course-directory-topic[aria-current=page]')).to_have_count(1)
             expect(page.locator('.course-directory-mobile .course-directory-topic[aria-current=page]')).to_have_count(1)
@@ -53,17 +53,17 @@ def main(executable):
             page.locator('.current-practice').get_by_text('AI 已暂停',exact=True).wait_for()
             with urlopen(Request(info['fixture']+'/fixture-control',data=b'{"slow":false}',headers={'Content-Type':'application/json'})): pass
             page.get_by_role('button',name='恢复 AI',exact=True).click()
-            page.get_by_text('你已经给出了观察，接下来可以补充电子变化的理由。',exact=True).wait_for()
-            page.get_by_text('你可以继续回答或追问',exact=True).wait_for()
+            page.locator('#lesson-sections').get_by_text('你已经给出了观察，接下来可以补充电子变化的理由。',exact=True).wait_for()
+            page.locator('#lesson-sections').get_by_text('你可以继续回答或追问',exact=True).wait_for()
             page.get_by_text('练习 · 导航',exact=True).click()
             field.fill('为什么要先比较同一种元素？')
             page.get_by_role('button',name='发送给 AI',exact=True).click()
-            page.get_by_text('这是对思路的追问。我们可以先比较前后状态，再联系电子变化。',exact=True).wait_for()
-            page.get_by_text('你可以继续回答或追问',exact=True).wait_for()
+            page.locator('#lesson-sections').get_by_text('这是对思路的追问。我们可以先比较前后状态，再联系电子变化。',exact=True).wait_for()
+            page.locator('#lesson-sections').get_by_text('你可以继续回答或追问',exact=True).wait_for()
             assert page.locator('.current-practice .agent-dialog > .agent-message.user').count()==1
             assert page.locator('.dialogue-history').count()==1
             page.reload()
-            page.get_by_text('这是对思路的追问。我们可以先比较前后状态，再联系电子变化。',exact=True).wait_for()
+            page.locator('#lesson-sections').get_by_text('这是对思路的追问。我们可以先比较前后状态，再联系电子变化。',exact=True).wait_for()
             page.get_by_role('link',name='小结',exact=True).click()
             page.get_by_role('heading',name='本次作答 · 80 分',exact=True).wait_for()
             page.get_by_role('link',name='讲解',exact=True).click()
