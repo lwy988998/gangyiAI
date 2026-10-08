@@ -59,7 +59,9 @@ def main(executable):
             with urlopen(Request(info['fixture']+'/fixture-control',data=b'{"slow":true}',headers={'Content-Type':'application/json'})): pass
             page.get_by_role('button',name='发送给 AI',exact=True).click()
             page.locator('#learning-navigation > summary').click()
-            page.get_by_role('button',name='暂停 AI',exact=True).click()
+            with page.expect_response(lambda response:response.url.endswith('/api/learning-agent/control') and response.request.post_data_json.get('command')=='pause') as paused_response:
+                page.get_by_role('button',name='暂停 AI',exact=True).click()
+            assert paused_response.value.json()['paused']
             page.locator('.current-practice').get_by_text('AI 已暂停',exact=True).wait_for()
             with urlopen(Request(info['fixture']+'/fixture-control',data=b'{"slow":false}',headers={'Content-Type':'application/json'})): pass
             page.get_by_role('button',name='恢复 AI',exact=True).click()

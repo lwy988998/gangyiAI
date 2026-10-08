@@ -79,14 +79,15 @@
         const step = steps.get(event.step); step.node.dataset.step = event.step; step.node.dataset.taskId = currentTaskId; step.text += event.text; step.node.dataset.rawText = step.text; api.richText(step.node, step.text); return true;
       },
       onState(current) {
-        const active = ['pending', 'running'].includes(current.status);
+        const paused = current.paused || current.status === 'paused';
+        const active = !paused && ['pending', 'running'].includes(current.status);
         if(!active)compactDialogue(root);
         if (form) for (const control of form.querySelectorAll('button')) control.disabled = active;
         stop.hidden = !active; retry.hidden = !['failed', 'paused', 'superseded', 'cancelled'].includes(current.status);
         const labels = { pending: '等待 AI 处理', running: 'AI 正在结合你的回答互动', waiting_student: '你可以继续回答或追问',
           ready: 'AI 已完成本次互动', failed: '等待 AI 更新，输入和已有结果已保留', paused: 'AI 已暂停',
           cancelled: '已停止本次回答；中断输出不作为正式评价', superseded: '学习记录已有更新，这次旧输出未应用' };
-        note.textContent = current.status === 'failed' ? api.failureMessage(current) : labels[current.status] || current.status;
+        note.textContent = paused ? 'AI 已暂停' : current.status === 'failed' ? api.failureMessage(current) : labels[current.status] || current.status;
         if (['ready', 'waiting_student', 'failed'].includes(current.status)) {
           if (steps.size === 0 && current.message) message(root, 'assistant', current.message);
           if (current.status !== 'failed' && form) for(const scope of new Set([form.dataset.section || 'chat','chat'])) { const key=`pending:${lessonId}:${scope}`; try { const pending=JSON.parse(api.storage.get(key)||'null'); if(pending?.requestId===current.requestId)api.storage.remove(key); } catch (_) { /* 其他窗口的请求缓存不能被旧回复清掉。 */ } }
@@ -97,7 +98,7 @@
     });
     const restart = event => {
       const {command,task:next}=event.detail||{};
-      if(root.isConnected&&['resume','retry'].includes(command)&&next?.id===currentTaskId)
+      if(root.isConnected&&['pause','resume','retry','cancel'].includes(command)&&next?.id===currentTaskId)
         observe(next,root,note,stop,retry,form);
     };
     document.addEventListener('gangyi:agent-control',restart);
