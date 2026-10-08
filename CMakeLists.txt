@@ -64,6 +64,18 @@ FetchContent_Declare(
 set(CROW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(CROW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(Crow nlohmann_json)
+# 延迟响应会清空持有连接的完成回调；发送期间必须另持有连接，避免提前析构。
+set(crowHttpHeader "${crow_SOURCE_DIR}/include/crow/http_connection.h")
+file(READ "${crowHttpHeader}" crowHttpSource)
+if(NOT crowHttpSource MATCHES "response_lifetime = this->shared_from_this")
+    string(REPLACE "void complete_request()\n        {"
+        "void complete_request()\n        {\n            const auto response_lifetime = this->shared_from_this();"
+        crowHttpPatched "${crowHttpSource}")
+    if(crowHttpPatched STREQUAL crowHttpSource)
+        message(FATAL_ERROR "无法保护 Crow 延迟响应的连接生命周期")
+    endif()
+    file(WRITE "${crowHttpHeader}" "${crowHttpPatched}")
+endif()
 # 流式备课重放会连续发送多帧；上一轮写入完成前不能交换仍被异步使用的缓冲区。
 set(crowWebsocketHeader "${crow_SOURCE_DIR}/include/crow/websocket.h")
 file(READ "${crowWebsocketHeader}" crowWebsocketSource)
@@ -252,6 +264,13 @@ if(BUILD_TESTING)
         target_link_libraries(socket-adaptor-tests PRIVATE ws2_32)
     endif()
     add_test(NAME socket-adaptor COMMAND socket-adaptor-tests)
+    add_executable(http-lifetime-tests tests/http_lifetime_tests.cpp)
+    target_link_libraries(http-lifetime-tests PRIVATE Crow::Crow Threads::Threads)
+    if(WIN32)
+        target_link_libraries(http-lifetime-tests PRIVATE ws2_32 mswsock)
+    endif()
+    add_test(NAME http-lifetime COMMAND http-lifetime-tests)
+    set_tests_properties(http-lifetime PROPERTIES TIMEOUT 20)
     add_executable(ai-client-tests tests/ai_client_tests.cpp src/ai_client.cpp src/search_client.cpp src/ask_generator.cpp
         src/json_fix.cpp src/plan_generator.cpp)
     target_include_directories(ai-client-tests PRIVATE
@@ -327,6 +346,8 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/legacy_draft_tests.cjs)
         add_test(NAME agent-watch COMMAND ${GANGYI_NODE_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/agent_watch_tests.cjs)
+        add_test(NAME mentor-client COMMAND ${GANGYI_NODE_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/mentor_client_tests.cjs)
     endif()
     if(Python3_Interpreter_FOUND)
         # 旧独立后台与固定教学规则的运行时验收迁移为统一主控协议验收。
@@ -334,6 +355,8 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/learning_agent_api_smoke.py $<TARGET_FILE:gangyiAI>)
         add_test(NAME v560-revision-api COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/v560_revision_api_smoke.py $<TARGET_FILE:gangyiAI>)
+        add_test(NAME mentor-socket COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/mentor_socket_smoke.py $<TARGET_FILE:gangyiAI>)
     endif()
 endif()
 

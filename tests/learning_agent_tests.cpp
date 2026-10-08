@@ -244,6 +244,12 @@ int main() {
 
         db.insert(gangyi::CourseSnapshot{"outline-fixture", "chem", 1,
             Json{{"courseStructure", {{{"topics", {"化合价", "氧化还原"}}}}}}.dump(), "2026-10-04"});
+        const auto scheduleContext = gangyi::agentContext(db, access, {{"type", "schedule_replan"}});
+        assert(scheduleContext["calendarDate"].get<std::string>().size() == 10);
+        assert(scheduleContext["scheduleTasks"].size() == 2);
+        assert(scheduleContext["scheduleTasks"][0]["taskId"] == "lesson:chem:1:1");
+        assert(scheduleContext["scheduleTasks"][1]["taskId"] == "lesson:chem:1:2");
+        assert(!gangyi::agentContext(db, access, {{"type", "chat"}}).contains("scheduleTasks"));
         std::tm calendar{}; calendar.tm_year = 2099 - 1900; calendar.tm_mon = 0; calendar.tm_mday = 5;
         calendar.tm_hour = 12; std::mktime(&calendar);
         const int day = calendar.tm_wday == 0 ? 7 : calendar.tm_wday;
@@ -326,6 +332,13 @@ int main() {
         assert(shown.dump().find("由0升高到+2") == std::string::npos);
         const auto entered = gangyi::agentControl(db, access, {{"command", "enter_lesson"}, {"lessonId", preparedLessonId}});
         assert(entered["href"].get<std::string>().find("/learn?lessonId=") == 0);
+        const auto preparedCatalog = gangyi::agentContext(db, access, {{"type", "schedule_replan"}}).at("scheduleTasks");
+        bool savedLessonIdentified = false;
+        for (const auto& target : preparedCatalog)
+            if (target.at("taskId") == "agent-lesson:" + preparedLessonId) {
+                savedLessonIdentified = target.at("kind") == "agent-lesson" && target.at("lessonId") == preparedLessonId;
+            }
+        assert(savedLessonIdentified);
         // 同一课时复用开课任务；真实主控选择教学焦点，读取不增加调用或掌握证据。
         const auto beforeStartRecords = db.listInteractions().size();
         const auto start = gangyi::agentControl(db, access, {{"command", "start_lesson"}, {"lessonId", preparedLessonId}});

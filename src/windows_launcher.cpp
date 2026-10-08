@@ -799,6 +799,8 @@ void stopService() {
 
 bool startService(bool openWhenReady, bool resetRestart = true) {
     stopService();
+    // 恢复备份或重启可能复用同一端口，也需要重新读取页面与本机记录。
+    g.displayPort = 0;
     if (resetRestart) {
         g.restartPolicy.reset();
         KillTimer(g.window, kRestartTimer);

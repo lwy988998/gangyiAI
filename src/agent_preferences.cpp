@@ -150,7 +150,7 @@ void validatePlan(Database& db, const AgentAccess& access, const Json& old, cons
                 topic <= static_cast<int>(stages[phase - 1].value("topics", Json::array()).size()) &&
                 id == "lesson:" + courseId + ":" + std::to_string(phase) + ":" + std::to_string(topic);
         }
-        if (!valid) throw std::invalid_argument("课表中的任务身份不存在");
+        if (!valid) throw std::invalid_argument("课表中的任务身份不存在；请使用 scheduleTasks 中配套的 taskId、kind、courseId 和课时索引，不把备课任务 ID 当作课时 ID");
         entries[id] = item;
         const auto actualProgress = db.findLearningCardProgress(courseId, item.value("phaseIndex", 0), item.value("topicIndex", 0));
         const bool actuallyCompleted = kind == "lesson" && actualProgress && actualProgress->status == "completed";
@@ -223,7 +223,7 @@ void registerAgentPreferenceTools(LearningAgent& agent) {
                     connection.markLearningDirty(); saveChange(connection, change, course.id);
                 }};
         }});
-    agent.registerTool("adjust_schedule", {"仅在用户手动重新排课的任务中生成统一课表候选。参数 availability:[{weekday:1..7,minutes:1..1440}]、entries:[{taskId,courseId,kind,date,minutes,order,phaseIndex,topicIndex,requires}]、reason。始终保留原课表及编辑草稿，等待用户确认；不得直接应用。保留已完成和在学任务；日总量不可超预算。", false,
+    agent.registerTool("adjust_schedule", {"仅在用户手动重新排课的任务中生成统一课表候选。参数 availability:[{weekday:1..7,minutes:1..1440}]、entries:[{taskId,courseId,kind,date,minutes,order,phaseIndex,topicIndex,requires}]、reason。使用上下文 scheduleTasks 中真实存在的任务身份：大纲知识点 kind=lesson，taskId=lesson:<courseId>:<phaseIndex>:<topicIndex>；已备课 kind=agent-lesson，taskId=agent-lesson:<lessonId>，附 lessonId；复习 kind=review，taskId=review:<reviewId>，附 reviewId。不可用 agent 备课任务 ID 或裸课时 ID 替代。calendarDate 是本机今天，新安排不得放在过去。始终保留原课表及编辑草稿，等待用户确认；不得直接应用。保留已完成和在学任务；日总量不可超预算。", false,
         [](Database& db, const Json& args, const Json& task, const AIResult& source) {
             if (!task.value("manualScheduleReplan", false) || task.at("event").value("type", "") != "schedule_replan")
                 throw std::invalid_argument("只有用户手动重新排课的任务可以生成课表候选");
@@ -234,6 +234,16 @@ void registerAgentPreferenceTools(LearningAgent& agent) {
             auto old = state.value("plan", Json::object());
             Json plan = old; plan["availability"] = args.at("availability"); plan["entries"] = args.at("entries");
             validatePlan(db, access, old, plan);
+            // 标题中的日期范围跟随候选任务，避免新安排仍显示旧课表的过期区间。
+            if (!plan["entries"].empty()) {
+                std::string first, last;
+                for (const auto& entry : plan["entries"]) {
+                    const auto date = entry.at("date").get<std::string>();
+                    if (first.empty() || date < first) first = date;
+                    if (last.empty() || date > last) last = date;
+                }
+                plan["weekStart"] = first; plan["weekEnd"] = last;
+            }
             plan["version"] = old.value("version", 0) + 1; plan["source"] = "ai"; plan["updatedAt"] = now();
             auto after = state; after["plan"] = plan; after["status"] = "ready"; after["model"] = source.model; after["agentControlled"] = true;
             after["reason"] = requireText(args, "reason"); after.erase("proposal");

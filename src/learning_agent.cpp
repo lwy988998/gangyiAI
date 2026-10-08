@@ -132,6 +132,19 @@ Json agentContext(Database& db, const AgentAccess& access, const Json& event) {
         {"courses", Json::array()}, {"feedback", Json::array()}, {"currentInputs", Json::array()},
         {"studyPlan", parsed(db.profileMeta("learning-flow"))},
         {"abilities", parsed(db.profileMeta("ability-profile"))}};
+    const bool scheduling = event.value("type", "") == "schedule_replan";
+    if (scheduling) {
+        const auto clock = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+        std::tm calendar{};
+#ifdef _WIN32
+        localtime_s(&calendar, &clock);
+#else
+        localtime_r(&clock, &calendar);
+#endif
+        std::ostringstream date; date << std::put_time(&calendar, "%Y-%m-%d");
+        context["calendarDate"] = date.str();
+        context["scheduleTasks"] = Json::array();
+    }
     context["adjustments"] = agentChanges(db, access);
     context["reviews"] = Json::array();
     for (const auto& courseId : access.courseIds) {
@@ -148,10 +161,31 @@ Json agentContext(Database& db, const AgentAccess& access, const Json& event) {
         if (const auto progress = db.findProgressByCourseId(courseId))
             item["progress"] = {{"percent", progress->overallPercent}, {"completed", progress->completedCount}};
         context["courses"].push_back(std::move(item));
+        if (scheduling) {
+            const auto stages = outline.value("courseStructure", Json::array());
+            for (size_t phase = 0; stages.is_array() && phase < stages.size(); ++phase) {
+                if (!stages[phase].is_object()) continue;
+                const auto topics = stages[phase].value("topics", Json::array());
+                for (size_t topic = 0; topics.is_array() && topic < topics.size(); ++topic) {
+                    const auto title = topics[topic].is_string() ? topics[topic].get<std::string>() :
+                        topics[topic].is_object() ? topics[topic].value("title", "") : "";
+                    context["scheduleTasks"].push_back({{"taskId", "lesson:" + courseId + ":" +
+                        std::to_string(phase + 1) + ":" + std::to_string(topic + 1)}, {"kind", "lesson"},
+                        {"courseId", courseId}, {"phaseIndex", phase + 1}, {"topicIndex", topic + 1}, {"title", title}});
+                }
+            }
+        }
         for (const auto& row : db.listClassroomActivities(courseId)) if (row.kind == "review" || row.kind == "agent-lesson") {
             const auto saved = parsed(row.payload); Json item;
             for (const auto* field : {"id", "courseId", "title", "purpose", "status", "entered", "completed", "topicId", "phaseIndex", "topicIndex", "due", "reason", "teachingFocus", "teachingTaskId"}) if (saved.contains(field)) item[field] = saved[field];
             context["reviews"].push_back({{"kind", row.kind}, {"id", row.id}, {"payload", item}});
+            if (scheduling) {
+                Json target = {{"taskId", row.kind + ":" + row.id}, {"courseId", courseId}, {"kind", row.kind}};
+                target[row.kind == "review" ? "reviewId" : "lessonId"] = row.id;
+                for (const auto* field : {"title", "phaseIndex", "topicIndex", "due", "completed", "entered"})
+                    if (saved.contains(field)) target[field] = saved[field];
+                context["scheduleTasks"].push_back(std::move(target));
+            }
         }
     }
     const auto interactions = db.listInteractions();
@@ -229,6 +263,12 @@ Json agentView(Database& db, const AgentAccess& access, const std::string& taskI
     const auto scope = parsed(db.profileMeta(scopeKey(access)));
     const auto id = taskId.empty() ? scope.value("latestTaskId", "") : taskId;
     if (id.empty()) return {{"status", "idle"}, {"version", 0}, {"events", Json::array()}};
+    // 删除课程会删除关联任务；首页读取失效的最近标记时回到空闲状态。
+    if (taskId.empty()) {
+        const auto latest = db.getClassroomActivity(id);
+        if (!latest || latest->kind != "agent-task")
+            return {{"status", "idle"}, {"version", 0}, {"events", Json::array()}};
+    }
     auto result = publicTask(taskFor(db, access, id)); result["paused"] = scope.value("paused", false); result["changeHistory"] = agentChanges(db, access);
     if (result.contains("lesson")) {
         const auto row = db.getClassroomActivity(result.at("lesson").at("id"));

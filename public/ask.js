@@ -11,6 +11,8 @@
     '<button type="button" id="ask-stop" class="chat-copy" hidden>停止回答</button>';
   messages.before(toolbar);
   const clear = $('ask-clear'), stop = $('ask-stop');
+  // 自动滚动到最新回答时，停止入口仍与输入框相邻。
+  $('ask-form').append(stop);
   submit.disabled = true; clear.disabled = true;
 
   const FALLBACK_SUGGESTIONS = [];
@@ -115,7 +117,11 @@
       if (data.type === 'done') { finished = true; finish(view, question, data); connection.close(); }
       if (data.type === 'error') { finished = true; view.fail(data.message); connection.close(); }
     };
-    connection.onerror = () => { finished = true; view.fail('连接中断，请重试。'); connection.close(); };
+    connection.onerror = () => {
+      // 完成后关闭连接可能产生迟到事件，不覆盖已成功保存的回答。
+      if (finished) return;
+      finished = true; view.fail('连接中断，请重试。'); connection.close();
+    };
     connection.onclose = () => {
       if (!finished) view.fail('回答中断，本次未完成。');
       if (socket !== connection) return;

@@ -71,6 +71,9 @@ def main(executable):
         wait(first['task']['id'])
         candidate = api('/api/study-plan')
         assert candidate['entries'] == before['entries'] and candidate['proposal']['plan']['entries']
+        candidate_dates = [entry['date'] for entry in candidate['proposal']['plan']['entries']]
+        assert candidate['proposal']['plan']['weekStart'] == min(candidate_dates)
+        assert candidate['proposal']['plan']['weekEnd'] == max(candidate_dates)
         proposal = candidate['proposal']['id']
         calls_before = request('/', host=info['fixture'])['calls']
         cancelled = api('/api/study-plan/cancel', dict(version=candidate['version'], proposalId=proposal))['plan']
@@ -139,7 +142,17 @@ def main(executable):
                 except OSError:
                     time.sleep(.05)
             assert api('/api/courses')['currentCourse']['id'] == course
+            startup = api('/api/learning-agent')
+            if startup['status'] in ('pending', 'running'):
+                wait(startup['id'])
+            deletion_task = api('/api/learning-agent/events', dict(type='chat', courseId=course,
+                lessonId=info['lessonId'], requestId='revision-delete-latest-task', text='删除前检查当前课时'))
+            wait(deletion_task['id'], 'waiting_student')
             request('/api/my-courses/'+course, method='DELETE')
+            assert api('/api/learning-agent')['status'] == 'idle', '删课后失效的最近任务应回到空闲状态'
+            assert api('/api/home/next-step')['status'] == 'idle', '首页不能因为已删任务返回服务器错误'
+            assert api('/api/next-learning')['action'] == 'waiting'
+            request('/api/learning-agent?taskId='+deletion_task['id'], expected=409)
             current = api('/api/courses')['currentCourse']
             assert current and current['id'] == other_course
             request('/api/my-courses/'+other_course, method='DELETE')

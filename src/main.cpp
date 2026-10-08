@@ -676,7 +676,8 @@ int main() {
         const auto body = nlohmann::json::parse(message, nullptr, false);
         if (!body.is_object()) { state->send({{"type", "error"}, {"message", "消息格式无效"}}); return; }
         if (body.value("type", "") == "stop") {
-            state->stopRequested = true; state->cancelled = true;
+            // 停止生成后仍发送终态，让客户端解除等待；只有断开连接才终止投递。
+            state->stopRequested = true;
             std::string taskId; { std::lock_guard<std::mutex> guard(state->mutex); taskId = state->taskId; }
             if (!taskId.empty()) try { gangyi::Database db; db.open(config.database_path);
                 gangyi::agentControl(db, localAgentAccess(db), {{"command", "cancel"}, {"taskId", taskId}});
