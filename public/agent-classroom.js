@@ -86,10 +86,10 @@
         const labels = { pending: '等待 AI 处理', running: 'AI 正在结合你的回答互动', waiting_student: '你可以继续回答或追问',
           ready: 'AI 已完成本次互动', failed: '等待 AI 更新，输入和已有结果已保留', paused: 'AI 已暂停',
           cancelled: '已停止本次回答；中断输出不作为正式评价', superseded: '学习记录已有更新，这次旧输出未应用' };
-        note.textContent = labels[current.status] || current.status;
-        if (current.status === 'ready' || current.status === 'waiting_student') {
+        note.textContent = current.status === 'failed' ? api.failureMessage(current) : labels[current.status] || current.status;
+        if (['ready', 'waiting_student', 'failed'].includes(current.status)) {
           if (steps.size === 0 && current.message) message(root, 'assistant', current.message);
-          if (form) for(const scope of new Set([form.dataset.section || 'chat','chat'])) { const key=`pending:${lessonId}:${scope}`; try { const pending=JSON.parse(api.storage.get(key)||'null'); if(pending?.requestId===current.requestId)api.storage.remove(key); } catch (_) { /* 其他窗口的请求缓存不能被旧回复清掉。 */ } }
+          if (current.status !== 'failed' && form) for(const scope of new Set([form.dataset.section || 'chat','chat'])) { const key=`pending:${lessonId}:${scope}`; try { const pending=JSON.parse(api.storage.get(key)||'null'); if(pending?.requestId===current.requestId)api.storage.remove(key); } catch (_) { /* 其他窗口的请求缓存不能被旧回复清掉。 */ } }
           refreshLesson().catch(error => { status.textContent = error.message; });
         }
       },
@@ -137,14 +137,15 @@
     const skip = document.createElement('button'); skip.type = 'button'; skip.className = 'secondary'; skip.textContent = '跳过';
     form.append(options, label, input, submit, unknown, skip);
     const dialog = document.createElement('div'); dialog.className = 'agent-dialog';
-    for (const item of (section.dialog || []).slice(-2)) { const node = message(dialog, item.role, item.text); if (item.step !== undefined) node.dataset.step = item.step; if (item.partial) message(dialog, 'note', '这段讲解曾被中断，已展示内容保留，未形成新的可靠评价。'); }
+    const rows = section.dialog?.length ? section.dialog : section.id === focus().responseSectionId ? (lesson.teachingDialog || []).filter(item => item.taskId === focus().responseTaskId) : [];
+    for (const item of rows.slice(-2)) { const node = message(dialog, item.role, item.text); if (item.step !== undefined) node.dataset.step = item.step; if (item.partial) message(dialog, 'note', '这段讲解曾被中断，已展示内容保留，未形成新的可靠评价。'); }
     let history;
     if ((section.dialog || []).length > 2) {
       history = document.createElement('details'); history.className='dialogue-history'; const title = document.createElement('summary'); title.textContent = '本题历史交流'; history.append(title);
       for (const item of section.dialog.slice(0,-2)) message(history, item.role, item.text);
     }
     if (section.taskId) { dialog.dataset.taskId = section.taskId; dialog.dataset.sequence = section.afterSeq || 0; }
-    const note = document.createElement('p'); note.className = 'agent-note'; note.setAttribute('role', 'status');
+    const note = document.createElement('p'); note.className = 'agent-note'; note.setAttribute('role', 'status'); note.textContent = '你可以继续回答或追问';
     const stop = document.createElement('button'), retry = document.createElement('button');
     stop.type = retry.type = 'button'; stop.textContent = '停止回答'; retry.textContent = '重试同次回答'; stop.hidden = retry.hidden = true;
     card.append(form, note, dialog, stop, retry); if(history)card.append(history);
@@ -155,7 +156,7 @@
       if (!text.trim()) { note.textContent = '请先输入答案或选择一个选项。'; input.focus(); return; }
       submit.disabled = unknown.disabled = skip.disabled = true;
       try {
-        let event = { type: 'question_answer', action, text, courseId: lesson.courseId, lessonId, ...reviewContext,
+        let event = { type: 'question_answer', action, text, courseId: lesson.courseId, lessonId, view, ...reviewContext,
           sectionId: section.id, sectionVersion: section.version, requestId: api.id() };
         try {
           const pending = JSON.parse(api.storage.get(`pending:${lessonId}:${section.id}`) || 'null');
@@ -176,7 +177,9 @@
   }
   const element = (tag, text = '', className = '') => { const node = document.createElement(tag); node.textContent = text; node.className = className; return node; };
   const focus = () => lesson.teachingFocus || {};
-  const questions = () => lesson.sections.filter(section => section.kind === 'question' && section.legacyKind !== 'example' && !['interaction','diagnostic'].includes(section.questionKind) && !['interaction','diagnostic'].includes(section.legacyKind));
+  const questions = () => lesson.sections.filter(section => section.kind === 'question' && section.legacyKind !== 'example' &&
+    (focus().responseView === 'practice' && section.id === focus().responseSectionId ||
+    !['interaction','diagnostic'].includes(section.questionKind) && !['interaction','diagnostic'].includes(section.legacyKind)));
   const explanations = () => lesson.sections.filter(section => section.kind === 'explanation' && !['overview','example'].includes(section.legacyKind) && section.presentation !== 'example');
   function addBody(root, section) { const body = element('div', '', 'lesson-body'); body.dataset.sectionId=section.id; body.dataset.sectionVersion=section.version; api.richText(body, section.body || ''); root.append(body); }
   function exposeSections() {
@@ -213,7 +216,7 @@
       }
       let sampleDetails; const samples = lesson.sections.filter(section => (section.legacyKind === 'example' || section.presentation === 'example'));
       if (samples.length) { const details=element('details','', 'course-more');details.append(element('summary','AI 示范例题')); for(const section of samples){details.append(element('h3',section.title));addBody(details,section)}sampleDetails=details; }
-      const question = lesson.sections.find(section => section.id === focus().interactionSectionId && section.kind === 'question') || lesson.sections.find(section => section.kind === 'question' && (['interaction','diagnostic'].includes(section.questionKind) || ['interaction','diagnostic'].includes(section.legacyKind)));
+      const question = lesson.sections.find(section => section.id === (focus().responseView === 'learn' ? focus().responseSectionId : focus().interactionSectionId) && section.kind === 'question') || lesson.sections.find(section => section.kind === 'question' && (['interaction','diagnostic'].includes(section.questionKind) || ['interaction','diagnostic'].includes(section.legacyKind)));
       if (question && (!selected || !focus().sectionId || selected.id===focus().sectionId)) { const card=element('section','','agent-card current-interaction');card.append(element('h2',question.title));
         const active = lesson.teachingTaskId ? {...question,taskId:lesson.teachingTaskId,taskStatus:lesson.teachingTaskStatus,afterSeq:lesson.teachingAfterSeq,dialog:(lesson.teachingDialog||[]).filter(item=>item.taskId===lesson.teachingTaskId)} : question;
         questionCard(active,card);root.append(card);chatPanel.hidden=true; }
@@ -223,7 +226,7 @@
       for(const item of lesson.teachingDialog||[])message(history,item.role,item.text);
       const current=element('button','回到 AI 当前段');current.type='button';current.onclick=()=>{readingId=focus().sectionId||'';api.storage.remove(`reading:${lessonId}`);renderSections()};history.append(current);root.append(history);
     } else if (view === 'practice') {
-      const list = questions(), section = list.find(item=>item.id===practiceId) || list.find(item=>item.id===focus().practiceSectionId) || list[0];
+      const list = questions(), section = list.find(item=>item.id===practiceId) || list.find(item=>item.id===(focus().responseView==='practice'?focus().responseSectionId:focus().practiceSectionId)) || list[0];
       if(section){practiceId=section.id;api.storage.set(`practice:${lessonId}`,practiceId);const card=element('section','','agent-card current-practice');card.dataset.sectionId=section.id;card.append(element('h2',section.title));questionCard(section,card);root.append(card);chatPanel.hidden=true;
         const index=list.indexOf(section),previous=document.getElementById('previous-question'),next=document.getElementById('next-question');document.getElementById('question-position').textContent=`${index+1} / ${list.length}`;previous.disabled=index===0;previous.onclick=()=>{practiceId=list[index-1].id;renderSections()};next.textContent=index===list.length-1?'进入小结 →':'下一题 →';next.onclick=()=>{if(index===list.length-1)location.href=lessonHref('summary');else{practiceId=list[index+1].id;renderSections()}};
       }else{root.append(element('p','本节暂无已保存的集中练习题，可以向 AI 请求安排。','agent-note'));document.getElementById('question-navigation').hidden=true;}
@@ -250,6 +253,7 @@
     try{await api.flushExposure();const saved=await api.request(`/api/learning-agent/lesson?lessonId=${encodeURIComponent(lessonId)}`);if(requestRevision!==revision)return;
       const changed=JSON.stringify(saved.teachingFocus)!==JSON.stringify(lesson.teachingFocus)||saved.sections.length!==lesson.sections.length||saved.completed!==lesson.completed;
       if(saved.teachingFocus?.sectionId!==lesson.teachingFocus?.sectionId){readingId='';api.storage.remove(`reading:${lessonId}`)}
+      if(saved.teachingFocus?.responseSectionId!==lesson.teachingFocus?.responseSectionId || saved.teachingFocus?.practiceSectionId!==lesson.teachingFocus?.practiceSectionId){practiceId='';api.storage.remove(`practice:${lessonId}`)}
       lesson=saved;if(changed){renderSections();if(saved.completed)document.dispatchEvent(new CustomEvent('gangyi:lesson-finished'))}
     }finally{refreshing=false}
   }
@@ -257,7 +261,7 @@
     const interactive=document.querySelector('.current-interaction'),form=interactive?.querySelector('form')||document.getElementById('lesson-chat'),input=form.querySelector('textarea'),dialog=interactive?.querySelector('.agent-dialog')||document.getElementById('lesson-dialog');
     const pendingKey=`pending:${lessonId}:chat`,draftKey=interactive?`draft:${lessonId}:${form.dataset.section}`:`chat-draft:${lessonId}`;
     if(!text.trim())return;const button=form.querySelector('button[type=submit]');button.disabled=true;
-    try{let event={type:'chat',courseId:lesson.courseId,lessonId,text,requestId:api.id(),...reviewContext,...(view==='learn'&&readingId?{sectionId:readingId}:{})};
+    try{let event={type:'chat',courseId:lesson.courseId,lessonId,view,text,requestId:api.id(),...reviewContext,...(view==='learn'&&readingId?{sectionId:readingId}:{})};
       try{const saved=JSON.parse(api.storage.get(pendingKey)||'null');if(saved&&saved.text===text&&saved.sectionId===event.sectionId)event=saved}catch(_){/* 损坏缓存不改变本次真实输入。 */}
       api.storage.set(pendingKey,JSON.stringify(event));const submittedDraft=input.value,task=await api.submit(event);
       if(input.value===submittedDraft&&api.storage.get(draftKey)===submittedDraft&&submittedDraft===text){input.value='';api.storage.remove(draftKey)}

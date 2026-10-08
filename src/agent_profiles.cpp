@@ -146,7 +146,9 @@ void registerAgentProfileTools(LearningAgent& agent) {
             }};
         }});
     agent.registerTool("read_profile_evidence", {"读取有权限的真实原题、实际回答、不会反馈、提示经历和评价来源。返回稳定题目标识，同题多轮仍是一道题；漏答、跳过与失败不纳入。画像充分性、适用维度和评分由 AI 判断，不要求三道题。", true,
-        [](Database& db, const Json&, const Json& task, const AIResult&) { return PreparedAgentTool{agentProfileEvidence(db, accessFor(task)), {}}; }});
+        [](Database& db, const Json&, const Json& task, const AIResult&) {
+            return PreparedAgentTool{{{"evidence", agentProfileEvidence(db, accessFor(task))}}, {}};
+        }});
     agent.registerTool("update_profiles", {"由真实 AI 更新学科和学习能力画像。参数 subjects:[{subject,score:0..100或null,sufficient:bool,rationale,recommendation,uncertainty,evidenceIds,weakPoints:[]}],abilities:[{id:memory|understanding|application|reasoning|expression|transfer,score,sufficient,rationale,recommendation,uncertainty,evidenceIds}]。可只更新相关维度，保留其他真实结果。每项正式评分引用 read_profile_evidence 的实际记录ID，由你判断证据是否充分及题目是否适用；不机械复制正确率或学科分数，不把教师答案、浏览及完成标记当证据。维度含义：事实回忆、概念解释、已知方法解题、有依据的推导、说明过程、新情境运用。", false,
         [](Database& db, const Json& args, const Json& task, const AIResult& source) {
             const auto evidence = agentProfileEvidence(db, accessFor(task)); const int revision = db.profileRevision();

@@ -4,6 +4,7 @@
 #include "learning_agent.hpp"
 #include "agent_preferences.hpp"
 #include "agent_lessons.hpp"
+#include "learning_flow.hpp"
 #include <cassert>
 #include <chrono>
 #include <filesystem>
@@ -99,7 +100,7 @@ int main() {
         });
         const auto mixedTask = gangyi::agentSubmit(db, access, {{"type", "adjust"}, {"requestId", "mixed"}});
         mixed.process(db, mixedTask["id"]);
-        assert(mixedCalls == 5 && gangyi::agentView(db, access, mixedTask["id"])["status"] == "failed");
+        assert(mixedCalls == 3 && gangyi::agentView(db, access, mixedTask["id"])["status"] == "failed");
 
         // 保留模型的原始错误响应并反馈具体解析错误，不能补齐半成品后执行。
         const std::string malformed = R"({"message":"准备调整","actions":[{"id":"syntax-write","tool":"syntax_fixture","args":{}}],"state":"completed")";
@@ -195,9 +196,10 @@ int main() {
         });
         gangyi::registerAgentPreferenceTools(preferences);
         int preferenceEvent = 0;
-        auto apply = [&] {
-            const auto request = gangyi::agentSubmit(db, access, {{"type", "adjust"},
-                {"requestId", "preference-" + std::to_string(++preferenceEvent)}});
+        auto apply = [&](bool manual = false) {
+            const auto request = gangyi::agentSubmit(db, access, {{"type", manual ? "schedule_replan" : "adjust"},
+                {"requestId", "preference-" + std::to_string(++preferenceEvent)}},
+                manual ? gangyi::AgentSubmissionOrigin::manualScheduleReplan : gangyi::AgentSubmissionOrigin::ordinary);
             preferences.process(db, request["id"]);
             return gangyi::agentView(db, access, request["id"]);
         };
@@ -254,27 +256,37 @@ int main() {
         auto longer = entry; longer["minutes"] = 300;
         toolArgs = {{"availability", {{{"weekday", day}, {"minutes", 300}}}}, {"entries", {longer}},
             {"reason", "模型调整共享预算与手动安排，旧的240分钟限制不再决定教学"}};
-        const auto scheduled = apply(); assert(scheduled["status"] == "ready");
+        // 非手动任务即使模型直接调用工具，也不能调整或生成课表候选。
+        const auto automatic = apply(); assert(automatic["status"] == "failed");
+        assert(Json::parse(db.profileMeta("learning-flow")) == initialPlan);
+        const auto scheduled = apply(true); assert(scheduled["status"] == "ready");
         auto savedPlan = Json::parse(db.profileMeta("learning-flow"));
+        assert(savedPlan["plan"] == initialPlan["plan"] && savedPlan["proposal"]["plan"]["entries"][0]["minutes"] == 300);
+        const std::string scheduleChangeId = savedPlan["proposal"]["id"];
+        gangyi::studyPlanProposal(db, {{"version", 10}, {"proposalId", scheduleChangeId}}, "confirm");
+        // 与接口确认动作相同，将同一候选记为已应用，供撤回校验。
+        auto journalRow = *db.getClassroomActivity(scheduleChangeId); auto journalValue = Json::parse(journalRow.payload);
+        journalValue["status"] = "applied"; journalValue["after"] = db.profileMeta("learning-flow"); journalRow.payload = journalValue.dump(); db.upsert(journalRow);
+        savedPlan = Json::parse(db.profileMeta("learning-flow"));
         assert(savedPlan["plan"]["version"] == 11 && savedPlan["plan"]["entries"][0]["minutes"] == 300);
-        const auto undonePlan = gangyi::agentControl(db, access, {{"command", "undo"}, {"changeId", scheduled["changes"][0]["id"]}});
+        const auto undonePlan = gangyi::agentControl(db, access, {{"command", "undo"}, {"changeId", scheduleChangeId}});
         savedPlan = Json::parse(db.profileMeta("learning-flow"));
         assert(savedPlan["plan"]["version"] == 12 && savedPlan["plan"]["entries"][0]["minutes"] == 30);
         gangyi::agentControl(db, access, {{"command", "cancel"}, {"taskId", undonePlan["id"]}});
 
         auto overBudget = longer; overBudget["minutes"] = 400;
         toolArgs["entries"] = {overBudget};
-        const auto invalidPlan = apply(); assert(invalidPlan["status"] == "failed");
+        const auto invalidPlan = apply(true); assert(invalidPlan["status"] == "failed");
         assert(Json::parse(db.profileMeta("learning-flow")) == savedPlan);
         overBudget["completed"] = true; toolArgs["entries"] = {overBudget};
-        assert(apply()["status"] == "failed");
+        assert(apply(true)["status"] == "failed");
         assert(Json::parse(db.profileMeta("learning-flow")) == savedPlan);
 
         const auto future = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + 90;
         db.setProfileMeta("study-drafts", Json{{"editing-window", {{"expires", future}, {"text", "用户未保存的编辑"}}}}.dump());
         auto minute45 = entry; minute45["minutes"] = 45;
         toolArgs["availability"] = {{{"weekday", day}, {"minutes", 45}}}; toolArgs["entries"] = {minute45};
-        const auto protectedDraft = apply(); assert(protectedDraft["status"] == "ready");
+        const auto protectedDraft = apply(true); assert(protectedDraft["status"] == "ready");
         const auto protectedPlan = Json::parse(db.profileMeta("learning-flow"));
         assert(protectedPlan.at("plan") == savedPlan.at("plan"));
         assert(protectedPlan.at("proposal").at("previousPlan") == savedPlan.at("plan"));
@@ -423,6 +435,56 @@ int main() {
         const auto summary = gangyi::agentLessonView(db, access, preparedLessonId);
         assert(summary["evaluations"].size() == 1 && summary["evaluations"][0]["score"] == 80);
         assert(summary.dump().find("expectedAnswer") == std::string::npos && summary.dump().find("rubric") == std::string::npos);
+
+        // 重现真实备课错误：证据是数组，但工具返回必须有对象外壳。
+        int evidenceCalls = 0;
+        gangyi::LearningAgent evidenceReader(path, [&](const auto& options, const auto& sink) {
+            if (++evidenceCalls == 1) return output({{"message", "读取真实证据"}, {"actions", {{{"id", "evidence"}, {"tool", "read_profile_evidence"}, {"args", Json::object()}}}}, {"state", "continue"}}, sink);
+            bool found = false;
+            for (const auto& item : options.messages) if (item.role == "user") {
+                const auto value = Json::parse(item.content, nullptr, false);
+                if (value.is_object() && value.contains("toolResults")) found = value["toolResults"][0]["result"]["evidence"].is_array();
+            }
+            assert(found); return output({{"message", "证据读取完成"}, {"actions", Json::array()}, {"state", "completed"}}, sink);
+        });
+        const auto evidenceTask = gangyi::agentSubmit(db, access, {{"type", "inspect"}, {"requestId", "evidence-object"}});
+        evidenceReader.process(db, evidenceTask["id"]);
+        assert(evidenceCalls == 2 && gangyi::agentView(db, access, evidenceTask["id"])["status"] == "ready");
+
+        // 服务商明确拒绝立即停止，可恢复错误才做三次有限重试。
+        for (const auto& spec : std::vector<std::pair<std::string, int>>{{"provider_rejected",402},{"auth_error",401},{"rate_limited",429},{"provider_5xx",503},{"timeout",0}}) {
+            int attempts = 0;
+            gangyi::LearningAgent failing(path, [&](const auto&, const auto&) -> gangyi::AIResult { ++attempts; throw gangyi::AIClientError(spec.first, "虚构服务商错误", spec.second); });
+            const auto request = gangyi::agentSubmit(db, access, {{"type", "inspect"}, {"requestId", "provider-" + spec.first}});
+            failing.process(db, request["id"]); const auto result = gangyi::agentView(db, access, request["id"]);
+            const bool canRetry = spec.first != "provider_rejected" && spec.first != "auth_error";
+            assert(attempts == (canRetry ? 3 : 1) && result["status"] == "failed");
+            assert(result["failure"]["httpStatus"] == spec.second && result["failure"]["retryable"] == canRetry);
+        }
+
+        // 学生在练习页请求选择题：AI 追加的互动题也必须接续显示在当前页。
+        gangyi::LearningAgent followup(path, [&](const auto&, const auto& sink) {
+            return output({{"message", "请在新选择题中作答"}, {"actions", {{{"id", "followup"}, {"tool", "append_section"},
+                {"args", {{"lessonId", preparedLessonId}, {"questionKind", "interaction"}, {"section", {{"kind", "question"}, {"title", "根据回答追加的选择题"},
+                    {"question", {{"question", "化合价升高表示什么？"}, {"type", "choice"}, {"options", {"失去电子", "得到电子"}}, {"expectedAnswer", "失去电子"}}}}}}}}}}, {"state", "waiting_student"}}, sink);
+        });
+        gangyi::registerAgentLessonTools(followup);
+        const auto followupTask = gangyi::agentSubmit(db, access, {{"type", "chat"}, {"lessonId", preparedLessonId}, {"courseId", "chem"},
+            {"view", "practice"}, {"text", "请根据我的回答出一道选择题"}, {"requestId", "followup-choice"}});
+        followup.process(db, followupTask["id"]);
+        const auto followupLesson = gangyi::agentLessonView(db, access, preparedLessonId);
+        assert(followupLesson["teachingFocus"]["responseView"] == "practice");
+        assert(followupLesson["teachingFocus"]["responseSectionId"] == followupLesson["sections"].back()["id"]);
+        assert(followupLesson["sections"].back()["question"]["options"].size() == 2);
+        assert(followupLesson.dump().find("expectedAnswer") == std::string::npos);
+        auto legacyRow = *db.getClassroomActivity(preparedLessonId);
+        auto legacyLesson = Json::parse(legacyRow.payload);
+        for (const auto* key : {"responseSectionId", "responseView", "responseTaskId"}) legacyLesson["teachingFocus"].erase(key);
+        legacyRow.payload = legacyLesson.dump(); db.upsert(legacyRow);
+        const auto recoveredLesson = gangyi::agentLessonView(db, access, preparedLessonId);
+        assert(recoveredLesson["teachingFocus"]["responseSectionId"] == followupLesson["sections"].back()["id"]);
+        assert(recoveredLesson["teachingFocus"]["responseView"] == "practice");
+        assert(db.getClassroomActivity(preparedLessonId)->payload == legacyRow.payload);
     }
     std::filesystem::remove_all(root);
     std::cout << "多步 AI 主控、幂等、访问隔离、失败停止与事务回滚测试通过\n";

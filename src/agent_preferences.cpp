@@ -223,8 +223,10 @@ void registerAgentPreferenceTools(LearningAgent& agent) {
                     connection.markLearningDirty(); saveChange(connection, change, course.id);
                 }};
         }});
-    agent.registerTool("adjust_schedule", {"自主调整所有课程共享的学习时间和手动安排。参数 availability:[{weekday:1..7,minutes:1..1440}]、entries:[{taskId,courseId,kind,date,minutes,order,phaseIndex,topicIndex,requires}]、reason。保留已完成和在学任务；日总量不可超预算；未保存编辑仅保存候选，不能覆盖草稿。", false,
+    agent.registerTool("adjust_schedule", {"仅在用户手动重新排课的任务中生成统一课表候选。参数 availability:[{weekday:1..7,minutes:1..1440}]、entries:[{taskId,courseId,kind,date,minutes,order,phaseIndex,topicIndex,requires}]、reason。始终保留原课表及编辑草稿，等待用户确认；不得直接应用。保留已完成和在学任务；日总量不可超预算。", false,
         [](Database& db, const Json& args, const Json& task, const AIResult& source) {
+            if (!task.value("manualScheduleReplan", false) || task.at("event").value("type", "") != "schedule_replan")
+                throw std::invalid_argument("只有用户手动重新排课的任务可以生成课表候选");
             const auto access = accessFor(task);
             for (const auto& course : db.listCourses()) if (course.status == "active" && !allowed(access, course.id))
                 throw std::invalid_argument("无权修改其他用户课程的共享预算");
@@ -238,28 +240,22 @@ void registerAgentPreferenceTools(LearningAgent& agent) {
             const auto change = journal(db, task, source, args, "schedule", "learning-flow", raw, after.dump());
             const auto draftRaw = db.profileMeta("study-drafts");
             const auto drafts = parse(draftRaw);
-            const auto time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-            bool editing = false;
-            for (const auto& draft : drafts.items()) editing = editing || draft.value().value("expires", 0LL) > time;
-            if (editing) return PreparedAgentTool{{{"changed", false}, {"draftProtected", true},
-                {"message", "编辑中的内容已保留，AI 新安排作为候选保存。"}},
-                [after, draftRaw, raw, old, change](Database& connection) {
+            if (!drafts.is_object()) throw std::invalid_argument("study-drafts 必须为对象，原编辑内容未改动");
+            return PreparedAgentTool{{{"changed", false}, {"draftProtected", true}, {"proposalId", change.at("id")},
+                {"message", "AI 候选安排已保存，等待用户确认，原课表和编辑内容保留。"}},
+                [after, draftRaw, raw, old, change, taskId = task.at("id").get<std::string>()](Database& connection) {
+                    const auto taskRow = connection.getClassroomActivity(taskId);
+                    if (!taskRow || !parse(taskRow->payload).value("manualScheduleReplan", false))
+                        throw std::invalid_argument("本次任务没有手动排课授权");
                     if (connection.profileMeta("study-drafts") != draftRaw) throw std::invalid_argument("编辑状态已经变化");
                     connection.setProfileMeta("agent-schedule-proposal", after.dump());
                     auto candidate = change; candidate["status"] = "candidate";
                     auto state = parse(raw); state["agentControlled"] = true; state["status"] = "ready";
                     state["proposal"] = {{"id", change.at("id")}, {"plan", after.at("plan")}, {"previousPlan", old},
                         {"reason", change.at("reason")}, {"learningVersion", connection.learningRevision()}};
-                    state["message"] = "编辑内容已保留，可查看并确认 AI 候选安排。";
+                    state["message"] = "候选已生成，请预览并确认；原课表和编辑内容已保留。";
                     if (!connection.compareProfileMeta("learning-flow", raw, state.dump())) throw std::invalid_argument("课表版本已变化");
                     saveChange(connection, candidate);
-                }};
-            return PreparedAgentTool{{{"changed", true}, {"change", publicChange(change)}},
-                [raw, after, change, draftRaw](Database& connection) {
-                    if (connection.profileMeta("study-drafts") != draftRaw ||
-                        !connection.compareProfileMeta("learning-flow", raw, after.dump()))
-                        throw std::invalid_argument("课表或编辑状态已变化，旧调整不应用");
-                    connection.markLearningDirty(); saveChange(connection, change);
                 }};
         }});
     agent.registerTool("update_recommendations", {"根据最新真实表现决定更新首页推荐；无需固定补弱与探索比例。参数 lite、deep 两组非重复纯文本目标，以及 reason；每组数量自行决定。", false,

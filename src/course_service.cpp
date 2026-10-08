@@ -297,6 +297,35 @@ std::vector<Course> listCoursesForIdentity(Database& db, const std::string& user
     }
 }
 
+std::optional<Course> currentCourseForIdentity(Database& db, const std::string& userId,
+                                               const std::string& anonymousId) {
+    std::optional<Course> selected;
+    const auto marker = json::parse(db.profileMeta("current-course"), nullptr, false);
+    if (marker.is_object() && marker.value("id", json()).is_string()) {
+        const auto course = db.getCourse(marker.at("id"));
+        if (course && course->status == "active" && (userId.empty() || course->userId.value_or("") == userId) &&
+            (anonymousId.empty() || course->anonymousId.value_or("") == anonymousId) && getCourseWithSnapshot(db, course->id)) return course;
+    }
+    std::string latest;
+    for (const auto& row : db.listInteractions()) {
+        if (!row.courseId || (row.kind != "course-visit" && row.kind != "lesson-visit" &&
+            row.kind != "chat-user" && row.kind != "practice" && row.kind != "quiz" && row.kind != "review")) continue;
+        const auto course = db.getCourse(*row.courseId);
+        if (!course || course->status != "active") continue;
+        if (!userId.empty() && course->userId.value_or("") != userId) continue;
+        if (!anonymousId.empty() && course->anonymousId.value_or("") != anonymousId) continue;
+        if (!getCourseWithSnapshot(db, course->id)) continue;
+        if (!selected || row.createdAt >= latest) { selected = course; latest = row.createdAt; }
+    }
+    return selected;
+}
+
+void rememberCurrentCourse(Database& db, const std::string& courseId) {
+    const auto course = db.getCourse(courseId);
+    if (course && course->status == "active" && getCourseWithSnapshot(db, courseId))
+        db.setProfileMeta("current-course", json{{"id", courseId}}.dump());
+}
+
 bool deleteCourseForIdentity(Database& db, const std::string& courseId, const std::string& userId,
                              const std::string& anonymousId) {
     try {

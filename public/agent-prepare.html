@@ -1,8 +1,24 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AI 正在备课 · 钢一定制AI</title><link rel="stylesheet" href="/agent-classroom.css"></head><body>
-<header><a href="/my-courses">← 用户中心</a><span>真实 AI 备课</span></header><main><p class="eyebrow">读取实际回答与最新反馈</p>
-<h1>为你准备下一步学习</h1><p id="prepare-status" role="status" aria-live="polite">正在提交备课请求</p>
-<div id="prepare-stream"></div><button id="prepare-stop" type="button">暂停</button><button id="prepare-retry" type="button" hidden>重试</button>
-<a id="prepare-enter" hidden>进入已准备好的课堂 →</a>
-<form id="prepare-feedback" hidden><label for="prepare-input">补充你的情况或偏好</label><textarea id="prepare-input" rows="4"></textarea><button type="submit">补充后继续备课</button></form></main>
-<script src="/learning-agent.js"></script><script src="/agent-shell.js"></script><script src="/agent-prepare.js"></script></body></html>
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI 备课 · 钢一定制AI</title><link rel="icon" href="/school-logo.png"><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/dark.css"><link rel="stylesheet" href="/app-layout.css">
+</head><body class="dark-app gy-theme-lab">
+<header class="site-header dark-header"><div class="dark-nav-shell"><a class="dark-brand" href="/"><img class="dark-brand-mark" src="/school-logo.png" alt="柳州市钢一中学校徽"><span>钢一<b>定制AI</b></span></a><nav class="dark-nav-links" aria-label="主导航"><a class="dark-nav-link" href="/">首页</a><a class="dark-nav-link" href="/my-courses">我的课程</a><a class="dark-nav-link" data-current-course-link aria-disabled="true" tabindex="-1">当前课程</a><a class="dark-nav-link" href="/ask">AI 导师</a></nav><a class="dark-nav-cta" href="/settings.html">AI 设置</a><details class="dark-mobile-nav"><summary aria-label="打开菜单">☰</summary><nav aria-label="移动导航"><a class="dark-nav-link" href="/">首页</a><a class="dark-nav-link" href="/my-courses">我的课程</a><a class="dark-nav-link" data-current-course-link aria-disabled="true" tabindex="-1">当前课程</a><a class="dark-nav-link" href="/ask">AI 导师</a><a class="dark-nav-link" href="/settings.html">AI 设置</a></nav></details></div></header>
+<main class="preparation-page">
+  <div class="preparation-heading"><p class="uc-eyebrow">钢一研习工作台 · AI 备课</p><h1>为你准备下一步学习</h1><p id="prepare-course">正在读取课程与最新学习记录</p></div>
+  <div class="preparation-workspace">
+    <aside class="preparation-status-panel" aria-label="备课状态">
+      <span class="preparation-status-badge" id="prepare-badge">正在提交</span><h2>本次备课</h2>
+      <p id="prepare-status" role="status" aria-live="polite">正在提交备课请求</p>
+      <ol class="preparation-milestones"><li id="prepare-submitted">提交备课请求</li><li id="prepare-generating">AI 准备教学内容</li><li id="prepare-saved">完整保存课件</li></ol>
+      <p id="prepare-error" class="preparation-error" role="alert" hidden></p>
+      <div class="preparation-controls"><button id="prepare-stop" type="button">暂停备课</button><button id="prepare-retry" type="button" hidden>重试备课</button><a id="prepare-enter" hidden>进入课堂 →</a><a class="preparation-back" href="/my-courses">返回我的课程</a></div>
+      <p class="preparation-help">只呈现真实任务状态；完整课件保存后自动进入课堂。</p>
+    </aside>
+    <section class="preparation-preview" aria-label="实时课件预览"><div class="preparation-preview-heading"><h2>课件实时预览</h2><span id="prepare-preview-status">生成中内容</span></div><p id="prepare-empty">AI 正在读取学习情况，生成的内容会逐段显示在这里。</p><div id="prepare-stream" aria-live="off"></div>
+      <form id="prepare-feedback" hidden><label for="prepare-input">补充你的情况或偏好</label><textarea id="prepare-input" rows="4"></textarea><button type="submit">补充后继续备课</button></form>
+    </section>
+  </div>
+</main>
+<footer class="dark-footer"><span>钢一定制AI</span><span>让学习有路径，让进步看得见。</span></footer>
+<script src="/learning-agent.js"></script><script src="/agent-shell.js"></script><script src="/agent-prepare.js"></script>
+</body></html>

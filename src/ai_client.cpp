@@ -75,10 +75,11 @@ std::string modelsEndpoint(const std::string& baseUrl) {
 AIClientError errorFor(CURLcode code, long status, const std::string& message) {
     if (code == CURLE_OPERATION_TIMEDOUT) return AIClientError("timeout", message);
     if (code != CURLE_OK) return AIClientError("network_error", message);
-    if (status == 401 || status == 403) return AIClientError("auth_error", message);
-    if (status == 429) return AIClientError("rate_limited", message);
-    if (status >= 500 && status <= 599) return AIClientError("provider_5xx", message);
-    return AIClientError("unknown", message);
+    if (status == 401 || status == 403) return AIClientError("auth_error", message, static_cast<int>(status));
+    if (status == 402) return AIClientError("provider_rejected", message, 402);
+    if (status == 429) return AIClientError("rate_limited", message, 429);
+    if (status >= 500 && status <= 599) return AIClientError("provider_5xx", message, static_cast<int>(status));
+    return AIClientError("provider_rejected", message, static_cast<int>(status));
 }
 
 AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeoutMs) {
@@ -291,8 +292,10 @@ AIResult attempt(const Endpoint& endpoint, const ChatOptions& options, int timeo
 }
 }
 
-AIClientError::AIClientError(const std::string& type, const std::string& message)
-    : std::runtime_error(message), errorType(type) {}
+AIClientError::AIClientError(const std::string& type, const std::string& message, int status)
+    : std::runtime_error(message), errorType(type), httpStatus(status),
+      retryable(type == "timeout" || type == "network_error" || type == "rate_limited" ||
+                type == "provider_5xx" || type == "invalid_response") {}
 
 AIClient::AIClient() : AIClient(configFromEnvironment()) {}
 

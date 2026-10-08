@@ -118,7 +118,7 @@ Json initialState(Database& db) {
         state["plan"] = {{"availability", availability}, {"entries", entries}, {"version", 1},
             {"weekStart", addDays(today(), 1 - weekday(today()))}, {"source", "legacy"}};
     }
-    if (!state.contains("status")) state["status"] = "pending";
+    if (!state.contains("status")) state["status"] = "ready";
     return state;
 }
 Json taskCandidates(Database& db) {
@@ -272,14 +272,25 @@ std::string learningContext(Database& db, const std::string& courseId) {
 Json studyPlanView(Database& db) {
     auto state = initialState(db); auto result = state["plan"];
     result["status"] = state.value("status", "pending");
-    result["message"] = state.value("message", "正在等待真实 AI 统筹学习安排。");
+    result["message"] = state.value("message", "设置学习时间后，点击重新排课生成候选。");
     result["proposal"] = state.value("proposal", Json());
     result["learningVersion"] = db.learningRevision();
     result["model"] = state.value("model", "");
-    if (!state.value("agentControlled", false) && state.value("attemptedRevision", 0) != db.learningRevision()) {
-        result["status"] = "pending";
-        if (state.value("status", "") != "pending") result["message"] = "真实 AI 正在结合最新表现更新安排…";
-        result["proposal"] = Json();
+    const auto pendingTask = state.value("replanTaskId", "");
+    if (!pendingTask.empty() && !result["proposal"].is_object()) {
+        const auto row = db.getClassroomActivity(pendingTask);
+        if (row && row->kind == "agent-task") {
+            const auto task = parse(row->payload);
+            const auto status = task.value("status", "");
+            result["replanTaskId"] = pendingTask;
+            result["status"] = status == "running" || status == "pending" ? "pending" : status == "paused" ? "paused" : status == "failed" ? "failed" : "ready";
+            if (status == "failed") result["message"] = task.value("failure", Json::object()).value("message", "重排失败，原课表已保留，可重新生成候选。");
+            else if (status == "paused") result["message"] = "重排已暂停，原课表保留；可从 AI 状态入口恢复。";
+            else if (status != "pending" && status != "running") result["message"] = "本次任务尚未生成可确认的候选，原课表保留，可重新排课。";
+        }
+    } else if (pendingTask.empty() && result["status"] == "pending") {
+        result["status"] = "ready";
+        result["message"] = "当前课表已保留，点击重新排课生成候选。";
     }
     const auto courses = db.listCourses();
     if (std::none_of(courses.begin(), courses.end(), [](const Course& course) { return course.status == "active"; })) {
@@ -355,7 +366,7 @@ Json editStudyPlan(Database& db, const Json& body) {
         plan["entries"] = body["entries"]; for (auto& entry : plan["entries"]) entry["manual"] = true;
     }
     plan["version"] = plan.value("version", 1) + 1;
-    state["plan"] = plan; state.erase("proposal"); state["status"] = "pending";
+    state["plan"] = plan; state.erase("proposal"); state.erase("replanTaskId"); state["status"] = "ready"; state["agentControlled"] = true;
     state["message"] = "修改已保存，AI 将按新的总时间预算备课。";
     if (!db.compareProfileMeta("learning-flow", raw, state.dump())) throw std::invalid_argument("学习安排已变化，请刷新");
     db.markLearningDirty(); return studyPlanView(db);
@@ -369,7 +380,8 @@ Json studyPlanProposal(Database& db, const Json& body, const std::string& action
             validateEntries(db, state["plan"], body["entries"], false);
             state["requestedEntries"] = body["entries"];
         }
-        state["forcePreview"] = body.value("preview", false) || body.contains("entries");
+        state["forcePreview"] = true;
+        state["agentControlled"] = true; state.erase("proposal"); state.erase("replanTaskId");
         state["status"] = "pending"; state["message"] = "真实 AI 正在重排…";
         if (!db.compareProfileMeta("learning-flow", raw, state.dump())) throw std::invalid_argument("计划已变化，请刷新");
         db.markLearningDirty(); return {{"ok", true}, {"pending", true}, {"plan", studyPlanView(db)}};
@@ -383,8 +395,9 @@ Json studyPlanProposal(Database& db, const Json& body, const std::string& action
         state["message"] = "已应用你确认的同一份 AI 安排。";
     } else if (action == "cancel") state["message"] = "已取消重排，原安排保留。";
     else throw std::invalid_argument("操作无效");
-    state.erase("proposal"); state["status"] = "ready";
+    state.erase("proposal"); state.erase("replanTaskId"); state.erase("requestedAvailability"); state.erase("requestedEntries"); state.erase("forcePreview"); state["status"] = "ready";
     if (!db.compareProfileMeta("learning-flow", raw, state.dump())) throw std::invalid_argument("计划已变化，请刷新");
+    if (action == "confirm") db.markLearningDirty();
     return {{"ok", true}, {"plan", studyPlanView(db)}};
 }
 

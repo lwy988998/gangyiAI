@@ -49,8 +49,10 @@ struct AIClientConfig {
 
 class AIClientError : public std::runtime_error {
 public:
-    AIClientError(const std::string& errorType, const std::string& message);
+    AIClientError(const std::string& errorType, const std::string& message, int httpStatus = 0);
     std::string errorType;
+    int httpStatus = 0;
+    bool retryable = false;
 };
 
 class AIClient {

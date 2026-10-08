@@ -19,6 +19,7 @@ class FixtureAI(BaseHTTPRequestHandler):
     slow = False
     fail_next = False
     fail = False
+    http_error = 0
 
     def log_message(self, *_):
         pass
@@ -35,13 +36,15 @@ class FixtureAI(BaseHTTPRequestHandler):
             type(self).slow = request.get('slow', False)
             type(self).fail_next = request.get('fail_next', False)
             type(self).fail = request.get('fail', False)
+            type(self).http_error = request.get('http_error', 0)
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b'{}')
             return
-        if type(self).fail_next or type(self).fail:
+        if type(self).fail_next or type(self).fail or type(self).http_error:
             type(self).fail_next = False
-            self.send_response(503)
+            type(self).calls.append('failed-http')
+            self.send_response(type(self).http_error or 503)
             self.end_headers()
             return
         context = json.loads(request['messages'][1]['content'])
@@ -55,7 +58,9 @@ class FixtureAI(BaseHTTPRequestHandler):
                 except ValueError:
                     pass
         actions, state, message = [], 'completed', '已保存本次处理。'
-        if event['type'] == 'startup':
+        if event.get('attemptSchedule'):
+            actions = [dict(id='unauthorized-schedule', tool='adjust_schedule', args=event['attemptSchedule'])]
+        elif event['type'] == 'startup':
             actions = [dict(id='recommend', tool='update_recommendations', args=dict(
                 lite=['认识化合价', '比较电子变化', '练习配平'], deep=['氧化还原概念课', '化合价与电子转移'], reason='虚构档案仅提供学习方向'))]
         elif event['type'] == 'plan_course':
@@ -96,7 +101,12 @@ class FixtureAI(BaseHTTPRequestHandler):
                 state = 'waiting_student'
         elif event['type'] == 'question_answer':
             actual = next(item for item in context['feedback'] if item['payload'].get('requestId') == event['requestId'])
-            if '为什么' in event['text'] or '提示' in event['text']:
+            if '选择题' in event['text']:
+                actions = [dict(id='classify', tool='classify_input', args=dict(interactionId=actual['id'], isAnswer=False, reason='学生希望改用选择题练习')),
+                    dict(id='followup-choice', tool='append_section', args=dict(lessonId=event['lessonId'], section=dict(kind='question', questionKind='interaction', title='根据你的回答：比较电子得失',
+                        question=dict(question='Fe 变为 Fe²⁺ 时，下列哪种描述正确？', type='choice', options=['失去两个电子', '得到两个电子'], expectedAnswer='PRIVATE-FOLLOWUP', rubric='PRIVATE-RUBRIC'))))]
+                message = '根据你的回答换一道选择题，请选择电子变化的正确描述。'
+            elif '为什么' in event['text'] or '提示' in event['text']:
                 actions = [dict(id='classify', tool='classify_input', args=dict(interactionId=actual['id'], isAnswer=False, reason='本次输入只有追问'))]
                 message = '这是对思路的追问。我们可以先比较前后状态，再联系电子变化。'
             elif event.get('action') == 'skip':
@@ -108,6 +118,12 @@ class FixtureAI(BaseHTTPRequestHandler):
         elif event['type'] == 'lesson_finish_request':
             message = '请结合本节检查点回顾，已有记录会保留，缺少证据的部分继续练习。'
             state = 'waiting_student'
+        elif event['type'] == 'schedule_replan':
+            course = context['courses'][0]['id']
+            availability = context['studyPlan'].get('requestedAvailability', [dict(weekday=1, minutes=30)])
+            actions = [dict(id='candidate', tool='adjust_schedule', args=dict(availability=availability,
+                entries=[dict(taskId='lesson:'+course+':1:1', courseId=course, kind='lesson', date='2099-01-05', minutes=20, order=0, phaseIndex=1, topicIndex=1)],
+                reason='按手动请求在可用时间内安排概念课，原课表等待确认'))]
         elif event['type'] == 'acceptance_tool':
             actions = [dict(id='control-check', tool=event['tool'], args=event['args'])]
             message = '测试调整已保存。你可以从学习导航撤回这次调整，已有作答记录仍保留。'

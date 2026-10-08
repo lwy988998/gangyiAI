@@ -244,7 +244,26 @@ nlohmann::json localAgentView(gangyi::Database& db, const std::string& taskId = 
 }
 
 nlohmann::json studyPlanAgentAction(gangyi::Database& db, nlohmann::json body, const std::string& action) {
+    static std::mutex manualPlanMutex;
+    std::lock_guard<std::mutex> guard(manualPlanMutex);
+    static std::atomic_uint64_t sequence{0};
     const auto access = localAgentAccess(db);
+    nlohmann::json event;
+    if (action == "replan") {
+        body["requestId"] = body.value("requestId", "schedule-" + nowIso8601() + "-" + std::to_string(++sequence));
+        event = {{"type", "schedule_replan"}, {"requestId", body.at("requestId")}, {"scheduleRequest", body},
+            {"text", "我手动请求重新排课。请根据最新时间设置、全部课程和真实表现生成候选安排，保留当前课表与未保存编辑，等待我确认。"}};
+        // 重复提交复用同一任务，不再次改变学习版本或生成候选。
+        const auto index = nlohmann::json::parse(db.profileMeta("agent-index"), nullptr, false);
+        if (index.is_array()) for (const auto& id : index) {
+            if (!id.is_string()) continue;
+            const auto row = db.getClassroomActivity(id); if (!row) continue;
+            const auto task = nlohmann::json::parse(row->payload, nullptr, false);
+            if (!task.is_object() || task.value("scopeId", "") != access.scopeId || task.value("requestId", "") != body.at("requestId")) continue;
+            if (!task.value("manualScheduleReplan", false) || task.at("event") != event) throw std::invalid_argument("重复排课请求的内容不一致");
+            return {{"ok", true}, {"plan", gangyi::studyPlanView(db)}, {"task", gangyi::agentView(db, access, id)}};
+        }
+    }
     const auto result = gangyi::studyPlanProposal(db, body, action);
     if (action == "confirm" || action == "cancel") {
         const auto row = db.getClassroomActivity(body.at("proposalId"));
@@ -257,10 +276,12 @@ nlohmann::json studyPlanAgentAction(gangyi::Database& db, nlohmann::json body, c
             gangyi::agentSaveChange(db, change);
         }
     }
-    static std::atomic_uint64_t sequence{0};
-    auto view = result; view["task"] = gangyi::agentSubmit(db, access, {{"type", "schedule_" + action},
-        {"requestId", body.value("requestId", "schedule-" + nowIso8601() + "-" + std::to_string(++sequence))},
-        {"text", action == "replan" ? "请根据我的最新时间设置、全部课程和真实表现重新安排学习；保留未保存草稿，在必要时保存候选。" : action == "cancel" ? "我取消这份课表候选，请尊重我的决定，不立即重做同一改动。" : "我确认这份 AI 安排，请按同一份已保存安排继续。"}});
+    if (action != "replan") return result;
+    auto view = result; view["task"] = gangyi::agentSubmit(db, access, event, gangyi::AgentSubmissionOrigin::manualScheduleReplan);
+    const auto raw = db.profileMeta("learning-flow"); auto state = nlohmann::json::parse(raw);
+    state["replanTaskId"] = view["task"]["id"];
+    if (!db.compareProfileMeta("learning-flow", raw, state.dump())) throw std::invalid_argument("课表状态已变化，请刷新读取已提交的任务");
+    view["plan"] = gangyi::studyPlanView(db);
     return view;
 }
 
@@ -306,6 +327,7 @@ void recordInteraction(gangyi::Database& db, const std::string& kind, const nloh
     if (!courseId.empty()) item.courseId = courseId;
     if (!conversationId.empty()) item.conversationId = conversationId;
     if (!db.insert(item)) throw std::runtime_error("学习记录保存失败");
+    if (kind == "course-visit" || kind == "lesson-visit") gangyi::rememberCurrentCourse(db, courseId);
 }
 
 
@@ -1209,7 +1231,10 @@ int main() {
                     {"summary", c.summary ? nlohmann::json(*c.summary) : nlohmann::json(nullptr)},
                     {"createdAt", c.createdAt}, {"updatedAt", c.updatedAt}, {"href", href}});
             }
-            return crow::response(200, nlohmann::json{{"courses", arr}}.dump());
+            nlohmann::json current = nullptr;
+            if (const auto course = gangyi::currentCourseForIdentity(db))
+                current = {{"id", course->id}, {"title", course->title}, {"href", "/plan?courseId=" + course->id}};
+            return crow::response(200, nlohmann::json{{"courses", arr}, {"currentCourse", current}}.dump());
         } catch (...) {
             return crow::response(200, nlohmann::json{{"courses", nlohmann::json::array()}}.dump());
         }

@@ -72,7 +72,8 @@
     if (window.GangyiChat) element.innerHTML = window.GangyiChat.renderMarkdown(String(value), { math: true });
     else element.textContent = String(value);
   };
-  window.GangyiAgent = { request, watch, storage, id, richText, flushExposure,
+  const failureMessage = task => task?.failure?.message || task?.error || 'AI 请求未完成，输入和已有有效结果已保留，可重试。';
+  window.GangyiAgent = { request, watch, storage, id, richText, flushExposure, failureMessage,
     recordSections(lessonId, sections) {
       if (!sections.length) return;
       const saved = new Map(sectionExposures.get(lessonId) || []);

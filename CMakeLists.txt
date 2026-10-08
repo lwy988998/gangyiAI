@@ -236,7 +236,9 @@ if(BUILD_TESTING)
     target_link_libraries(agent-stream-tests PRIVATE nlohmann_json::nlohmann_json)
     add_test(NAME agent-stream COMMAND agent-stream-tests)
     add_executable(learning-agent-tests tests/learning_agent_tests.cpp src/learning_agent.cpp
-        src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/agent_curriculum.cpp src/progress_service.cpp src/db.cpp src/ai_client.cpp src/search_client.cpp src/json_fix.cpp)
+        src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/agent_curriculum.cpp
+        src/learning_flow.cpp src/next_lesson.cpp src/classroom_service.cpp src/learning_generator.cpp src/profile_service.cpp
+        src/course_service.cpp src/progress_service.cpp src/db.cpp src/ai_client.cpp src/search_client.cpp src/json_fix.cpp)
     target_include_directories(learning-agent-tests PRIVATE include ${GANGYI_CURL_INCLUDE})
     target_link_libraries(learning-agent-tests PRIVATE nlohmann_json::nlohmann_json
         ${GANGYI_SQLITE_LIB} ${GANGYI_CURL_LINK} Threads::Threads)
@@ -330,6 +332,8 @@ if(BUILD_TESTING)
         # 旧独立后台与固定教学规则的运行时验收迁移为统一主控协议验收。
         add_test(NAME learning-agent-api COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/learning_agent_api_smoke.py $<TARGET_FILE:gangyiAI>)
+        add_test(NAME v560-revision-api COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/v560_revision_api_smoke.py $<TARGET_FILE:gangyiAI>)
     endif()
 endif()
 

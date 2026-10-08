@@ -27,7 +27,9 @@ struct AgentTool {
 };
 std::string agentLearnerFingerprint(Database& db, const AgentAccess& access);
 AgentJson agentContext(Database& db, const AgentAccess& access, const AgentJson& event);
-AgentJson agentSubmit(Database& db, const AgentAccess& access, const AgentJson& event);
+enum class AgentSubmissionOrigin { ordinary, manualScheduleReplan };
+AgentJson agentSubmit(Database& db, const AgentAccess& access, const AgentJson& event,
+                      AgentSubmissionOrigin origin = AgentSubmissionOrigin::ordinary);
 AgentJson agentView(Database& db, const AgentAccess& access, const std::string& taskId = {});
 AgentJson agentControl(Database& db, const AgentAccess& access, const AgentJson& body);
 

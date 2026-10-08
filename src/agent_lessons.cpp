@@ -1,6 +1,7 @@
 #include "agent_lessons.hpp"
 #include "question_evidence.hpp"
 #include "agent_curriculum.hpp"
+#include "course_service.hpp"
 #include <algorithm>
 #include <chrono>
 #include <iomanip>
@@ -38,6 +39,28 @@ Json lessonFor(Database& db, const AgentAccess& access, const std::string& id) {
     if (value.at("scopeId") != access.scopeId) throw std::invalid_argument("无权读取该课时");
     requireCourse(db, access, row->courseId); return value;
 }
+// AI 选择或追加的当轮问题，应在学生正在使用的页面承接；题目身份与用途仍保留。
+std::string responseView(const Json& lesson, const Json& task) {
+    const auto& event = task.at("event");
+    std::string view = event.value("view", "");
+    if (view != "learn" && view != "practice") {
+        view = "learn";
+        for (const auto& source : lesson.at("sections")) if (source.at("id") == event.value("sectionId", "")) {
+            const auto kind = source.value("questionKind", source.value("legacyKind", "practice"));
+            if (kind != "interaction" && kind != "diagnostic") view = "practice";
+        }
+    }
+    return view;
+}
+void selectResponseQuestion(Json& focus, const Json& lesson, const Json& task, const Json& section) {
+    const auto& event = task.at("event");
+    if (event.value("lessonId", "") != lesson.at("id") || section.at("kind") != "question") return;
+    const auto type = event.value("type", "");
+    if (type != "question_answer" && type != "chat" && type != "lesson_start") return;
+    const auto view = responseView(lesson, task);
+    focus["responseSectionId"] = section.at("id"); focus["responseView"] = view;
+    focus["responseTaskId"] = task.at("id");
+}
 Json publicMaterial(const Json& value) {
     if (value.is_array()) { Json result = Json::array(); for (const auto& item : value) result.push_back(publicMaterial(item)); return result; }
     if (!value.is_object()) return value;
@@ -52,7 +75,7 @@ Json publicLesson(const Json& lesson) {
         if (lesson.contains(key)) result[key] = lesson[key];
     result["teachingFocus"] = Json::object();
     const auto focus = lesson.value("teachingFocus", Json::object());
-    for (const auto* key : {"sectionId", "interactionSectionId", "practiceSectionId", "taskId", "version", "updatedAt"})
+    for (const auto* key : {"sectionId", "interactionSectionId", "practiceSectionId", "responseSectionId", "responseView", "responseTaskId", "taskId", "version", "updatedAt"})
         if (focus.contains(key)) result["teachingFocus"][key] = focus.at(key);
     result["references"] = Json::array();
     for (const auto& reference : lesson.value("references", Json::array())) {
@@ -104,6 +127,7 @@ PreparedAgentTool update(Database& db, const Json& task, const std::string& id, 
     }};
 }
 std::string text(const Json& value, const char* key) {
+    if (!value.is_object()) throw std::invalid_argument(std::string("args.") + key + " 的父节点必须为对象");
     if (!value.value(key, Json()).is_string() || value[key].get<std::string>().empty())
         throw std::invalid_argument(std::string(key) + " 不能为空");
     return value[key];
@@ -172,11 +196,16 @@ void registerAgentLessonTools(LearningAgent& agent) {
                 focus[field] = sectionId;
             }
             if (!selected) throw std::invalid_argument("请至少选择一个教学焦点");
+            const auto preferred = responseView(lesson, task) == "practice" ? "practiceSectionId" : "interactionSectionId";
+            const auto fallback = std::string(preferred) == "practiceSectionId" ? "interactionSectionId" : "practiceSectionId";
+            const auto selectedQuestion = args.value(preferred, args.value(fallback, ""));
+            for (const auto& section : lesson.at("sections")) if (section.at("id") == selectedQuestion)
+                selectResponseQuestion(focus, lesson, task, section);
             focus["taskId"] = task.at("id"); focus["version"] = focus.value("version", 0) + 1; focus["updatedAt"] = now();
             lesson["teachingFocus"] = focus; lesson["version"] = lesson.at("version").get<int>() + 1; lesson["updatedAt"] = now();
             return update(db, task, id, lesson, {{"lessonId", id}, {"teachingFocus", focus}});
         }});
-    agent.registerTool("append_section", {"追加教学板块，不改已展示内容。参数 lessonId、section:{kind:explanation|question|summary,title,body 或 question:{question,options 可选,type,expectedAnswer,rubric},questionKind:interaction|practice}。interaction 用于讲解中的提问，practice 用于独立练习（默认）。题目标准只放 expectedAnswer/rubric，题干与公开正文不要提前给出答案。示范例题放 explanation，不作为评分题。返回板块及稳定题目标识。", false,
+    agent.registerTool("append_section", {"追加教学板块，不改已展示内容。参数 lessonId、section:{kind:explanation|question|summary,title,body 或 question:{question,options 可选,type,expectedAnswer,rubric},questionKind:interaction|practice}，activate 可选。课堂互动追加的问题默认立即在学生当前页面显示；仅备好未来题目时用 activate=false。选择题必须有至少两个非空 options，不可只在 message 里承诺出题。题目标准只放 expectedAnswer/rubric，示范放 explanation，不评分。返回稳定板块与题目标识。", false,
         [](Database& db, const Json& args, const Json& task, const AIResult& source) {
             const auto id = text(args, "lessonId"); auto lesson = lessonFor(db, accessFor(task), id);
             if (lesson.at("status") != "draft" && lesson.at("status") != "ready") throw std::invalid_argument("课时状态不允许补充");
@@ -200,7 +229,12 @@ void registerAgentLessonTools(LearningAgent& agent) {
                     for (const auto& option : question["options"]) if (!option.is_string() || option.get<std::string>().empty())
                         throw std::invalid_argument("题目选项须为非空文字");
                 }
+                const auto questionType = question.value("type", question.contains("options") ? "choice" : "open");
+                if ((questionType == "choice" || questionType == "single_choice" || questionType == "multi_choice") &&
+                    (!question.contains("options") || question.at("options").size() < 2))
+                    throw std::invalid_argument("section.question.options：选择题必须保存至少两个选项");
                 section["question"] = question;
+                section["question"]["type"] = questionType;
                 Json identity = {{"question", question.at("question")}};
                 if (question.contains("options")) identity["options"] = question["options"];
                 section["questionId"] = questionIdentity(lesson.at("courseId"), identity);
@@ -212,6 +246,16 @@ void registerAgentLessonTools(LearningAgent& agent) {
                 }
             }
             lesson["sections"].push_back(section); lesson["version"] = lesson.at("version").get<int>() + 1;
+            if (kind == "question" && args.value("activate", true)) {
+                auto focus = lesson.value("teachingFocus", Json::object());
+                selectResponseQuestion(focus, lesson, task, section);
+                if (focus.value("responseTaskId", "") == task.at("id")) {
+                    focus[section.at("questionKind") == "interaction" || section.at("questionKind") == "diagnostic"
+                        ? "interactionSectionId" : "practiceSectionId"] = section.at("id");
+                    focus["taskId"] = task.at("id"); focus["version"] = focus.value("version", 0) + 1;
+                    focus["updatedAt"] = now(); lesson["teachingFocus"] = focus;
+                }
+            }
             lesson["model"] = source.model; lesson["updatedAt"] = now();
             return update(db, task, id, lesson, {{"sectionId", section.at("id")}, {"questionId", section.value("questionId", "")},
                 {"questionKind", section.value("questionKind", "")}, {"version", lesson["version"]}});
@@ -352,6 +396,33 @@ Json agentLessonView(Database& db, const AgentAccess& access, const std::string&
         section["displayed"] = sectionExposure.is_object() && sectionExposure.value(section.at("id").get<std::string>(), 0) == section.at("version");
     const auto interactions = db.listInteractions();
     const auto tasks = db.listClassroomActivities(saved.at("courseId"));
+    // 历史版本已生成但未激活的题，从最后教学任务的成功动作恢复展示焦点；不改正文或评价记录。
+    if (!shown["teachingFocus"].contains("responseSectionId")) for (const auto& row : tasks) {
+        if (row.kind != "agent-task" || row.id != saved.value("teachingTaskId", "")) continue;
+        const auto task = Json::parse(row.payload, nullptr, false);
+        if (!task.is_object() || task.value("scopeId", "") != access.scopeId) continue;
+        const auto type = task.value("event", Json::object()).value("type", "");
+        if (type != "question_answer" && type != "chat") continue;
+        const auto completed = task.value("completedActions", Json::object());
+        if (!completed.is_object()) continue;
+        for (const auto& event : task.value("events", Json::array())) {
+            if (!event.is_object() || event.value("type", "") != "action") continue;
+            const auto id = event.value("actionId", ""); if (!completed.contains(id)) continue;
+            const auto action = Json::parse(completed[id].value("encoded", ""), nullptr, false);
+            if (!action.is_object() || !action.value("args", Json()).is_object()) continue;
+            const auto& args = action.at("args");
+            if (args.value("lessonId", "") != lessonId) continue;
+            std::string sectionId;
+            if (action.value("tool", "") == "append_section" && args.value("activate", true))
+                sectionId = completed[id].value("result", Json::object()).value("sectionId", "");
+            else if (action.value("tool", "") == "select_teaching_focus") {
+                const auto preferred = responseView(saved, task) == "practice" ? "practiceSectionId" : "interactionSectionId";
+                sectionId = args.value(preferred, args.value(std::string(preferred) == "practiceSectionId" ? "interactionSectionId" : "practiceSectionId", ""));
+            }
+            for (const auto& section : saved.at("sections")) if (section.at("id") == sectionId)
+                selectResponseQuestion(shown["teachingFocus"], saved, task, section);
+        }
+    }
     shown["dialog"] = Json::array();
     const auto appendReplies = [&](Json& dialog, const Json& input, const Json& task) {
         if (task.value("scopeId", "") != access.scopeId || task.value("requestId", "") != input.value("requestId", "")) return;
@@ -459,6 +530,7 @@ Json agentEnterLesson(Database& db, const AgentAccess& access, const Json& body)
     db.transaction([&] {
         auto lesson = lessonFor(db, access, text(body, "lessonId"));
         if (lesson.at("status") != "ready") throw std::invalid_argument("请等待真实 AI 完整备课后进入");
+        rememberCurrentCourse(db, lesson.at("courseId"));
         if (lesson.value("entered", false)) { result = link(lesson); return; }
         if (!lesson.value("entered", false) && lesson.at("sourceLearningVersion") != db.learningRevision())
             throw std::invalid_argument("学习情况已有更新，请让 AI 重新准备后再进入");

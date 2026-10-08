@@ -30,6 +30,15 @@
   const mobile = document.createElement('details'); mobile.className = 'course-directory-mobile'; mobile.hidden = true;
   document.body.append(desktop); main.prepend(mobile);
   const element = (tag, text = '', className = '') => { const node = document.createElement(tag); node.textContent = text; node.className = className; return node; };
+  let collapsed = false; try { collapsed = localStorage.getItem('gy:directory-collapsed') === '1'; } catch (_) { /* 存储不可用时默认显示目录。 */ }
+  const toggle = element('button', '', 'course-directory-toggle'); toggle.type = 'button'; toggle.hidden = true;
+  toggle.setAttribute('aria-controls', 'course-directory'); desktop.id = 'course-directory'; document.body.append(toggle);
+  function paintCollapse() {
+    document.body.classList.toggle('gy-directory-collapsed', collapsed); desktop.hidden = collapsed || !saved;
+    toggle.textContent = collapsed ? '☰ 展开目录' : '‹ 收起目录'; toggle.setAttribute('aria-expanded', String(!collapsed));
+  }
+  toggle.onclick = () => { collapsed = !collapsed; try { localStorage.setItem('gy:directory-collapsed', collapsed ? '1' : '0'); } catch (_) { /* 本次操作仍生效。 */ } paintCollapse(); };
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && mobile.open) { mobile.open = false; mobile.querySelector('summary')?.focus(); } });
   function content() {
     const courseId = context.courseId, stages = saved.snapshot?.payload?.courseStructure || [], cards = saved.cards || [];
     const stageTopics = stages.map((stage, phase) => (stage.topics || []).map((value, index) => {
@@ -40,13 +49,17 @@
     const selectedPhase = location.pathname === '/phase' ? Number(context.phaseIndex || 1) - 1 : stageTopics.findIndex(topics => topics.some(matches));
     const root = element('div', '', 'course-directory-body'), heading = element('div', '', 'course-directory-heading');
     heading.append(element('p', '课程目录'), element('h2', saved.course.title || saved.course.goal));
-    const back = element('a', '← 我的课程'); back.href = '/my-courses'; heading.append(back); root.append(heading);
+    const back = element('a', '课程目标与进度 →'); back.href = '/plan?courseId=' + encodeURIComponent(courseId); heading.append(back); root.append(heading);
     const tree = element('nav', '', 'course-directory-tree'); tree.setAttribute('aria-label', '阶段与知识点');
     let done = 0, total = 0;
     stages.forEach((stage, index) => {
       const chapter = element('details'), summary = element('summary'), label = element('a', stage.stage || '阶段 ' + (index + 1));
       chapter.open = index === Math.max(0, selectedPhase); label.href = '/phase?' + new URLSearchParams({courseId, phaseIndex: index + 1});
-      summary.append(element('span', String(index + 1).padStart(2, '0')), label); chapter.append(summary);
+      chapter.classList.toggle('is-active-stage', index === selectedPhase);
+      const stageDone = stageTopics[index].filter(topic => cards.some(card => Number(card.phaseIndex) === Number(topic.legacyPhaseIndex) && Number(card.topicIndex) === Number(topic.legacyTopicIndex) && card.status === 'completed')).length;
+      summary.append(element('span', String(index + 1).padStart(2, '0'), 'directory-stage-number'), element('strong', label.textContent), element('span', `${stageDone}/${stageTopics[index].length}`, 'directory-stage-progress'));
+      label.textContent = '阶段目标与清单 →'; label.className = 'directory-stage-link'; if (index === selectedPhase && location.pathname === '/phase') label.setAttribute('aria-current', 'page');
+      chapter.append(summary, label);
       stageTopics[index].forEach(topic => {
         const status = cards.find(card => Number(card.phaseIndex) === Number(topic.legacyPhaseIndex) && Number(card.topicIndex) === Number(topic.legacyTopicIndex))?.status;
         const completed = status === 'completed', active = matches(topic) && ['/learn', '/practice', '/summary'].includes(location.pathname);
@@ -60,13 +73,14 @@
       });
       tree.append(chapter);
     });
-    root.append(tree, element('p', `真实记录 · ${done} / ${total} 节已完成\n阅读与追问不自动计为掌握`, 'course-directory-foot'));
+    const progress = element('progress'); progress.max = total || 1; progress.value = done; progress.setAttribute('aria-label', '课程已完成课时');
+    const footer = element('div', '', 'course-directory-foot'); footer.append(element('p', `${done} / ${total} 节已完成`), progress, element('small', '阅读与追问不自动计为掌握')); root.append(tree, footer);
     return root;
   }
   function render() {
     desktop.replaceChildren(content());
     const label = element('summary', '课程目录 · ' + (saved.course.title || saved.course.goal));
-    mobile.replaceChildren(label, content()); desktop.hidden = mobile.hidden = false;
+    mobile.replaceChildren(label, content()); mobile.hidden = false; toggle.hidden = false; paintCollapse();
     document.body.classList.add('gy-course-view');
   }
   async function load(value, force = false) {

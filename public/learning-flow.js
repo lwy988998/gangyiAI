@@ -176,7 +176,7 @@
       return api('/api/study-plan/draft', {clientId, version: plan.version, active, ...(active ? gather() : {})}).catch(() => {});
     }
     box.addEventListener('input', () => { dirty = true; announceDraft(); });
-    function setBusy(value) { if (busy !== value) ++editEpoch; busy = value; save.disabled = value; replan.disabled = value || plan?.status === 'pending'; replan.textContent = replan.disabled ? '正在重排…' : '根据最新表现重排'; }
+    function setBusy(value) { if (busy !== value) ++editEpoch; busy = value; save.disabled = value; replan.disabled = value || plan?.status === 'pending'; replan.textContent = replan.disabled ? '正在生成候选…' : '重新排课'; }
     function showPreview(value) {
       confirm.replaceChildren(); confirm.hidden = !value.proposal;
       if (!value.proposal) return;
@@ -219,7 +219,7 @@
         }
         entries.append(row);
       });
-      if (!(value.entries || []).length) entries.append(element('p', value.status === 'waiting' ? '等待 AI 安排，可以保存总学习时间后重试。' : 'AI 正在结合学习情况准备安排。'));
+      if (!(value.entries || []).length) entries.append(element('p', '尚未安排课程。设置可用时间后，点击“重新排课”生成候选。'));
       showPreview(value);
       setBusy(busy);
     }
