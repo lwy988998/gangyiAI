@@ -76,6 +76,18 @@ if(NOT crowHttpSource MATCHES "response_lifetime = this->shared_from_this")
     endif()
     file(WRITE "${crowHttpHeader}" "${crowHttpPatched}")
 endif()
+# 完成回调会清空响应自身保存的回调；局部副本必须覆盖 end() 后续的成员写入。
+set(crowResponseHeader "${crow_SOURCE_DIR}/include/crow/http_response.h")
+file(READ "${crowResponseHeader}" crowResponseSource)
+if(NOT crowResponseSource MATCHES "const auto completion_handler = complete_request_handler_")
+    string(REPLACE "                if (complete_request_handler_)\n                {\n                    complete_request_handler_();"
+        "                const auto completion_handler = complete_request_handler_;\n                if (completion_handler)\n                {\n                    completion_handler();"
+        crowResponsePatched "${crowResponseSource}")
+    if(crowResponsePatched STREQUAL crowResponseSource)
+        message(FATAL_ERROR "无法保护 Crow 响应结束时的完成回调")
+    endif()
+    file(WRITE "${crowResponseHeader}" "${crowResponsePatched}")
+endif()
 # 流式备课重放会连续发送多帧；上一轮写入完成前不能交换仍被异步使用的缓冲区。
 set(crowWebsocketHeader "${crow_SOURCE_DIR}/include/crow/websocket.h")
 file(READ "${crowWebsocketHeader}" crowWebsocketSource)

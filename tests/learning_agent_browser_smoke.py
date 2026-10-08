@@ -2,6 +2,7 @@
 import json
 import sqlite3
 import sys
+import time
 from contextlib import closing
 from urllib.request import Request, urlopen
 from playwright.sync_api import expect, sync_playwright
@@ -92,6 +93,39 @@ def main(executable):
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
             assert page.locator('.course-directory-mobile').is_visible()
             assert not page.locator('.course-directory').is_visible()
+            second_task = api('/api/learning-agent/events', dict(type='prepare_next', courseId=info['courseId'],
+                requestId='browser-second-prepared-lesson', navigate=False))
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                second = api('/api/learning-agent?taskId='+second_task['id'])
+                if second['status'] == 'ready': break
+                time.sleep(.05)
+            assert second['status'] == 'ready'
+            other_lesson = second['lesson']['id']
+            assert other_lesson != lesson
+            api('/api/study-plan')
+            with closing(sqlite3.connect(info['database'])) as database:
+                raw = json.loads(database.execute("SELECT value FROM ProfileMeta WHERE key='learning-flow'").fetchone()[0])
+                scheduled = [dict(taskId='agent-lesson:'+identity, kind='agent-lesson', lessonId=identity,
+                    courseId=info['courseId'], phaseIndex=1, topicIndex=1, title=title, date='2099-01-05', minutes=10, order=index)
+                    for index,(identity,title) in enumerate([(lesson,'已保存课堂甲'),(other_lesson,'已保存课堂乙')])]
+                raw['plan']['entries'] = scheduled
+                candidate = json.loads(json.dumps(raw['plan']))
+                del candidate['entries'][0]['title']
+                raw.update(agentControlled=True,status='ready',proposal=dict(id='display-only-proposal',plan=candidate,
+                    previousPlan=raw['plan'],reason='保留 '+scheduled[0]['taskId']+' 与 '+scheduled[1]['taskId']))
+                database.execute("UPDATE ProfileMeta SET value=? WHERE key='learning-flow'",(json.dumps(raw),))
+                database.commit()
+            page.set_viewport_size({'width':1440,'height':900})
+            page.goto(info['base']+'/my-courses')
+            links = page.locator('#weekly-entries .weekly-row a')
+            expect(links).to_have_count(2)
+            assert links.nth(0).get_attribute('href') == '/learn?lessonId='+lesson
+            assert links.nth(1).get_attribute('href') == '/learn?lessonId='+other_lesson
+            preview = page.locator('#weekly-confirm')
+            expect(preview).to_be_visible()
+            assert 'undefined' not in preview.inner_text()
+            assert all(item['taskId'] not in preview.inner_text() for item in scheduled)
             assert not errors,errors
             browser.close()
         with closing(sqlite3.connect(info['database'])) as database:

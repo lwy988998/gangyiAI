@@ -72,6 +72,7 @@ def main(executable):
         candidate = api('/api/study-plan')
         assert candidate['entries'] == before['entries'] and candidate['proposal']['plan']['entries']
         candidate_dates = [entry['date'] for entry in candidate['proposal']['plan']['entries']]
+        assert all(isinstance(entry.get('title'), str) and entry['title'] for entry in candidate['proposal']['plan']['entries'])
         assert candidate['proposal']['plan']['weekStart'] == min(candidate_dates)
         assert candidate['proposal']['plan']['weekEnd'] == max(candidate_dates)
         proposal = candidate['proposal']['id']

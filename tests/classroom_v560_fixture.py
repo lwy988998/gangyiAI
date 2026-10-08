@@ -195,6 +195,10 @@ def start_session(executable=None):
             if process.poll() is None:
                 process.terminate()
                 process.wait(timeout=20)
+            if sys.exc_info()[0] is not None:
+                log.flush()
+                log.seek(0)
+                print('隔离服务失败日志：\n' + ''.join(log.readlines()[-45:]), file=sys.stderr)
             ai.shutdown()
             ai.server_close()
             log.close()

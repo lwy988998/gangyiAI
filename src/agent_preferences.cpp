@@ -234,6 +234,28 @@ void registerAgentPreferenceTools(LearningAgent& agent) {
             auto old = state.value("plan", Json::object());
             Json plan = old; plan["availability"] = args.at("availability"); plan["entries"] = args.at("entries");
             validatePlan(db, access, old, plan);
+            // 页面标题来自实际课程与课件，不要求模型重复抄写，也不显示内部标识。
+            for (auto& entry : plan["entries"]) {
+                const auto courseId = entry.at("courseId").get<std::string>();
+                const auto course = requireCourse(db, access, courseId);
+                entry["courseTitle"] = course.title;
+                std::string title;
+                const auto kind = entry.value("kind", "lesson");
+                if (kind == "agent-lesson" || kind == "review") {
+                    const auto saved = db.getClassroomActivity(entry.at(kind == "review" ? "reviewId" : "lessonId"));
+                    if (!saved) throw std::invalid_argument("课时已变化，请重新读取任务目录");
+                    title = parse(saved->payload).value("title", "");
+                } else {
+                    const auto snapshots = db.findSnapshotsByCourseId(courseId);
+                    if (snapshots.empty()) throw std::invalid_argument("课程大纲已变化，请重新读取任务目录");
+                    const auto latest = std::max_element(snapshots.begin(), snapshots.end(),
+                        [](const auto& a, const auto& b) { return a.version < b.version; });
+                    const auto topic = parse(latest->payload).at("courseStructure").at(entry.at("phaseIndex").get<int>() - 1)
+                        .at("topics").at(entry.at("topicIndex").get<int>() - 1);
+                    title = topic.is_string() ? topic.get<std::string>() : topic.is_object() ? topic.value("title", "") : "";
+                }
+                entry["title"] = title.empty() ? course.title : title;
+            }
             // 标题中的日期范围跟随候选任务，避免新安排仍显示旧课表的过期区间。
             if (!plan["entries"].empty()) {
                 std::string first, last;
