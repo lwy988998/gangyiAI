@@ -20,7 +20,8 @@ def main(executable):
             LOCAL_CONTROL_TOKEN=token, AI_BASE_URL='http://127.0.0.1:9/v1', AI_API_KEY='', AI_MODEL='fictional-unconfigured')
         log_path = Path(directory) / 'service.log'
         with log_path.open('wb') as log:
-            process = subprocess.Popen([str(Path(executable).resolve())], cwd=repo, env=env, stdout=log, stderr=log)
+            process = subprocess.Popen([str(Path(executable).resolve())], cwd=repo, env=env, stdout=log, stderr=log,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
             def request(path, method='GET', body=None, status=200, headers=None):
                 connection = http.client.HTTPConnection('127.0.0.1', port, timeout=10)
                 actual_headers = headers or {}
@@ -56,7 +57,8 @@ def main(executable):
                     data, _ = request('/api/learning-agent'); state = json.loads(data)
                     if state['status'] == 'failed': break
                     time.sleep(.03)
-                assert state['status'] == 'failed' and state['calls'] == 3
+                assert state['status'] == 'failed' and state['calls'] == 1
+                assert state['failure']['kind'] == 'missing_config' and not state['failure']['retryable']
                 data, _ = request('/api/home/recommendations'); recommendations = json.loads(data)
                 assert recommendations['items']['lite'] == [] and recommendations['items']['deep'] == [], '缺少真实 AI 时不能编造推荐'
                 request('/internal/shutdown', 'POST', headers={'X-Gangyi-Control-Token': token})
@@ -64,7 +66,7 @@ def main(executable):
                 log.flush(); assert token not in log_path.read_text('utf-8', errors='replace')
             finally:
                 if process.poll() is None: process.terminate(); process.wait(timeout=15)
-    print('Linux 运行时资源、参数边界、三次失败无模板回退与优雅退出通过')
+    print('Linux 运行时资源、参数边界、未配置鉴权立即停止、无模板回退与优雅退出通过')
 
 
 if __name__ == '__main__':

@@ -535,7 +535,8 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
                 field = detail.substr(0, end); break;
             }
             ++errors;
-            std::string message = kind == "auth_error" ? "AI 服务鉴权失败，请检查 AI 配置。" :
+            std::string message = kind == "missing_config" ? "尚未配置 AI 服务，请在 AI 设置中填写服务地址、模型和密钥。" :
+                kind == "auth_error" ? "AI 服务鉴权失败，请检查 AI 配置。" :
                 kind == "provider_rejected" ? "AI 服务拒绝请求（HTTP " + std::to_string(httpStatus) + "），请检查服务商状态或配置。" :
                 kind == "timeout" ? "AI 请求超时，已有有效步骤已保留。" :
                 kind == "network_error" ? "无法连接 AI 服务，已有有效步骤已保留。" :

@@ -10,12 +10,22 @@ from classroom_v560_fixture import start_session
 
 def main(executable):
     with start_session(executable) as (info, api, process):
+        # 旧课程同时保存作品任务，不能将旧总任务数当作课堂课时数。
+        with closing(sqlite3.connect(info['database'])) as database:
+            for identity, raw in database.execute('SELECT id,payload FROM CourseSnapshot').fetchall():
+                payload=json.loads(raw)
+                payload['generation']['promptVersion']='legacy-v5.5'
+                payload['roadmap']=[dict(tasks=['作品任务'+str(i) for i in range(8)])]
+                database.execute('UPDATE CourseSnapshot SET payload=? WHERE id=?',(json.dumps(payload,ensure_ascii=False),identity))
+            database.commit()
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page(viewport={'width':1440,'height':900},reduced_motion='reduce')
             errors=[]
             page.on('pageerror',lambda error:errors.append(str(error)))
             lesson=info['lessonId']
+            page.goto(info['base']+'/plan?courseId='+info['courseId'])
+            page.get_by_text('课程进度 · 已完成 0 / 4',exact=True).wait_for()
             page.goto(info['base']+'/learn?lessonId='+lesson)
             page.get_by_role('heading',name='先比较同一种元素',exact=True).wait_for()
             page.get_by_role('heading',name='说说你的观察',exact=True).wait_for()

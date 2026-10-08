@@ -4,7 +4,7 @@
   const api = window.GangyiAgent;
   if (!api || document.getElementById('learning-navigation')) return;
   const element = (tag, text = '', className = '') => { const node = document.createElement(tag); node.textContent = text; node.className = className; return node; };
-  let context = Object.fromEntries(new URLSearchParams(location.search)), current, course, outline = [], outlineCourse = '', courseVersion = 0;
+  let context = Object.fromEntries(new URLSearchParams(location.search)), current, course, outline = [], outlineCourse = '', courseVersion = 0, stateVersion = 0;
   const localLink = value => typeof value === 'string' && value.startsWith('/') && !value.startsWith('//');
   function anchor(text, href, className = '') { const node = element('a', text, className); node.href = href; return node; }
   function paintCurrent(value) {
@@ -66,15 +66,16 @@
   function button(title, command) {
     const node = element('button', title); node.type = 'button'; node.onclick = async () => {
       node.disabled = true;
-      try { const task = await api.control({ command, taskId: current.id }); document.dispatchEvent(new CustomEvent('gangyi:agent-control', { detail: { command, task } })); await load(); }
+      try { const task = await api.control({ command, taskId: context.teachingTaskId || context.taskId || current.id }); document.dispatchEvent(new CustomEvent('gangyi:agent-control', { detail: { command, task } })); await load(); }
       catch (error) { state.textContent = error.message; } finally { node.disabled = false; }
     }; actions.append(node);
   }
   async function load() {
+    const version = ++stateVersion;
     const requested = context.teachingTaskId || context.taskId || '';
     try {
       const task = await api.request('/api/learning-agent' + (requested ? '?taskId=' + encodeURIComponent(requested) : ''));
-      if (requested !== (context.teachingTaskId || context.taskId || '')) return;
+      if (version !== stateVersion || requested !== (context.teachingTaskId || context.taskId || '')) return;
       current = task; actions.replaceChildren(); changes.replaceChildren();
       const active = ['pending', 'running'].includes(task.status), paused = task.paused || task.status === 'paused';
       navigation.dataset.status = paused ? 'paused' : task.status;

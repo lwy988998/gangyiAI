@@ -452,14 +452,15 @@ int main() {
         assert(evidenceCalls == 2 && gangyi::agentView(db, access, evidenceTask["id"])["status"] == "ready");
 
         // 服务商明确拒绝立即停止，可恢复错误才做三次有限重试。
-        for (const auto& spec : std::vector<std::pair<std::string, int>>{{"provider_rejected",402},{"auth_error",401},{"rate_limited",429},{"provider_5xx",503},{"timeout",0}}) {
+        for (const auto& spec : std::vector<std::pair<std::string, int>>{{"missing_config",0},{"provider_rejected",402},{"auth_error",401},{"rate_limited",429},{"provider_5xx",503},{"timeout",0}}) {
             int attempts = 0;
             gangyi::LearningAgent failing(path, [&](const auto&, const auto&) -> gangyi::AIResult { ++attempts; throw gangyi::AIClientError(spec.first, "虚构服务商错误", spec.second); });
             const auto request = gangyi::agentSubmit(db, access, {{"type", "inspect"}, {"requestId", "provider-" + spec.first}});
             failing.process(db, request["id"]); const auto result = gangyi::agentView(db, access, request["id"]);
-            const bool canRetry = spec.first != "provider_rejected" && spec.first != "auth_error";
+            const bool canRetry = spec.first != "provider_rejected" && spec.first != "auth_error" && spec.first != "missing_config";
             assert(attempts == (canRetry ? 3 : 1) && result["status"] == "failed");
             assert(result["failure"]["httpStatus"] == spec.second && result["failure"]["retryable"] == canRetry);
+            if (spec.first == "missing_config") assert(result["failure"]["message"].get<std::string>().find("AI 设置") != std::string::npos);
         }
 
         // 学生在练习页请求选择题：AI 追加的互动题也必须接续显示在当前页。

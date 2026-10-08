@@ -73,5 +73,7 @@
 
 .dark-app.gy-theme-lab .home-hero{grid-template-rows:52px min-content min-content min-content 1fr}.dark-app.gy-theme-lab .home-visual>.profile-heading{display:none}.home-visual .profile-radar{border:0;box-shadow:none;background:transparent;padding:0}.home-visual .radar-chart{max-width:380px}.home-visual .radar-header{margin-bottom:16px}.home-visual .radar-detail{min-height:0}
 
-.dark-app progress{appearance:none;border:0;background:#253c37;border-radius:99px;overflow:hidden}.dark-app progress::-webkit-progress-bar{background:#253c37}.dark-app progress::-webkit-progress-value{background:var(--gy-accent)}.dark-app progress::-moz-progress-bar{background:var(--gy-accent)}.dark-app.gy-theme-lab .plan-page #page-status{background:#183a33;color:var(--gy-accent);border:1px solid #3c5b4e}
+.dark-app progress{appearance:none;border:0;background:#253c37;border-radius:99px;overflow:hidden}.dark-app progress::-webkit-progress-bar{background:#253c37}.dark-app progress::-webkit-progress-value{background:var(--gy-accent)}.dark-app progress::-moz-progress-bar{background:var(--gy-accent)}.dark-app.gy-theme-lab .plan-page #save-status{background:#183a33;color:var(--gy-accent);border:1px solid #3c5b4e}
 .preparation-milestones .is-interrupted:before{content:"!";color:#ef9e8f}.preparation-milestones .is-paused:before{content:"Ⅱ";color:#d9bf6f}
+
+.dark-app .progress-track{background:#253c37}.dark-app .progress-track i{background:var(--gy-accent)}
