@@ -185,6 +185,7 @@
   const explanations = () => lesson.sections.filter(section => section.kind === 'explanation' && !['overview','example'].includes(section.legacyKind) && section.presentation !== 'example');
   function addBody(root, section) { const body = element('div', '', 'lesson-body'); body.dataset.sectionId=section.id; body.dataset.sectionVersion=section.version; api.richText(body, section.body || ''); root.append(body); }
   function exposeSections() {
+    if (admissionError) return;
     if(!lesson)return;
     const sections = [...document.querySelectorAll('#lesson-sections [data-section-id]')].filter(node => !node.closest('details:not([open])') && !node.closest('[hidden]')).map(node => ({id:node.dataset.sectionId,version:Number(node.dataset.sectionVersion || lesson.sections.find(section=>section.id===node.dataset.sectionId)?.version)}));
     api.recordSections(lessonId, sections);

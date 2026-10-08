@@ -107,6 +107,8 @@ def main(executable):
             assert second['status'] == 'ready'
             other_lesson = second['lesson']['id']
             assert other_lesson != lesson
+            # 展示夹具直接改写课表前暂停后台，避免人工注入的计划触发独立画像任务。
+            api('/api/learning-agent/control',dict(command='pause',taskId=second_task['id']))
             initial_plan = api('/api/study-plan')
             with closing(sqlite3.connect(info['database'])) as database:
                 saved = database.execute("SELECT value FROM ProfileMeta WHERE key='learning-flow'").fetchone()
@@ -147,6 +149,23 @@ def main(executable):
                 assert all(page.locator('[data-lesson-link]').nth(index).get_attribute('href').endswith('lessonId='+other_lesson) for index in range(3))
                 for button in page.locator('#lesson-sections form button').all(): expect(button).to_be_disabled()
             assert json.load(urlopen(info['fixture']))['calls'] == calls_before
+            # 开启动画且正文增长时，悬浮控制仍固定在可见窗口内。
+            page.emulate_media(reduced_motion='no-preference')
+            page.goto(info['base']+'/practice?lessonId='+lesson)
+            page.locator('.current-practice').wait_for()
+            page.wait_for_function("getComputedStyle(document.body).opacity==='1'")
+            toggle = page.locator('#learning-navigation > summary')
+            before = toggle.bounding_box()
+            page.evaluate("""() => {
+                const paragraph=document.createElement('p');
+                paragraph.textContent='这是一段持续增长的课堂讲解，正文完整保留。'.repeat(600);
+                document.querySelector('.current-practice .agent-dialog').append(paragraph);
+            }""")
+            after = toggle.bounding_box()
+            assert before and after and abs(before['y']-after['y']) < 1
+            assert after['y'] >= 0 and after['y']+after['height'] <= 900
+            toggle.click()
+            expect(page.locator('#agent-control-panel')).to_be_visible()
             assert not errors,errors
             browser.close()
         with closing(sqlite3.connect(info['database'])) as database:
