@@ -28,6 +28,18 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 if(MSVC)
     add_compile_options(/utf-8)
 endif()
+# 部分 MinGW GCC 16.1 包遗漏原子计数配置，混用互斥锁与原子操作会损坏共享指针。
+# 对应上游修复：https://github.com/msys2/MINGW-packages/pull/29502
+if(MINGW AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16.1
+    AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 16.2 AND CMAKE_SIZEOF_VOID_P EQUAL 8)
+    include(CheckCXXSourceCompiles)
+    check_cxx_source_compiles("#include <bits/c++config.h>\n#ifndef _GLIBCXX_ATOMIC_WORD_BUILTINS\n#error missing_atomic_refcount_configuration\n#endif\nint main() { return 0; }"
+        GANGYI_TOOLCHAIN_ATOMIC_REFCOUNT)
+    if(NOT GANGYI_TOOLCHAIN_ATOMIC_REFCOUNT)
+        add_compile_definitions(_GLIBCXX_ATOMIC_WORD_BUILTINS=1)
+        message(STATUS "已补齐 MinGW GCC 16.1 的共享指针原子计数配置")
+    endif()
+endif()
 
 include(FetchContent)
 
@@ -351,6 +363,9 @@ if(BUILD_TESTING)
     target_include_directories(database-atomic-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
     target_link_libraries(database-atomic-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_SQLITE_LIB})
     add_test(NAME database-atomic COMMAND database-atomic-tests)
+    add_executable(shared-pointer-tests tests/shared_pointer_tests.cpp)
+    add_test(NAME shared-pointer COMMAND shared-pointer-tests)
+    set_tests_properties(shared-pointer PROPERTIES TIMEOUT 20)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     find_program(GANGYI_NODE_EXECUTABLE NAMES node)
     if(GANGYI_NODE_EXECUTABLE)

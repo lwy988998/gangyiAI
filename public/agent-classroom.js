@@ -27,7 +27,7 @@
     catch (_) { return ''; }
   }
   const status = document.getElementById('page-status');
-  const sessions = new Map(); let lesson, revision = 0, refreshing = false;
+  const sessions = new Map(); let lesson, revision = 0, refreshing = false, admissionError = '';
   const view = document.querySelector('[data-lesson-view]')?.dataset.lessonView || 'learn';
   let readingId = api.storage.get(`reading:${lessonId}`), practiceId = api.storage.get(`practice:${lessonId}`);
   function message(root, role, text) {
@@ -150,6 +150,7 @@
     stop.type = retry.type = 'button'; stop.textContent = '停止回答'; retry.textContent = '重试同次回答'; stop.hidden = retry.hidden = true;
     card.append(form, note, dialog, stop, retry); if(history)card.append(history);
     async function send(action) {
+      if (admissionError) return;
       const choices = [...options.querySelectorAll('input:checked')];
       const text = action === 'unknown' ? '暂时不会' : action === 'skip' ? '我跳过这道题' :
         `${choices.length ? '我选' + choices.map(choice => `${Number(choice.value) + 1}：${section.question.options[Number(choice.value)]}`).join('、') + '\n' : ''}${input.value.trim()}`;
@@ -172,7 +173,7 @@
     }
     form.addEventListener('submit', event => { event.preventDefault(); send('answer'); });
     unknown.addEventListener('click', () => send('unknown')); skip.addEventListener('click', () => send('skip'));
-    if (section.taskId)
+    if (section.taskId && !admissionError)
       observe({ id: section.taskId }, dialog, note, stop, retry, form);
   }
   const element = (tag, text = '', className = '') => { const node = document.createElement(tag); node.textContent = text; node.className = className; return node; };
@@ -245,7 +246,11 @@
     const latest = (lesson.teachingDialog || lesson.dialog || []).slice(-2);
     for(const item of latest){const node=message(chatDialog,item.role,item.text);if(item.step!==undefined)node.dataset.step=item.step;}
     const chatNote=element('p','','agent-note'),chatStop=element('button','停止'),chatRetry=element('button','重试');chatNote.setAttribute('role','status');chatStop.type=chatRetry.type='button';chatStop.hidden=chatRetry.hidden=true;chatDialog.append(chatNote,chatStop,chatRetry);
-    if(!chatPanel.hidden && lesson.teachingTaskId){chatDialog.dataset.taskId=lesson.teachingTaskId;chatDialog.dataset.sequence=lesson.teachingAfterSeq||0;observe({id:lesson.teachingTaskId},chatDialog,chatNote,chatStop,chatRetry,document.getElementById('lesson-chat'));}
+    if(!admissionError && !chatPanel.hidden && lesson.teachingTaskId){chatDialog.dataset.taskId=lesson.teachingTaskId;chatDialog.dataset.sequence=lesson.teachingAfterSeq||0;observe({id:lesson.teachingTaskId},chatDialog,chatNote,chatStop,chatRetry,document.getElementById('lesson-chat'));}
+    if(admissionError){
+      for(const input of document.querySelectorAll('#lesson-sections form input, #lesson-sections form textarea, #lesson-sections form button, #lesson-chat input, #lesson-chat textarea, #lesson-chat button, .current-explanation .agent-toolbar button'))input.disabled=true;
+      document.getElementById('finish-lesson').disabled=true;
+    }
     document.dispatchEvent(new CustomEvent('gangyi:layout')); exposeSections();
   }
   async function refreshLesson() {
@@ -258,6 +263,7 @@
     }finally{refreshing=false}
   }
   async function sendTeaching(text) {
+    if(admissionError)return;
     const interactive=document.querySelector('.current-interaction'),form=interactive?.querySelector('form')||document.getElementById('lesson-chat'),input=form.querySelector('textarea'),dialog=interactive?.querySelector('.agent-dialog')||document.getElementById('lesson-dialog');
     const pendingKey=`pending:${lessonId}:chat`,draftKey=interactive?`draft:${lessonId}:${form.dataset.section}`:`chat-draft:${lessonId}`;
     if(!text.trim())return;const button=form.querySelector('button[type=submit]');button.disabled=true;
@@ -273,8 +279,11 @@
     if(!lessonId)throw new Error('缺少课时标识，请从 AI 已备好的课程入口进入。');
     lesson=await api.request(`/api/learning-agent/lesson?lessonId=${encodeURIComponent(lessonId)}`);
     if(lesson.status!=='ready')throw new Error('课时尚未完成，请等待真实 AI 备课后进入。');
-    if(!lesson.entered)await api.control({command:'enter_lesson',lessonId});
-    if(view==='learn'&&!lesson.initialTeachingTaskId){await api.control({command:'start_lesson',lessonId});lesson=await api.request(`/api/learning-agent/lesson?lessonId=${encodeURIComponent(lessonId)}`)}
+    // 入课失败时保留已保存课件供回看，教学操作仍须通过主控入课检查。
+    try{
+      if(!lesson.entered)await api.control({command:'enter_lesson',lessonId});
+      if(view==='learn'&&!lesson.initialTeachingTaskId){await api.control({command:'start_lesson',lessonId});lesson=await api.request(`/api/learning-agent/lesson?lessonId=${encodeURIComponent(lessonId)}`)}
+    }catch(error){admissionError=error.message;}
     for(const link of document.querySelectorAll('[data-lesson-link]')){link.href=lessonHref(link.dataset.lessonLink);if(link.dataset.lessonLink===view)link.setAttribute('aria-current','page')}
     const context={courseId:lesson.courseId,lessonId,phaseIndex:lesson.phaseIndex,topicIndex:lesson.topicIndex,topicId:lesson.topicId,teachingTaskId:lesson.teachingTaskId};
     window.GangyiNavigation?.setContext(context);document.dispatchEvent(new CustomEvent('gangyi:lesson-context',{detail:context}));
@@ -282,7 +291,8 @@
     const form=document.getElementById('lesson-chat'),input=document.getElementById('lesson-input');input.addEventListener('input',()=>api.storage.set(`chat-draft:${lessonId}`,input.value));form.addEventListener('submit',event=>{event.preventDefault();sendTeaching(input.value)});
     document.getElementById('prepare-next').onclick=()=>{location.href='/agent-prepare.html?'+new URLSearchParams({courseId:lesson.courseId,requestId:api.id()})};
     document.getElementById('finish-lesson').onclick=async()=>{const button=document.getElementById('finish-lesson');button.disabled=true;try{const task=await api.submit({type:'lesson_finish_request',courseId:lesson.courseId,lessonId,...reviewContext,requestId:api.id(),text:'请根据本节真实作答和已有评价判断完成情况，证据不足时明确说明，不使用固定通过率。'});observe(task,document.getElementById('finish-dialog'),document.getElementById('finish-status'),document.getElementById('finish-stop'),document.getElementById('finish-retry'));}catch(error){document.getElementById('finish-status').textContent=error.message}finally{button.disabled=false}};
-    renderSections();status.textContent='AI 根据真实反馈选择下一步；三页切换会保留课时和草稿。';
+    renderSections();status.textContent=admissionError ? admissionError+'。你可以回看已保存内容；继续学习请重新备课。' : 'AI 根据真实反馈选择下一步；三页切换会保留课时和草稿。';
+    if(admissionError){status.classList.add('agent-error');const link=element('a','请 AI 按最新情况重新备课 →');link.href='/agent-prepare.html?'+new URLSearchParams({courseId:lesson.courseId,...(lesson.topicId?{topicId:lesson.topicId}:{})});status.after(link);}
   }
   load().catch(error => { status.textContent = error.message; status.classList.add('agent-error'); if (lesson) { const link=document.createElement('a');link.textContent='请 AI 按最新情况重新备课 →';link.href='/agent-prepare.html?'+new URLSearchParams({courseId:lesson.courseId,...(lesson.topicId?{topicId:lesson.topicId}:{})});status.after(link); } });
   document.addEventListener('toggle', exposeSections, true);

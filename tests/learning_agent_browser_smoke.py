@@ -103,9 +103,10 @@ def main(executable):
             assert second['status'] == 'ready'
             other_lesson = second['lesson']['id']
             assert other_lesson != lesson
-            api('/api/study-plan')
+            initial_plan = api('/api/study-plan')
             with closing(sqlite3.connect(info['database'])) as database:
-                raw = json.loads(database.execute("SELECT value FROM ProfileMeta WHERE key='learning-flow'").fetchone()[0])
+                saved = database.execute("SELECT value FROM ProfileMeta WHERE key='learning-flow'").fetchone()
+                raw = json.loads(saved[0]) if saved else dict(plan=initial_plan)
                 scheduled = [dict(taskId='agent-lesson:'+identity, kind='agent-lesson', lessonId=identity,
                     courseId=info['courseId'], phaseIndex=1, topicIndex=1, title=title, date='2099-01-05', minutes=10, order=index)
                     for index,(identity,title) in enumerate([(lesson,'已保存课堂甲'),(other_lesson,'已保存课堂乙')])]
@@ -114,7 +115,7 @@ def main(executable):
                 del candidate['entries'][0]['title']
                 raw.update(agentControlled=True,status='ready',proposal=dict(id='display-only-proposal',plan=candidate,
                     previousPlan=raw['plan'],reason='保留 '+scheduled[0]['taskId']+' 与 '+scheduled[1]['taskId']))
-                database.execute("UPDATE ProfileMeta SET value=? WHERE key='learning-flow'",(json.dumps(raw),))
+                database.execute("INSERT INTO ProfileMeta(key,value) VALUES('learning-flow',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(json.dumps(raw),))
                 database.commit()
             page.set_viewport_size({'width':1440,'height':900})
             page.goto(info['base']+'/my-courses')
@@ -126,6 +127,22 @@ def main(executable):
             expect(preview).to_be_visible()
             assert 'undefined' not in preview.inner_text()
             assert all(item['taskId'] not in preview.inner_text() for item in scheduled)
+            # 过期但完整保存的课件仍可回看，入课保护继续限制新的教学操作。
+            with closing(sqlite3.connect(info['database'])) as database:
+                raw = json.loads(database.execute('SELECT payload FROM ClassroomActivity WHERE id=?',(other_lesson,)).fetchone()[0])
+                raw['entered'] = False
+                raw['sourceLearningVersion'] = -1
+                database.execute('UPDATE ClassroomActivity SET payload=? WHERE id=?',(json.dumps(raw),other_lesson))
+                database.commit()
+            calls_before = json.load(urlopen(info['fixture']))['calls']
+            for view in ('learn','practice','summary'):
+                page.goto(info['base']+'/'+view+'?lessonId='+other_lesson)
+                expect(page.locator('#lesson-title')).to_have_text(raw['title'])
+                expect(page.locator('#page-status')).to_contain_text('你可以回看已保存内容')
+                assert page.locator('#lesson-sections').inner_text()
+                assert all(page.locator('[data-lesson-link]').nth(index).get_attribute('href').endswith('lessonId='+other_lesson) for index in range(3))
+                for button in page.locator('#lesson-sections form button').all(): expect(button).to_be_disabled()
+            assert json.load(urlopen(info['fixture']))['calls'] == calls_before
             assert not errors,errors
             browser.close()
         with closing(sqlite3.connect(info['database'])) as database:

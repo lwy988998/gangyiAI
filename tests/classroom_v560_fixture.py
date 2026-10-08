@@ -192,10 +192,13 @@ def start_session(executable=None):
             report.write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding='utf-8')
             yield info, api, process
         finally:
+            failed = sys.exc_info()[0] is not None
+            if failed:
+                print('隔离服务退出状态：' + str(process.poll()), file=sys.stderr)
             if process.poll() is None:
                 process.terminate()
                 process.wait(timeout=20)
-            if sys.exc_info()[0] is not None:
+            if failed:
                 log.flush()
                 log.seek(0)
                 print('隔离服务失败日志：\n' + ''.join(log.readlines()[-45:]), file=sys.stderr)
