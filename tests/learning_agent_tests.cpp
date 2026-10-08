@@ -53,12 +53,16 @@ int main() {
         gangyi::LearningAgent agent(path, [&](const auto& options, const auto& sink) {
             assert(options.maxTokens == 8192 && options.timeoutMs == 60000);
             ++calls;
+            const auto inFlight = gangyi::agentView(db, access, task["id"]);
+            assert(inFlight["status"] == "running" && inFlight["activity"]["phase"] == "request");
+            assert(inFlight["activity"]["call"] == calls && inFlight["purpose"] == "处理学习请求");
+            assert(inFlight["target"]["courseTitle"] == "化学");
             if (calls == 1) return output({
                 {"message", "根据你写出的理由，先补上氧化与还原的关系。"},
-                {"actions", {{{"id", "write"}, {"tool", "record_fixture"}, {"args", {{"value", "真实模型选择的动作"}}}}}},
+                {"actions", {{{"id", "write"}, {"tool", "record_fixture"}, {"args", {{"value", "真实模型选择的动作"}, {"expectedAnswer", "PRIVATE-ACTIVITY-ARGS"}}}}}},
                 {"state", "continue"}}, sink);
             if (calls == 2) return output({{"message", "确认已经保存的动作。"},
-                {"actions", {{{"id", "write"}, {"tool", "record_fixture"}, {"args", {{"value", "真实模型选择的动作"}}}}}},
+                {"actions", {{{"id", "write"}, {"tool", "record_fixture"}, {"args", {{"value", "真实模型选择的动作"}, {"expectedAnswer", "PRIVATE-ACTIVITY-ARGS"}}}}}},
                 {"state", "continue"}}, sink);
             if (calls < 25) return output({{"message", "继续检查真实记录。"},
                 {"actions", {{{"id", "read-" + std::to_string(calls)}, {"tool", "read_context"}, {"args", Json::object()}}}},
@@ -68,7 +72,11 @@ int main() {
         agent.registerTool("record_fixture", {"保存虚构测试动作", false,
             [&](gangyi::Database&, const Json& args, const Json&, const gangyi::AIResult& provenance) {
                 assert(provenance.model == "fixture-real-protocol");
-                return gangyi::PreparedAgentTool{{{"ok", true}}, [&, value = args["value"]](gangyi::Database& connection) {
+                const auto executing = gangyi::agentView(db, access, task["id"]);
+                assert(executing["activity"]["phase"] == "tool" && executing["activity"]["state"] == "started");
+                assert(executing["activity"]["tool"] == "record_fixture");
+                assert(executing.dump().find("PRIVATE-ACTIVITY-ARGS") == std::string::npos);
+                return gangyi::PreparedAgentTool{{{"ok", true}, {"rubric", "PRIVATE-ACTIVITY-RESULT"}}, [&, value = args["value"]](gangyi::Database& connection) {
                     connection.setProfileMeta("fixture-agent-action", value.get<std::string>()); ++writes;
                 }};
             }});
@@ -78,6 +86,13 @@ int main() {
         assert(finished["model"] == "fixture-real-protocol");
         assert(db.profileMeta("fixture-agent-action") == "真实模型选择的动作");
         assert(!finished.contains("messages") && !finished.contains("results") && !finished.contains("courseIds"));
+        assert(finished.dump().find("PRIVATE-ACTIVITY") == std::string::npos);
+        assert(finished["activity"]["phase"] == "finished" && finished["activity"]["state"] == "completed");
+        int savedActions = 0;
+        for (const auto& item : finished["events"]) if (item["type"] == "action") {
+            ++savedActions; assert(item["activity"]["state"] == "completed");
+        }
+        assert(savedActions == 23); // 缓存命中的动作不重复显示为新完成步骤。
         for (int i = 0; i < 5; ++i) gangyi::agentView(db, access);
         agent.process(db, task["id"]); assert(calls == 25);
 
@@ -88,6 +103,9 @@ int main() {
         const auto failed = gangyi::agentSubmit(db, access, {{"type", "prepare_next"}, {"requestId", "bad"}});
         bad.process(db, failed["id"]);
         assert(badCalls == 3 && gangyi::agentView(db, access, failed["id"])["status"] == "failed");
+        const auto badState = gangyi::agentView(db, access, failed["id"]);
+        assert(badState["failure"]["operation"] == "校验 AI 返回的内容和操作" && badState["failure"]["attempt"] == 3);
+        assert(badState["activity"]["state"] == "failed");
         bad.process(db, failed["id"]); assert(badCalls == 3);
         const auto retry = gangyi::agentControl(db, access, {{"command", "retry"}, {"taskId", failed["id"]}});
         assert(retry["status"] == "pending");
@@ -138,6 +156,9 @@ int main() {
         rollback.process(db, atomic["id"]);
         assert(db.profileMeta("must-not-remain").empty());
         assert(gangyi::agentView(db, access, atomic["id"])["status"] == "failed");
+        const auto rolledBack = gangyi::agentView(db, access, atomic["id"]);
+        for (const auto& item : rolledBack["events"])
+            assert(item["type"] != "action"); // 提交回滚的动作不能显示成已完成。
 
         const auto paused = gangyi::agentSubmit(db, access, {{"type", "adjust"}, {"requestId", "paused"}});
         gangyi::agentControl(db, access, {{"command", "pause"}, {"taskId", paused["id"]}});

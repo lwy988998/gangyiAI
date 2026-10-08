@@ -9,6 +9,7 @@
 #include <ctime>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <random>
 #include <set>
 #include <sstream>
@@ -73,6 +74,61 @@ void recordEvent(Json& task, Json event) {
     event["seq"] = task.value("seq", 0) + 1; event["at"] = stamp();
     task["seq"] = event["seq"]; task["events"].push_back(std::move(event));
 }
+std::string taskPurpose(const std::string& type) {
+    static const std::map<std::string, std::string> labels = {
+        {"prepare_next", "准备下一课"}, {"plan_course", "规划新课程"}, {"lesson_start", "开始本课教学"},
+        {"question_answer", "回应本次作答或追问"}, {"chat", "回应你的交流"}, {"startup", "更新学习推荐"},
+        {"schedule_replan", "生成课表候选"}, {"lesson_finish_request", "判断本课是否完成"}, {"learning_updated", "处理最新学习记录"}
+    };
+    const auto found = labels.find(type); return found == labels.end() ? "处理学习请求" : found->second;
+}
+Json toolActivity(const std::string& name, const Json& args, bool completed) {
+    // 只公布执行动作及提交结果；不透传工具参数、内部题目标准或模型推理。
+    static const std::map<std::string, std::pair<std::string, std::string>> labels = {
+        {"read_context", {"读取课程目标、进度与学习记录", "已读取可访问课程的最新学习情况。"}},
+        {"read_history", {"读取历史学习交流", "已读取本次请求的学习记录。"}},
+        {"read_lesson", {"读取本课课件与展示记录", "已读取保存的课件及展示状态。"}},
+        {"read_legacy_lesson", {"读取历史版本课件", "已读取历史课件。"}},
+        {"read_outline", {"读取课程阶段和知识点", "已读取课程大纲。"}},
+        {"read_profile_evidence", {"读取画像所需的真实作答证据", "已读取可用于画像判断的真实记录。"}},
+        {"create_course", {"校验并保存新课程", "新课程及阶段大纲已保存。"}},
+        {"create_lesson", {"创建本次课时", "课时已创建，教学板块还需继续准备。"}},
+        {"append_section", {"校验并保存教学板块", "教学板块已保存。"}},
+        {"finish_lesson", {"校验并提交完整课件", "完整课件已保存，可以进入课堂。"}},
+        {"select_teaching_focus", {"选择并保存当前讲解段或题目", "本课当前教学位置已保存。"}},
+        {"evaluate_answer", {"校验并暂存本次回答的评价", "本次评价已暂存，教学回复校验完成后生效。"}},
+        {"classify_input", {"确认本次输入是否为追问", "本次输入已确认为追问，不新增作答评分。"}},
+        {"complete_lesson", {"核对完成依据并保存课时状态", "本课完成状态已保存。"}},
+        {"schedule_review", {"保存复习任务", "复习任务已保存。"}},
+        {"adjust_goal", {"校验并保存学习目标调整", "学习目标调整已保存。"}},
+        {"adjust_schedule", {"校验并保存课表候选", "候选课表已保存，等待你确认后应用。"}},
+        {"revise_outline", {"校验并保存未来课程大纲", "未来课程大纲调整已保存。"}},
+        {"update_course_preview", {"保存课程路线预览", "课程路线预览已保存。"}},
+        {"update_recommendations", {"保存学习方向和复习推荐", "学习推荐已保存。"}},
+        {"update_profiles", {"依据真实证据保存学习画像", "本次画像更新已保存。"}},
+        {"update_topic_mastery", {"依据真实作答更新知识点掌握度", "知识点掌握度更新已保存。"}}
+    };
+    const auto found = labels.find(name);
+    Json value = {{"phase", "tool"}, {"tool", name}, {"state", completed ? "completed" : "started"},
+        {"title", found == labels.end() ? "执行教学操作" : found->second.first},
+        {"detail", completed ? (found == labels.end() ? "本次操作已完成。" : found->second.second) : "正在校验本次操作的数据；成功提交后会记录结果。"}};
+    if (name == "append_section" && args.value("section", Json()).is_object()) {
+        const auto& section = args.at("section"); const auto kind = section.value("kind", Json());
+        const auto question = section.value("question", Json());
+        const auto content = kind == "question" ? (question.is_object() && question.value("options", Json()).is_array() ? "选择题" : "新题目") :
+            kind == "summary" ? "本课小结" : kind == "explanation" ? "讲解内容" : "教学板块";
+        value["title"] = std::string("校验并保存") + content;
+        if (completed) value["detail"] = std::string(content) + "已保存。";
+    }
+    for (const auto* key : {"courseId", "lessonId"})
+        if (args.value(key, Json()).is_string()) value[key] = args.at(key);
+    if (!completed && name.rfind("read_", 0) == 0) value["detail"] = "正在读取已保存的资料，用于本轮教学判断。";
+    return value;
+}
+void recordActivity(Json& task, Json activity) {
+    activity["at"] = stamp(); activity["call"] = task.value("calls", 0); task["activity"] = activity;
+    recordEvent(task, {{"type", "activity"}, {"activity", std::move(activity)}});
+}
 void ownedUpdate(Database& db, Json& task, const std::function<void(Json&)>& action) {
     const auto expected = task.dump();
     db.transaction([&] {
@@ -84,8 +140,9 @@ void ownedUpdate(Database& db, Json& task, const std::function<void(Json&)>& act
 Json publicTask(const Json& task) {
     Json output;
     for (const auto* field : {"id", "requestId", "status", "version", "seq", "events", "message", "updatedAt", "createdAt",
-            "model", "calls", "error", "failure", "pauseReason", "lesson", "course", "navigate", "replacementTaskId", "changes", "teachingFocus"})
+            "model", "calls", "error", "failure", "pauseReason", "lesson", "course", "navigate", "replacementTaskId", "changes", "teachingFocus", "activity"})
         if (task.contains(field)) output[field] = task[field];
+    output["purpose"] = taskPurpose(task.at("event").value("type", ""));
     return output;
 }
 std::vector<std::string> ids(Database& db) {
@@ -269,7 +326,21 @@ Json agentView(Database& db, const AgentAccess& access, const std::string& taskI
         if (!latest || latest->kind != "agent-task")
             return {{"status", "idle"}, {"version", 0}, {"events", Json::array()}};
     }
-    auto result = publicTask(taskFor(db, access, id)); result["paused"] = scope.value("paused", false); result["changeHistory"] = agentChanges(db, access);
+    const auto task = taskFor(db, access, id);
+    auto result = publicTask(task); result["paused"] = scope.value("paused", false); result["changeHistory"] = agentChanges(db, access);
+    // 名称从已授权的真实课程与课时读取，不用内部标识冒充可读信息。
+    const auto activity = task.value("activity", Json::object());
+    const auto lessonId = activity.value("lessonId", task.at("event").value("lessonId", result.value("lesson", Json::object()).value("id", "")));
+    auto courseId = task.at("event").value("courseId", result.value("course", Json::object()).value("id", ""));
+    if (!lessonId.empty()) {
+        const auto row = db.getClassroomActivity(lessonId);
+        const auto lesson = row && row->kind == "agent-lesson" ? parsed(row->payload) : Json::object();
+        if (lesson.value("scopeId", "") == access.scopeId && allowed(access, lesson.value("courseId", ""))) {
+            result["target"]["lessonTitle"] = lesson.value("title", ""); courseId = lesson.value("courseId", courseId);
+        }
+    }
+    if (courseId.empty()) courseId = activity.value("courseId", "");
+    if (allowed(access, courseId)) if (const auto course = db.getCourse(courseId)) result["target"]["courseTitle"] = course->title;
     if (result.contains("lesson")) {
         const auto row = db.getClassroomActivity(result.at("lesson").at("id"));
         if (row && row->kind == "agent-lesson") {
@@ -412,10 +483,20 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
                 try { return taskFor(db, access, taskId).value("status", "") != "running"; }
                 catch (...) { return true; }
             };
-            ownedUpdate(db, task, [](Json& current) { current["calls"] = current.value("calls", 0) + 1; });
+            ownedUpdate(db, task, [&](Json& current) {
+                current["calls"] = current.value("calls", 0) + 1;
+                recordActivity(current, {{"phase", "request"}, {"state", "started"},
+                    {"title", resolvingInput ? "请求 AI 判断本次回答或追问" : "请求 AI：" + taskPurpose(current.at("event").value("type", ""))},
+                    {"detail", errors ? "正在重新请求 AI，修正上一步未完成的处理；已成功的操作会保留。" : "正在调用 AI 服务，等待本轮返回内容。"}});
+            });
             AgentPublicStream stream([&](const AgentStreamDelta& delta) {
                 if (resolvingInput && delta.field == "message") return;
                 ownedUpdate(db, task, [&](Json& current) {
+                    const auto title = delta.field == "message" ? "接收 AI 的教学回复" : delta.field == "option" ? "接收 AI 生成的题目选项" :
+                        delta.field == "question" ? "接收 AI 生成的新题目" : "接收 AI 生成的课件内容";
+                    if (current.at("activity").value("phase", "") != "receiving" || current.at("activity").value("title", "") != title)
+                        recordActivity(current, {{"phase", "receiving"}, {"state", "started"}, {"title", title},
+                            {"detail", "正在接收公开内容；完整回复还需校验后才能保存。"}});
                     recordEvent(current, {{"type", "delta"}, {"field", delta.field}, {"actionIndex", delta.actionIndex},
                         {"optionIndex", delta.optionIndex}, {"step", current.value("calls", 0)}, {"text", delta.text}});
                 });
@@ -441,6 +522,8 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
                 // 保存原响应供模型修正，不能把截取或补齐后的半成品当成可执行行动。
                 current["model"] = response.model;
                 current["messages"].push_back({{"role", "assistant"}, {"content", response.content}});
+                recordActivity(current, {{"phase", "validation"}, {"state", "started"}, {"title", "校验 AI 返回的内容和操作"},
+                    {"detail", "正在检查完整回复的格式及教学操作，校验通过后再提交。"}});
             });
             // 模型偶尔把原生工具调用标记混进正文，这类输出不是主控协议，直接按结构错误反馈。
             if (response.content.find("DSML") != std::string::npos ||
@@ -470,6 +553,7 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
                     if (cached["encoded"] != encoded) throw std::runtime_error("AI 重复行动内容不一致");
                     results.push_back({{"id", id}, {"result", cached["result"]}, {"cached", true}}); continue;
                 }
+                ownedUpdate(db, task, [&](Json& current) { recordActivity(current, toolActivity(name, action["args"], false)); });
                 const auto prepared = tools_.at(name).prepare(db, action["args"], task, response);
                 if (!prepared.result.is_object())
                     throw std::invalid_argument("tool." + name + ".result 必须为对象，不能把数组当成工具返回对象");
@@ -505,11 +589,19 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
                     if (prepared.result.contains("lesson")) task["lesson"] = prepared.result["lesson"];
                     if (prepared.result.contains("teachingFocus")) task["teachingFocus"] = prepared.result["teachingFocus"];
                     task["version"] = task.value("version", 0) + 1;
-                    recordEvent(task, {{"type", "action"}, {"actionId", id}, {"message", resolvingInput ? Json("") : decision["message"]}});
+                    auto activity = toolActivity(name, action["args"], true);
+                    if (name == "create_lesson") activity["lessonId"] = prepared.result.at("lessonId");
+                    recordActivity(task, activity);
+                    recordEvent(task, {{"type", "action"}, {"actionId", id}, {"activity", task["activity"]}, {"message", resolvingInput ? Json("") : decision["message"]}});
                     writeScopeFingerprint(db, access); saveTask(db, task);
                 });
                 results.push_back({{"id", id}, {"result", prepared.result}});
             }
+            failureStage = "structure"; failureTool.clear();
+            ownedUpdate(db, task, [](Json& current) {
+                recordActivity(current, {{"phase", "validation"}, {"state", "started"}, {"title", "核对本轮教学结果"},
+                    {"detail", "正在核对已保存操作与本次请求，确认是否完成或需要你的回应。"}});
+            });
             if (resolvingInput) {
                 if (!task.value("inputResolved", false) && results.empty()) throw std::runtime_error("AI 尚未评价本次回答或确认纯追问");
                 state = "continue";
@@ -549,6 +641,9 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
                     const bool prepared = type == "prepare_next" && current.contains("lesson");
                     const bool planned = type == "plan_course" && current.contains("course");
                     current["status"] = state == "completed" || prepared || planned || type == "startup" ? "ready" : "waiting_student";
+                    recordActivity(current, {{"phase", "finished"}, {"state", "completed"},
+                        {"title", current["status"] == "ready" ? "本次处理已完成" : "教学回复已保存，等待你的回应"},
+                        {"detail", prepared ? "完整课件已保存，可以进入课堂。" : "本轮有效内容和操作已保存。"}});
                     recordEvent(current, {{"type", current["status"]}, {"message", decision["message"]}});
                 }
             });
@@ -583,13 +678,21 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
                 kind == "rate_limited" ? "AI 服务暂时限流，已有有效步骤已保留。" :
                 kind == "provider_5xx" ? "AI 服务暂时异常，已有有效步骤已保留。" :
                 kind == "structure" || kind == "invalid_response" ? "AI 返回的内容结构不完整，已有有效步骤已保留。" :
-                "AI 教学工具“" + failureTool + "”未通过数据校验，已有有效步骤已保留。";
+                "“" + toolActivity(failureTool, Json::object(), false).at("title").get<std::string>() + "”未通过数据校验，已有有效步骤已保留。";
+            if (detail == "本课已有更新的教学任务，旧输出不应用")
+                message = "本课已经由更新的教学任务接手，这次旧操作没有应用。";
             std::cerr << "[learning-agent] task=" << taskId << " stage=" << failureStage << " tool=" << failureTool
                 << " field=" << field << " kind=" << kind << " http=" << httpStatus << " attempt=" << errors << '\n';
             ownedUpdate(db, task, [&](Json& current) {
                 current["failureCount"] = errors; current["failureKind"] = kind;
+                auto activity = current.value("activity", Json::object());
+                if (failureStage == "tool" && activity.value("tool", "") != failureTool)
+                    activity = toolActivity(failureTool, Json::object(), false);
                 current["failure"] = {{"kind", kind}, {"stage", failureStage}, {"tool", failureTool},
-                    {"field", field}, {"httpStatus", httpStatus}, {"retryable", retryable}, {"message", message}};
+                    {"field", field}, {"httpStatus", httpStatus}, {"retryable", retryable}, {"message", message},
+                    {"operation", activity.value("title", "处理学习请求")}, {"attempt", errors}};
+                activity["state"] = "failed"; activity["detail"] = message;
+                recordActivity(current, std::move(activity));
                 current["messages"].push_back({{"role", "user"}, {"content",
                     Json{{"toolError", std::string(error.what())}, {"completedActions", current["completedActions"]},
                          {"instruction", kind == "structure" ? "上一轮 JSON 结构无效。下一轮先只输出一个行动，使用完整的 {message,actions:[{id,tool,args:{}}],state} 对象，先关闭 args 和行动对象再关闭 actions 数组；正文放在一个 JSON 字符串中。不要重复已经成功的行动。" : "依据错误决定下一步，不重复已经成功的行动。"}}.dump()}});

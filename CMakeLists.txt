@@ -373,6 +373,8 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/legacy_draft_tests.cjs)
         add_test(NAME agent-watch COMMAND ${GANGYI_NODE_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/agent_watch_tests.cjs)
+        add_test(NAME agent-status-panel COMMAND ${GANGYI_NODE_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/agent_status_panel_tests.cjs)
         add_test(NAME mentor-client COMMAND ${GANGYI_NODE_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/mentor_client_tests.cjs)
     endif()
