@@ -1,4 +1,5 @@
 #pragma once
+#include "ai_activity.hpp"
 
 #include <stdexcept>
 #include <functional>
@@ -28,6 +29,7 @@ struct ChatOptions {
     int maxAttempts = 0;
     std::function<bool()> cancelled;
     std::string searchQuery;
+    AIActivityInfo activity;
 };
 
 struct AIResult {

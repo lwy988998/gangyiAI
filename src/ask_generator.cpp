@@ -32,6 +32,7 @@ ChatOptions AskGenerator::options(const std::string& question, const std::string
     if (safeQuestion.empty() || safeQuestion.size() > 4000)
         throw AIClientError("invalid_request", "请输入有效问题（最多 4000 字节）");
     ChatOptions options;
+    options.activity.source = "AI 导师"; options.activity.purpose = "回答问题并进行连续交流";
     options.messages.push_back({"system", u8"你是钢一定制AI的学习导师。结合最近对话理解追问和指代，直接、准确地回答。默认简体中文；先定位误解，再给示例或一个引导问题。不要编造事实。学习画像仅作辅助，不得把低分当成学生能力定论。画像摘要：" + profileContext});
     const size_t start = history.size() > 8 ? history.size() - 8 : 0;
     for (size_t i = start; i < history.size(); ++i) {

@@ -99,7 +99,11 @@
       text: '先分析全部活跃课程中的真实作答、提示和最新反馈，自主选择推进、巩固、复习或跨课程学习。准备完整新课，并流式展示公开教学内容；保存后进入同一份课堂。' });
   function showOpeningError(error) { status.textContent = error.message; errorBox.textContent = error.message; errorBox.hidden = false; badge.textContent = current ? '需要处理' : '请求未提交'; stop.hidden = true; retry.hidden = false; }
   openTask().then(follow).catch(showOpeningError);
-  document.addEventListener('gangyi:agent-control', event => { if (['resume','retry'].includes(event.detail?.command) && event.detail.task?.id === current?.id) follow(event.detail.task); });
+  document.addEventListener('gangyi:agent-control', event => {
+    if (event.detail?.all && current && ['pause', 'resume'].includes(event.detail.command)) {
+      api.request('/api/learning-agent?taskId=' + encodeURIComponent(current.id)).then(follow).catch(showOpeningError);
+    } else if (['resume','retry'].includes(event.detail?.command) && event.detail.task?.id === current?.id) follow(event.detail.task);
+  });
   if (courseId) api.request('/api/courses/' + encodeURIComponent(courseId)).then(data => { document.getElementById('prepare-course').textContent = data.course.title; }).catch(() => {});
   window.addEventListener('pagehide', () => close?.());
 })();

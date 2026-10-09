@@ -154,6 +154,7 @@ GeneratedPlan PlanGenerator::generate(const std::string& goal, const std::string
     if (!profileContext.empty() && profileContext != "[]")
         user += "\n本机学习画像摘要（仅用于调整学习顺序和讲解重点，不得改写学习目标）：" + profileContext;
     ChatOptions request = options(system, user, mode);
+    request.activity.source = "课程规划"; request.activity.purpose = "生成课程目标、阶段与学习路线";
     request.searchQuery = safeGoal;
     const AIResult response = client_.chat(request);
     GeneratedPlan plan = parsePlan(parseAIJson(response.content));

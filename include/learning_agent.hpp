@@ -30,7 +30,9 @@ AgentJson agentContext(Database& db, const AgentAccess& access, const AgentJson&
 enum class AgentSubmissionOrigin { ordinary, manualScheduleReplan };
 AgentJson agentSubmit(Database& db, const AgentAccess& access, const AgentJson& event,
                       AgentSubmissionOrigin origin = AgentSubmissionOrigin::ordinary);
-AgentJson agentView(Database& db, const AgentAccess& access, const std::string& taskId = {});
+AgentJson agentView(Database& db, const AgentAccess& access, const std::string& taskId = {}, bool compact = false);
+AgentJson agentActivityView(Database& db, const AgentAccess& access);
+void agentResumeGlobalTasks(Database& db, const AgentAccess& access);
 AgentJson agentControl(Database& db, const AgentAccess& access, const AgentJson& body);
 
 // 主控由真实模型选择工具与结束时机；程序只负责执行、持久化和冲突校验。

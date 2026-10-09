@@ -98,6 +98,11 @@
     });
     const restart = event => {
       const {command,task:next}=event.detail||{};
+      if (root.isConnected && event.detail?.all && ['pause', 'resume'].includes(command)) {
+        api.request('/api/learning-agent?taskId=' + encodeURIComponent(currentTaskId)).then(saved => {
+          if (root.isConnected && root.dataset.taskId === currentTaskId) observe(saved, root, note, stop, retry, form);
+        }).catch(error => { note.textContent = error.message; }); return;
+      }
       if(root.isConnected&&['pause','resume','retry','cancel'].includes(command)&&next?.id===currentTaskId)
         observe(next,root,note,stop,retry,form);
     };

@@ -26,11 +26,18 @@ async function main() {
     target: { courseTitle: '化学课程', lessonTitle: '化合价与电子变化' },
     activity: { phase: 'tool', title: '校验并保存选择题', detail: '正在校验本次操作的数据。' },
     events: [{ seq: 3, type: 'action', at: '2026-10-08T08:10:00Z', activity: { title: '创建本次课时', detail: '课时已创建。' }, message: 'PRIVATE-DO-NOT-RENDER' }] };
-  let defer = null;
+  let defer = null, globalPaused = false;
+  const snapshot = () => ({ paused: globalPaused, todayCalls: 5, tasks: [
+    { ...task, taskId: task.id, source: 'AI 课堂', tracked: true },
+    { id: 'picture', source: '目标图片', purpose: '识别图片并提取学习目标', status: globalPaused ? 'paused' : 'requesting', calls: 3, tracked: true }
+  ] });
   const document = { body, hidden: false, createElement: tag => new Element(tag), getElementById: id => find(node => node.id === id),
     querySelector: selector => selector === 'main' ? main : null, querySelectorAll: () => [], addEventListener() {}, dispatchEvent() {} };
   const api = { storage: { get: () => null }, failureMessage: value => value.failure?.message || value.error || '',
-    request: async url => { requests.push(url); if (url === '/api/courses') return {}; if (defer) { const pending = defer; defer = null; return pending; } return task; },
+    request: async (url, data) => { requests.push(url); if (url === '/api/courses') return {};
+      if (url === '/api/ai-activity/control') { controls.push({ ...data, all: true }); globalPaused = data.command === 'pause'; task = { ...task, paused: globalPaused, status: globalPaused ? 'paused' : 'running' }; return snapshot(); }
+      if (url === '/api/ai-activity') return snapshot();
+      if (defer) { const pending = defer; defer = null; return pending; } return task; },
     control: async value => { controls.push(value); task = { ...task, paused: true, status: 'paused' }; return task; } };
   const window = { GangyiAgent: api, addEventListener() {} };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/agent-shell.js'), 'utf8'), {
@@ -45,18 +52,24 @@ async function main() {
   assert.equal(byClass('ai-operation-title').textContent, '校验并保存选择题');
   assert.match(byClass('ai-operation-target').textContent, /化学课程.*化合价与电子变化/);
   assert.ok(!body.textContent.includes('PRIVATE-'), '操作面板不呈现工具输出和教师正文');
+  assert.match(document.getElementById('ai-live-calls').textContent, /AI 课堂/);
+  assert.match(document.getElementById('ai-live-calls').textContent, /目标图片/);
+  assert.match(document.getElementById('ai-live-calls').textContent, /实际请求 3 次/);
+  assert.equal(byClass('ai-call-history').open, false, '调用历史默认折叠');
   history.open = true; details.open = true;
-  const historyNode = byClass('ai-step-list').firstChild, button = find(node => node.tagName === 'button' && node.textContent === '暂停 AI');
+  const historyNode = byClass('ai-step-list').firstChild, button = find(node => node.tagName === 'button' && node.textContent === '暂停全部 AI');
   intervals[0](); await drain();
   assert.equal(history.open, true); assert.equal(details.open, true);
   assert.equal(byClass('ai-step-list').firstChild, historyNode, '轮询不重建未改变的步骤');
-  assert.equal(find(node => node.tagName === 'button' && node.textContent === '暂停 AI'), button, '轮询保留控制按钮与键盘焦点');
+  assert.equal(find(node => node.tagName === 'button' && node.textContent === '暂停全部 AI'), button, '轮询保留控制按钮与键盘焦点');
   await button.onclick();
-  assert.equal(controls.length, 1); assert.equal(controls[0].command, 'pause'); assert.equal(controls[0].taskId, 'one');
-  assert.equal(navigation.firstChild.textContent, 'AI 已暂停');
+  assert.equal(controls.length, 1); assert.equal(controls[0].command, 'pause'); assert.equal(controls[0].all, true);
+  assert.equal(navigation.firstChild.textContent, '全部 AI 已暂停');
   assert.equal(byClass('ai-operation-title').textContent, '已暂停：校验并保存选择题');
   task = { ...task, status: 'running', paused: true }; intervals[0](); await drain();
-  assert.equal(navigation.firstChild.textContent, 'AI 已暂停', '暂停状态不能被处理中遮盖');
+  assert.equal(navigation.firstChild.textContent, '全部 AI 已暂停', '暂停状态不能被处理中遮盖');
+  await find(node => node.tagName === 'button' && node.textContent === '恢复全部 AI').onclick();
+  assert.equal(controls[1].command, 'resume'); assert.equal(controls[1].all, true);
   task = { id: 'legacy', status: 'ready', calls: 3, events: [{ type: 'action', message: 'PRIVATE-OLD-MESSAGE' }] };
   intervals[0](); await drain();
   assert.match(byClass('ai-operation-detail').textContent, /历史任务未记录具体执行步骤/);
@@ -75,6 +88,6 @@ async function main() {
   assert.equal(byClass('ai-operation-title').textContent, '接收 AI 的教学回复');
   assert.ok(!body.textContent.includes('迟到错误'));
   assert.ok(requests.some(url => url.endsWith('taskId=new')));
-  console.log('AI 状态面板：具体操作、折叠保持、暂停、失败、历史兼容及迟到请求回归通过。');
+  console.log('AI 状态面板：全软件实时列表、实际次数、全局暂停恢复、折叠保持、历史兼容及迟到请求回归通过。');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

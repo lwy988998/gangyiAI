@@ -70,7 +70,100 @@
   const history = disclosure('最近步骤', 'ai-control-history'), historyList = element('ol', '', 'ai-step-list'); history.append(historyList);
   const taskDetails = disclosure('任务详情', 'ai-task-details'), facts = element('dl', '', 'ai-task-facts'); taskDetails.append(facts);
   const adjustments = disclosure('最近调整', 'ai-control-adjustments'); adjustments.append(changes); adjustments.hidden = true;
-  panel.append(label, operation, state, actions, history, taskDetails, adjustments); body.append(panel); navigation.append(toggle, body); document.body.append(navigation);
+  const metrics = element('p', '', 'ai-call-metrics'), globalActions = element('div', '', 'ai-control-actions');
+  const callList = element('div', '', 'ai-live-calls'); callList.id = 'ai-live-calls';
+  const callHistory = disclosure('调用历史', 'ai-call-history'), pastList = element('div'); callHistory.append(pastList);
+  const currentDetails = disclosure('当前课时的执行详情', 'ai-context-details');
+  const callNotice = element('p', '', 'ai-control-notice'); callNotice.hidden = true; callNotice.setAttribute('role', 'status');
+  currentDetails.append(operation, state, actions, history, taskDetails, adjustments);
+  panel.append(label, metrics, globalActions, callNotice, callList, callHistory, currentDetails);
+  body.append(panel); navigation.append(toggle, body); document.body.append(navigation);
+  let globalPaused = false, globalBusy = false, globalKey = '', activityVersion = 0, historyLimit = 20, liveKey = '', pastKey = '', latestView;
+  const rows = new Map();
+  const statusText = { pending: '排队等待', queued: '等待请求', running: '本地处理', requesting: '正在请求 AI', receiving: '正在接收 AI 回复',
+    paused: '已暂停', ready: '任务已完成', completed: '请求已完成', waiting_student: '等待你的回应', failed: '请求未完成',
+    cancelled: '已停止', superseded: '已被新任务替代', interrupted: '软件退出，请求已中断' };
+  const ongoing = task => ['pending', 'queued', 'running', 'requesting', 'receiving', 'paused'].includes(task.status);
+  function callRow(task) {
+    let value = rows.get(task.id);
+    if (!value) {
+      const row = element('article', '', 'ai-call-row'), source = element('p', '', 'ai-call-source'), purpose = element('h3', '', 'ai-call-purpose');
+      const status = element('p', '', 'ai-call-status'), action = element('p', '', 'ai-call-operation'), target = element('p', '', 'ai-call-target');
+      const count = element('p', '', 'ai-call-count'), detail = disclosure('详情', 'ai-call-detail'), facts = element('p'), controls = element('div', '', 'ai-control-actions');
+      detail.append(facts, controls); row.append(source, purpose, status, action, target, count, detail);
+      value = { row, source, purpose, status, action, target, count, facts, controls, key: '' }; rows.set(task.id, value);
+    }
+    value.row.dataset.status = task.status;
+    value.source.textContent = task.source || 'AI 服务'; value.purpose.textContent = task.purpose || '处理学习请求';
+    value.status.textContent = statusText[task.status] || '已保存状态';
+    value.action.textContent = task.failure?.message || task.activity?.title || ({ requesting: '等待模型开始返回内容。', receiving: '正在接收内容，完整返回后再校验保存。',
+      pending: '任务已经提交，尚未发起模型请求。', queued: '请求已准备，等待发送。', paused: '输入和有效结果保留，恢复后继续未完成任务。' })[task.status] || '';
+    value.action.hidden = !value.action.textContent;
+    value.target.textContent = [task.target?.courseTitle, task.target?.lessonTitle].filter(Boolean).join(' · '); value.target.hidden = !value.target.textContent;
+    value.count.textContent = task.tracked || !task.legacyCalls ? '实际请求 ' + Number(task.calls || 0) + ' 次' : '历史模型轮次 ' + Number(task.legacyCalls) + ' 次（旧版未记录实际请求）';
+    if (task.tracked && task.legacyCalls) value.count.textContent += ' · 另有旧版模型轮次 ' + Number(task.legacyCalls) + ' 次';
+    value.facts.textContent = [task.model && '模型：' + task.model, task.updatedAt && '最近更新：' + new Date(task.updatedAt).toLocaleString('zh-CN'), task.activity?.detail].filter(Boolean).join('\n');
+    const key = JSON.stringify([task.taskId, task.status, globalPaused]);
+    if (value.key !== key) {
+      value.key = key; value.controls.replaceChildren();
+      function control(text, command) {
+        const button = element('button', text); button.type = 'button';
+        button.onclick = async () => { button.disabled = true; try {
+          const updated = await api.control({ command, taskId: task.taskId });
+          document.dispatchEvent(new CustomEvent('gangyi:agent-control', { detail: { command, task: updated } })); await load();
+        } catch (error) { state.textContent = error.message; state.hidden = false; } finally { button.disabled = false; } };
+        value.controls.append(button);
+      }
+      if (task.taskId) {
+        if (task.status === 'paused' && !globalPaused) control('恢复此任务', 'resume');
+        if (['failed', 'cancelled', 'superseded'].includes(task.status) && !globalPaused) control('重试此任务', 'retry');
+        if (ongoing(task)) control('停止此任务', 'cancel');
+      }
+    }
+    return value.row;
+  }
+  function renderCalls(view) {
+    latestView = view; callNotice.hidden = true;
+    globalPaused = Boolean(view.paused);
+    const tasks = [...(view.tasks || [])].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+    const active = tasks.filter(ongoing), past = tasks.filter(task => !ongoing(task));
+    const requesting = active.filter(task => ['requesting', 'receiving'].includes(task.status)).length;
+    navigation.dataset.status = globalPaused ? 'paused' : requesting ? 'running' : active.length ? 'pending' : 'idle';
+    toggle.textContent = globalPaused ? '全部 AI 已暂停' : requesting ? 'AI 正在调用 · ' + requesting + ' 项' : active.length ? 'AI 待处理 · ' + active.length + ' 项' : 'AI 状态';
+    label.textContent = '全软件 AI 调用';
+    metrics.textContent = '正在请求 ' + requesting + ' 项 · 今日实际请求 ' + Number(view.todayCalls || 0) + ' 次 · 实时更新';
+    if (globalKey !== String(globalPaused)) {
+      globalKey = String(globalPaused); globalActions.replaceChildren();
+      const control = element('button', globalPaused ? '恢复全部 AI' : '暂停全部 AI'); control.type = 'button';
+      control.onclick = async () => {
+        if (globalBusy) return; globalBusy = true; control.disabled = true; ++activityVersion;
+        const command = globalPaused ? 'resume' : 'pause';
+        try {
+          const result = await api.request('/api/ai-activity/control', { command }); renderCalls(result);
+          document.dispatchEvent(new CustomEvent('gangyi:agent-control', { detail: { command, all: true } }));
+          await load();
+        } catch (error) { callNotice.textContent = error.message; callNotice.hidden = false; }
+        finally { globalBusy = false; for (const button of globalActions.querySelectorAll('button')) button.disabled = false; }
+      };
+      control.disabled = globalBusy; globalActions.append(control);
+    }
+    // 复用每行节点，实时更新不打断折叠开合和按钮焦点。
+    active.sort((a,b) => String(b.createdAt || b.id).localeCompare(String(a.createdAt || a.id)));
+    const activeNodes = active.map(callRow), pastNodes = past.slice(0, historyLimit).map(callRow);
+    const nextLiveKey = JSON.stringify([active.map(task => task.id), globalPaused]), nextPastKey = JSON.stringify([past.map(task => task.id), historyLimit]);
+    if (liveKey !== nextLiveKey) {
+      liveKey = nextLiveKey; callList.replaceChildren(...activeNodes);
+      if (!active.length) callList.append(element('p', globalPaused ? '全部 AI 已暂停，新的请求也会等待恢复。' : '目前没有正在调用 AI 的任务。', 'ai-call-empty'));
+    }
+    if (pastKey !== nextPastKey) {
+      pastKey = nextPastKey; pastList.replaceChildren(...pastNodes);
+      if (past.length > historyLimit) {
+        const more = element('button', '查看更多历史'); more.type = 'button'; more.onclick = () => { historyLimit += 20; renderCalls(latestView); }; pastList.append(more);
+      }
+    }
+    callHistory.firstChild.textContent = '调用历史 · ' + past.length + ' 项';
+    const present = new Set(tasks.map(task => task.id)); for (const id of rows.keys()) if (!present.has(id)) rows.delete(id);
+  }
   let actionsKey = '', historyKey = '', changesKey = '', controlBusy = false;
   const clock = value => { const date = new Date(value); return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }); };
   function renderOperation(task, paused) {
@@ -127,6 +220,9 @@
     }; actions.append(node);
   }
   async function load() {
+    const callVersion = ++activityVersion;
+    api.request('/api/ai-activity').then(view => { if (callVersion === activityVersion) renderCalls(view); })
+      .catch(error => { if (callVersion === activityVersion) { callNotice.textContent = '实时调用状态暂时无法更新：' + error.message; callNotice.hidden = false; } });
     const version = ++stateVersion;
     const requested = context.teachingTaskId || context.taskId || '';
     try {
@@ -134,15 +230,12 @@
       if (version !== stateVersion || requested !== (context.teachingTaskId || context.taskId || '')) return;
       current = task;
       const active = ['pending', 'running'].includes(task.status), paused = task.paused || task.status === 'paused';
-      navigation.dataset.status = paused ? 'paused' : task.status;
-      toggle.textContent = paused ? 'AI 已暂停' : active ? 'AI 处理中' : task.status === 'failed' ? 'AI 需处理' : 'AI 状态';
-      label.textContent = toggle.textContent;
       renderOperation(task, paused); renderHistory(task); renderFacts(task);
       const nextActions = JSON.stringify([task.id, paused, task.status, task.lesson?.entered]);
       if (actionsKey !== nextActions) {
         actionsKey = nextActions; actions.replaceChildren();
         if (task.id) {
-          if (paused) button('恢复 AI', 'resume', task.id); else button('暂停 AI', 'pause', task.id);
+          if (paused && !globalPaused) button('恢复此任务', 'resume', task.id);
           if (['failed', 'superseded', 'cancelled'].includes(task.status)) button('重试', 'retry', task.id);
           if (active || task.status === 'paused') button('停止任务', 'cancel', task.id);
           if (task.lesson && !task.lesson.entered && ['ready', 'waiting_student'].includes(task.status)) actions.append(anchor('进入已备好的课堂 →', '/agent-prepare.html?taskId=' + encodeURIComponent(task.id)));
@@ -161,5 +254,5 @@
   }
   navigation.addEventListener('toggle', () => { if (navigation.open) load(); });
   document.addEventListener('keydown', event => { if (event.key === 'Escape' && navigation.open) { navigation.open = false; toggle.focus(); } });
-  load(); const timer = setInterval(() => { if (!document.hidden) load(); }, 1800); window.addEventListener('pagehide', () => clearInterval(timer));
+  load(); const timer = setInterval(() => { if (!document.hidden) load(); }, 1000); window.addEventListener('pagehide', () => clearInterval(timer));
 })();

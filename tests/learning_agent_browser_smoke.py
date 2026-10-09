@@ -61,17 +61,18 @@ def main(executable):
             page.locator('#learning-navigation > summary').click()
             expect(page.locator('#agent-control-panel .ai-control-history')).not_to_have_attribute('open', '')
             expect(page.locator('#agent-control-panel .ai-task-details')).not_to_have_attribute('open', '')
-            with page.expect_response(lambda response:response.url.endswith('/api/learning-agent/control') and response.request.post_data_json.get('command')=='pause') as paused_response:
-                page.get_by_role('button',name='暂停 AI',exact=True).click()
+            with page.expect_response(lambda response:response.url.endswith('/api/ai-activity/control') and response.request.post_data_json.get('command')=='pause') as paused_response:
+                page.get_by_role('button',name='暂停全部 AI',exact=True).click()
             assert paused_response.value.status == 200
             paused_task = paused_response.value.json()
-            assert api('/api/learning-agent?taskId='+paused_task['id'])['paused']
+            assert paused_task['paused'] and api('/api/learning-agent')['paused']
+            page.locator('.ai-context-details > summary').click()
             page.locator('.current-practice').get_by_text('AI 已暂停',exact=True).wait_for()
             expect(page.locator('.ai-operation-title')).to_contain_text('已暂停')
             assert page.locator('.ai-operation-target').inner_text()
             assert 'PRIVATE-' not in page.locator('#agent-control-panel').inner_text()
             with urlopen(Request(info['fixture']+'/fixture-control',data=b'{"slow":false}',headers={'Content-Type':'application/json'})): pass
-            page.get_by_role('button',name='恢复 AI',exact=True).click()
+            page.get_by_role('button',name='恢复全部 AI',exact=True).click()
             page.locator('#lesson-sections').get_by_text('你已经给出了观察，接下来可以补充电子变化的理由。',exact=True).wait_for()
             page.locator('#lesson-sections').get_by_text('你可以继续回答或追问',exact=True).wait_for()
             page.locator('.ai-control-history > summary').click()

@@ -198,7 +198,7 @@ else()
     set(GANGYI_CURL_LINK CURL::libcurl OpenSSL::Crypto)
 endif()
 
-add_executable(gangyiAI src/main.cpp src/db.cpp src/ai_client.cpp src/json_fix.cpp src/plan_generator.cpp src/page_renderer.cpp
+add_executable(gangyiAI src/main.cpp src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/json_fix.cpp src/plan_generator.cpp src/page_renderer.cpp
     src/plan_cache.cpp src/plan_adapter.cpp src/search_client.cpp src/quality_gate.cpp src/course_service.cpp
     src/progress_service.cpp src/profile_service.cpp src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/classroom_service.cpp src/image_goal_analyzer.cpp src/home_recommendations.cpp src/learning_flow.cpp src/next_lesson.cpp
     src/learning_agent.cpp src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/agent_curriculum.cpp
@@ -223,7 +223,7 @@ if(WIN32)
 endif()
 
 if(WIN32)
-    add_executable(gangyiAI-launcher WIN32 src/windows_launcher.cpp src/launcher_support.cpp src/ai_client.cpp src/search_client.cpp ${GANGYI_LAUNCHER_RESOURCE})
+    add_executable(gangyiAI-launcher WIN32 src/windows_launcher.cpp src/launcher_support.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp ${GANGYI_LAUNCHER_RESOURCE})
     target_include_directories(gangyiAI-launcher PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${GANGYI_CURL_INCLUDE}
@@ -248,7 +248,7 @@ endif()
 include(CTest)
 if(BUILD_TESTING)
     add_executable(next-lesson-tests tests/next_lesson_tests.cpp src/learning_generator.cpp
-        src/ai_client.cpp src/search_client.cpp src/json_fix.cpp)
+        src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp)
     target_include_directories(next-lesson-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${GANGYI_CURL_INCLUDE})
     target_link_libraries(next-lesson-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_CURL_LINK} Threads::Threads)
     if(WIN32)
@@ -258,7 +258,7 @@ if(BUILD_TESTING)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/question_dialogue_tests.cpp")
         add_executable(question-dialogue-tests tests/question_dialogue_tests.cpp src/learning_flow.cpp
             src/next_lesson.cpp src/classroom_service.cpp src/learning_generator.cpp src/profile_service.cpp
-            src/db.cpp src/ai_client.cpp src/search_client.cpp src/json_fix.cpp src/course_service.cpp src/progress_service.cpp)
+            src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp src/course_service.cpp src/progress_service.cpp)
         target_include_directories(question-dialogue-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${GANGYI_CURL_INCLUDE})
         target_link_libraries(question-dialogue-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_SQLITE_LIB} ${GANGYI_CURL_LINK} Threads::Threads)
         if(WIN32)
@@ -274,7 +274,7 @@ if(BUILD_TESTING)
     add_executable(learning-agent-tests tests/learning_agent_tests.cpp src/learning_agent.cpp
         src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/agent_curriculum.cpp
         src/learning_flow.cpp src/next_lesson.cpp src/classroom_service.cpp src/learning_generator.cpp src/profile_service.cpp
-        src/course_service.cpp src/progress_service.cpp src/db.cpp src/ai_client.cpp src/search_client.cpp src/json_fix.cpp)
+        src/course_service.cpp src/progress_service.cpp src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp)
     target_include_directories(learning-agent-tests PRIVATE include ${GANGYI_CURL_INCLUDE})
     target_link_libraries(learning-agent-tests PRIVATE nlohmann_json::nlohmann_json
         ${GANGYI_SQLITE_LIB} ${GANGYI_CURL_LINK} Threads::Threads)
@@ -295,7 +295,7 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME http-lifetime COMMAND http-lifetime-tests)
     set_tests_properties(http-lifetime PROPERTIES TIMEOUT 20)
-    add_executable(ai-client-tests tests/ai_client_tests.cpp src/ai_client.cpp src/search_client.cpp src/ask_generator.cpp
+    add_executable(ai-client-tests tests/ai_client_tests.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/ask_generator.cpp
         src/json_fix.cpp src/plan_generator.cpp)
     target_include_directories(ai-client-tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -309,7 +309,7 @@ if(BUILD_TESTING)
     add_test(NAME ai-client COMMAND ai-client-tests)
 
     add_executable(ai-content-generation-tests tests/ai_content_generation_tests.cpp
-        src/learning_generator.cpp src/phase_generator.cpp src/ai_client.cpp src/search_client.cpp src/json_fix.cpp)
+        src/learning_generator.cpp src/phase_generator.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp)
     target_include_directories(ai-content-generation-tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${GANGYI_CURL_INCLUDE}
@@ -327,7 +327,7 @@ if(BUILD_TESTING)
     target_link_libraries(progress-service-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_SQLITE_LIB})
     add_test(NAME progress-service COMMAND progress-service-tests)
 
-    add_executable(profile-service-tests tests/profile_service_tests.cpp src/db.cpp src/profile_service.cpp src/ai_client.cpp src/search_client.cpp src/json_fix.cpp)
+    add_executable(profile-service-tests tests/profile_service_tests.cpp src/db.cpp src/profile_service.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp)
     target_include_directories(profile-service-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${GANGYI_CURL_INCLUDE})
     target_link_libraries(profile-service-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_SQLITE_LIB} ${GANGYI_CURL_LINK} Threads::Threads)
     if(WIN32)
@@ -341,7 +341,7 @@ if(BUILD_TESTING)
     add_test(NAME page-renderer COMMAND page-renderer-tests)
 
     add_executable(classroom-service-tests tests/classroom_service_tests.cpp src/classroom_service.cpp
-        src/db.cpp src/ai_client.cpp src/search_client.cpp src/json_fix.cpp src/course_service.cpp
+        src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp src/course_service.cpp
         src/next_lesson.cpp src/learning_flow.cpp src/learning_generator.cpp src/profile_service.cpp src/progress_service.cpp)
     target_include_directories(classroom-service-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${GANGYI_CURL_INCLUDE})
     target_link_libraries(classroom-service-tests PRIVATE nlohmann_json::nlohmann_json
@@ -379,6 +379,9 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/mentor_client_tests.cjs)
     endif()
     if(Python3_Interpreter_FOUND)
+        add_test(NAME global-ai-activity COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/global_ai_activity_smoke.py $<TARGET_FILE:gangyiAI> $<TARGET_FILE:ai-client-tests>)
+        set_tests_properties(global-ai-activity PROPERTIES TIMEOUT 90)
         # 旧独立后台与固定教学规则的运行时验收迁移为统一主控协议验收。
         add_test(NAME learning-agent-api COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/learning_agent_api_smoke.py $<TARGET_FILE:gangyiAI>)

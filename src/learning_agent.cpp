@@ -78,7 +78,9 @@ std::string taskPurpose(const std::string& type) {
     static const std::map<std::string, std::string> labels = {
         {"prepare_next", "准备下一课"}, {"plan_course", "规划新课程"}, {"lesson_start", "开始本课教学"},
         {"question_answer", "回应本次作答或追问"}, {"chat", "回应你的交流"}, {"startup", "更新学习推荐"},
-        {"schedule_replan", "生成课表候选"}, {"lesson_finish_request", "判断本课是否完成"}, {"learning_updated", "处理最新学习记录"}
+        {"schedule_replan", "生成课表候选"}, {"lesson_finish_request", "判断本课是否完成"}, {"learning_updated", "处理最新学习记录"},
+        {"schedule_changed", "根据学习时间更新安排"}, {"profile_refresh", "根据真实作答更新学习画像"},
+        {"goal_changed", "处理学习目标调整"}, {"feedback", "处理学习反馈"}, {"course_preview", "生成课程路线预览"}
     };
     const auto found = labels.find(type); return found == labels.end() ? "处理学习请求" : found->second;
 }
@@ -316,7 +318,7 @@ Json agentSubmit(Database& db, const AgentAccess& access, const Json& event, Age
     return publicTask(task);
 }
 
-Json agentView(Database& db, const AgentAccess& access, const std::string& taskId) {
+Json agentView(Database& db, const AgentAccess& access, const std::string& taskId, bool compact) {
     const auto scope = parsed(db.profileMeta(scopeKey(access)));
     const auto id = taskId.empty() ? scope.value("latestTaskId", "") : taskId;
     if (id.empty()) return {{"status", "idle"}, {"version", 0}, {"events", Json::array()}};
@@ -327,7 +329,14 @@ Json agentView(Database& db, const AgentAccess& access, const std::string& taskI
             return {{"status", "idle"}, {"version", 0}, {"events", Json::array()}};
     }
     const auto task = taskFor(db, access, id);
-    auto result = publicTask(task); result["paused"] = scope.value("paused", false); result["changeHistory"] = agentChanges(db, access);
+    Json result;
+    if (compact) {
+        result = {{"id", id}, {"status", task.at("status")}, {"purpose", taskPurpose(task.at("event").value("type", ""))}};
+        for (const auto* key : {"calls", "model", "activity", "failure", "createdAt", "updatedAt", "lesson", "course"})
+            if (task.contains(key)) result[key] = task[key];
+    } else { result = publicTask(task); result["changeHistory"] = agentChanges(db, access); }
+    result["scopePaused"] = scope.value("paused", false);
+    result["paused"] = scope.value("paused", false) || AIActivity::paused();
     // 名称从已授权的真实课程与课时读取，不用内部标识冒充可读信息。
     const auto activity = task.value("activity", Json::object());
     const auto lessonId = activity.value("lessonId", task.at("event").value("lessonId", result.value("lesson", Json::object()).value("id", "")));
@@ -351,6 +360,50 @@ Json agentView(Database& db, const AgentAccess& access, const std::string& taskI
     return result;
 }
 
+Json agentActivityView(Database& db, const AgentAccess& access) {
+    auto view = AIActivity::snapshot(); Json rows = Json::array();
+    // 合并实际请求与主控状态，排队、等待学生及本地处理不算模型请求。
+    for (const auto& id : ids(db)) {
+        const auto saved = db.getClassroomActivity(id); if (!saved) continue;
+        const auto raw = parsed(saved->payload);
+        if (raw.value("scopeId", "") != access.scopeId) continue;
+        Json task;
+        try { task = agentView(db, access, id, true); } catch (...) { continue; }
+        const auto type = raw.at("event").value("type", "");
+        Json row = {{"id", id}, {"taskId", id}, {"source", type == "startup" || type == "learning_updated" ? "后台学习更新" :
+            type == "chat" && raw.at("event").value("lessonId", "").empty() ? "AI 导师" :
+            type == "plan_course" ? "课程规划" : type == "prepare_next" ? "AI 备课" :
+            type.rfind("schedule_", 0) == 0 ? "学习安排" : type == "profile_refresh" ? "学习画像" : "AI 课堂"},
+            {"purpose", task.at("purpose")}, {"status", task.at("status")}, {"updatedAt", task.value("updatedAt", "")}, {"createdAt", task.value("createdAt", "")},
+            {"activity", task.value("activity", Json::object())}, {"target", task.value("target", Json::object())},
+            {"calls", 0}, {"legacyCalls", task.value("calls", 0)}, {"model", task.value("model", "")}};
+        bool tracked = false;
+        for (const auto& request : view["tasks"]) if (request.value("id", "") == id) {
+            tracked = true; row["calls"] = request.value("calls", 0); row["legacyCalls"] = request.value("legacyCalls", 0); row["model"] = request.value("model", row.value("model", ""));
+            row["requestStatus"] = request.value("status", "");
+            if (task["status"] == "running" && (request["status"] == "requesting" || request["status"] == "receiving")) row["status"] = request["status"];
+            break;
+        }
+        row["tracked"] = tracked;
+        if (task.value("failure", Json()).is_object()) row["failure"] = task.at("failure");
+        if (task.value("paused", false) && (row["status"] == "pending" || row["status"] == "running" || row["status"] == "requesting" || row["status"] == "receiving")) row["status"] = "paused";
+        rows.push_back(std::move(row));
+    }
+    for (auto request : view["tasks"]) {
+        if (!request.value("taskId", "").empty()) continue;
+        request.erase("scopeId"); request["tracked"] = true; rows.push_back(std::move(request));
+    }
+    view["tasks"] = std::move(rows); return view;
+}
+
+void agentResumeGlobalTasks(Database& db, const AgentAccess& access) {
+    for (const auto& id : ids(db)) {
+        const auto row = db.getClassroomActivity(id); if (!row) continue;
+        const auto task = parsed(row->payload);
+        if (task.value("scopeId", "") == access.scopeId && task.value("status", "") == "paused" && task.value("pauseReason", "") == "global")
+            agentControl(db, access, {{"command", "resume"}, {"taskId", id}});
+    }
+}
 Json agentControl(Database& db, const AgentAccess& access, const Json& body) {
     const auto command = body.value("command", "");
     if (command == "undo") return agentUndoChange(db, access, body);
@@ -443,6 +496,9 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
         try {
             task = taskFor(db, access, taskId);
             if (task["status"] != "running") return;
+            if (AIActivity::paused()) {
+                ownedUpdate(db, task, [](Json& current) { current["status"] = "paused"; current["pauseReason"] = "global"; }); return;
+            }
             if (db.learningRevision() != task.value("learningVersion", 0)) {
                 ownedUpdate(db, task, [](Json& current) {
                     current["status"] = "superseded";
@@ -477,6 +533,13 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
                 "本轮先判断学生输入是否构成作答：调用 evaluate_answer 评价本次真实输入，或调用 classify_input 明确这是纯追问。interactionId 必须逐字使用 currentInputs 中的 interactionId（学生记录 ID），不能使用 sectionId、questionId 或 requestId。先只提交本次输入的评价或分类行动，state 使用 continue；此步完成后读取工具结果，再在下一轮流式讲解。不要把纯追问记成作答，不强制评分。", ""});
             for (const auto& message : task["messages"])
                 options.messages.push_back({message.at("role"), message.at("content"), ""});
+            options.activity.taskId = taskId;
+            options.activity.scopeId = access.scopeId;
+            options.activity.purpose = resolvingInput ? "判断本次回答或追问" : taskPurpose(task.at("event").value("type", ""));
+            options.activity.source = task.at("event").value("type", "") == "startup" || task.at("event").value("type", "") == "learning_updated" ? "后台学习更新" : "AI 教学主控";
+            options.activity.courseId = task.at("event").value("courseId", "");
+            options.activity.lessonId = task.at("event").value("lessonId", "");
+            options.activity.legacyCalls = task.value("calls", 0);
             const int requestRevision = task["learningVersion"];
             options.cancelled = [this, &db, &access, &taskId, requestRevision] {
                 if (stopped_ || db.learningRevision() != requestRevision) return true;
@@ -652,6 +715,15 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
         } catch (const std::exception& error) {
             task = taskFor(db, access, taskId);
             if (task.value("status", "") != "running" || stopped_) return;
+            if (AIActivity::stopping()) {
+                ownedUpdate(db, task, [](Json& current) { current["status"] = "paused"; current["pauseReason"] = "shutdown"; }); return;
+            }
+            if (const auto* provider = dynamic_cast<const AIClientError*>(&error); provider && provider->errorType == "paused") {
+                ownedUpdate(db, task, [](Json& current) {
+                    current["status"] = "paused"; current["pauseReason"] = "global";
+                    recordEvent(current, {{"type", "paused"}, {"message", "全软件 AI 已暂停，输入与有效结果已保存。"}});
+                }); return;
+            }
             if (db.learningRevision() != task.value("learningVersion", 0)) {
                 ownedUpdate(db, task, [](Json& current) {
                     current["status"] = "superseded";
@@ -722,6 +794,13 @@ void LearningAgent::run() {
     }
     while (!stopped_) {
         try {
+            if (AIActivity::paused()) { std::this_thread::sleep_for(std::chrono::milliseconds(100)); continue; }
+            for (const auto& id : ids(db)) {
+                const auto row = db.getClassroomActivity(id); if (!row) continue;
+                const auto task = parsed(row->payload);
+                if (task.value("status", "") == "paused" && task.value("pauseReason", "") == "global")
+                    agentControl(db, accessFor(task), {{"command", "resume"}, {"taskId", id}});
+            }
             const auto scopes = parsed(db.profileMeta("agent-scopes"), Json::array());
             for (const auto& key : scopes) {
                 const auto scope = parsed(db.profileMeta(key.get<std::string>()));

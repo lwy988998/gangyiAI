@@ -109,6 +109,7 @@ std::optional<json> PhaseGenerator::generate(const std::string& goal, const std:
             u8"。仅调整讲解和练习难度，不得改变课程目标与已有阶段主线。";
         try {
             ChatOptions request = options(system, user, mode);
+    request.activity.source = "阶段规划"; request.activity.purpose = "生成本阶段的知识点与教学内容";
             request.searchQuery = goal;
             const AIResult response = client_.chat(request);
             json output = parseAIJson(response.content);

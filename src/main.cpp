@@ -343,6 +343,10 @@ int main() {
     } catch (...) {}
     db.open(config.database_path);
     db.migrate();
+    const auto activityPath = std::filesystem::u8path(config.database_path).parent_path() / "ai-activity.json";
+    const bool activityExists = std::filesystem::exists(activityPath);
+    gangyi::AIActivity::configure(activityPath.u8string());
+    if (!activityExists && gangyi::agentView(db, localAgentAccess(db)).value("paused", false)) gangyi::AIActivity::setPaused(true);
     gangyi::LearningAgent learningAgent(config.database_path);
     gangyi::registerAgentPreferenceTools(learningAgent);
     gangyi::registerAgentLessonTools(learningAgent);
@@ -1059,6 +1063,33 @@ int main() {
         return response;
     });
 
+    CROW_ROUTE(app, "/api/ai-activity")([databasePath = config.database_path] {
+        try {
+            gangyi::Database connection; connection.open(databasePath);
+            crow::response response(gangyi::agentActivityView(connection, localAgentAccess(connection)).dump());
+            response.set_header("Content-Type", "application/json; charset=utf-8");
+            response.set_header("Cache-Control", "no-store"); return response;
+        } catch (const std::exception& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/ai-activity/control").methods(crow::HTTPMethod::POST)([databasePath = config.database_path](const crow::request& req) {
+        try {
+            const auto body = nlohmann::json::parse(req.body); const auto command = body.value("command", "");
+            if (command != "pause" && command != "resume") throw std::invalid_argument("全软件 AI 控制指令无效");
+            if (command == "pause") gangyi::AIActivity::setPaused(true);
+            gangyi::Database connection; connection.open(databasePath); const auto access = localAgentAccess(connection);
+            if (command == "resume") {
+                gangyi::agentResumeGlobalTasks(connection, access);
+                // 兼容升级前用户暂停的当前任务；历史已结束任务不重新发起。
+                const auto current = gangyi::agentView(connection, access);
+                if (current.contains("id") && (current.value("scopePaused", false) || current.value("status", "") == "paused") &&
+                    (current.value("status", "") == "paused" || current.value("status", "") == "pending" || current.value("status", "") == "running"))
+                    gangyi::agentControl(connection, access, {{"command", "resume"}, {"taskId", current.at("id")}});
+                gangyi::AIActivity::setPaused(false);
+            }
+            crow::response response(gangyi::agentActivityView(connection, access).dump());
+            response.set_header("Content-Type", "application/json; charset=utf-8"); return response;
+        } catch (const std::exception& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
     CROW_ROUTE(app, "/api/learning-agent/events").methods(crow::HTTPMethod::POST)([databasePath = config.database_path](const crow::request& req) {
         try {
             gangyi::Database connection; connection.open(databasePath);
@@ -1407,6 +1438,7 @@ int main() {
                     return crow::response(403, nlohmann::json{{"ok", false}}.dump());
                 }
                 std::thread([&app] {
+                    gangyi::AIActivity::shutdown();
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     app.stop();
                 }).detach();
@@ -1421,6 +1453,7 @@ int main() {
     // 画像由同一真实 AI 主控按学习事件更新，不再启动独立评分线程。
     std::cout << "gangyiAI " << gangyi::kVersion << " listening on " << config.host << ':' << config.port << '\n';
     app.bindaddr(config.host).port(config.port).multithreaded().run();
+    gangyi::AIActivity::shutdown();
     learningAgent.stop();
     { std::lock_guard<std::mutex> guard(socketMapMutex); for (const auto& [connection, state] : socketMap) state->cancelled = true; }
     while (socketWorkerCount > 0) std::this_thread::sleep_for(std::chrono::milliseconds(100));

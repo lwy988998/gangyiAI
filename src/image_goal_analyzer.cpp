@@ -62,6 +62,7 @@ ImageGoalAnalysis ImageGoalAnalyzer::analyze(const std::string& prompt, const st
     const std::string imageDataUrl = "data:" + mimeType + ";base64," +
         crow::utility::base64encode(reinterpret_cast<const unsigned char*>(imageBytes.data()), imageBytes.size());
     ChatOptions options;
+    options.activity.source = "目标图片"; options.activity.purpose = "识别图片内容并提取学习目标";
     options.model = visionModel();
     options.temperature = 0.2;
     options.maxTokens = 1600;

@@ -43,7 +43,7 @@
       for (const event of task.events || []) receive(event);
       handlers.onState?.(task);
       flushExposure().catch(() => { /* 下一次学生提交前再次保存已展示序号。 */ });
-      if (!['pending', 'running'].includes(task.status)) { stopped = true; clearTimeout(timer); socket?.close(); }
+      if (!['pending', 'running'].includes(task.status) && !(task.status === 'paused' && task.pauseReason === 'global')) { stopped = true; clearTimeout(timer); socket?.close(); }
     };
     async function poll() {
       if (stopped) return;

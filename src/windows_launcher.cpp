@@ -1245,6 +1245,9 @@ void testConnectionFromControls() {
 
             gangyi::AIClient client(std::move(config));
             gangyi::ChatOptions options;
+            options.activity.source = "AI 设置";
+            options.activity.purpose = "测试 API 地址、密钥和模型是否可用";
+            options.cancelled = [] { return g.shuttingDown.load(); };
             options.messages = {{"user", "Reply with OK."}};
             options.temperature = 0;
             options.maxTokens = 16;
@@ -1607,6 +1610,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     const std::wstring exe = executablePath();
     g.installDir = std::filesystem::path(exe).parent_path().wstring();
     g.dataDir = (std::filesystem::path(localAppDataPath()) / L"GangyiAI").wstring();
+    gangyi::AIActivity::configure(toUtf8((std::filesystem::path(g.dataDir) / L"data" / L"ai-activity.json").wstring()));
     g.background = arguments.find(L"--background") != std::wstring::npos;
     g.settings = g.smokeMode ? Settings{} : loadSettings();
     std::wstring key = g.smokeMode ? std::wstring{} : readApiKey();

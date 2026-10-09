@@ -54,6 +54,13 @@ async function main(){
     assert.equal(f.result.timers,1,'活动订阅的故障仍安排恢复轮询');
     f.close();
   }
-  console.log('订阅取消时序：迟到状态、文字、错误、曝光和连接事件均被隔离。');
+  {
+    const f=fixture();f.resolve({ok:true,json:async()=>({status:'paused',pauseReason:'global',events:[]})});
+    await drain();const socket=f.result.sockets[0];assert.ok(socket,'全软件暂停保留恢复订阅');
+    socket.listeners.message({data:JSON.stringify({type:'state',task:{status:'running',events:[]}})});
+    socket.listeners.message({data:JSON.stringify({seq:1,type:'delta',field:'message',text:'恢复后的有效反馈'})});
+    await drain();assert.equal(f.result.states,2,'恢复后仍接收任务状态');assert.equal(f.result.events,1,'恢复后仍接收教学回复');f.close();
+  }
+  console.log('订阅取消及全局恢复时序：迟到事件被隔离，暂停后仍能恢复接收教学回复。');
 }
 main().catch(error=>{console.error(error);process.exitCode=1});

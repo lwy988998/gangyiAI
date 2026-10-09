@@ -82,7 +82,72 @@ AIClientError errorFor(CURLcode code, long status, const std::string& message) {
     return AIClientError("provider_rejected", message, static_cast<int>(status));
 }
 
-AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeoutMs) {
+// 以短间隔驱动传输，暂停在连接、等待首字和接收期间均能生效。
+CURLcode perform(CURL* curl, const std::function<bool()>& cancelled) {
+    CURLM* multi = curl_multi_init();
+    if (!multi) return CURLE_FAILED_INIT;
+    if (curl_multi_add_handle(multi, curl) != CURLM_OK) { curl_multi_cleanup(multi); return CURLE_FAILED_INIT; }
+    int running = 0; CURLcode result = CURLE_OK;
+    try {
+        do {
+            if (cancelled && cancelled()) { result = CURLE_ABORTED_BY_CALLBACK; break; }
+            if (curl_multi_perform(multi, &running) != CURLM_OK) { result = CURLE_RECV_ERROR; break; }
+            if (running) curl_multi_poll(multi, nullptr, 0, 100, nullptr);
+        } while (running);
+        if (result == CURLE_OK) {
+            int remaining = 0;
+            while (const auto* message = curl_multi_info_read(multi, &remaining))
+                if (message->msg == CURLMSG_DONE) result = message->data.result;
+        }
+    } catch (...) { curl_multi_remove_handle(multi, curl); curl_multi_cleanup(multi); throw; }
+    curl_multi_remove_handle(multi, curl); curl_multi_cleanup(multi); return result;
+}
+
+template<class Call>
+AIResult monitoredCall(const ChatOptions& options, const std::string& model, Call call) {
+    const auto id = AIActivity::begin(options.activity, options.model.empty() ? model : options.model);
+    const auto wasCancelled = [&] { return AIActivity::stopping() || (options.cancelled && options.cancelled()); };
+    try {
+        for (;;) {
+            while (AIActivity::paused()) {
+                AIActivity::update(id, "paused");
+                if (wasCancelled()) throw AIClientError("cancelled", "AI 请求已停止");
+                if (!options.activity.taskId.empty()) throw AIClientError("paused", "全软件 AI 已暂停");
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+            if (wasCancelled()) throw AIClientError("cancelled", "AI 请求已停止");
+            const auto epoch = AIActivity::pauseEpoch();
+            ChatOptions tracked = options;
+            tracked.cancelled = [&] { return wasCancelled() || AIActivity::paused() || AIActivity::pauseEpoch() != epoch; };
+            try {
+                auto result = call(tracked, id);
+                if (tracked.cancelled()) throw AIClientError("cancelled", "AI 请求已停止");
+                AIActivity::update(id, "completed", result.model); return result;
+            } catch (const AIClientError&) {
+                if (!wasCancelled() && (AIActivity::paused() || AIActivity::pauseEpoch() != epoch)) {
+                    AIActivity::update(id, "paused");
+                    if (!options.activity.taskId.empty()) throw AIClientError("paused", "全软件 AI 已暂停");
+                    // 独立调用只在内存保留输入，恢复后重新请求未完成部分。
+                    continue;
+                }
+                throw;
+            }
+        }
+    } catch (const AIClientError& error) {
+        AIActivity::update(id, error.errorType == "paused" ? "paused" : error.errorType == "cancelled" ? "cancelled" : "failed"); throw;
+    } catch (...) { AIActivity::update(id, "failed"); throw; }
+}
+
+struct BodyState { std::string content, activityId; bool received = false; std::exception_ptr error; };
+size_t writeResponse(char* data, size_t size, size_t count, void* user) {
+    auto& state = *static_cast<BodyState*>(user);
+    try {
+        if (!state.received) { AIActivity::update(state.activityId, "receiving"); state.received = true; }
+        state.content.append(data, size * count); return size * count;
+    } catch (...) { state.error = std::current_exception(); return 0; }
+}
+
+AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeoutMs, const std::string& activityId) {
     if (endpoint.key.empty()) throw AIClientError("missing_config", "AI_API_KEY is not configured");
     CURL* curl = curl_easy_init();
     if (!curl) throw AIClientError("network_error", "unable to initialize curl");
@@ -108,7 +173,7 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
                   << "[ai-debug] request body omitted" << std::endl;
     }
 
-    std::string responseBody;
+    BodyState response{{}, activityId, false, nullptr};
     struct curl_slist* headers = nullptr;
     headers = curl_slist_append(headers, "Content-Type: application/json");
     const std::string authorization = "Authorization: Bearer " + endpoint.key;
@@ -120,15 +185,22 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postBody.c_str());
     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(postBody.size()));
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeBody);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseBody);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeResponse);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeoutMs));
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-    CURLcode code = curl_easy_perform(curl);
+    CURLcode code = CURLE_ABORTED_BY_CALLBACK;
+    std::exception_ptr transferError;
+    try {
+        if (!(options.cancelled && options.cancelled()) && AIActivity::requestStarted(activityId)) code = perform(curl, options.cancelled);
+    } catch (...) { transferError = std::current_exception(); }
     long status = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
     curl_easy_cleanup(curl);
     curl_slist_free_all(headers);
+    if (transferError) std::rethrow_exception(transferError);
+    if (response.error) std::rethrow_exception(response.error);
+    if (code == CURLE_ABORTED_BY_CALLBACK) throw AIClientError("cancelled", "AI 请求已停止");
     if (code != CURLE_OK || status < 200 || status >= 300) {
         if (std::getenv("AI_DEBUG")) {
             std::cerr << "[ai-debug] response status=" << status
@@ -137,7 +209,7 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
         throw errorFor(code, status, code == CURLE_OK ? "AI provider returned HTTP " + std::to_string(status) : curl_easy_strerror(code));
     }
     try {
-        const json parsed = json::parse(responseBody);
+        const json parsed = json::parse(response.content);
         const auto& choice = parsed.at("choices").at(0);
         const auto& message = choice.at("message");
         std::string responseModel = parsed.value("model", selectedModel);
@@ -210,7 +282,7 @@ size_t writeStream(char* data, size_t size, size_t count, void* user) {
 }
 
 AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int timeoutMs,
-                       const std::function<bool(const std::string&)>& onChunk) {
+                       const std::function<bool(const std::string&)>& onChunk, const std::string& activityId) {
     if (endpoint.key.empty()) throw AIClientError("missing_config", "AI_API_KEY is not configured");
     CURL* curl = curl_easy_init();
     if (!curl) throw AIClientError("network_error", "unable to initialize curl");
@@ -226,7 +298,12 @@ AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int
     curl_slist* headers = nullptr;
     headers = curl_slist_append(headers, "Content-Type: application/json");
     headers = curl_slist_append(headers, authorization.c_str());
-    StreamState state{{}, {}, model, {}, onChunk, false, options.cancelled};
+    bool receiving = false;
+    const auto receiver = [&](const std::string& chunk) {
+        if (!receiving) { AIActivity::update(activityId, "receiving"); receiving = true; }
+        return onChunk(chunk);
+    };
+    StreamState state{{}, {}, model, {}, receiver, false, options.cancelled};
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postBody.c_str());
@@ -239,13 +316,18 @@ AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, streamProgress);
     curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &state);
-    const CURLcode code = curl_easy_perform(curl);
+    CURLcode code = CURLE_ABORTED_BY_CALLBACK;
+    std::exception_ptr transferError;
+    try {
+        if (!(options.cancelled && options.cancelled()) && AIActivity::requestStarted(activityId)) code = perform(curl, options.cancelled);
+    } catch (...) { transferError = std::current_exception(); }
     long status = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
     curl_easy_cleanup(curl);
     curl_slist_free_all(headers);
+    if (transferError) std::rethrow_exception(transferError);
     if (state.callbackError) std::rethrow_exception(state.callbackError);
-    if (state.cancelled) throw AIClientError("cancelled", "stream cancelled");
+    if (state.cancelled || code == CURLE_ABORTED_BY_CALLBACK) throw AIClientError("cancelled", "stream cancelled");
     if (code != CURLE_OK || status < 200 || status >= 300)
         throw errorFor(code, status, code == CURLE_OK ? "AI provider returned HTTP " + std::to_string(status) : curl_easy_strerror(code));
     if (state.content.empty() || !state.completed || state.finishReason == "length") throw AIClientError("invalid_response", "AI stream is incomplete");
@@ -275,17 +357,20 @@ ChatOptions prepareSearch(const ChatOptions& options, std::string& searchStatus,
     return prepared;
 }
 
-AIResult attempt(const Endpoint& endpoint, const ChatOptions& options, int timeoutMs, int attempts) {
+AIResult attempt(const Endpoint& endpoint, const ChatOptions& options, int timeoutMs, int attempts, const std::string& activityId) {
     AIClientError last("unknown", "AI request failed");
     for (int i = 0; i < attempts; ++i) {
-        try { return request(endpoint, options, timeoutMs); }
+        try { return request(endpoint, options, timeoutMs, activityId); }
         catch (const AIClientError& error) {
             last = error;
             const bool retryable = error.errorType == "timeout" || error.errorType == "network_error" ||
                 error.errorType == "rate_limited" || error.errorType == "provider_5xx" ||
                 error.errorType == "invalid_response";
             if (!retryable || i + 1 == attempts) throw;
-            std::this_thread::sleep_for(std::chrono::milliseconds(800 * (1 << i)));
+            for (int tick = 0; tick < 8 * (1 << std::min(i, 5)); ++tick) {
+                if (options.cancelled && options.cancelled()) throw AIClientError("cancelled", "AI 请求已停止");
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
         }
     }
     throw last;
@@ -355,9 +440,10 @@ AIClient::~AIClient() {
 }
 
 AIResult AIClient::chat(const ChatOptions& options) const {
+    return monitoredCall(options, model_, [&](const ChatOptions& tracked, const std::string& activityId) {
     std::string searchStatus = "not_requested";
     std::vector<std::string> sources;
-    const auto prepared = prepareSearch(options, searchStatus, sources);
+    const auto prepared = prepareSearch(tracked, searchStatus, sources);
     const int timeout = options.timeoutMs > 0 ? options.timeoutMs : timeoutMs_;
     const int attempts = options.maxAttempts > 0 ? options.maxAttempts : retryAttempts_;
     if (attempts < 1) throw AIClientError("unknown", "maxAttempts must be positive");
@@ -367,27 +453,30 @@ AIResult AIClient::chat(const ChatOptions& options) const {
 
     const Endpoint primary{baseUrl_, apiKey_, model_};
     try {
-        AIResult result = attempt(primary, prepared, timeout, attempts);
+        AIResult result = attempt(primary, prepared, timeout, attempts, activityId);
         result.searchStatus = searchStatus;
         result.sources = std::move(sources);
         consecutiveFailures_ = 0;
         return result;
     } catch (const AIClientError& primaryError) {
-        if (++consecutiveFailures_ >= 3) circuitOpenedAtMs_ = nowMs();
+        if (primaryError.errorType != "cancelled" && ++consecutiveFailures_ >= 3) circuitOpenedAtMs_ = nowMs();
         throw primaryError;
     }
+    });
 }
 
 AIResult AIClient::chatStream(const ChatOptions& options,
                               const std::function<bool(const std::string&)>& onChunk) const {
+    return monitoredCall(options, model_, [&](const ChatOptions& tracked, const std::string& activityId) {
     std::string searchStatus = "not_requested";
     std::vector<std::string> sources;
-    const auto prepared = prepareSearch(options, searchStatus, sources);
+    const auto prepared = prepareSearch(tracked, searchStatus, sources);
     auto result = streamRequest({baseUrl_, apiKey_, model_}, prepared,
-        options.timeoutMs > 0 ? options.timeoutMs : timeoutMs_, onChunk);
+        options.timeoutMs > 0 ? options.timeoutMs : timeoutMs_, onChunk, activityId);
     result.searchStatus = searchStatus;
     result.sources = std::move(sources);
     return result;
+    });
 }
 
 std::vector<std::string> AIClient::listModels(int timeoutMs) const {
