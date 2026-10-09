@@ -39,6 +39,18 @@ Json lessonFor(Database& db, const AgentAccess& access, const std::string& id) {
     if (value.at("scopeId") != access.scopeId) throw std::invalid_argument("无权读取该课时");
     requireCourse(db, access, row->courseId); return value;
 }
+// 课堂交流绑定学生实际所在课时；备课仍可创建或补充另一课时。
+void requireTeachingTarget(const Json& task, const Json& lesson) {
+    const auto& event = task.at("event");
+    const auto type = event.value("type", "");
+    if (type != "question_answer" && type != "chat" && type != "lesson_start") return;
+    const auto current = event.value("lessonId", "");
+    if (current.empty()) return;
+    if (lesson.at("id") != current)
+        throw std::invalid_argument("args.lessonId 必须使用 event.lessonId 中的当前课堂标识；不可把本次讲解或题目保存到另一课时");
+    if (!lesson.value("teachingTaskId", "").empty() && lesson.at("teachingTaskId") != task.at("id"))
+        throw std::invalid_argument("本课已有更新的教学任务，旧输出不应用");
+}
 // AI 选择或追加的当轮问题，应在学生正在使用的页面承接；题目身份与用途仍保留。
 std::string responseView(const Json& lesson, const Json& task) {
     const auto& event = task.at("event");
@@ -171,6 +183,7 @@ void registerAgentLessonTools(LearningAgent& agent) {
     agent.registerTool("select_teaching_focus", {"选择本课当前教学焦点。参数 lessonId，以及可选 sectionId（讲解段）、interactionSectionId（questionKind=interaction 的讲解互动题）、practiceSectionId（集中练习题）。省略保留当前值，空字符串清除相应焦点。先 read_lesson；只能选择已经保存的同一课时板块。依据学生真实反馈决定继续、补讲或再问，不能把切换页面当成掌握。", false,
         [](Database& db, const Json& args, const Json& task, const AIResult&) {
             const auto id = text(args, "lessonId"); auto lesson = lessonFor(db, accessFor(task), id);
+            requireTeachingTarget(task, lesson);
             if (lesson.at("status") != "ready" && lesson.at("status") != "draft") throw std::invalid_argument("课时状态不允许选择教学焦点");
             if (!lesson.value("teachingTaskId", "").empty() && lesson.at("teachingTaskId") != task.at("id"))
                 throw std::invalid_argument("本课已有更新的教学任务，旧输出不应用");
@@ -208,6 +221,7 @@ void registerAgentLessonTools(LearningAgent& agent) {
     agent.registerTool("append_section", {"追加教学板块，不改已展示内容。参数 lessonId、section:{kind:explanation|question|summary,title,body 或 question:{question,options 可选,type,expectedAnswer,rubric},questionKind:interaction|practice}，activate 可选。课堂互动追加的问题默认立即在学生当前页面显示；仅备好未来题目时用 activate=false。选择题必须有至少两个非空 options，不可只在 message 里承诺出题。题目标准只放 expectedAnswer/rubric，示范放 explanation，不评分。返回稳定板块与题目标识。", false,
         [](Database& db, const Json& args, const Json& task, const AIResult& source) {
             const auto id = text(args, "lessonId"); auto lesson = lessonFor(db, accessFor(task), id);
+            requireTeachingTarget(task, lesson);
             if (lesson.at("status") != "draft" && lesson.at("status") != "ready") throw std::invalid_argument("课时状态不允许补充");
             const auto input = args.at("section"); const auto kind = text(input, "kind");
             if (kind != "explanation" && kind != "question" && kind != "summary") throw std::invalid_argument("教学板块类型无效");

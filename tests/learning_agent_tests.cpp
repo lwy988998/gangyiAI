@@ -520,6 +520,57 @@ int main() {
         assert(recoveredLesson["teachingFocus"]["responseSectionId"] == followupLesson["sections"].back()["id"]);
         assert(recoveredLesson["teachingFocus"]["responseView"] == "practice");
         assert(db.getClassroomActivity(preparedLessonId)->payload == legacyRow.payload);
+
+        // 重现真实失败：同课程还有另一课时，模型误用它的 ID 时不能静默保存新题。
+        auto otherRow = *db.getClassroomActivity(preparedLessonId);
+        auto otherLesson = Json::parse(otherRow.payload);
+        otherRow.id = "another-saved-lesson"; otherLesson["id"] = otherRow.id;
+        otherLesson.erase("teachingTaskId"); otherLesson.erase("initialTeachingTaskId");
+        otherRow.payload = otherLesson.dump(); assert(db.upsert(otherRow));
+        for (const std::string tool : {"append_section", "select_teaching_focus"}) {
+            bool corrected = false; int targetCalls = 0;
+            gangyi::LearningAgent targetGuard(path, [&](const auto&, const auto& sink) {
+                ++targetCalls;
+                Json args = {{"lessonId", corrected ? preparedLessonId : otherRow.id}};
+                if (tool == "append_section") args["section"] = {{"kind", "question"}, {"title", "当前课的补充题"},
+                    {"question", {{"question", "电子转移与化合价怎样对应？"}, {"type", "choice"},
+                        {"options", {"失电子时升高", "失电子时降低"}}, {"expectedAnswer", "失电子时升高"}}}};
+                else args["sectionId"] = shown["sections"][0]["id"];
+                return output({{"message", "请继续当前课"}, {"actions", {{{"id", "targeted-action"}, {"tool", tool}, {"args", args}}}},
+                    {"state", "waiting_student"}}, sink);
+            });
+            gangyi::registerAgentLessonTools(targetGuard);
+            const auto guarded = gangyi::agentSubmit(db, access, {{"type", "chat"}, {"lessonId", preparedLessonId},
+                {"courseId", "chem"}, {"view", "practice"}, {"text", "请在本课继续"}, {"requestId", "wrong-target-" + tool}});
+            const auto beforeTarget = db.getClassroomActivity(preparedLessonId)->payload;
+            targetGuard.process(db, guarded["id"]);
+            const auto rejected = gangyi::agentView(db, access, guarded["id"]);
+            assert(rejected["status"] == "failed" && targetCalls == 3);
+            assert(rejected["failure"]["field"] == "args.lessonId" && rejected["failure"]["tool"] == tool);
+            assert(db.getClassroomActivity(otherRow.id)->payload == otherRow.payload);
+            assert(db.getClassroomActivity(preparedLessonId)->payload == beforeTarget);
+            corrected = true;
+            gangyi::agentControl(db, access, {{"command", "retry"}, {"taskId", guarded["id"]}});
+            targetGuard.process(db, guarded["id"]);
+            assert(gangyi::agentView(db, access, guarded["id"])["status"] == "waiting_student" && targetCalls == 4);
+            const auto correctedLesson = gangyi::agentLessonView(db, access, preparedLessonId);
+            if (tool == "append_section") {
+                assert(correctedLesson["teachingFocus"]["responseSectionId"] == correctedLesson["sections"].back()["id"]);
+                assert(correctedLesson["sections"].back()["question"]["options"].size() == 2);
+                assert(correctedLesson.dump().find("expectedAnswer") == std::string::npos);
+            }
+            assert(db.getClassroomActivity(otherRow.id)->payload == otherRow.payload);
+        }
+
+        // 旧任务仍可读历史，但不能在已被新任务接手的课时追加或激活新题。
+        const auto staleAppend = gangyi::agentSubmit(db, access, {{"type", "chat"}, {"lessonId", preparedLessonId},
+            {"courseId", "chem"}, {"text", "旧交流"}, {"requestId", "stale-append"}});
+        auto claimedRow = *db.getClassroomActivity(preparedLessonId);
+        auto claimed = Json::parse(claimedRow.payload); claimed["teachingTaskId"] = "newer-teaching-task";
+        claimedRow.payload = claimed.dump(); assert(db.upsert(claimedRow));
+        followup.process(db, staleAppend["id"]);
+        assert(gangyi::agentView(db, access, staleAppend["id"])["status"] == "failed");
+        assert(db.getClassroomActivity(preparedLessonId)->payload == claimedRow.payload);
         gangyi::LearningAgent shutdown(path, [&](const auto&, const auto&) -> gangyi::AIResult {
             gangyi::AIActivity::shutdown(); throw gangyi::AIClientError("cancelled", "软件正常退出");
         });

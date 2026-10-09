@@ -525,7 +525,7 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
             if (!task.at("event").value("lessonId", "").empty()) options.messages.push_back({"system",
                 "本课界面分为讲解、练习、小结，三页共享同一课时。先 read_lesson 读取保存的板块、teachingFocus 和真实记录。讲解一次聚焦一个知识段，用 select_teaching_focus 保存当前位置；讲解提问使用 questionKind=interaction，集中练习使用 practice。根据本次实际反馈自主决定继续、补讲、举例或再问，等待学生时停止。示范放 explanation，不给示范新评分。小结只引用已有证据；请求完成时仍由你结合真实记录判断。页面切换、回看和刷新不表示掌握或完成，也无需重新备课。", ""});
             if (!task.at("event").value("lessonId", "").empty()) options.messages.push_back({"system",
-                "event.view 表示学生当前页面。需要新题时必须先 append_section 保存完整 question、实际 options 和私有评分标准，不能只在 message 中说下面有题。课堂当轮的新题默认 activate=true，会在学生当前页面接续显示；预备未来题请显式 activate=false。选用旧题时调用 select_teaching_focus。学生要求选择题时按实际需求生成选择题，至少两个选项；不要把未保存的题目当成可作答的题。", ""});
+                "event.view 表示学生当前页面。课堂的 append_section 和 select_teaching_focus 必须逐字使用 event.lessonId，不能使用 reviews 中的另一课时，也不能把本次题目保存到新建课时。需要新题时必须先 append_section 保存完整 question、实际 options 和私有评分标准，不能只在 message 中说下面有题。课堂当轮的新题默认 activate=true，会在学生当前页面接续显示；预备未来题请显式 activate=false。选用旧题时调用 select_teaching_focus。学生要求选择题时按实际需求生成选择题，至少两个选项；不要把未保存的题目当成可作答的题。", ""});
             const bool resolvingInput = task.at("event").value("type", "") == "question_answer" &&
                 task.at("event").value("action", "answer") != "skip" && task.at("event").value("action", "answer") != "hint" &&
                 task.at("event").value("action", "answer") != "omitted" && !task.value("inputResolved", false);
@@ -754,6 +754,8 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
                 "“" + toolActivity(failureTool, Json::object(), false).at("title").get<std::string>() + "”未通过数据校验，已有有效步骤已保留。";
             if (detail == "本课已有更新的教学任务，旧输出不应用")
                 message = "本课已经由更新的教学任务接手，这次旧操作没有应用。";
+            if (detail.rfind("args.lessonId 必须使用 event.lessonId", 0) == 0)
+                message = "AI 选择了另一个课时，本轮内容未保存到那里；需要按当前课堂重新处理。";
             std::cerr << "[learning-agent] task=" << taskId << " stage=" << failureStage << " tool=" << failureTool
                 << " field=" << field << " kind=" << kind << " http=" << httpStatus << " attempt=" << errors << '\n';
             ownedUpdate(db, task, [&](Json& current) {
