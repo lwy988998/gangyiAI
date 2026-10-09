@@ -56,6 +56,8 @@ async function main() {
   assert.match(document.getElementById('ai-live-calls').textContent, /目标图片/);
   assert.match(document.getElementById('ai-live-calls').textContent, /实际请求 3 次/);
   assert.equal(byClass('ai-call-history').open, false, '调用历史默认折叠');
+  assert.match(byClass('ai-task-facts').textContent, /主控处理轮次2 次/);
+  assert.ok(!byClass('ai-task-facts').textContent.includes('AI 请求'), '主控轮次不能冒充实际请求次数');
   history.open = true; details.open = true;
   const historyNode = byClass('ai-step-list').firstChild, button = find(node => node.tagName === 'button' && node.textContent === '暂停全部 AI');
   intervals[0](); await drain();

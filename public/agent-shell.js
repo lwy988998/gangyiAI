@@ -206,7 +206,7 @@
   function renderFacts(task) {
     facts.replaceChildren();
     function fact(title, value) { if (value === undefined || value === null || value === '') return; facts.append(element('dt', title), element('dd', String(value))); }
-    fact('任务', task.purpose); fact('AI 请求', Number(task.calls || 0) + ' 次'); fact('使用模型', task.model);
+    fact('任务', task.purpose); fact('主控处理轮次', Number(task.calls || 0) + ' 次'); fact('使用模型', task.model);
     fact('最近记录', task.updatedAt ? new Date(task.updatedAt).toLocaleString('zh-CN') : '');
     if (task.failure) { fact('未完成操作', task.failure.operation || task.activity?.title); fact('连续失败', task.failure.attempt ? task.failure.attempt + ' 次' : ''); }
     taskDetails.hidden = !task.id; history.hidden = !task.id;
@@ -229,6 +229,7 @@
       const task = await api.request('/api/learning-agent' + (requested ? '?taskId=' + encodeURIComponent(requested) : ''));
       if (version !== stateVersion || requested !== (context.teachingTaskId || context.taskId || '')) return;
       current = task;
+      currentDetails.firstChild.textContent = requested ? '本页任务的执行详情' : '最近任务的执行详情';
       const active = ['pending', 'running'].includes(task.status), paused = task.paused || task.status === 'paused';
       renderOperation(task, paused); renderHistory(task); renderFacts(task);
       const nextActions = JSON.stringify([task.id, paused, task.status, task.lesson?.entered]);
