@@ -29,7 +29,7 @@ struct ChatOptions {
     int maxAttempts = 0;
     std::function<bool()> cancelled;
     std::string searchQuery;
-    AIActivityInfo activity;
+    AIActivityInfo activity{};
 };
 
 struct AIResult {
