@@ -716,6 +716,7 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
             task = taskFor(db, access, taskId);
             if (task.value("status", "") != "running" || stopped_) return;
             if (AIActivity::stopping()) {
+                // 正常退出的网络中断属于可恢复暂停，不记为模型请求失败。
                 ownedUpdate(db, task, [](Json& current) { current["status"] = "paused"; current["pauseReason"] = "shutdown"; }); return;
             }
             if (const auto* provider = dynamic_cast<const AIClientError*>(&error); provider && provider->errorType == "paused") {

@@ -520,6 +520,16 @@ int main() {
         assert(recoveredLesson["teachingFocus"]["responseSectionId"] == followupLesson["sections"].back()["id"]);
         assert(recoveredLesson["teachingFocus"]["responseView"] == "practice");
         assert(db.getClassroomActivity(preparedLessonId)->payload == legacyRow.payload);
+        gangyi::LearningAgent shutdown(path, [&](const auto&, const auto&) -> gangyi::AIResult {
+            gangyi::AIActivity::shutdown(); throw gangyi::AIClientError("cancelled", "软件正常退出");
+        });
+        const auto shutdownTask = gangyi::agentSubmit(db, access, {{"type", "inspect"}, {"requestId", "shutdown-recovery"}});
+        shutdown.process(db, shutdownTask["id"]);
+        const auto shutdownState = gangyi::agentView(db, access, shutdownTask["id"]);
+        assert(shutdownState["status"] == "paused" && shutdownState["pauseReason"] == "shutdown" && !shutdownState.contains("failure"));
+        gangyi::AIActivity::configure("");
+        gangyi::agentControl(db, access, {{"command", "resume"}, {"taskId", shutdownTask["id"]}});
+        assert(gangyi::agentView(db, access, shutdownTask["id"])["status"] == "pending");
     }
     std::filesystem::remove_all(root);
     std::cout << "多步 AI 主控、幂等、访问隔离、失败停止与事务回滚测试通过\n";
