@@ -44,6 +44,8 @@ jobs:
         shell: pwsh
         run: .\scripts\build_windows.ps1
       - name: 验证发布目录的导师和课堂闭环
+        env:
+          GANGYI_SERVICE_EXE: dist/windows/gangyiAI.exe
         shell: pwsh
         run: |
           python tests/learning_agent_api_smoke.py dist/windows/gangyiAI.exe
@@ -54,10 +56,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw '双模式六维雷达页面验收失败' }
           python tests/page_ready_browser_smoke.py dist/windows/gangyiAI.exe
           if ($LASTEXITCODE -ne 0) { throw '页面就绪判定回归失败' }
+          python tests/startup_browser_smoke.py
+          if ($LASTEXITCODE -ne 0) { throw '启动动画与首页过渡验收失败' }
       - name: 验收安装包和免安装版
         shell: pwsh
         run: .\scripts\test_windows_release.ps1
       - name: 保存 Windows 产物
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: gangyiAI-windows-${{ github.run_id }}

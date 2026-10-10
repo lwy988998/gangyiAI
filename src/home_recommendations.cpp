@@ -131,6 +131,7 @@ void HomeRecommendations::generate() {
         if (quizzes.size() > 8) quizzes.erase(quizzes.begin(), quizzes.end() - 8);
         context["recentQuizzes"] = quizzes;
         ChatOptions options;
+    options.activity.source = "首页推荐"; options.activity.purpose = "依据学习记录生成课程推荐";
         options.temperature = 0.5;
         // 推荐异步生成，为包含推理输出的模型保留足够额度。
         options.maxTokens = 8192;

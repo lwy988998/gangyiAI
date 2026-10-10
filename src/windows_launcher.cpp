@@ -799,6 +799,8 @@ void stopService() {
 
 bool startService(bool openWhenReady, bool resetRestart = true) {
     stopService();
+    // 恢复备份或重启可能复用同一端口，也需要重新读取页面与本机记录。
+    g.displayPort = 0;
     if (resetRestart) {
         g.restartPolicy.reset();
         KillTimer(g.window, kRestartTimer);
@@ -1243,6 +1245,9 @@ void testConnectionFromControls() {
 
             gangyi::AIClient client(std::move(config));
             gangyi::ChatOptions options;
+            options.activity.source = "AI 设置";
+            options.activity.purpose = "测试 API 地址、密钥和模型是否可用";
+            options.cancelled = [] { return g.shuttingDown.load(); };
             options.messages = {{"user", "Reply with OK."}};
             options.temperature = 0;
             options.maxTokens = 16;
@@ -1573,7 +1578,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
         CoUninitialize();
         return 1;
     }
-    const std::wstring arguments = commandLine ? commandLine : L"";
+    std::wstring arguments = commandLine ? commandLine : L"";
+    // Start-Process 可能在参数末尾保留空格，命令模式仍应准确识别。
+    const auto firstArgument = arguments.find_first_not_of(L" \t\r\n");
+    arguments = firstArgument == std::wstring::npos ? L"" :
+        arguments.substr(firstArgument, arguments.find_last_not_of(L" \t\r\n") - firstArgument + 1);
     if (arguments.find(L"--remove-credentials") != std::wstring::npos) {
         removeLocalSettings();
         WSACleanup();
@@ -1601,6 +1610,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     const std::wstring exe = executablePath();
     g.installDir = std::filesystem::path(exe).parent_path().wstring();
     g.dataDir = (std::filesystem::path(localAppDataPath()) / L"GangyiAI").wstring();
+    gangyi::AIActivity::configure(toUtf8((std::filesystem::path(g.dataDir) / L"data" / L"ai-activity.json").wstring()));
     g.background = arguments.find(L"--background") != std::wstring::npos;
     g.settings = g.smokeMode ? Settings{} : loadSettings();
     std::wstring key = g.smokeMode ? std::wstring{} : readApiKey();

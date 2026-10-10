@@ -57,14 +57,27 @@ class ProtocolAI(BaseHTTPRequestHandler):
                 actions = [dict(id='create', tool='create_lesson', args=dict(courseId=event['courseId'], title='自主课堂', purpose='对比概念'))]
                 state = 'continue'
             elif not any('sectionId' in item['result'] for item in results):
-                actions = [dict(id='question-' + kind, tool='append_section', args=dict(lessonId=lesson,
-                    section=dict(kind='question', questionKind=kind, title=kind + '题', question=dict(
+                actions = [dict(id='question-' + kind, tool='append_section', args=dict(lessonId=lesson, questionKind=kind,
+                    section=dict(kind='question', **({'questionKind':kind} if kind != 'interaction' else {}), title=kind + '题', question=dict(
                         question=kind + '：铁变为亚铁离子时化合价如何变化？', type='choice', options=['升高', '降低'],
                         expectedAnswer='PRIVATE-EXPECTED', rubric='PRIVATE-RUBRIC'))))
-                    for kind in ('diagnostic', 'interaction', 'example', 'practice', 'quiz', 'review')]
+                    for kind in ('diagnostic', 'interaction', 'practice', 'quiz', 'review')]
+                actions.append(dict(id='example', tool='append_section', args=dict(lessonId=lesson, section=dict(kind='explanation',presentation='example',title='示范讲解',body='先对比前后的化合价，再解释变化。'))))
                 state = 'continue'
             else:
                 actions = [dict(id='finish', tool='finish_lesson', args=dict(lessonId=lesson))]
+                state = 'waiting_student'
+        elif event['type'] == 'lesson_start':
+            saved = next((item['result'] for item in results if 'sections' in item['result']), None)
+            if saved is None:
+                actions = [dict(id='read-start', tool='read_lesson', args=dict(lessonId=event['lessonId']))]
+                state = 'continue'
+            else:
+                explanation = next(section for section in saved['sections'] if section['kind'] == 'explanation')
+                interaction = next(section for section in saved['sections'] if section.get('questionKind') == 'interaction')
+                practice = next(section for section in saved['sections'] if section.get('questionKind') == 'practice')
+                actions = [dict(id='start-focus', tool='select_teaching_focus', args=dict(lessonId=event['lessonId'],sectionId=explanation['id'],interactionSectionId=interaction['id'],practiceSectionId=practice['id']))]
+                message = '先比较当前段，再回答一个相关问题。'
                 state = 'waiting_student'
         elif event['type'] == 'course_preview':
             actions = [dict(id='preview', tool='update_course_preview', args=dict(courseId=event['courseId'],
@@ -167,6 +180,8 @@ def main(executable):
             outline = api('/api/courses/' + course)['snapshot']['payload']
             assert len(outline['courseStructure']) == 1 and len(outline['courseStructure'][0]['topics']) == 2
             assert outline['generation']['model'] == 'fixture-agent-http'
+            with urlopen(base + '/phase?courseId=' + course + '&phaseIndex=1') as response:
+                assert '快速规划' in response.read().decode('utf-8'), '目录入口应读取课程实际模式'
             calls = len(ProtocolAI.calls)
             preview_before = api('/api/courses/' + course + '/preview')
             assert preview_before['status'] in ('missing', 'waiting'), preview_before
@@ -181,7 +196,15 @@ def main(executable):
             same = api('/api/learning-agent/control', dict(command='enter_lesson', lessonId=lesson))
             assert same['id'] == lesson
             assert api('/api/learning-agent?taskId=' + prepared['id'])['lesson']['entered']
-            for section in shown['sections']:
+            question_count = sum(section['kind'] == 'question' for section in shown['sections'])
+            started = api('/api/learning-agent/control', dict(command='start_lesson', lessonId=lesson)); wait(started['id'], 'waiting_student')
+            calls_before_refresh = len(ProtocolAI.calls)
+            for _ in range(3):
+                assert api('/api/learning-agent/control', dict(command='start_lesson', lessonId=lesson))['id'] == started['id']
+                focus = api('/api/learning-agent/lesson?lessonId=' + lesson)['teachingFocus']
+                assert focus['interactionSectionId'] and focus['practiceSectionId']
+            assert len(ProtocolAI.calls) == calls_before_refresh, '刷新开课不能重复调用模型'
+            for section in (item for item in shown['sections'] if item['kind'] == 'question'):
                 answered = submit(dict(type='question_answer', courseId=course, lessonId=lesson, sectionId=section['id'],
                     sectionVersion=section['version'], text='化合价升高'), 'waiting_student')
                 assert answered['calls'] == 2, '全部题型必须先评价，再发起讲解请求'
@@ -194,11 +217,11 @@ def main(executable):
             api('/api/learn/exposure', dict(taskId=followup['id'], seq=followup['seq']))
             with closing(sqlite3.connect(database)) as db:
                 grades = [json.loads(row[0]) | {'id': row[1]} for row in db.execute("SELECT payload,id FROM LearningInteraction WHERE kind='practice'")]
-                assert len(grades) == 6, '追问不能新增一道已评分题'
+                assert len(grades) == question_count, '追问不能新增一道已评分题'
             interrupted = submit(dict(type='question_answer', courseId=course, lessonId=lesson, sectionId=first['id'],
                 sectionVersion=first['version'], text='化合价升高', requestId='interrupted-answer', failureAfterEvaluation=True), 'failed')
             with closing(sqlite3.connect(database)) as db:
-                assert db.execute("SELECT count(*) FROM LearningInteraction WHERE kind='practice'").fetchone()[0] == 6, '讲解中断不能提交暂存评价'
+                assert db.execute("SELECT count(*) FROM LearningInteraction WHERE kind='practice'").fetchone()[0] == question_count, '讲解中断不能提交暂存评价'
             api('/api/learn/exposure', dict(taskId=interrupted['id'], seq=interrupted['seq']))
             partial = api('/api/learning-agent/lesson?lessonId=' + lesson)
             assert any(item.get('partial') for item in partial['sections'][0]['dialog']), '实际看过的中断讲解应恢复'
@@ -207,7 +230,7 @@ def main(executable):
             wait(interrupted['id'], 'waiting_student')
             with closing(sqlite3.connect(database)) as db:
                 new_grades = [json.loads(row[0]) | {'id': row[1]} for row in db.execute("SELECT payload,id FROM LearningInteraction WHERE kind='practice'")]
-                assert len(new_grades) == 7 and any(item.get('assisted') for item in new_grades)
+                assert len(new_grades) == question_count + 1 and any(item.get('assisted') for item in new_grades)
             grade = grades[0]
             rating = dict(score=71, sufficient=True, evidenceIds=[grade['id']], rationale='引用一道适用的真实回答', recommendation='继续概念辨析', uncertainty='仅反映化合价本题')
             tool('update_profiles', dict(subjects=[dict(rating, subject='化学')], abilities=[dict(rating, id='understanding')]))
@@ -246,20 +269,23 @@ def main(executable):
             batch = dict(courseId=course, lessonId=lesson, kind='quiz', answers=[None], requestId='batch-omitted')
             omitted = api('/api/quiz-attempts', batch, 202); wait(omitted['id'], 'waiting_student')
             with closing(sqlite3.connect(database)) as db:
-                assert db.execute("SELECT count(*) FROM LearningInteraction WHERE kind='practice'").fetchone()[0] == 7
+                assert db.execute("SELECT count(*) FROM LearningInteraction WHERE kind='practice'").fetchone()[0] == question_count + 1
             batch.update(answers=['unknown'], requestId='batch-unknown')
             unknown = api('/api/quiz-attempts', batch, 202); wait(unknown['id'], 'waiting_student')
             calls = len(ProtocolAI.calls)
             assert api('/api/quiz-attempts', batch, 202)['id'] == unknown['id']
             time.sleep(.2); assert len(ProtocolAI.calls) == calls
             with closing(sqlite3.connect(database)) as db:
-                assert db.execute("SELECT count(*) FROM LearningInteraction WHERE kind='practice'").fetchone()[0] == 8
+                assert db.execute("SELECT count(*) FROM LearningInteraction WHERE kind='practice'").fetchone()[0] == question_count + 2
                 actions = [json.loads(row[0]).get('action') for row in db.execute("SELECT payload FROM LearningInteraction WHERE kind='chat-user'")]
                 assert 'omitted' in actions and 'unknown' in actions
             # v5.3/v5.4 的原课堂与连续对话保持身份，公开内容不泄露旧答案。
-            old_content = dict(blocks=dict(steps=dict(lessonSteps=[dict(title='原讲解', explanation='旧课件说明')]),
+            old_content = dict(blocks=dict(overview=dict(title='原概览',summary='已保存的概念概览',keyConcepts=['已保存的关键概念']),
+                examples=dict(examples=[dict(title='原示范',content='原示范题干',solution='原 AI 示范解法')]),
+                assessment=dict(checkpoint=['原检查点'],commonMistakes=['原错误提醒'],resourceSummary='原资料说明'),
+                steps=dict(lessonSteps=[dict(title='原讲解', explanation='旧课件说明')]),
                 practice=dict(practice=[dict(question='旧题：比较化合价', expectedAnswer='PRIVATE-OLD')]),
-                quiz=dict(quiz=[dict(question='旧测验', options=['甲', '乙'], answerIndex=0)])), contentVersion=3)
+                quiz=dict(quiz=[dict(question='旧测验', options=['甲', '乙'], answerIndex=0)])), references=[dict(title='原参考资料',url='https://example.com/learning')], contentVersion=3)
             old_dialog = dict(turns=[dict(user='我原来写过的回答', assistant='我实际看过的旧讲解', status='ready')])
             with closing(sqlite3.connect(database)) as db:
                 with db:
@@ -271,8 +297,23 @@ def main(executable):
                 with db:
                     db.execute('INSERT INTO ClassroomActivity(id,courseId,kind,payload,updatedAt,phaseIndex,topicIndex) VALUES(?,?,?,?,?,?,?)',
                         ('old-practice-evidence', course, 'practice', json.dumps(dict(status='answered', credible=True, questionSnapshot=dict(question='旧题：比较化合价'), answer='我原来写过的回答')), '2026-01-01', 1, 1))
+            with closing(sqlite3.connect(database)) as db:
+                with db:
+                    db.execute('INSERT INTO LearningInteraction(id,kind,payload,createdAt,courseId) VALUES(?,?,?,?,?)',
+                        ('old-quiz-evidence','quiz',json.dumps(dict(phaseIndex=1,topicIndex=1,score=1,total=2,answers=[0,'unknown'],results=[dict(answerIndex=0,expectedAnswer='PRIVATE-HISTORICAL')])),'2026-01-01',course))
             old = api('/api/learn?courseId=' + course + '&phaseIndex=1&topicIndex=1')
             assert old['id'] == 'legacy-old-session' and 'PRIVATE-' not in json.dumps(old)
+            with urlopen(base + '/learn?courseId=' + course + '&phaseIndex=1&topicIndex=1&review=2&reviewId=old-review') as response:
+                destination = response.geturl()
+                assert '/practice?' in destination and 'review=2' in destination and 'reviewId=old-review' in destination, '旧复习入口保留作用域并进入练习页'
+            sample = next(item for item in old['sections'] if item.get('legacyKind') == 'example')
+            assert sample['kind'] == 'explanation' and '原 AI 示范解法' in sample['body'], '原示范必须保留正文且不再作为新评分题'
+            assert any(item.get('legacyKind') == 'overview' and '已保存的关键概念' in item['body'] for item in old['sections'])
+            assert any(item.get('legacyKind') == 'checkpoint' and '原检查点' in item['body'] for item in old['sections'])
+            assert old['references'][0]['title'] == '原参考资料'
+            historical = next(item for item in old['historicalAssessments'] if item['id']=='old-quiz-evidence')
+            assert historical['score']==1 and historical['total']==2 and historical['answers']==[0,'unknown']
+            assert 'PRIVATE-HISTORICAL' not in json.dumps(old), '历史测验只返回原提交与保存分数，不暴露评分资料'
             old_question = next(item for item in old['sections'] if item.get('legacyKind') == 'practice')
             assert [item['text'] for item in old_question['dialog']] == ['我原来写过的回答', '我实际看过的旧讲解'], old_question['dialog']
             assert api('/api/learn?courseId=' + course + '&phaseIndex=1&topicIndex=1')['id'] == old['id']

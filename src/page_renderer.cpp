@@ -55,7 +55,7 @@ std::string document(const std::string& title, const std::string& body, const st
                      const std::string& headExtra = {}, const std::string& bodyClassExtra = {},
                      const std::string& bodyAttributes = {}) {
     return "<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><meta name=\"theme-color\" content=\"#06090d\"><title>" +
-        htmlEscape(title) + "</title><link rel=\"icon\" type=\"image/png\" href=\"/school-logo.png\"><link rel=\"stylesheet\" href=\"/styles.css\"><link rel=\"stylesheet\" href=\"/plan.css\"><link rel=\"stylesheet\" href=\"/dark.css\"><link rel=\"stylesheet\" href=\"/classroom.css\"><link rel=\"stylesheet\" href=\"/learning-flow.css\"><link rel=\"stylesheet\" href=\"/profile-radar.css\"><link rel=\"stylesheet\" href=\"/vendor/katex/katex.min.css\"><script defer src=\"/vendor/katex/katex.min.js\"></script><script defer src=\"/chat-render.js\"></script><script defer src=\"/profile-radar.js\"></script><script defer src=\"/dark.js\"></script><script defer src=\"/learning-agent.js\"></script><script defer src=\"/agent-shell.js\"></script><script defer src=\"/learning-flow.js\"></script><script defer src=\"/classroom.js\"></script>" + headExtra + "</head><body class=\"antialiased page-transition dark-app" + bodyClassExtra + "\"" + bodyAttributes + ">" + body +
+        htmlEscape(title) + "</title><link rel=\"icon\" type=\"image/png\" href=\"/school-logo.png\"><link rel=\"stylesheet\" href=\"/styles.css\"><link rel=\"stylesheet\" href=\"/plan.css\"><link rel=\"stylesheet\" href=\"/dark.css\"><link rel=\"stylesheet\" href=\"/app-layout.css\"><script defer src=\"/app-layout.js\"></script><link rel=\"stylesheet\" href=\"/classroom.css\"><link rel=\"stylesheet\" href=\"/learning-flow.css\"><link rel=\"stylesheet\" href=\"/profile-radar.css\"><link rel=\"stylesheet\" href=\"/vendor/katex/katex.min.css\"><script defer src=\"/vendor/katex/katex.min.js\"></script><script defer src=\"/chat-render.js\"></script><script defer src=\"/profile-radar.js\"></script><script defer src=\"/dark.js\"></script><script defer src=\"/learning-agent.js\"></script><script defer src=\"/agent-shell.js\"></script><script defer src=\"/learning-flow.js\"></script><script defer src=\"/classroom.js\"></script>" + headExtra + "</head><body class=\"antialiased page-transition dark-app gy-theme-lab" + bodyClassExtra + "\"" + bodyAttributes + ">" + body +
         "<footer class=\"dark-footer\"><span>钢一定制AI</span><span>让学习有路径，让进步看得见。</span><span>本机学习数据 · 私密可控</span></footer>" + script + "</body></html>";
 }
 
@@ -66,12 +66,12 @@ std::string navLink(const std::string& href, const std::string& label, bool acti
 
 std::string headerShell(const std::string& active) {
     const auto is = [&](const std::string& key) { return active == key; };
-    const std::string links = navLink("/", "学习路径", is("home")) +
-        navLink("/#profile", "学习画像", false) +
-        navLink("/ask", "AI 导师", is("ask")) +
-        navLink("/my-courses", "我的课程", is("my-courses"));
-    return R"HTML(<header class="site-header dark-header"><div class="dark-nav-shell"><a class="dark-brand" href="/"><span class="dark-brand-mark">钢</span><span>钢一<b>定制AI</b></span></a><nav class="dark-nav-links" aria-label="主导航">)HTML" + links +
-        R"HTML(</nav><a class="dark-nav-cta" href="/#profile">我的画像 ↗</a><details class="dark-mobile-nav"><summary aria-label="打开菜单">☰</summary><nav aria-label="移动导航">)HTML" + links +
+    const std::string links = navLink("/", "首页", is("home")) +
+        navLink("/my-courses", "我的课程", is("my-courses")) +
+        std::string("<a data-current-course-link class=\"dark-nav-link") + (is("learn") ? " is-active" : "") +
+        "\" href=\"/current-course\" title=\"查看当前课程\">当前课程</a>" + navLink("/ask", "AI 导师", is("ask"));
+    return R"HTML(<header class="site-header dark-header"><div class="dark-nav-shell"><a class="dark-brand" href="/"><img class="dark-brand-mark" src="/school-logo.png" alt="柳州市钢一中学校徽"><span>钢一<b>定制AI</b></span></a><nav class="dark-nav-links" aria-label="主导航">)HTML" + links +
+        R"HTML(</nav><a class="dark-nav-cta" href="/my-courses#profile">我的画像 ↗</a><details class="dark-mobile-nav"><summary aria-label="打开菜单">☰</summary><nav aria-label="移动导航">)HTML" + links +
         R"HTML(</nav></details></div></header>)HTML";
 }
 
@@ -97,20 +97,12 @@ std::string renderHomePageContent(bool startup) {
       <div id="image-preview" class="hidden mt-3 items-center gap-3 rounded-2xl border border-sky-100 bg-sky-50 p-3"><img class="h-16 w-16 rounded-xl border border-white object-cover" alt="图片预览"><div class="min-w-0 flex-1"><p id="image-name" class="truncate text-sm font-semibold"></p><p id="image-meta" class="mt-1 text-xs text-slate-500"></p></div><button id="remove-image" type="button" class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500">移除</button></div><p id="goal-message" class="hidden mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700"></p>
     </form>
     <div id="goal-examples" class="mt-4 flex max-w-4xl flex-wrap justify-center gap-2"></div>
-    <aside class="home-visual" aria-label="学习画像"><div class="home-radar-panel"><div id="home-radar" data-profile-radar></div></div></aside>
+    <aside class="home-profile-compact home-visual"><div class="profile-heading"><div><p>来自真实学习记录</p><h2>学习画像</h2></div><a href="/my-courses#profile">查看画像 ↗</a></div><div id="home-radar" data-profile-radar></div><p class="home-radar-note">从每一次真实作答，看见自己的进步。</p></aside>
   </section>
-  <div class="home-ticker" aria-hidden="true"><div class="home-ticker-track"><span>学习目标</span><b>✦</b><span>阶段规划</span><b>✦</b><span>微课程</span><b>✦</b><span>练习测验</span><b>✦</b><span>本机画像</span><b>✦</b><span>AI 导师</span><b>✦</b><span>学习目标</span><b>✦</b><span>阶段规划</span><b>✦</b><span>微课程</span><b>✦</b><span>练习测验</span><b>✦</b><span>本机画像</span><b>✦</b><span>AI 导师</span><b>✦</b></div></div>
-  <section id="profile" class="profile-section" aria-labelledby="profile-title" data-reveal>
-    <div class="profile-heading"><div><p>最近课程 / 学习动态</p><h2 id="profile-title">你的学习地图，<em>记录每一次进步。</em></h2></div><a class="recent-courses-all" href="/my-courses">全部课程 ↗</a></div>
+  <section id="profile" class="profile-section" aria-labelledby="profile-title">
+    <div class="profile-heading"><div><p>继续学习</p><h2 id="profile-title">最近课程</h2></div><a class="recent-courses-all" href="/my-courses">全部课程 ↗</a></div>
     <p id="recent-courses-message" role="status" aria-live="polite">正在读取最近课程…</p>
     <div id="recent-courses" class="recent-courses" aria-label="最近三门课程"></div>
-    <details class="profile-details"><summary>查看学科画像与学习建议</summary><div class="profile-heading"><p>学科掌握度 · 依据真实测验评估</p><button id="profile-refresh" type="button">更新画像 ↗</button></div><p id="profile-message" role="status" aria-live="polite"></p><div id="profile-subjects" class="profile-subjects"></div></details>
-  </section>
-  <section class="home-features mx-auto grid w-full max-w-6xl gap-4 px-4 pb-20 sm:grid-cols-2 sm:px-6 lg:grid-cols-4" data-reveal>
-    <article class="home-feature-card rounded-2xl border border-sky-100 bg-white p-5 shadow-sm shadow-sky-900/5"><div class="text-2xl text-sky-700">01</div><h2 class="mt-4 font-semibold">阶段任务</h2><p class="mt-2 text-sm leading-6 text-slate-700">把大目标拆成每个阶段都能完成的行动。</p></article>
-    <article class="home-feature-card rounded-2xl border border-sky-100 bg-white p-5 shadow-sm shadow-sky-900/5"><div class="text-2xl text-sky-700">02</div><h2 class="mt-4 font-semibold">微课程讲解</h2><p class="mt-2 text-sm leading-6 text-slate-700">围绕你的目标组织重点知识与学习顺序。</p></article>
-    <article class="home-feature-card rounded-2xl border border-sky-100 bg-white p-5 shadow-sm shadow-sky-900/5"><div class="text-2xl text-sky-700">03</div><h2 class="mt-4 font-semibold">练习测验</h2><p class="mt-2 text-sm leading-6 text-slate-700">用练习和检查点确认每一步真正掌握。</p></article>
-    <article class="home-feature-card rounded-2xl border border-sky-100 bg-white p-5 shadow-sm shadow-sky-900/5"><div class="text-2xl text-sky-700">04</div><h2 class="mt-4 font-semibold">进度跟踪</h2><p class="mt-2 text-sm leading-6 text-slate-700">持续记录进展，及时调整接下来的路线。</p></article>
   </section>
 </main>)HTML";
     const std::string script = R"HTML(<script>(()=>{const $=id=>document.getElementById(id),form=$('goal-form'),goal=$('goal'),file=$('goal-image'),mode=$('goal-mode'),preview=$('image-preview'),message=$('goal-message'),examples={lite:[],deep:[]};let selectedMode='deep',imageFile=null,imageUrl='';function setMode(value){selectedMode=value==='lite'?'lite':'deep';mode.value=selectedMode;document.querySelectorAll('[data-mode]').forEach(button=>{const active=button.dataset.mode===selectedMode;button.classList.toggle('bg-sky-700',active);button.classList.toggle('text-white',active);button.classList.toggle('border-sky-700',active);button.classList.toggle('bg-white',!active);button.classList.toggle('text-slate-600',!active)});renderExamples()}function renderExamples(){const target=$('goal-examples');target.replaceChildren();for(const item of examples[selectedMode]){const button=document.createElement('button');button.type='button';button.className='goal-example rounded-full border border-sky-100 bg-white/80 px-3 py-2 text-sm font-medium text-sky-900 hover:bg-sky-50';button.textContent=item;target.append(button)}}async function loadRecommendations(){try{const response=await fetch('/api/home/recommendations',{cache:'no-store'});if(!response.ok)return;const data=await response.json();if(data.items&&['lite','deep'].every(key=>Array.isArray(data.items[key])&&data.items[key].length>0&&data.items[key].every(item=>typeof item==='string'))){examples.lite=data.items.lite;examples.deep=data.items.deep;renderExamples()}if(data.updating||['pending','running'].includes(data.status))setTimeout(loadRecommendations,1000)}catch(_){}}loadRecommendations();function clearImage(){if(imageUrl)URL.revokeObjectURL(imageUrl);imageFile=null;imageUrl='';file.value='';preview.classList.add('hidden');preview.classList.remove('flex')}function showMessage(text){message.textContent=text;message.classList.remove('hidden')}function createAnonymousId(){const id=typeof crypto!=='undefined'&&typeof crypto.randomUUID==='function'?crypto.randomUUID():Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);return 'anon_'+id}function anonymousId(){try{let id=localStorage.getItem('gangyi-anonymous-id');if(!id){id=createAnonymousId();localStorage.setItem('gangyi-anonymous-id',id)}return id}catch(_){return createAnonymousId()}}file.addEventListener('change',()=>{const picked=file.files?.[0];message.classList.add('hidden');if(!picked)return;if(!picked.type.startsWith('image/')){clearImage();showMessage('请上传图片文件');return}if(picked.size>5*1024*1024){clearImage();showMessage('图片过大，请上传 5MB 以内的图片');return}clearImage();imageFile=picked;imageUrl=URL.createObjectURL(picked);preview.querySelector('img').src=imageUrl;$('image-name').textContent=picked.name;$('image-meta').textContent=(picked.size/1024/1024).toFixed(1)+' MB · 将结合图片生成学习目标';preview.classList.remove('hidden');preview.classList.add('flex')});$('pick-image').onclick=()=>file.click();$('remove-image').onclick=clearImage;document.addEventListener('click',event=>{const modeButton=event.target.closest('[data-mode]');if(modeButton)setMode(modeButton.dataset.mode);const example=event.target.closest('.goal-example');if(example){goal.value=example.textContent;goal.focus()}});goal.addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();form.requestSubmit()}});form.addEventListener('submit',async event=>{event.preventDefault();const text=goal.value.trim();message.classList.add('hidden');if(!text&&!imageFile){showMessage('请输入学习需求，或上传一张相关图片');return}const submit=$('goal-submit');submit.disabled=true;submit.textContent=imageFile?'识别中…':'准备生成…';let target=text;if(imageFile){try{const data=new FormData();data.append('image',imageFile);data.append('prompt',text);data.append('mode',selectedMode);const response=await fetch('/api/analyze-image-goal',{method:'POST',body:data});const result=await response.json();if(result.success&&result.goal)target=result.goal;else if(!text){showMessage(result.message||'图片识别未完成，请补充文字描述后重试');submit.disabled=false;submit.textContent='生成 →';return}else showMessage(result.message||'图片识别未完成，已按文字描述生成课程')}catch(_){if(!text){showMessage('图片识别未完成，请补充文字描述后重试');submit.disabled=false;submit.textContent='生成 →';return}showMessage('图片识别未完成，已按文字描述生成课程')}}location.href='/plan?'+new URLSearchParams({goal:target,mode:selectedMode,anonymousId:anonymousId()})});setMode('deep')})()</script>)HTML";
@@ -154,12 +146,10 @@ const list=(items,fn)=>arr(items).length?arr(items).map(fn).join(''):'<p class="
 const card=(label,title,body,extra='')=>'<article class="plan-card '+extra+'"><p class="plan-kicker">'+text(label)+'</p><h2>'+text(title)+'</h2>'+body+'</article>';
 const pill=v=>'<span class="plan-pill">'+text(v)+'</span>';
 function mind(node,depth=0){return '<li class="mind-node depth-'+depth+'"><span>'+text(node.label||node.title)+'</span>'+((node.children||[]).length?'<ul>'+arr(node.children).map(x=>mind(x,depth+1)).join('')+'</ul>':'')+'</li>'}
-function phase(p,i){const steps=arr(p.steps);return '<article class="phase-card"><div class="phase-number">'+String(i+1).padStart(2,'0')+'</div><div class="phase-main"><div class="phase-meta"><span>'+text(p.duration,'阶段周期')+'</span><span>'+text(i===0?'待开始':'后续阶段')+'</span></div><h3>'+text(p.name,'学习阶段')+'</h3><p>'+text(p.goal||p.description)+'</p><div class="phase-grid"><div><b>阶段产出</b><p>'+text(p.output)+'</p></div><div><b>检查点</b><p>'+text(p.checkpoint)+'</p></div></div><div class="step-list">'+list(steps,(s,j)=>'<a href="/learn?courseId='+encodeURIComponent(courseId)+'&phaseIndex='+(i+1)+'&topicIndex='+(j+1)+'" class="step-row"><span>'+String(j+1).padStart(2,'0')+'</span><strong>'+text(s.title||s.name,'知识点')+'</strong><em>进入学习 →</em></a>')+'</div></div></article>'}
-function deep(){const slides=arr(plan.slides), structure=arr(plan.courseStructure),resources=arr(plan.resources),projects=arr(plan.projects);return '<section class="plan-hero"> <div><span class="mode-badge">深度规划</span><h2>'+text(plan.title)+'</h2><p>'+text(plan.summary)+'</p></div><div class="hero-facts"><div><small>规划周期</small><b>'+text(plan.duration)+'</b></div><div><small>阶段数量</small><b>'+arr(plan.roadmap).length+' 个</b></div><div><small>学习目标</small><b>'+text(plan.outcome,'持续进步')+'</b></div></div></section><section class="next-action"><div><p class="plan-kicker">下一步</p><h2>从第一节开始，把计划变成进度</h2><p>学习进度自动保存，掌握程度由 AI 根据真实作答评估。</p></div><a class="primary-action" href="/learn?courseId='+encodeURIComponent(courseId)+'&phaseIndex=1&topicIndex=1">开始第一节 <span>→</span></a></section><div class="progress-strip"><div><b>0%</b><span>课程进度 · 已完成 0 / '+structure.reduce((n,s)=>n+arr(s.topics).length,0)+'</span></div><div class="progress-track"><i></i></div></div>' +card('AI 课程路线预览','把路线先看懂','<div id="course-preview" role="status">正在读取真实 AI 路线预览…</div>','full-card')+card('知识结构',plan.mindMap?.title||'课程知识结构','<div class="mind-map"><ul>'+list(arr(plan.mindMap?.nodes),mind)+'</ul></div>','full-card')+'<section><div class="section-heading"><div><p class="plan-kicker">执行路线</p><h2>按阶段推进</h2></div><span class="muted-label">共 '+arr(plan.roadmap).length+' 个阶段</span></div><div class="phase-list">'+list(plan.roadmap,phase)+'</div></section>'+card('课程结构','知识点清单','<div class="structure-list">'+list(structure,(s,i)=>'<div class="structure-row"><div><b>'+text(s.stage)+'</b><p>'+arr(s.topics).map(t=>text(typeof t==='string'?t:t.title)).join(' · ')+'</p></div><a href="/learn?courseId='+encodeURIComponent(courseId)+'&phaseIndex='+(i+1)+'&topicIndex=1">开始 →</a></div>')+'</div>','full-card')+card('精选资源','为你的目标准备的材料','<div class="resource-grid">'+list(resources.slice(0,8),r=>'<a class="resource-item" target="_blank" rel="noreferrer" href="'+esc(r.href||'#')+'"><div><span>'+text(r.type,'资源')+'</span>'+((r.free!==false)?'<b>免费</b>':'')+'</div><h3>'+text(r.name)+'</h3><p>'+text(r.description)+'</p><small>'+text(r.difficulty,'适合入门')+' ↗</small></a>')+'</div><p class="resource-source">'+text(plan.resourceSourceMessage,'以下为钢一定制AI推荐资源')+'</p>','full-card')+card('项目实战','用一个作品验收学习成果','<div class="project-grid">'+list(projects,(p)=>'<div class="project-item"><span>'+text(p.difficulty,'实践')+'</span><h3>'+text(p.name)+'</h3><p>'+text(p.output)+'</p><small>'+text(p.duration)+'</small></div>')+'</div>','full-card')}
-function lite(){const roadmap=arr(plan.roadmap),steps=roadmap.flatMap(p=>arr(p.steps));return '<section class="lite-hero"><div><span class="mode-badge lite-badge">快速规划</span><h2>'+text(plan.title)+'</h2><p>'+text(plan.summary)+'</p></div><div class="lite-facts"><span><b>'+text(plan.duration)+'</b><small>周期</small></span><span><b>'+roadmap.length+'</b><small>阶段</small></span><span><b>先做会</b><small>再深入</small></span></div></section><section class="next-action lite-action"><div><p class="plan-kicker">立即开始</p><h2>先完成第一步，获得可见进展</h2></div><a class="primary-action lite-primary" href="/learn?courseId='+encodeURIComponent(courseId)+'&phaseIndex=1&topicIndex=1">开始第一节 <span>→</span></a></section>'+card('课程结构','只保留现在最需要的内容','<div class="lite-stage-list">'+list(roadmap,(p,i)=>'<div><span>'+String(i+1).padStart(2,'0')+'</span><strong>'+text(p.name)+'</strong><em>'+text(p.duration)+'</em><p>'+text(p.goal||p.description)+'</p></div>')+'</div>','full-card')+card('核心步骤','怎么做，怎么验收','<div class="core-steps">'+list(steps,(s,i)=>'<div><span>'+String(i+1).padStart(2,'0')+'</span><div><h3>'+text(s.title)+'</h3><p>'+text(s.explanation)+'</p><b>验收：'+text(s.check)+'</b></div></div>')+'</div>','full-card')+card('提醒','少走弯路','<div class="mistake-grid">'+list(roadmap,p=>'<div><b>'+text(p.name)+'</b><p>'+list(p.commonMistakes,m=>'<span>• '+text(m)+'</span>')+'</p></div>')+'</div>','full-card')+card('可参考资料','随用随查','<div class="resource-grid">'+list(arr(plan.resources).slice(0,5),r=>'<a class="resource-item" target="_blank" rel="noreferrer" href="'+esc(r.href||'#')+'"><h3>'+text(r.name)+'</h3><p>'+text(r.description)+'</p></a>')+'</div>','full-card')}
+function overview(){const stages=arr(plan.courseStructure),resources=arr(plan.resources),projects=arr(plan.projects);return '<div class="progress-strip"><div><b>0%</b><span>正在读取课程进度</span></div><div class="progress-track"><i></i></div></div><section class="course-stages"><h2>学习阶段</h2><div data-paged-list data-page-size="8">'+list(stages,(s,i)=>{const road=arr(plan.roadmap)[i]||{},query=new URLSearchParams({courseId,phaseIndex:String(i+1),...(anonymousId?{anonymousId}:{} )});return '<a class="outline-row" href="/phase?'+query+'"><span class="outline-number">'+String(i+1).padStart(2,'0')+'</span><div><h3>'+text(s.stage||road.name)+'</h3><p>'+text(s.goal||road.goal||road.description)+'</p><small>'+arr(s.topics).length+' 节</small></div><span class="stage-state" data-stage="'+i+'">查看阶段 →</span></a>'})+'</div></section><details class="course-more"><summary>更多课程内容</summary>'+card('知识结构',plan.mindMap?.title||'','<div class="mind-map"><ul>'+list(arr(plan.mindMap?.nodes),mind)+'</ul></div>','full-card')+card('精选资源','','<div class="resource-grid">'+list(resources,r=>'<a class="resource-item" target="_blank" rel="noreferrer" href="'+esc(/^https?:\/\//i.test(r.href||r.url||'')?(r.href||r.url):'#')+'"><h3>'+text(r.name||r.title)+'</h3><p>'+text(r.description)+'</p></a>')+'</div>','full-card')+card('作品任务','','<div class="project-grid">'+list(projects,p=>'<div><h3>'+text(p.name)+'</h3><p>'+text(p.output||p.description)+'</p></div>')+'</div>','full-card')+card('AI 课程路线预览','','<div id="course-preview" role="status">正在读取已保存路线…</div>','full-card')+'</details>'}
 function preserveAnonymousIdInLearningLinks(){document.querySelectorAll('#plan-view a[href^="/learn?courseId="]').forEach(link=>{const url=new URL(link.href,location.origin);const rawPhase=Number(url.searchParams.get('phaseIndex')||'1'),rawTopic=Number(url.searchParams.get('topicIndex')||'1');const phaseNo=Number.isInteger(rawPhase)&&rawPhase>0?rawPhase:1,topicNo=Number.isInteger(rawTopic)&&rawTopic>0?rawTopic:1;url.searchParams.set('phaseIndex',String(phaseNo));url.searchParams.set('topicIndex',String(topicNo));if(initialGoal&&!url.searchParams.get('goal'))url.searchParams.set('goal',initialGoal);if(initialMode&&!url.searchParams.get('mode'))url.searchParams.set('mode',initialMode);const stage=arr(plan.courseStructure)[phaseNo-1]||arr(plan.roadmap)[phaseNo-1]||{};const phaseTitle=stage.stage||stage.name||'';if(phaseTitle&&!url.searchParams.get('phaseName'))url.searchParams.set('phaseName',phaseTitle);const topics=arr(stage.topics);const steps=arr(stage.steps);const item=topics[topicNo-1]||{};const topicTitle=(typeof item==='string'?item:item.title)||steps[topicNo-1]?.title||steps[topicNo-1]?.name||'';if(item.id)url.searchParams.set('topicId',item.id);if(item.legacyPhaseIndex)url.searchParams.set('phaseIndex',item.legacyPhaseIndex);if(item.legacyTopicIndex)url.searchParams.set('topicIndex',item.legacyTopicIndex);if(topicTitle&&!url.searchParams.get('topic'))url.searchParams.set('topic',topicTitle);if(anonymousId)url.searchParams.set('anonymousId',anonymousId);link.href=url.pathname+'?'+url.searchParams.toString()})}
-async function restoreProgress(){if(!courseId)return;try{const data=await request('/api/course-progress?courseId='+encodeURIComponent(courseId));const progress=data.progress||{},strip=document.querySelector('.progress-strip');if(strip){strip.querySelector('b').textContent=(progress.overallPercent||0)+'%';strip.querySelector('span').textContent='课程进度 · 已完成 '+(progress.completedCount||0)+' / '+(progress.totalCount||0);strip.querySelector('i').style.width=(progress.overallPercent||0)+'%';}}catch(_){const strip=document.querySelector('.progress-strip');if(strip)strip.querySelector('span').textContent='课程进度暂时无法读取，原记录已保留';}}
-function render(){ $('plan-title').textContent=plan.title||'你的课程总览';$('plan-goal').textContent=(plan.courseIntro||plan.summary||'')+(initialGoal?' · 目标：'+initialGoal:'');$('plan-view').innerHTML=renderMode==='lite'?lite():deep();preserveAnonymousIdInLearningLinks();renderSlide(0);restoreProgress()}
+async function restoreProgress(){if(!courseId)return;try{const data=await request('/api/courses/'+encodeURIComponent(courseId));const cards=arr(data.cards),stages=arr(plan.courseStructure),strip=document.querySelector('.progress-strip');const counts=stages.map((stage,phase)=>{const topics=arr(stage.topics);return {total:topics.length,done:topics.filter((topic,i)=>cards.some(c=>c.phaseIndex===(topic?.legacyPhaseIndex||phase+1)&&c.topicIndex===(topic?.legacyTopicIndex||i+1)&&c.status==='completed')).length}});const total=counts.reduce((sum,item)=>sum+item.total,0),done=counts.reduce((sum,item)=>sum+item.done,0),percent=total?Math.round(done*100/total):0;if(strip){strip.querySelector('b').textContent=percent+'%';strip.querySelector('span').textContent='课程进度 · 已完成 '+done+' / '+total;strip.querySelector('i').style.width=percent+'%';for(const node of document.querySelectorAll('[data-stage]')){const count=counts[Number(node.dataset.stage)];node.textContent=count.done+' / '+count.total+' 已完成 →';}}}catch(_){const strip=document.querySelector('.progress-strip');if(strip)strip.querySelector('span').textContent='课程进度暂时无法读取，原记录已保留';}}
+function render(){ $('plan-title').textContent=plan.title||'你的课程总览';$('plan-goal').textContent=(plan.courseIntro||plan.summary||'')+(initialGoal?' · 目标：'+initialGoal:'');$('plan-view').innerHTML=overview();document.dispatchEvent(new Event('gangyi:layout'));window.GangyiNavigation?.setContext({courseId,phaseIndex:null});preserveAnonymousIdInLearningLinks();renderSlide(0);restoreProgress()}
 function renderSlide(i){const s=arr(plan.slides)[i]||{};const el=$('slide-content');if(el)el.innerHTML='<h3>'+text(s.title)+'</h3><p>'+text(s.content)+'</p><div class="bullet-list">'+list(s.bullets,x=>'<span>'+text(x)+'</span>')+'</div>'}
 function failureState(error){const type=error.type||'';const messages={timeout:'生成超时，请重试。',auth_error:'当前模型接口认证失败，请检查服务配置后重试。',rate_limited:'AI 服务请求过于频繁，请稍后重试。',invalid_response:'生成内容未通过质量检查，请重新生成。',json_parse_error:'生成内容未通过质量检查，请重新生成。',quality_rejected:'生成内容未通过质量检查，请重新生成。',missing_config:'当前模型接口尚未配置，请检查服务配置。'};failure.innerHTML='<div class="failure-panel"><div class="failure-mark">!</div><div><p class="plan-kicker">生成没有完成</p><h2>'+text(messages[type]||'AI 服务暂时不可用，请稍后重试。')+'</h2><p>'+text(error.message,'服务暂时没有返回可用内容。')+'</p><div class="failure-actions"><button type="button" class="primary-action" id="retry">重试生成</button><a class="secondary-action" href="/">返回首页</a></div></div></div>';failure.classList.remove('hidden');loading.classList.add('hidden');$('retry').onclick=()=>load(true)}
 async function request(url,options={}){if(url.startsWith('/api/courses/')&&anonymousId&&!url.includes('?'))url+='?anonymousId='+encodeURIComponent(anonymousId);const controller=new AbortController();const timeoutMs=url==='/api/generate-plan'?250000:12000;const timer=setTimeout(()=>controller.abort(),timeoutMs);try{const r=await fetch(url,{...options,signal:controller.signal});const data=await r.json();if(!r.ok)throw Object.assign(new Error(data.message||data.error||'请求失败'),{type:data.type});return data}catch(error){if(controller.signal.aborted)throw Object.assign(new Error('AI 响应超时，请重试。'),{type:'timeout'});throw error}finally{clearTimeout(timer)}}
@@ -177,101 +167,31 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-slide]');i
     return document("课程规划 - 钢一定制AI", body, script);
 }
 
-std::string renderLearnPage(const std::string& courseId, [[maybe_unused]] const std::string& goal,
-                            [[maybe_unused]] const std::string& mode,
-                            const std::string& phaseIndex, const std::string& phaseName,
-                            const std::string& topicIndex, const std::string& topic,
-                            [[maybe_unused]] const std::string& anonymousId,
-                            [[maybe_unused]] const std::string& regenerate,
-                            [[maybe_unused]] const std::string& forceLearn,
-                            [[maybe_unused]] const std::string& retry) {
+std::string renderClassroomPage(const std::string& view) {
+    const std::string label = view == "practice" ? "练习" : view == "summary" ? "小结" : "讲解";
     const std::string body = headerShell("learn") + R"HTML(
-<main class="learn-app-page min-h-screen bg-[#f5f9ff] text-slate-950"><section class="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6"><div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><p class="text-sm font-semibold text-sky-700">微课程 · 学习中</p><h1 id="learn-title" class="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">正在生成本节微课程</h1><p id="learn-summary" class="mt-3 max-w-3xl leading-7 text-slate-600">读取已经准备好的讲解与题目；每题作答后可以连续向 AI 提问。</p></div><aside class="grid gap-2 rounded-3xl border border-sky-100 bg-white p-4 shadow-sm sm:min-w-72 sm:max-w-sm"><div class="flex items-start justify-between gap-3 text-sm"><span class="shrink-0">阶段</span><b id="learn-phase-name" class="max-w-56 break-words text-right">)HTML" + htmlEscape(phaseName.empty() ? "正在确认阶段" : phaseName) + R"HTML(</b></div><div class="flex items-start justify-between gap-3 text-sm"><span class="shrink-0">主题</span><b id="learn-topic-name" class="max-w-56 break-words text-right">)HTML" + htmlEscape(topic.empty() ? "正在确认主题" : topic) + R"HTML(</b></div><div class="h-2 overflow-hidden rounded-full bg-slate-200"><i id="learn-bar" class="soft-progress-fill block h-full w-[12%] rounded-full bg-sky-600"></i></div><small id="learn-save-status">正在生成课程内容</small></aside></div><section class="mt-6 rounded-3xl border border-sky-100 bg-white p-4 shadow-sm sm:p-6"><div id="learn-loading" class="p-8 text-center"><div class="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-sky-100 border-t-sky-600"></div><p class="mt-4 font-semibold">正在生成与当前主题对应的讲解</p><p class="mt-2 text-sm text-slate-500">内容完整校验并保存后才展示；生成失败可以重试。</p></div><div id="learn-content" class="hidden space-y-6"><section class="grid gap-4 lg:grid-cols-[1.3fr_0.9fr]"><article class="rounded-2xl border border-sky-100 bg-sky-50/70 p-5"><p class="text-sm font-semibold text-sky-700">本课概览</p><h2 id="learn-content-title" class="mt-2 text-2xl font-bold"></h2><p id="learn-content-summary" class="mt-3 leading-7 text-slate-600"></p></article><article class="rounded-2xl border border-slate-200 p-5"><p class="text-sm font-semibold">关键概念</p><div id="learn-key-concepts" class="mt-3 flex flex-wrap gap-2"></div></article></section><section class="grid gap-4 lg:grid-cols-2"><article class="rounded-2xl border border-sky-100 p-5"><div class="flex justify-between"><p class="text-sm font-semibold text-sky-700">理解步骤</p><small id="step-count"></small></div><div id="learn-steps" class="mt-4 space-y-3"></div></article><article class="rounded-2xl border border-sky-100 p-5"><p class="text-sm font-semibold text-sky-700">示例与练习</p><div id="learn-examples" class="mt-4 space-y-3"></div><div id="learn-practice" class="mt-4 space-y-3"></div></article></section><section class="grid gap-4 lg:grid-cols-2"><article class="rounded-2xl border border-sky-100 p-5"><div class="flex justify-between"><p class="text-sm font-semibold text-sky-700">小测验</p><small>逐题作答，与 AI 连续讨论</small></div><div id="learn-quiz" class="mt-4 space-y-3"></div><p id="quiz-result" class="mt-3 text-sm font-semibold"></p></article><article class="rounded-2xl border border-sky-100 p-5"><p class="text-sm font-semibold text-sky-700">完成检查</p><div id="learn-checkpoint" class="mt-3 space-y-2 text-sm leading-7"></div><div id="learn-mistakes" class="mt-4 space-y-2 text-sm leading-7"></div><button id="complete-lesson" type="button" class="mt-5 min-h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white">完成本节并保存进度</button></article></section><section class="rounded-2xl border border-slate-200 bg-slate-50 p-5"><div class="flex items-center justify-between gap-3"><div><p class="text-sm font-semibold">参考资料</p><p id="learn-resource-summary" class="mt-1 text-xs leading-5 text-slate-500"></p></div><button id="regenerate" type="button" class="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold">换一版讲解</button></div><div id="learn-references" class="mt-3 grid gap-3 md:grid-cols-2"></div></section></div></section></section></main>)HTML";
-    const std::string script = R"HTML(<script>(()=>{
-const C=)HTML"+jsString(courseId)+R"HTML(,P=)HTML"+jsString(phaseIndex)+R"HTML(,T=)HTML"+jsString(topicIndex)+R"HTML(,$=id=>document.getElementById(id),E=value=>{const node=document.createElement('div');node.textContent=value??'';return node.innerHTML},A=value=>Array.isArray(value)?value:[],params=new URLSearchParams(location.search),order=['overview','steps','examples','practice','quiz','assessment'],blocks={},lessonTaskId=params.get('lessonTaskId')||'',stateKey=lessonTaskId?'gy:task:'+lessonTaskId:'gy:'+C+':'+P+':'+T,state=JSON.parse(localStorage.getItem(stateKey)||'{}'),loadingMarkup=$('learn-loading').innerHTML;let lesson={lessonSteps:[],practice:[],quiz:[]};
-const list=(value,render)=>A(value).length?A(value).map(render).join(''):'',base=()=>{const query=new URLSearchParams({courseId:C,phaseIndex:P||'1',topicIndex:T||'1'});['anonymousId','goal','mode','phaseName','topic','lessonTaskId','review','reviewId'].forEach(key=>{const value=params.get(key);if(value)query.set(key,value)});return '/api/learn?'+query.toString()},waiting=id=>{$(id).innerHTML='<p class="animate-pulse text-sm text-sky-700">AI 正在生成…</p>'};
-function references(items){const box=$('learn-references');if(!box)return;box.innerHTML=A(items).length?A(items).map(item=>'<a class="block rounded-2xl border border-sky-100 bg-white p-4" target="_blank" rel="noreferrer" href="'+(/^https?:\/\//i.test(item.url||'')?E(item.url):'#')+'"><b class="text-sky-800">'+E(item.title||item.source)+'</b><p class="mt-2 text-sm text-slate-600">'+E(item.description||'')+'</p></a>').join(''):'<p class="text-sm text-slate-500">暂未检索到公开资料。</p>'}
-function apply(block,data){window.gangyiLessonBlocks=window.gangyiLessonBlocks||{};window.gangyiLessonBlocks[block]=data;blocks[block]=data;Object.assign(lesson,data);if(block==='overview'){$('learn-title').textContent=data.title;$('learn-summary').textContent=data.summary;$('learn-content-title').textContent=data.title;$('learn-content-summary').textContent=data.summary;$('learn-key-concepts').innerHTML=list(data.keyConcepts,value=>'<span class="plan-pill">'+E(value)+'</span>')}else if(block==='steps'){$('learn-steps').innerHTML=list(data.lessonSteps,(item,index)=>'<article class="rounded-2xl border border-sky-100 bg-sky-50/50 p-4"><button type="button" class="step-toggle mr-3 h-6 w-6 rounded-full border-2 border-sky-300" data-i="'+index+'">'+(state.steps?.[index]?'✓':'')+'</button><b>'+E(item.title)+'</b><div class="step-explanation chat-body">'+(window.GangyiChat?window.GangyiChat.renderMarkdown(item.explanation||'',{math:true}):E(item.explanation))+'</div><p class="mt-2 text-sm"><b>示例：</b>'+E(item.example)+'</p><p class="mt-1 text-sm"><b>行动：</b>'+E(item.action)+'</p></article>');updateStepCount()}else if(block==='examples'||block==='practice'||block==='quiz'){const kind=block==='examples'?'example':block==='quiz'&&(params.has('review')||window.gangyiLessonKind==='review')?'review':block;const target=$('learn-'+block);target.textContent='正在读取公开题目与已保存对话…';if(window.GangyiLearning)window.GangyiLearning.mountQuestionKind(kind,target);else document.addEventListener('gangyi:learning-ready',()=>window.GangyiLearning.mountQuestionKind(kind,target),{once:true})}else if(block==='assessment'){$('learn-checkpoint').innerHTML=list(data.checkpoint,item=>'<p>✓ '+E(item)+'</p>');$('learn-mistakes').textContent='';$('learn-resource-summary').textContent=data.resourceSummary||''}updateStatus();document.dispatchEvent(new CustomEvent('gangyi:lesson-block',{detail:{block,data}}))}
-function failed(message,block=''){const label=({overview:'课程总览',steps:'讲解',examples:'例题',practice:'练习',quiz:'测验',assessment:'总结'})[block]||'本节课程';$('learn-content').classList.add('hidden');$('learn-loading').classList.remove('hidden');$('learn-loading').innerHTML='<div class="mx-auto max-w-xl rounded-2xl border border-rose-100 bg-rose-50 p-6 text-rose-700"><p class="font-semibold">'+E(label)+'尚未准备完整。</p><p class="mt-2 text-sm">'+E(message)+'</p><button type="button" data-retry-lesson class="mt-4 rounded-xl bg-sky-700 px-4 py-2 font-semibold text-white">'+(lessonTaskId?'重新读取已保存课程':'重新生成整节课程')+'</button></div>'}
-function updateStepCount(){const items=A(lesson.lessonSteps);$('step-count').textContent=items.filter((_,index)=>state.steps?.[index]).length+' / '+items.length+' 已理解'}function updateStatus(){const done=order.filter(block=>blocks[block]).length;$('learn-bar').style.width=Math.round(done/order.length*100)+'%';$('learn-save-status').textContent='AI 板块已生成 '+done+' / '+order.length;$('complete-lesson').disabled=done!==order.length}
-async function requestAll(retry=false){const url=base()+'&block=all'+(!lessonTaskId&&params.get('regenerate')==='1'?'&regenerate=1':'')+(!lessonTaskId&&retry?'&retry=1':'');const response=await fetch(url);let data={};try{data=await response.json()}catch(_){}if(!response.ok||data.ok===false){const error=new Error(data.error||'AI 生成失败');error.failedBlock=data.failedBlock||'';throw error}return data}
-async function pollProgress(){try{const response=await fetch(base()),data=await response.json();if(!response.ok)return;const done=order.filter(block=>data.generations?.[block]?.source==='ai').length;$('learn-bar').style.width=Math.round(done/order.length*100)+'%';$('learn-save-status').textContent='真实 AI 已生成 '+done+' / '+order.length+'，完成后统一展示'}catch(_){}}
-async function start(retry=false){$('learn-loading').innerHTML=loadingMarkup;$('learn-loading').classList.remove('hidden');$('learn-content').classList.add('hidden');$('complete-lesson').disabled=true;const track=!lessonTaskId&&params.get('regenerate')!=='1',timer=track?setInterval(pollProgress,2500):0;if(track)pollProgress();else $('learn-save-status').textContent='真实 AI 正在重新生成整节课程';try{const saved=await requestAll(retry);window.gangyiContentVersion=saved.contentVersion||1;window.gangyiLessonKind=saved.kind||'lesson';if(saved.kind==='review'){params.set('review',String(saved.review||saved.day||1));if(saved.reviewId)params.set('reviewId',saved.reviewId);document.dispatchEvent(new CustomEvent('gangyi:lesson-context',{detail:{day:Number(params.get('review')),reviewId:params.get('reviewId')||''}}))}for(const key of Object.keys(blocks))delete blocks[key];lesson={lessonSteps:[],practice:[],quiz:[]};$('learn-phase-name').textContent=saved.phaseName||params.get('phaseName')||'当前阶段';$('learn-topic-name').textContent=saved.topicTitle||params.get('topic')||'当前主题';Object.entries(saved.blocks||{}).forEach(([block,data])=>apply(block,data));if(order.some(block=>!blocks[block]))throw new Error('AI 尚未生成完整的六个课程板块');references(saved.references);$('learn-loading').classList.add('hidden');$('learn-content').classList.remove('hidden');if(params.has('regenerate')){params.delete('regenerate');const query=params.toString();history.replaceState({},'',location.pathname+(query?'?'+query:'')+location.hash)}}catch(error){failed(error.message,error.failedBlock)}finally{if(timer)clearInterval(timer)}}
-document.addEventListener('click',event=>{const retry=event.target.closest('[data-retry-lesson]');if(retry){retry.disabled=true;retry.textContent='AI 正在重新生成整节课程…';start(true);return}const toggle=event.target.closest('.step-toggle');if(!toggle)return;const index=+toggle.dataset.i;state.steps=state.steps||{};state.steps[index]=!state.steps[index];toggle.textContent=state.steps[index]?'✓':'';updateStepCount();localStorage.setItem(stateKey,JSON.stringify(state));if(lessonTaskId)return;fetch('/api/learning-step-progress',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({courseId:C,phaseIndex:+P,stepIndex:index,stepTitle:lesson.lessonSteps[index].title,status:state.steps[index]?'understood':'unset'})})});
-window.gangyiApplyBlock=apply;
-$('complete-lesson').onclick=()=>fetch('/api/learn/progress',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({courseId:C,phaseIndex:+P,topicIndex:+T,...(lessonTaskId?{lessonTaskId}:{}),phaseName:params.get('phaseName')||'',topicTitle:params.get('topic')||'',status:'completed',lastVisitedUrl:location.pathname+location.search,lastPageType:'learn',lastPhaseIndex:+P,lastTopicIndex:+T})});
-$('regenerate').hidden=!!lessonTaskId;$('regenerate').onclick=()=>{params.set('regenerate','1');location.search=params.toString()};start()})()</script>)HTML";
-    const std::string identityBridge = R"HTML(<script>(()=>{const id=new URLSearchParams(location.search).get('anonymousId');if(id)document.cookie='gangyi_anonymous_id='+encodeURIComponent(id)+'; Path=/; SameSite=Lax'})()</script>)HTML";
-    const std::string progressFeedbackEnhancement = R"HTML(<script>(()=>{const button=document.getElementById('complete-lesson');if(!button)return;const params=new URLSearchParams(location.search),key=params.get('lessonTaskId')?'gy:task:'+params.get('lessonTaskId'):'gy:'+(params.get('courseId')||'')+':'+(params.get('phaseIndex')||'0')+':'+(params.get('topicIndex')||'0'),feedback=document.createElement('p'),topStatus=document.getElementById('learn-save-status'),bar=document.getElementById('learn-bar');feedback.id='complete-feedback';feedback.setAttribute('role','status');feedback.setAttribute('aria-live','polite');feedback.className='mt-3 text-center text-sm font-semibold';button.insertAdjacentElement('afterend',feedback);const setState=(state,message='')=>{if(state==='saving'){button.disabled=true;button.textContent='正在保存进度…';button.classList.add('opacity-75');feedback.className='mt-3 text-center text-sm font-semibold text-sky-700';feedback.textContent='正在保存本节完成状态，请稍候。'}else if(state==='success'){button.disabled=true;button.textContent='✓ 本节已完成，进度已保存';button.classList.remove('opacity-75');button.classList.add('bg-emerald-700');feedback.className='mt-3 text-center text-sm font-semibold text-emerald-700';feedback.textContent='保存成功，可以让 AI 根据最新学习情况准备下一课。';if(topStatus)topStatus.textContent='本节已完成，进度已保存';if(bar)bar.style.width='100%';try{const saved=JSON.parse(localStorage.getItem(key)||'{}');saved.completed=true;localStorage.setItem(key,JSON.stringify(saved))}catch(_){}}else{button.disabled=false;button.textContent='重新保存本节进度';button.classList.remove('opacity-75');feedback.className='mt-3 text-center text-sm font-semibold text-rose-700';feedback.textContent=message||'保存失败，请检查网络后重试。'}};try{if(JSON.parse(localStorage.getItem(key)||'{}').completed)setState('success')}catch(_){}const nativeFetch=window.fetch.bind(window);window.fetch=(input,init={})=>{const url=typeof input==='string'?input:(input?.url||'');if(url!=='/api/learn/progress')return nativeFetch(input,init);setState('saving');return nativeFetch(input,init).then(async response=>{let data={};try{data=await response.clone().json()}catch(_){}if(response.ok&&data.ok!==false)setState('success');else setState('error',data.error?'保存失败：'+data.error:'保存失败，请稍后重试。');return response},error=>{setState('error','保存失败，请检查网络后重试。');throw error})}})()</script>)HTML";
-    const std::string lessonNavigationEnhancement = R"HTML(<script>(()=>{const complete=document.getElementById('complete-lesson');if(!complete)return;const params=new URLSearchParams(location.search),navigation=document.createElement('div'),back=document.createElement('a'),next=document.createElement('button'),status=document.createElement('p');navigation.id='lesson-navigation';navigation.className='mt-4 grid gap-3 sm:grid-cols-2';back.id='lesson-return';back.className='inline-flex min-h-11 items-center justify-center rounded-xl border border-sky-200 bg-white px-4 text-sm font-semibold text-sky-700';back.textContent='← 返回流程';const query=new URLSearchParams({courseId:params.get('courseId')||''});if(params.get('anonymousId'))query.set('anonymousId',params.get('anonymousId'));back.href='/plan?'+query.toString();next.id='lesson-next';next.type='button';next.className='inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white';next.textContent='让 AI 准备下一课';status.id='next-lesson-action-status';status.setAttribute('role','status');status.className='text-sm sm:col-span-2';navigation.append(back,next,status);(document.getElementById('complete-feedback')||complete).insertAdjacentElement('afterend',navigation)})()</script>)HTML";
-    const std::string backNavigation = R"HTML(<script>(()=>{const page=document.querySelector('.learn-app-page'),heading=page?.querySelector('h1');const container=heading?.parentElement;if(!container||document.getElementById('learn-back'))return;const button=document.createElement('button');button.id='learn-back';button.type='button';button.className='mb-4 inline-flex min-h-10 items-center rounded-xl border border-sky-200 bg-white px-4 text-sm font-semibold text-sky-700 shadow-sm transition hover:border-sky-400 hover:bg-sky-50';button.textContent='← 返回上一页';button.addEventListener('click',()=>{if(window.history.length>1){window.history.back();return}const params=new URLSearchParams(location.search);const courseId=params.get('courseId');location.href=courseId?'/plan?courseId='+encodeURIComponent(courseId):'/'});container.insertBefore(button,container.firstChild)})()</script>)HTML";
-    const std::string chatEnhancement = R"HTML(<script>(()=>{const wrap=document.createElement('div');wrap.innerHTML='<button id="learning-chat-toggle" type="button" class="fixed bottom-5 right-5 z-40 rounded-full bg-sky-700 px-5 py-3 text-sm font-semibold text-white shadow-lg hover:bg-sky-800">问问课堂 AI</button><section id="learning-chat-panel" class="fixed bottom-20 right-5 z-40 hidden w-[min(92vw,380px)] overflow-hidden rounded-3xl border border-sky-100 bg-white shadow-2xl"><header class="flex items-center justify-between bg-sky-700 px-4 py-3 text-white"><b>课堂 AI 助手</b><button id="learning-chat-close" type="button" class="text-xl">×</button></header><div id="learning-chat-messages" class="max-h-80 space-y-3 overflow-y-auto p-4"><p class="text-sm leading-6 text-slate-500">可以针对当前主题提问，AI 会结合本节内容回答。</p></div><form id="learning-chat-form" class="border-t border-slate-100 p-3"><textarea id="learning-chat-input" rows="2" required class="w-full resize-none rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-sky-500" placeholder="例如：这一步为什么适用于当前主题？"></textarea><button id="learning-chat-send" type="submit" class="mt-2 min-h-10 w-full rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white">发送</button></form></section>';document.body.appendChild(wrap);const panel=document.getElementById('learning-chat-panel'),input=document.getElementById('learning-chat-input');document.getElementById('learning-chat-toggle').onclick=()=>{panel.classList.toggle('hidden');if(!panel.classList.contains('hidden'))input.focus()};document.getElementById('learning-chat-close').onclick=()=>panel.classList.add('hidden')})()</script>)HTML";
-    const std::string nextLearningEnhancement;
-
-    return document("学习中 - 钢一定制AI", body, identityBridge + script + progressFeedbackEnhancement + lessonNavigationEnhancement + nextLearningEnhancement + backNavigation + chatEnhancement);
-}
-
-std::string renderNextLessonPage() {
-    const std::string body = headerShell("learn") + R"HTML(
-<main id="next-lesson-page" class="next-lesson-page"><header class="next-lesson-heading"><p class="plan-kicker">AI 备课</p><h1>准备下一课</h1><p>AI 会结合最新作答、连续对话和所有活跃课程，决定推进、巩固或复习。未作答只表示缺少信息。</p><p id="next-lesson-status" role="status" aria-live="polite">正在读取备课任务…</p><div class="classroom-actions"><button id="next-lesson-stop" type="button">停止备课</button><button id="next-lesson-retry" type="button" hidden>重新准备</button><a id="next-lesson-return" class="ai-next-action" href="/my-courses">返回课堂</a></div></header><div id="next-lesson-blocks" aria-label="AI 备课过程"></div></main>)HTML";
-    return document("AI 准备下一课 - 钢一定制AI", body, "");
-}
-
-#if 0  // 顶部进度页面已删除。
-std::string renderProgressPage(const std::string& courseId, const std::string& anonymousId,
-                               const nlohmann::json& data) {
-    const auto str = [](const nlohmann::json& v) { return v.is_string() ? v.get<std::string>() : std::string(); };
-    const auto num = [](const nlohmann::json& v) { return v.is_number() ? v.get<int>() : 0; };
-    const bool ready = data.value("ready", false);
-    std::string body;
-    if (!ready) {
-        body = headerShell("progress") + R"HTML(<main class="learn-app-page min-h-screen bg-[#f5f9ff] text-slate-950"><section class="mx-auto flex min-h-[60vh] w-full max-w-2xl items-center justify-center px-4 py-12 sm:px-6"><div class="w-full rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm shadow-sky-900/5"><h1 class="text-2xl font-semibold text-slate-950">学习进度</h1><p class="mt-3 text-sm leading-6 text-slate-600">请从课程或计划页进入，系统会按阶段汇总你的学习进度。</p><a class="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white" href="/">去首页生成课程</a></div></section></main>)HTML";
-        return document("学习进度 - 钢一定制AI", body);
-    }
-    const int overall = num(data.value("overallPercent", 0));
-    const int completed = num(data.value("completedCount", 0));
-    const int total = num(data.value("totalCount", 0));
-    const std::string updated = str(data.value("updatedAt", ""));
-    const bool hasBp = data.value("hasBreakpoint", false);
-    const std::string bpUrl = str(data.value("lastVisitedUrl", ""));
-    const std::string bpText = str(data.value("breakpointText", ""));
-    std::string contLink;
-    if (hasBp && !bpUrl.empty()) contLink = R"HTML(<a class="inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white transition hover:bg-sky-800" href=")HTML" + htmlEscape(bpUrl) + R"HTML(">继续学习 →</a>)HTML";
-    const std::string resetControl = courseId.empty() ? "" : R"HTML(<button id="reset-course-progress" type="button" class="inline-flex min-h-11 items-center justify-center rounded-xl border border-rose-200 bg-white px-4 text-sm font-semibold text-rose-700 transition hover:bg-rose-50">重置本课程进度</button>)HTML";
-
-    std::string phaseCards;
-    for (const auto& ph : data.value("phases", nlohmann::json::array())) {
-        const std::string name = str(ph.value("name", ""));
-        const int pindex = num(ph.value("index", 0));
-        const int ptotal = num(ph.value("total", 0));
-        const int pdone = num(ph.value("completed", 0));
-        const int pct = num(ph.value("percent", 0));
-        const std::string href = str(ph.value("href", ""));
-        const std::string status = str(ph.value("status", "not_started"));
-        const std::string statusLabel = status == "completed" ? "已完成" : status == "in_progress" ? "学习中" : "未开始";
-        const std::string pillCls = status == "completed" ? "bg-emerald-100 text-emerald-700" : status == "in_progress" ? "bg-sky-100 text-sky-800" : "bg-slate-100 text-slate-600";
-        const std::string barCls = status == "completed" ? "bg-emerald-500" : "bg-sky-600";
-        phaseCards += R"HTML(<article class="rounded-3xl border border-sky-100 bg-white p-5 shadow-sm shadow-sky-900/5">
-  <div class="flex flex-wrap items-center justify-between gap-2"><div><p class="text-xs font-semibold text-sky-700">第 )HTML" + std::to_string(pindex) + R"HTML( 阶段</p><h2 class="mt-1 break-words text-xl font-semibold text-slate-950">)HTML" + htmlEscape(name) + R"HTML(</h2></div><span class="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold )HTML" + pillCls + R"HTML(">)HTML" + statusLabel + R"HTML(</span></div>
-  <div class="mt-4 flex items-center justify-between text-sm text-slate-600"><span>完成进度</span><span class="font-semibold text-slate-900">)HTML" + std::to_string(pct) + R"HTML(% · )HTML" + std::to_string(pdone) + R"HTML(/)HTML" + std::to_string(ptotal) + R"HTML( 节</span></div>
-  <div class="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-100"><div class="h-full rounded-full )HTML" + barCls + R"HTML(" style="width: )HTML" + std::to_string(pct) + R"HTML(%"></div></div>
-  <a class="mt-4 inline-flex min-h-10 items-center justify-center rounded-xl bg-sky-700 px-3 text-sm font-semibold text-white transition hover:bg-sky-800" href=")HTML" + htmlEscape(href) + R"HTML(">进入本阶段 →</a>
-</article>)HTML";
-    }
-    body = headerShell("progress") + R"HTML(<main class="learn-app-page min-h-screen bg-[#f5f9ff] text-slate-950"><section class="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
-  <div class="flex flex-wrap items-end justify-between gap-3"><div><p class="text-sm font-semibold text-sky-700">学习进度</p><h1 class="mt-2 break-words text-3xl font-bold tracking-tight sm:text-4xl">)HTML" + htmlEscape(data.value("courseTitle", courseId)) + R"HTML(</h1><p class="mt-2 text-sm text-slate-600">)HTML" + (updated.empty() ? std::string("每一次理解、练习和完成都会汇总到这里。") : "最近同步：" + htmlEscape(updated)) + R"HTML(</p></div><div class="flex flex-wrap gap-2">)HTML" + contLink + resetControl + R"HTML(</div></div>
-  <section class="mt-6 grid gap-4 md:grid-cols-3">
-    <article class="rounded-2xl border border-sky-100 bg-white p-5"><p class="text-sm text-slate-500">总体完成度</p><b class="mt-2 block text-4xl text-sky-700">)HTML" + std::to_string(overall) + R"HTML(%</b><div class="mt-4 h-3 overflow-hidden rounded-full bg-slate-200"><i class="block h-full rounded-full bg-sky-600" style="width: )HTML" + std::to_string(overall) + R"HTML(%"></i></div></article>
-    <article class="rounded-2xl border border-sky-100 bg-white p-5"><p class="text-sm text-slate-500">已完成项目</p><b class="mt-2 block text-4xl">)HTML" + std::to_string(completed) + R"HTML(</b><p class="mt-2 text-sm text-slate-500">理解、卡片与任务</p></article>
-    <article class="rounded-2xl border border-sky-100 bg-white p-5"><p class="text-sm text-slate-500">课程项目总数</p><b class="mt-2 block text-4xl">)HTML" + std::to_string(total) + R"HTML(</b><p class="mt-2 text-sm text-slate-500">按最新快照估算</p></article>
+<main class="lesson-page" data-lesson-view=")HTML" + htmlEscape(view) + R"HTML(">
+  <div class="lesson-heading"><div><p class="uc-eyebrow">知识点 · )HTML" + label + R"HTML(</p><h1 id="lesson-title">正在读取课堂</h1><p id="lesson-purpose"></p></div><nav class="lesson-tabs" aria-label="课堂页面"><a data-lesson-link="learn">讲解</a><a data-lesson-link="practice">练习</a><a data-lesson-link="summary">小结</a></nav></div>
+  <p id="page-status" role="status" aria-live="polite"></p>
+  <p id="lesson-next-step" hidden></p>
+  <div id="lesson-scroll" tabindex="0" role="region" aria-label="课堂消息">
+    <section id="lesson-sections" aria-label="教学内容与对话"></section>
+    <section id="lesson-completion" class="lesson-completion"><details id="lesson-summary"><summary>本节小结与完成</summary><div id="lesson-summary-content"></div><p id="completion-note"></p><button id="finish-lesson" type="button">请 AI 确认本节完成情况</button><button id="prepare-next" type="button">请 AI 准备下一课 →</button></details></section>
+  </div>
+  <button id="lesson-latest" type="button" hidden>↓ 回到最新</button>
+  <section id="lesson-chat-panel" class="lesson-chat-panel" aria-label="课堂输入">
+    <div class="composer-context"><span id="composer-target">和 AI 老师交流</span><button id="composer-chat" type="button" class="secondary" hidden>自由交流</button></div>
+    <form id="lesson-chat"><label class="sr-only" for="lesson-input">你的答案、问题或学习反馈</label><textarea id="lesson-input" rows="2" placeholder="输入答案、你的想法，或向 AI 老师追问…"></textarea><button id="lesson-send" type="submit">发送 ↑</button></form>
+    <div class="composer-toolbar"><button id="explain-again" type="button" class="secondary">换一种讲法</button><button id="continue-teaching" type="button" class="secondary">请 AI 继续</button><button id="lesson-stop" type="button" class="secondary" hidden>停止回答</button><button id="lesson-retry" type="button" class="secondary" hidden>重试同次回答</button><span id="lesson-task-status" role="status">正在读取课堂</span></div>
   </section>
-  )HTML" + (hasBp ? R"HTML(<section class="mt-6 rounded-2xl border border-sky-100 bg-white p-5"><p class="text-sm font-semibold text-slate-700">学习断点</p><p class="mt-2 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">)HTML" + htmlEscape(bpText) + R"HTML(</p></section>)HTML" : std::string()) + R"HTML(
-  <section class="mt-6"><div class="mb-3"><h2 class="text-xl font-semibold">分阶段进度</h2></div><div class="grid gap-4 md:grid-cols-2">)HTML" + (phaseCards.empty() ? R"HTML(<p class="text-sm text-slate-500 md:col-span-2">暂无可展示的阶段，先到课程里生成学习计划。</p>)HTML" : phaseCards) + R"HTML(</div></section>
-</section></main>)HTML";
-    const std::string resetScript = courseId.empty() ? "" : R"HTML(<script>(function(){const button=document.getElementById('reset-course-progress');if(!button)return;button.addEventListener('click',async()=>{if(!confirm('确定要清空这门课程的学习进度吗？课程内容不会删除。'))return;button.disabled=true;button.textContent='正在重置…';try{const response=await fetch('/api/course-progress',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'reset',courseId:)HTML" + jsString(courseId) + R"HTML(,anonymousId:)HTML" + jsString(anonymousId) + R"HTML(})});if(!response.ok)throw new Error();location.reload()}catch(_){button.disabled=false;button.textContent='重置失败，请重试'}})})();</script>)HTML";
-    return document("学习进度 - 钢一定制AI", body, resetScript);
+</main>)HTML";
+    return document(label + " - 钢一定制AI", body, "<script defer src=\"/agent-classroom.js\"></script>", "<link rel=\"stylesheet\" href=\"/agent-classroom.css\">");
 }
-#endif
+
+std::string renderLearnPage([[maybe_unused]] const std::string& courseId, [[maybe_unused]] const std::string& goal, [[maybe_unused]] const std::string& mode,
+    [[maybe_unused]] const std::string& phaseIndex, [[maybe_unused]] const std::string& phaseName, [[maybe_unused]] const std::string& topicIndex,
+    [[maybe_unused]] const std::string& topic, [[maybe_unused]] const std::string& anonymousId, [[maybe_unused]] const std::string& regenerate,
+    [[maybe_unused]] const std::string& forceLearn, [[maybe_unused]] const std::string& retry) { return renderClassroomPage("learn"); }
 
 std::string renderAskPage(const std::string& question) {
     const std::string body = headerShell("ask") + R"HTML(
@@ -284,15 +204,18 @@ std::string renderAskPage(const std::string& question) {
     return document("AI 对话 - 钢一定制AI", body, script);
 }
 
+std::string renderCurrentCourseEmptyPage(bool hasCourses) {
+    const std::string title = hasCourses ? "暂未选择当前课程" : "当前没有课程";
+    const std::string description = hasCourses ? "从我的课程选择一门课程，开始学习。" : "从首页输入学习目标，创建你的第一门课程。";
+    const std::string body = headerShell("learn") + "<main class=\"uc-shell current-course-empty\"><section class=\"uc-head\"><div><p class=\"uc-eyebrow\">当前课程</p><h1>" +
+        title + "</h1><p>" + description + "</p><div class=\"empty-course-actions\"><a href=\"" +
+        (hasCourses ? "/my-courses" : "/") + "\">" + (hasCourses ? "选择课程 →" : "创建课程 →") + "</a></div></div></section></main>";
+    return document(title + " - 钢一定制AI", body);
+}
+
 std::string renderMyCoursesPage(const nlohmann::json& data) {
     const auto str = [](const nlohmann::json& v) { return v.is_string() ? v.get<std::string>() : std::string(); };
     const auto num = [](const nlohmann::json& v) { return v.is_number() ? v.get<int>() : 0; };
-    const auto stats = data.value("stats", nlohmann::json::object());
-    const int total = num(stats.value("total", 0));
-    const int percent = num(stats.value("percent", 0));
-    const int doneTopics = num(stats.value("doneTopics", 0));
-    const int totalTopics = num(stats.value("totalTopics", 0));
-    const int dueCount = num(stats.value("due", 0));
     std::string cardsHtml;
     for (const auto& c : data.value("courses", nlohmann::json::array())) {
         const std::string title = str(c.value("title", ""));
@@ -322,289 +245,47 @@ std::string renderMyCoursesPage(const nlohmann::json& data) {
             htmlEscape(str(item.value("course", ""))) + R"HTML( · 到期 )HTML" + htmlEscape(str(item.value("due", ""))) + R"HTML(</span></a></li>)HTML";
     }
     const std::string body = headerShell("my-courses") + R"HTML(
-<main class="learn-app-page uc-main">
-  <div class="uc-shell">
-    <aside class="uc-side">
-      <div class="uc-identity"><span class="uc-avatar" aria-hidden="true">钢</span><div><strong>本机学习档案</strong><small>数据保存在这台电脑</small></div></div>
-      <nav class="uc-nav" aria-label="用户中心"><a href="#uc-overview" class="is-active">概览</a><a href="#uc-courses">我的课程</a><a href="#uc-time">学习时间</a><a href="#uc-profile">学习画像</a><a href="#uc-settings">AI 设置</a></nav>
-      <a class="uc-primary uc-new" href="/">+ 生成新课程</a>
-    </aside>
-    <div class="uc-content">
-      <header class="uc-head"><p class="uc-eyebrow">用户中心</p><h1>我的课堂</h1><p class="uc-lead">继续学习已生成的课程，查看学习画像，并管理每周学习时间。</p></header>
-      <p id="course-message" class="uc-message" aria-live="polite"></p>
-      <section id="uc-overview" class="uc-section" aria-labelledby="uc-overview-title">
-        <h2 id="uc-overview-title" class="uc-section-title">概览</h2>
-        <div class="uc-stats">
-          <article class="uc-card uc-stat"><p>全部课程</p><b>)HTML" + std::to_string(total) + R"HTML(</b></article>
-          <article class="uc-card uc-stat"><p>总体完成度</p><b>)HTML" + std::to_string(percent) + R"HTML(<i>%</i></b><span>)HTML" + std::to_string(doneTopics) + R"HTML( / )HTML" + std::to_string(totalTopics) + R"HTML( 节</span></article>
-          <article class="uc-card uc-stat"><p>已完成节数</p><b>)HTML" + std::to_string(doneTopics) + R"HTML(</b><span>按学习卡片统计</span></article>
-          <article class="uc-card uc-stat"><p>待复习</p><b>)HTML" + std::to_string(dueCount) + R"HTML(</b><span>1 / 3 / 7 天复习</span></article>
-        </div>
-        <div class="uc-card uc-due"><h3>待复习清单</h3>)HTML" +
-            (dueHtml.empty() ? R"HTML(<p class="uc-empty">目前没有到期复习，保持节奏就好。</p>)HTML"
-                             : R"HTML(<ul class="uc-due-list">)HTML" + dueHtml + "</ul>") + R"HTML(
-        </div>
-      </section>
-      <section id="uc-courses" class="uc-section" aria-labelledby="uc-courses-title">
-        <h2 id="uc-courses-title" class="uc-section-title">我的课程</h2>)HTML"
-        + (cardsHtml.empty() ? R"HTML(<div class="uc-card uc-empty-card"><p class="uc-empty">还没有课程。去首页输入你的学习目标，先生成一份课程计划。</p><a class="uc-primary" style="margin-top:12px" href="/">去首页生成课程</a></div>)HTML" : cardsHtml)
-        + R"HTML(
-      </section>
-      <section id="uc-time" class="uc-section" aria-labelledby="uc-time-title">
-        <h2 id="uc-time-title" class="uc-section-title">学习时间</h2>
-        <div class="uc-card">
-          <p class="uc-hint">预填每周 3 天、每天 30 分钟。课程计划页会读取这里的设置，两边自动同步。</p>
-          <p id="uc-availability-summary" class="uc-summary">正在读取…</p>
-          <fieldset class="uc-availability"><legend class="sr-only">每周可学习时间</legend><div id="uc-availability-grid" class="availability-grid"></div></fieldset>
-        </div>
-      </section>
-      <section id="uc-profile" class="uc-section" aria-labelledby="uc-profile-title">
-        <h2 id="uc-profile-title" class="uc-section-title">学习画像</h2>
-        <div id="uc-profile-radar" class="uc-profile-radar" data-profile-radar></div>
-        <div id="uc-profile-subjects" class="uc-card uc-profile"><p class="uc-empty">正在读取本机学习画像…</p></div>
-        <div id="uc-profile-topics" class="uc-card uc-topics"><p class="uc-empty">正在读取主题掌握度…</p></div>
-      </section>
-      <section id="uc-settings" class="uc-section" aria-labelledby="uc-settings-title">
-        <h2 id="uc-settings-title" class="uc-section-title">AI 设置</h2>
-        <div class="uc-card uc-settings" aria-labelledby="api-interface-title">
-          <div><p class="uc-eyebrow">AI 设置</p><h3 id="api-interface-title">API 接口</h3><p>配置服务商、API 地址、API Key 和模型。密钥保存在本机 Windows 凭据管理器，不会显示在课程页面。</p><p id="api-settings-message" class="uc-message" role="status" aria-live="polite"></p></div>
-          <button id="open-api-settings" type="button" class="uc-primary">配置 API 接口</button>
-        </div>
-        <div class="uc-card uc-data"><h3>本机数据说明</h3><ul><li>课程、进度、对话记录和学习画像保存在 <code>%LOCALAPPDATA%\GangyiAI\data</code>，只属于这台电脑。</li><li>DeepSeek 与博查的密钥保存在 Windows 凭据管理器，不会写入课程页面或日志。</li><li>「每周学习时间」记在当前窗口的本机存储中，清理窗口数据会回到默认设置。</li></ul></div>
-      </section>
-    </div>
-  </div>
-</main>)HTML";
+<main class="uc-main"><div class="uc-shell"><div class="uc-content">
+  <header class="uc-head"><div><p class="uc-eyebrow">本机学习档案</p><h1>我的课程</h1></div><div class="uc-head-actions"><a class="uc-primary" href="/">＋ 新课程</a><button id="open-api-settings" type="button">AI 设置</button></div></header>
+  <p id="api-settings-message" class="uc-message" role="status" aria-live="polite"></p><p id="course-message" class="uc-message" aria-live="polite"></p>
+  <div class="uc-tabs" role="tablist" aria-label="我的学习"><button id="courses-tab" type="button" role="tab" aria-controls="courses-panel" aria-selected="true" data-uc-tab="courses">我的课程</button><button id="profile-tab" type="button" role="tab" aria-controls="profile-panel" aria-selected="false" data-uc-tab="profile">我的画像</button></div>
+  <section id="courses-panel" role="tabpanel" aria-labelledby="courses-tab"><div class="uc-course-grid" data-paged-list data-page-size="4">)HTML" +
+      (cardsHtml.empty() ? "<p>还没有课程，去首页输入学习目标开始吧。</p>" : cardsHtml) + R"HTML(</div>
+    <div id="uc-study-plan-anchor"></div><details class="uc-review-details"><summary>待复习清单</summary>)HTML" + (dueHtml.empty() ? "<p>目前没有到期复习。</p>" : "<ul class=\"uc-due-list\">" + dueHtml + "</ul>") + R"HTML(</details>
+  </section>
+  <section id="profile-panel" role="tabpanel" aria-labelledby="profile-tab" hidden><section id="uc-profile"><h2>我的画像</h2><div id="uc-profile-radar" data-profile-radar></div><details><summary>学科与知识点详情</summary><div id="uc-profile-subjects"></div><div id="uc-profile-topics"></div></details></section><section id="uc-time"><h2>学习时间</h2><p id="uc-availability-summary" role="status"></p><fieldset class="uc-availability"><legend class="sr-only">每周可学习时间</legend><div id="uc-availability-grid" class="availability-grid"></div></fieldset></section></section>
+</div></div></main>)HTML";
     const std::string script = R"HTML(<script defer src="/user-center.js"></script>)HTML";
     return document("我的课程 - 钢一定制AI", body, script);
 }
 
 std::string renderPhasePage(const std::string& courseId, const std::string& anonymousId,
-                            const std::string& goal, const std::string& mode,
-                            const std::string& phaseIndex, const std::string& phaseName,
-                            const nlohmann::json& plan, const nlohmann::json& cardStatus) {
-    const auto str = [](const nlohmann::json& v) {
-        if (v.is_string()) return v.get<std::string>();
-        return std::string();
-    };
-    const auto arr = [](const nlohmann::json& v) { return v.is_array(); };
-    const auto q = [&](const std::string& key) {
-        return std::string("&") + key + "=";
-    };
-    const std::string anonQ = anonymousId.empty() ? "" : q("anonymousId") + urlEncode(anonymousId);
-
-    // 解析阶段与主题（MockPlan：roadmap[] / courseStructure[]）
-    int index = 1;
-    try { if (!phaseIndex.empty()) index = std::max(1, std::stoi(phaseIndex)); } catch (...) {}
-    const bool hasPlan = plan.is_object() && arr(plan.value("roadmap", nlohmann::json())) &&
-        arr(plan.value("courseStructure", nlohmann::json()));
-    std::string stageTitle = phaseName.empty() ? "阶段" + std::to_string(index) : phaseName;
-    std::string stageGoal, stageWhy, stageOutput, stageDuration, suitable;
-    std::vector<std::pair<std::string, int>> topics;  // 知识点标题与显示序号
-    std::map<int, nlohmann::json> topicIdentities;
-    if (hasPlan) {
-        const auto roadmap = plan["roadmap"];
-        const auto courseStructure = plan["courseStructure"];
-        const nlohmann::json* stage = nullptr;
-        if (index <= static_cast<int>(roadmap.size())) stage = &roadmap[index - 1];
-        else for (const auto& s : roadmap) if (str(s.value("name", "")) == stageTitle) { stage = &s; break; }
-        if (stage) {
-            if (stage->contains("name") && (*stage)["name"].is_string()) stageTitle = (*stage)["name"].get<std::string>();
-            stageGoal = str(stage->value("goal", stage->value("description", "")));
-            stageWhy = str(stage->value("why", ""));
-            stageOutput = str(stage->value("output", ""));
-            stageDuration = str(stage->value("duration", ""));
-        }
-        const nlohmann::json* topicsSrc = nullptr;
-        if (index <= static_cast<int>(courseStructure.size())) {
-            const auto& cs = courseStructure[index - 1];
-            if (arr(cs.value("topics", nlohmann::json()))) topicsSrc = &cs["topics"];
-        }
-        if (!topicsSrc && stage && arr(stage->value("tasks", nlohmann::json()))) topicsSrc = &(*stage)["tasks"];
-        if (topicsSrc) {
-            int n = 0;
-            for (const auto& t : *topicsSrc) { ++n; topics.emplace_back(t.is_object() ? str(t.value("title", "")) : str(t), n); if (t.is_object()) topicIdentities[n] = t; }
-        }
-        if (topics.empty() && stage) { stageTitle = str(stage->value("name", stageTitle)); }
+    const std::string& goal, const std::string& mode, const std::string& phaseIndex, const std::string& phaseName,
+    const nlohmann::json& plan, const nlohmann::json& cardStatus) {
+    int selected = 1; try { selected = std::max(1, std::stoi(phaseIndex)); } catch (...) { }
+    const auto stages = plan.value("courseStructure", nlohmann::json::array());
+    const auto roadmap = plan.value("roadmap", nlohmann::json::array());
+    const std::string back = "/plan?courseId=" + urlEncode(courseId) + (anonymousId.empty() ? "" : "&anonymousId=" + urlEncode(anonymousId));
+    if (!stages.is_array() || selected > static_cast<int>(stages.size()))
+        return document("阶段 - 钢一定制AI", headerShell("learn") + "<main class=\"phase-page\"><h1>阶段内容暂未生成完成</h1><a href=\"" + htmlEscape(back) + "\">返回课程</a></main>");
+    const auto stage = stages.at(selected - 1);
+    const auto road = roadmap.is_array() && selected <= static_cast<int>(roadmap.size()) ? roadmap.at(selected - 1) : nlohmann::json::object();
+    const std::string title = stage.value("stage", road.value("name", phaseName));
+    const std::string stageGoal = stage.value("goal", road.value("goal", road.value("description", goal)));
+    const std::string why = stage.value("why", road.value("why", ""));
+    std::string rows; int number = 0;
+    for (const auto& topic : stage.value("topics", nlohmann::json::array())) {
+        ++number; const std::string name = topic.is_string() ? topic.get<std::string>() : topic.value("title", "");
+        const int phase = topic.is_object() ? topic.value("legacyPhaseIndex", selected) : selected;
+        const int index = topic.is_object() ? topic.value("legacyTopicIndex", number) : number;
+        const std::string id = topic.is_object() ? topic.value("id", "") : "";
+        const std::string description = topic.is_object() ? topic.value("description", topic.value("goal", "")) : "";
+        const auto state = cardStatus.value(std::to_string(number), "not_started");
+        const std::string href = "/learn?courseId=" + urlEncode(courseId) + "&phaseIndex=" + std::to_string(phase) + "&topicIndex=" + std::to_string(index) + "&topicId=" + urlEncode(id) + "&mode=" + urlEncode(mode) + (anonymousId.empty() ? "" : "&anonymousId=" + urlEncode(anonymousId));
+        rows += "<a class=\"outline-row\" href=\"" + htmlEscape(href) + "\"><span class=\"outline-number\">" + std::to_string(number) + "</span><div><h3>" + htmlEscape(name) + "</h3><p>" + htmlEscape(description) + "</p></div><span>" + (state == "completed" ? "已完成" : state == "in_progress" ? "学习中" : "开始 →") + "</span></a>";
     }
-    if (!hasPlan) {
-        // 无课程快照：给出“未找到/未生成”降级态
-        const std::string back = courseId.empty()
-            ? "/plan?goal=" + urlEncode(goal) + "&mode=" + urlEncode(mode) + anonQ
-            : "/plan?courseId=" + urlEncode(courseId) + anonQ;
-        const std::string body = headerShell("learn") + R"HTML(
-<main class="learn-app-page min-h-screen bg-[#f5f9ff] text-slate-950">
-  <section class="mx-auto flex min-h-[70vh] w-full max-w-3xl items-center justify-center px-4 py-12 sm:px-6">
-    <div class="rounded-3xl border border-amber-100 bg-white p-8 text-center shadow-sm shadow-sky-900/5">
-      <h1 class="text-3xl font-semibold tracking-tight text-slate-950">阶段内容暂未生成完成</h1>
-      <p class="mt-3 text-base leading-7 text-slate-600">当前课程结构还不完整，暂时无法生成阶段讲解、任务、课件和知识结构。请回到课程页重新生成或刷新后重试。</p>
-      <div class="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
-        <a class="inline-flex min-h-12 items-center justify-center rounded-xl bg-sky-700 px-5 text-sm font-semibold text-white transition hover:bg-sky-800" href=")HTML" + back + R"HTML(">返回课程大纲</a>
-      </div>
-    </div>
-  </section>
-</main>)HTML";
-        return document("阶段 - 钢一定制AI", body);
-    }
-
-    // 主题状态
-    int completed = 0;
-    for (const auto& [title, no] : topics) {
-        if (cardStatus.value(std::to_string(no), "") == "completed") ++completed;
-    }
-    const int total = static_cast<int>(topics.size());
-    const int percent = total > 0 ? static_cast<int>(std::lround(completed * 100.0 / total)) : 0;
-    const bool done = total > 0 && completed >= total;
-    const std::string modeLabel = mode == "lite" ? "快速规划" : "深度课程规划";
-    const std::string modeDesc = mode == "lite" ? "轻量学习课程：阶段内容更聚焦，保留关键讲解和练习。" : "系统学习课程：阶段讲解、任务、课件和资料更完整。";
-    if (suitable.empty()) suitable = "适合正在学习「" + goal + "」并准备完成「" + stageTitle + "」阶段任务的学习者。";
-    const std::string backHref = courseId.empty()
-        ? "/plan?goal=" + urlEncode(goal) + "&mode=" + urlEncode(mode) + anonQ
-        : "/plan?courseId=" + urlEncode(courseId) + anonQ;
-    int nextTopicNo = 1;
-    std::string nextTopicTitle;
-    for (const auto& [title, no] : topics) {
-        if (cardStatus.value(std::to_string(no), "not_started") != "completed") {
-            nextTopicNo = no;
-            nextTopicTitle = title;
-            break;
-        }
-    }
-    if (nextTopicTitle.empty() && !topics.empty()) {
-        nextTopicNo = topics.front().second;
-        nextTopicTitle = topics.front().first;
-    }
-    std::string firstHref = courseId.empty()
-        ? "/learn?goal=" + urlEncode(goal) + "&mode=" + urlEncode(mode)
-            + "&phaseIndex=" + std::to_string(index) + "&phaseName=" + urlEncode(stageTitle)
-            + "&topicIndex=" + std::to_string(nextTopicNo) + "&topic=" + urlEncode(nextTopicTitle) + anonQ
-        : "/learn?courseId=" + urlEncode(courseId)
-            + "&phaseIndex=" + std::to_string(index) + "&phaseName=" + urlEncode(stageTitle)
-            + "&topicIndex=" + std::to_string(nextTopicNo) + "&topic=" + urlEncode(nextTopicTitle)
-            + "&goal=" + urlEncode(goal) + "&mode=" + urlEncode(mode) + anonQ;
-    if (topicIdentities.count(nextTopicNo)) firstHref += "&topicId=" + urlEncode(topicIdentities.at(nextTopicNo).value("id", ""));
-    const std::string askHref = "/ask?goal=" + urlEncode(goal) + "&mode=" + urlEncode(mode) + anonQ;
-
-    std::string topicsHtml;
-    for (const auto& [title, no] : topics) {
-        const std::string status = cardStatus.value(std::to_string(no), "not_started");
-        const std::string statusLabel = status == "completed" ? "已完成" : status == "in_progress" ? "学习中" : "未开始";
-        const std::string statusCls = status == "completed" ? "border-emerald-100 bg-emerald-50" : status == "in_progress" ? "border-sky-100 bg-sky-50" : "border-slate-200 bg-slate-50";
-        const std::string badgeCls = status == "completed" ? "bg-emerald-100 text-emerald-700" : status == "in_progress" ? "bg-sky-100 text-sky-800" : "bg-white text-slate-600";
-        const std::string hint = status == "completed" ? "已完成，可以复习巩固。" : status == "in_progress" ? "当前学习中，继续完成本节。" : "还未开始，从这里进入微课程。";
-        std::string href = courseId.empty()
-            ? "/learn?goal=" + urlEncode(goal) + "&mode=" + urlEncode(mode)
-                + "&phaseIndex=" + std::to_string(index) + "&phaseName=" + urlEncode(stageTitle)
-                + "&topicIndex=" + std::to_string(no) + "&topic=" + urlEncode(title) + anonQ
-            : "/learn?courseId=" + urlEncode(courseId)
-                + "&phaseIndex=" + std::to_string(index) + "&phaseName=" + urlEncode(stageTitle)
-                + "&topicIndex=" + std::to_string(no) + "&topic=" + urlEncode(title)
-                + "&goal=" + urlEncode(goal) + "&mode=" + urlEncode(mode) + anonQ;
-        if (topicIdentities.count(no)) href += "&topicId=" + urlEncode(topicIdentities.at(no).value("id", ""));
-        topicsHtml += R"HTML(<article data-topic=")HTML" + htmlEscape(title) + R"HTML(" class="interactive-card rounded-2xl border p-4 )HTML" + statusCls + R"HTML(">
-          <div class="flex items-start justify-between gap-3">
-            <div><p class="text-xs font-semibold text-sky-700">第 )HTML" + std::to_string(no) + R"HTML( 节</p><h3 class="mt-1 break-words font-semibold text-slate-950">)HTML" + htmlEscape(title) + R"HTML(</h3><p class="mt-2 text-sm text-slate-600">)HTML" + hint + R"HTML(</p></div>
-            <span class="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold )HTML" + badgeCls + R"HTML(">)HTML" + statusLabel + R"HTML(</span>
-          </div>
-          <a class="mt-4 inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-white px-3 text-sm font-semibold text-sky-800 ring-1 ring-sky-100 transition hover:bg-sky-100" href=")HTML" + href + R"HTML(">学习这一节</a>
-        </article>)HTML";
-    }
-
-    const std::string progressState = done ? "本阶段已完成" : (completed > 0 ? "当前阶段进度" : "本阶段未开始");
-    const std::string primaryLabel = done ? "复习本阶段" : (completed > 0 ? "继续本阶段" : "开始本阶段学习");
-    const std::string body = headerShell("learn") + R"HTML(
-<main class="learn-app-page min-h-screen bg-[#f5f9ff] text-slate-950">
-  <div class="mx-auto w-full max-w-6xl space-y-6 px-4 py-8 sm:px-6 lg:px-8 lg:py-10 xl:max-w-7xl">
-    <section class="rounded-3xl border border-sky-100 bg-white p-4 shadow-sm shadow-sky-900/5 sm:p-8">
-      <a class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50 hover:text-sky-800" href=")HTML" + backHref + R"HTML(">← 返回学习方案</a>
-      <div class="mt-8 grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-end">
-        <div>
-          <div class="mb-4 inline-flex items-center gap-2 rounded-full bg-sky-50 px-3 py-2 text-sm font-medium text-sky-800">第 )HTML" + std::to_string(index) + R"HTML( 阶段详情</div>
-          <h1 class="break-words text-2xl font-semibold tracking-tight text-slate-950 sm:text-4xl lg:text-5xl">)HTML" + htmlEscape(stageTitle) + R"HTML(</h1>
-          <p class="mt-4 max-w-3xl break-words text-base leading-8 text-slate-600 sm:text-lg">针对「)HTML" + htmlEscape(goal.empty() ? "你的目标" : goal) + R"HTML(」的阶段学习计划</p>
-          <div class="mt-4 rounded-2xl border border-sky-100 bg-white/80 p-4">
-            <div class="flex flex-wrap items-center justify-between gap-3 text-sm font-semibold text-slate-700"><span>)HTML" + progressState + R"HTML(</span><span>)HTML" + std::to_string(percent) + R"HTML(% · )HTML" + std::to_string(completed) + R"HTML(/)HTML" + std::to_string(total) + R"HTML( 节</span></div>
-            <div class="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-100"><div class="h-full rounded-full bg-sky-700" style="width: )HTML" + std::to_string(percent) + R"HTML(%"></div></div>
-          </div>
-          <div class="mt-5 max-w-full rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm shadow-sm sm:w-fit">
-            <p class="font-semibold text-sky-800">当前模式：)HTML" + modeLabel + R"HTML(</p>
-            <p class="mt-1 leading-6 text-slate-600">)HTML" + modeDesc + R"HTML(</p>
-          </div>
-        </div>
-        <div class="grid min-w-0 gap-3 md:grid-cols-2 lg:grid-cols-1">
-          <a class="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-sky-700 px-4 text-sm font-semibold text-white transition hover:bg-sky-800" href=")HTML" + firstHref + R"HTML(">)HTML" + primaryLabel + R"HTML(</a>
-          <a class="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-800 transition hover:bg-sky-100" href=")HTML" + askHref + R"HTML(">问问钢一定制AI</a>
-        </div>
-      </div>
-    </section>
-    <section class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <div class="rounded-3xl border border-sky-100 bg-white p-4 shadow-sm shadow-sky-900/5 sm:p-5"><p class="text-sm font-semibold text-sky-700">阶段名称</p><p class="mt-2 break-words text-lg font-semibold text-slate-950">)HTML" + htmlEscape(stageTitle) + R"HTML(</p></div>
-      <div class="rounded-3xl border border-sky-100 bg-white p-4 shadow-sm shadow-sky-900/5 sm:p-5"><p class="text-sm font-semibold text-sky-700">当前学习目标</p><p class="mt-2 break-words text-lg font-semibold text-slate-950">)HTML" + htmlEscape(stageGoal) + R"HTML(</p></div>
-      <div class="rounded-3xl border border-sky-100 bg-white p-4 shadow-sm shadow-sky-900/5 sm:p-5"><p class="text-sm font-semibold text-sky-700">推荐学习周期</p><p class="mt-2 break-words text-lg font-semibold text-slate-950">)HTML" + (stageDuration.empty() ? std::string("按课程安排") : htmlEscape(stageDuration)) + R"HTML(</p></div>
-      <div class="rounded-3xl border border-sky-100 bg-white p-4 shadow-sm shadow-sky-900/5 sm:p-5"><p class="text-sm font-semibold text-sky-700">适合人群</p><p class="mt-2 break-words text-sm leading-6 text-slate-600">)HTML" + htmlEscape(suitable) + R"HTML(</p></div>
-    </section>
-    <section class="rounded-3xl border border-sky-100 bg-white p-4 shadow-sm shadow-sky-900/5 sm:p-8">
-      <div class="mb-6"><p class="text-sm font-semibold text-sky-700">阶段概览</p><h2 class="mt-2 text-2xl font-semibold tracking-tight text-slate-950">阶段目标</h2>
-        <p class="mt-3 break-words leading-7 text-slate-600">)HTML" + htmlEscape(stageGoal) + R"HTML(</p>
-        <p class="mt-4 break-words rounded-2xl bg-sky-50 p-4 text-sm leading-6 text-sky-900">为什么先学：)HTML" + htmlEscape(stageWhy) + R"HTML(</p>
-        <p class="mt-3 break-words rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">阶段产出：)HTML" + htmlEscape(stageOutput) + R"HTML(</p>
-      </div>
-      <div class="grid gap-3 md:grid-cols-2">
-)HTML" + topicsHtml + R"HTML(
-      </div>
-    </section>
-    <section class="rounded-3xl border border-sky-100 bg-white p-4 shadow-sm shadow-sky-900/5 sm:p-8">
-      <div class="mb-6"><p class="text-sm font-semibold text-sky-700">阶段展开</p><h2 class="mt-2 text-2xl font-semibold tracking-tight text-slate-950">分步讲解与任务</h2><p class="mt-3 break-words text-sm leading-6 text-slate-600">系统会为这个阶段生成讲解步骤、任务练习与常见错误提醒。</p></div>
-      <div id="phase-expansion-body">)HTML" + loadingSpinner("正在整理阶段讲解", "正在生成步骤、任务与检查点…") + R"HTML(</div>
-    </section>
-  </div>
-</main>)HTML";
-    // 阶段展开：POST /api/phase-expansion 生成讲解/任务/检查点；失败展示降级态（可重试）
-    const std::string script = R"HTML(<script>(()=>{
-const C=)HTML"+jsString(courseId)+R"HTML(,A=)HTML"+jsString(anonymousId)+R"HTML(,G=)HTML"+jsString(goal)+R"HTML(,M=)HTML"+jsString(mode)+R"HTML(,P=)HTML"+std::to_string(index)+R"HTML(,N=)HTML"+jsString(stageTitle)+R"HTML(;
-const esc=v=>{const d=document.createElement('div');d.textContent=v??'';return d.innerHTML};
-const topics=Array.from(document.querySelectorAll('[data-topic]')).map(e=>e.getAttribute('data-topic')||'');
-const box=document.getElementById('phase-expansion-body');
-const arr=v=>Array.isArray(v)?v:[];
-const block=(label,rows)=>rows.length?('<div class="mt-5"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">'+label+'</p><div class="mt-2 grid gap-2">'+rows.join('')+'</div></div>'):'';
-const pills=items=>items.length?('<div class="mt-2 flex flex-wrap gap-2">'+items.map(x=>'<span class="inline-flex rounded-full border border-amber-100 bg-amber-50 px-3 py-1 text-sm text-amber-800">'+esc(x)+'</span>').join('')+'</div>'):'';
-function render(x){
- const parts=[];
- if(x.objective)parts.push('<p class="mt-1 break-words leading-7 text-slate-600"><b>阶段目标：</b>'+esc(x.objective)+'</p>');
- if(x.overview)parts.push('<div class="rounded-2xl bg-sky-50 p-4 text-sm leading-6 text-sky-900">'+esc(x.overview)+'</div>');
- parts.push(block('分步讲解',arr(x.steps).map((s,i)=>'<div class="rounded-2xl border border-sky-100 bg-sky-50/50 p-4"><p class="text-xs font-semibold text-sky-700">第 '+(i+1)+' 步</p><h3 class="mt-1 font-semibold text-slate-950">'+esc(s.title||('第 '+(i+1)+' 步'))+'</h3>'+(s.explanation?'<p class="mt-2 text-sm leading-7 text-slate-600">'+esc(s.explanation)+'</p>':'')+(s.example?'<p class="mt-2 text-sm text-slate-700"><b>示例：</b>'+esc(s.example)+'</p>':'')+(s.action?'<p class="mt-2 text-sm text-slate-700"><b>行动：</b>'+esc(s.action)+'</p>':'')+(s.check?'<p class="mt-2 text-sm text-slate-700"><b>检查：</b>'+esc(s.check)+'</p>':'')+'</div>')));
- parts.push(block('阶段任务',arr(x.tasks).map((t,i)=>'<div class="rounded-2xl border border-slate-200 bg-white p-4"><p class="font-semibold text-slate-950">'+esc(t.title||('任务 '+(i+1)))+'</p>'+(t.duration?'<p class="mt-1 text-sm text-slate-500">预计 '+esc(t.duration)+'</p>':'')+(t.description?'<p class="mt-2 text-sm leading-7 text-slate-600">'+esc(t.description)+'</p>':'')+(t.output?'<p class="mt-2 rounded-xl bg-slate-50 p-3 text-sm text-slate-700"><b>产出：</b>'+esc(t.output)+'</p>':'')+'</div>')));
- if(arr(x.checklist).length)parts.push('<div class="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">阶段验收清单</p><div class="mt-2 grid gap-2">'+arr(x.checklist).map(s=>'<p class="text-sm text-emerald-900">✓ '+esc(s)+'</p>').join('')+'</div></div>');
- if(arr(x.commonMistakes).length)parts.push('<div class="mt-5"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-rose-700">常见错误</p>'+pills(arr(x.commonMistakes))+'</div>');
- box.innerHTML=parts.join('')||'<p class="text-sm text-slate-500">暂无展开内容，可在阶段页重新生成。</p>';
-}
-function failed(){
- box.innerHTML='<div class="rounded-2xl border border-amber-100 bg-amber-50 p-5 text-center"><p class="font-semibold text-amber-800">阶段内容暂未生成完成</p><p class="mt-2 text-sm text-slate-600">AI 暂时无法生成讲解与任务，请稍后重试或返回课程页重新生成。</p><button type="button" onclick="location.reload()" class="mt-4 inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white">重新生成阶段</button></div>';
-}
-fetch('/api/phase-expansion',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({courseId:C||undefined,anonymousId:A||undefined,goal:G,mode:M,phaseIndex:Number(P)||1,stage:N,topics})})
- .then(r=>r.json()).then(d=>{if(d.ok&&d.phase){render(d.phase);window.dispatchEvent(new CustomEvent('gangyi-phase-loaded',{detail:d}));}else failed();}).catch(failed);
-})()</script>)HTML";
-    const std::string interactionScript = R"HTML(<script>(()=>{
-const C=)HTML" + jsString(courseId) + R"HTML(,A=)HTML" + jsString(anonymousId) + R"HTML(,G=)HTML" + jsString(goal) + R"HTML(,M=)HTML" + jsString(mode) + R"HTML(,P=)HTML" + std::to_string(index) + R"HTML(,N=)HTML" + jsString(stageTitle) + R"HTML(;
-const box=document.getElementById('phase-expansion-body');
-const key='gangyi-phase-progress:'+encodeURIComponent([C,A,G,M,P].join(':'));
-const esc=value=>{const node=document.createElement('div');node.textContent=value??'';return node.innerHTML};
-const arr=value=>Array.isArray(value)?value:[];
-let saved={tasks:{},steps:{}};
-try{saved=Object.assign(saved,JSON.parse(localStorage.getItem(key)||'{}'))}catch(_){ }
-let detail=null;
-function store(){localStorage.setItem(key,JSON.stringify(saved))}
-function stateLabel(kind,value){return kind==='task'?({not_started:'未开始',in_progress:'进行中',completed:'已完成'}[value]||'未开始'):({unset:'未标记',understood:'已理解',review:'需要复习'}[value]||'未标记')}
-function controlHtml(kind,index,value){const values=kind==='task'?['not_started','in_progress','completed']:['unset','understood','review'];return '<div class="mobile-button-stack mt-4 flex flex-wrap gap-2" data-phase-controls="'+kind+'-'+index+'">'+values.map(option=>'<button type="button" data-phase-kind="'+kind+'" data-phase-index="'+index+'" data-phase-status="'+option+'" class="min-h-10 rounded-full border px-3 text-sm font-semibold '+(option===value?'border-sky-700 bg-sky-700 text-white':'border-slate-200 bg-white text-slate-700 hover:bg-sky-50')+'">'+stateLabel(kind,option)+'</button>').join('')+'</div>'}
-function paint(kind,index,value){saved[kind==='task'?'tasks':'steps'][index]=value;store();const controls=box.querySelector('[data-phase-controls="'+kind+'-'+index+'"]');if(!controls)return;controls.querySelectorAll('button').forEach(button=>{const active=button.dataset.phaseStatus===value;button.className='min-h-10 rounded-full border px-3 text-sm font-semibold '+(active?'border-sky-700 bg-sky-700 text-white':'border-slate-200 bg-white text-slate-700 hover:bg-sky-50')})}
-function resourceHtml(resources){if(!resources.length)return '';return '<section class="mt-7 border-t border-sky-100 pt-6"><p class="text-xs font-semibold uppercase tracking-[.16em] text-sky-700">推荐资源</p><div class="mt-3 grid gap-3 md:grid-cols-2">'+resources.map(resource=>{const url=String(resource.url||''),href=url.startsWith('http')?url:'#';return '<a target="_blank" rel="noreferrer" href="'+esc(href)+'" class="block rounded-2xl border border-sky-100 bg-sky-50/50 p-4"><p class="text-xs font-semibold text-sky-700">'+esc(resource.type||resource.source||'学习资源')+'</p><h4 class="mt-1 font-semibold text-slate-950">'+esc(resource.title||'参考资料')+'</h4><p class="mt-2 text-sm leading-6 text-slate-600">'+esc(resource.description||'点击查看相关学习内容。')+'</p></a>'}).join('')+'</div></section>'}
-function enhance(){if(!detail||!detail.phase)return;const sections=Array.from(box.children).filter(node=>node.classList&&node.classList.contains('mt-5'));const steps=arr(detail.phase.steps),tasks=arr(detail.phase.tasks);const stepCards=sections[0]?Array.from(sections[0].querySelectorAll(':scope > div > div')):[];const taskCards=sections[1]?Array.from(sections[1].querySelectorAll(':scope > div > div')):[];stepCards.forEach((card,index)=>card.insertAdjacentHTML('beforeend',controlHtml('step',index,saved.steps[index]||'unset')));taskCards.forEach((card,index)=>card.insertAdjacentHTML('beforeend',controlHtml('task',index,saved.tasks[index]||'not_started')));box.insertAdjacentHTML('beforeend',resourceHtml(arr(detail.resources)));}
-function load(kind){const params=new URLSearchParams({courseId:C,anonymousId:A,goal:G,mode:M,phaseIndex:String(P)});return fetch('/api/'+(kind==='task'?'task-progress':'learning-step-progress')+'?'+params).then(response=>response.ok?response.json():{items:[]}).catch(()=>({items:[]}))}
-function persist(kind,index,status){const row=kind==='task'?arr(detail.phase.tasks)[index]:arr(detail.phase.steps)[index];const payload={courseId:C||undefined,anonymousId:A||undefined,goal:G,mode:M,phaseIndex:Number(P),phaseName:N,status};if(kind==='task'){payload.taskIndex=index;payload.taskTitle=row?.title||('任务 '+(index+1))}else{payload.stepIndex=index;payload.stepTitle=row?.title||('第 '+(index+1)+' 步')}fetch('/api/'+(kind==='task'?'task-progress':'learning-step-progress'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>null)}
-document.addEventListener('click',event=>{const button=event.target.closest('[data-phase-kind]');if(!button||!detail)return;const kind=button.dataset.phaseKind,index=Number(button.dataset.phaseIndex),status=button.dataset.phaseStatus;paint(kind,index,status);persist(kind,index,status)});
-window.addEventListener('gangyi-phase-loaded',event=>{detail=event.detail||null;if(!detail||!detail.phase)return;Promise.all([load('task'),load('step')]).then(([taskData,stepData])=>{arr(taskData.items).forEach(item=>{if(item.status)saved.tasks[item.taskIndex]=item.status});arr(stepData.items).forEach(item=>{if(item.status)saved.steps[item.stepIndex]=item.status});store();enhance()})});
-})()</script>)HTML";
-    return document("阶段 - 钢一定制AI", body, script + interactionScript);
+    const std::string body = headerShell("learn") + "<main class=\"phase-page\"><a href=\"" + htmlEscape(back) + "\">← 返回课程</a><p class=\"uc-eyebrow\">第 " + std::to_string(selected) + " 阶段 · " + (mode == "lite" ? "快速规划" : "深度课程规划") + "</p><h1>" + htmlEscape(title) + "</h1><p class=\"phase-goal\">" + htmlEscape(stageGoal) + "</p>" + (why.empty() ? "" : "<p class=\"phase-why\">" + htmlEscape(why) + "</p>") + "<section><h2>本阶段知识点</h2><div data-paged-list data-page-size=\"8\">" + rows + "</div></section></main>";
+    return document("阶段 - 钢一定制AI", body, "<script>window.GangyiNavigation?.setContext({courseId:" + jsString(courseId) + ",phaseIndex:" + std::to_string(selected) + "});</script>");
 }
 
 }  // namespace gangyi

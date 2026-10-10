@@ -78,7 +78,7 @@ def main(executable, screenshots=None):
                 page.wait_for_function("[...document.querySelectorAll('#home-radar .radar-axis-name')].some(n => n.textContent === '历史')")
                 page.reload()
                 page.wait_for_function("[...document.querySelectorAll('#home-radar .radar-axis-name')].some(n => n.textContent === '历史')")
-                page.goto(h.base + '/my-courses')
+                page.goto(h.base + '/my-courses#profile')
                 user_widget = page.locator('#uc-profile-radar')
                 user_widget.locator('.radar-axis').last.wait_for()
                 assert user_widget.locator('.radar-axis').count() == 6

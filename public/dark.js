@@ -123,7 +123,7 @@
   }
 
   async function loadProfile() {
-    if (!radar) return;
+    if (!radar || !cards || !message) return;
     try {
       const response = await fetch('/api/profile');
       if (!response.ok) throw new Error('画像读取失败');

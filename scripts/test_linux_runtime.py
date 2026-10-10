@@ -20,7 +20,8 @@ def main(executable):
             LOCAL_CONTROL_TOKEN=token, AI_BASE_URL='http://127.0.0.1:9/v1', AI_API_KEY='', AI_MODEL='fictional-unconfigured')
         log_path = Path(directory) / 'service.log'
         with log_path.open('wb') as log:
-            process = subprocess.Popen([str(Path(executable).resolve())], cwd=repo, env=env, stdout=log, stderr=log)
+            process = subprocess.Popen([str(Path(executable).resolve())], cwd=repo, env=env, stdout=log, stderr=log,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
             def request(path, method='GET', body=None, status=200, headers=None):
                 connection = http.client.HTTPConnection('127.0.0.1', port, timeout=10)
                 actual_headers = headers or {}
@@ -37,10 +38,15 @@ def main(executable):
                     except OSError:
                         time.sleep(.1)
                 else: raise AssertionError('隔离服务没有启动')
-                for path in ('/', '/ask', '/my-courses', '/agent-prepare.html', '/agent-classroom.html'):
-                    data, _ = request(path); assert '钢一定制AI'.encode() in data
+                for path in ('/', '/ask', '/my-courses', '/agent-prepare.html'):
+                    data, _ = request(path); assert '钢一定制AI'.encode() in data, path
+                # 旧课堂链接负责转入统一课堂，并保留课时和复习参数。
+                data, _ = request('/agent-classroom.html?lessonId=legacy&review=1')
+                assert "location.replace('/learn'+location.search)".encode() in data
+                assert '正在恢复已保存的课时'.encode() in data
                 for path, mime in (('/styles.css', 'text/css'), ('/learning-agent.js', 'javascript'), ('/agent-shell.js', 'javascript'),
-                    ('/agent-classroom.css', 'text/css'), ('/school-logo.png', 'image/png'), ('/campus-background.jpg', 'image/jpeg')):
+                    ('/agent-classroom.css', 'text/css'), ('/app-layout.css', 'text/css'), ('/app-layout.js', 'javascript'),
+                    ('/school-logo.png', 'image/png'), ('/campus-background.jpg', 'image/jpeg')):
                     data, headers = request(path); assert len(data) > 100 and mime in headers['Content-Type']
                 request('/../CMakeLists.txt', status=404)
                 request('/api/ask', 'POST', b'{', status=409)
@@ -51,7 +57,8 @@ def main(executable):
                     data, _ = request('/api/learning-agent'); state = json.loads(data)
                     if state['status'] == 'failed': break
                     time.sleep(.03)
-                assert state['status'] == 'failed' and state['calls'] == 3
+                assert state['status'] == 'failed' and state['calls'] == 1
+                assert state['failure']['kind'] == 'missing_config' and not state['failure']['retryable']
                 data, _ = request('/api/home/recommendations'); recommendations = json.loads(data)
                 assert recommendations['items']['lite'] == [] and recommendations['items']['deep'] == [], '缺少真实 AI 时不能编造推荐'
                 request('/internal/shutdown', 'POST', headers={'X-Gangyi-Control-Token': token})
@@ -59,7 +66,7 @@ def main(executable):
                 log.flush(); assert token not in log_path.read_text('utf-8', errors='replace')
             finally:
                 if process.poll() is None: process.terminate(); process.wait(timeout=15)
-    print('Linux 运行时资源、参数边界、三次失败无模板回退与优雅退出通过')
+    print('Linux 运行时资源、参数边界、未配置鉴权立即停止、无模板回退与优雅退出通过')
 
 
 if __name__ == '__main__':

@@ -213,6 +213,63 @@ Json agentLegacyLesson(Database& db, const AgentAccess& access, const Json& scop
     return {{"lessonId", lesson.at("id")}, {"href", "/agent-classroom.html?lessonId=" + lesson.at("id").get<std::string>()}};
 }
 
+void agentUpgradeLegacyLesson(Database& db, const AgentAccess& access, const std::string& lessonId) {
+    const auto row = db.getClassroomActivity(lessonId);
+    if (!row || row->kind != "agent-lesson") return;
+    auto lesson = parse(row->payload);
+    if (lesson.value("scopeId", "") != access.scopeId) throw std::invalid_argument("无权读取该课时");
+    courseFor(db, access, row->courseId);
+    if (lesson.value("legacyLayoutVersion", 0) >= 560) return;
+    Json content; std::optional<LearningSession> session;
+    if (!lesson.value("legacySessionId", "").empty()) session = db.getLearningSession(lesson.at("legacySessionId"));
+    if (session) content = parse(session->content);
+    else if (lessonId.find("legacy-prepared-") == 0) {
+        const auto source = db.getClassroomActivity("prepared-lesson:" + lessonId.substr(16));
+        if (source) content = parse(source->payload).value("content", Json::object());
+    }
+    if (!content.is_object() || content.empty()) return;
+    const auto blocks = content.value("blocks", content);
+    const auto append = [&](const std::string& kind, const std::string& title, const std::string& body) {
+        if (body.empty()) return;
+        const auto id = lessonId + ":" + kind + ":0";
+        for (const auto& section : lesson.at("sections")) if (section.at("id") == id) return;
+        lesson["sections"].push_back({{"id", id}, {"kind", kind == "overview" ? "explanation" : "summary"},
+            {"legacyKind", kind}, {"legacyIndex", 0}, {"title", title}, {"body", body},
+            {"version", content.value("contentVersion", 1)}, {"displayed", false}});
+    };
+    const auto listText = [](const Json& items) {
+        std::string body;
+        if (items.is_array()) for (const auto& item : items) body += "- " + (item.is_string() ? item.get<std::string>() : item.dump()) + "\n";
+        return body;
+    };
+    const auto overview = blocks.value("overview", Json::object());
+    append("overview", overview.value("title", "本节目标与关键概念"), overview.value("summary", "") + "\n\n" + listText(overview.value("keyConcepts", Json::array())));
+    const auto assessment = blocks.value("assessment", Json::object());
+    append("checkpoint", "学习检查点", listText(assessment.value("checkpoint", Json::array())));
+    append("commonMistakes", "常见错误提醒", listText(assessment.value("commonMistakes", Json::array())));
+    const auto resourceSummary = assessment.value("resourceSummary", Json());
+    append("resourceSummary", "资料说明", resourceSummary.is_string() ? resourceSummary.get<std::string>() : listText(resourceSummary));
+    Json references = content.value("references", Json::array());
+    if (references.empty() && session && session->references) {
+        const auto saved = Json::parse(*session->references, nullptr, false);
+        if (saved.is_array()) references = saved;
+    }
+    lesson["references"] = references;
+    for (auto& section : lesson["sections"]) {
+        const auto kind = section.value("legacyKind", "");
+        if (kind == "example" && section.at("kind") == "question") {
+            const auto question = section.at("question");
+            section["kind"] = "explanation"; section["presentation"] = "example";
+            section["body"] = question.value("question", question.value("content", "")) + "\n\n" + question.value("solution", question.value("explanation", ""));
+            // 保留私有原题及稳定身份供历史证据引用，公开示范不再成为评分题。
+        } else if (section.at("kind") == "question" && !section.contains("questionKind"))
+            section["questionKind"] = kind == "diagnostic" || kind == "interaction" ? "interaction" : "practice";
+    }
+    lesson["legacyLayoutVersion"] = 560; lesson["version"] = lesson.value("version", 1) + 1;
+    if (!db.compareClassroomActivity(ClassroomActivity{row->id, row->courseId, row->kind, lesson.dump(), now(), row->phaseIndex, row->topicIndex}, row->payload))
+        throw std::invalid_argument("课时已在另一个窗口更新，请重新读取");
+}
+
 Json agentLegacyEvent(Database& db, const AgentAccess& access, const Json& body) {
     const auto resolved = body.value("lessonId", "").empty() ? agentLegacyLesson(db, access, body) : Json{{"lessonId", body.at("lessonId")}};
     if (resolved.empty()) throw std::invalid_argument("课件尚未准备，请让 AI 备课后再作答");

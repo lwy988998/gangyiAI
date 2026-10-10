@@ -1,4 +1,5 @@
 #pragma once
+#include "ai_activity.hpp"
 
 #include <stdexcept>
 #include <functional>
@@ -28,6 +29,7 @@ struct ChatOptions {
     int maxAttempts = 0;
     std::function<bool()> cancelled;
     std::string searchQuery;
+    AIActivityInfo activity{};
 };
 
 struct AIResult {
@@ -49,8 +51,10 @@ struct AIClientConfig {
 
 class AIClientError : public std::runtime_error {
 public:
-    AIClientError(const std::string& errorType, const std::string& message);
+    AIClientError(const std::string& errorType, const std::string& message, int httpStatus = 0);
     std::string errorType;
+    int httpStatus = 0;
+    bool retryable = false;
 };
 
 class AIClient {

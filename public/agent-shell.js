@@ -1,45 +1,259 @@
-/* 全站读取已保存的主控状态，提供暂停、恢复、撤回和自主备课通知。 */
+/* 页面导航与 AI 状态各自集中呈现，共用稳定课程和课时上下文。 */
 (() => {
   'use strict';
   const api = window.GangyiAgent;
-  if (!api || document.getElementById('agent-control-panel')) return;
-  const panel = document.createElement('details'); panel.id = 'agent-control-panel';
-  const label = document.createElement('summary'); label.textContent = 'AI 教学状态';
-  const state = document.createElement('p'); state.setAttribute('role', 'status');
-  const actions = document.createElement('div'), changes = document.createElement('div');
-  panel.append(label, state, actions, changes); document.body.append(panel);
-  const style = document.createElement('style');
-  style.textContent = '#agent-control-panel{position:fixed;right:1rem;bottom:1rem;z-index:40;max-width:min(380px,calc(100vw - 2rem));max-height:65vh;overflow:auto;padding:.75rem 1rem;border:1px solid #354542;border-radius:16px;background:#101a20;color:#e9f2ef;box-shadow:0 10px 40px #0006;font:14px/1.6 system-ui,Microsoft YaHei}#agent-control-panel summary{cursor:pointer;font-weight:600}#agent-control-panel button,#agent-control-panel a{display:inline-block;margin:.25rem .5rem .25rem 0;padding:.35rem .6rem;border:1px solid #50655f;border-radius:9px;background:transparent;color:#a4e5d4;text-decoration:none;cursor:pointer}#agent-control-panel p{white-space:normal;overflow-wrap:anywhere}#agent-control-panel article{border-top:1px solid #354542;margin-top:.75rem;padding-top:.5rem}';
-  document.head.append(style); let current;
-  const button = (title, command) => {
-    const node = document.createElement('button'); node.type = 'button'; node.textContent = title;
-    node.onclick = async () => { node.disabled = true; try { await api.control({ command, taskId: current.id }); await load(); } catch (error) { state.textContent = error.message; } finally { node.disabled = false; } };
-    actions.append(node);
-  };
-  async function load() {
+  if (!api || document.getElementById('learning-navigation')) return;
+  const element = (tag, text = '', className = '') => { const node = document.createElement(tag); node.textContent = text; node.className = className; return node; };
+  let context = Object.fromEntries(new URLSearchParams(location.search)), current, course, outline = [], outlineCourse = '', courseVersion = 0, stateVersion = 0;
+  const localLink = value => typeof value === 'string' && value.startsWith('/') && !value.startsWith('//');
+  function anchor(text, href, className = '') { const node = element('a', text, className); node.href = href; return node; }
+  function paintCurrent(value) {
+    for (const node of document.querySelectorAll('[data-current-course-link]')) {
+      node.href = '/current-course'; node.removeAttribute('aria-disabled'); node.removeAttribute('tabindex');
+      node.title = value && localLink(value.href) ? value.title || '当前课程' : '查看当前课程';
+    }
+  }
+  async function restoreCurrent() {
+    try { const data = await api.request('/api/courses'); paintCurrent(data.currentCourse); }
+    catch (_) { /* 读取失败时保留已经核实的入口，不跳到课程列表冒充当前课程。 */ }
+  }
+  const top = element('nav', '', 'course-context-navigation'); top.setAttribute('aria-label', '课程内导航'); top.hidden = true;
+  const crumbs = element('div', '', 'course-breadcrumbs'), moves = element('div', '', 'course-context-actions'); top.append(crumbs, moves);
+  document.querySelector('main')?.prepend(top);
+  function renderContext() {
+    top.hidden = !course || !['/plan', '/phase', '/learn', '/practice', '/summary', '/agent-prepare.html'].includes(location.pathname);
+    crumbs.replaceChildren(); moves.replaceChildren(); if (top.hidden) return;
+    crumbs.append(anchor('我的课程', '/my-courses'), element('span', '／', 'breadcrumb-separator'), anchor(course.title || '当前课程', '/plan?courseId=' + encodeURIComponent(course.id)));
+    const position = outline.findIndex(item => context.topicId ? item.id === context.topicId : Number(item.legacyPhaseIndex) === Number(context.phaseIndex) && Number(item.legacyTopicIndex) === Number(context.topicIndex));
+    const phase = position >= 0 ? outline[position].displayPhase : Number(context.phaseIndex || 0);
+    if (phase) crumbs.append(element('span', '／', 'breadcrumb-separator'), anchor('阶段 ' + phase, '/phase?' + new URLSearchParams({ courseId: course.id, phaseIndex: phase })));
+    if (position >= 0 && context.lessonId) {
+      const href = item => '/learn?' + new URLSearchParams({ courseId: course.id, topicId: item.id || '', phaseIndex: item.legacyPhaseIndex, topicIndex: item.legacyTopicIndex });
+      if (position > 0) moves.append(anchor('← 上一节', href(outline[position - 1])));
+      if (position < outline.length - 1) moves.append(anchor('下一节 →', href(outline[position + 1])));
+    }
+    try { const saved = JSON.parse(api.storage.get('current-lesson') || 'null'); if (saved && localLink(saved.href) && !context.lessonId) moves.append(anchor('回到当前课时 →', saved.href)); }
+    catch (_) { /* 损坏缓存不产生跳转。 */ }
+  }
+  async function setContext(value) {
+    const previousTask = context.teachingTaskId || context.taskId || '';
+    context = { ...context, ...value };
+    if (previousTask !== (context.teachingTaskId || context.taskId || '')) load();
+    document.dispatchEvent(new CustomEvent('gangyi:navigation-context', { detail: context }));
+    if (!context.courseId) { renderContext(); return; }
+    if (outlineCourse === context.courseId && course) { renderContext(); return; }
+    const id = context.courseId, version = ++courseVersion;
     try {
-      const task = await api.request('/api/learning-agent'); current = task;
-      if (!task.id) { panel.hidden = true; return; } panel.hidden = false;
-      const active = ['pending', 'running'].includes(task.status), paused = task.paused || task.status === 'paused';
-      const prepared = ['ready', 'waiting_student'].includes(task.status) && task.lesson && !task.lesson.entered;
-      const text = paused ? 'AI 已暂停，输入和有效结果已保存。' : ({ pending: 'AI 正在等待处理最新学习情况。', running: 'AI 正在结合真实学习情况处理。', ready: 'AI 已完成本次处理。', waiting_student: 'AI 正在等待你的下一次回答。', failed: 'AI 连续请求失败，已停止并保留有效结果，可手动重试。', superseded: '学习情况已有更新，旧结果没有应用。', cancelled: '本次处理已停止。' })[task.status] || 'AI 状态已保存。';
-      if (state.textContent !== text) state.textContent = text;
-      label.textContent = active ? 'AI 教学进行中' : paused ? 'AI 已暂停' : prepared ? 'AI 已备好下一课，点击进入' : 'AI 教学状态'; actions.replaceChildren();
-      if (paused) button('恢复 AI', 'resume'); else button('暂停 AI', 'pause');
-      if (['failed', 'superseded', 'cancelled'].includes(task.status)) button('重试', 'retry');
-      if (prepared) {
-        const link = document.createElement('a'); link.textContent = `已备好：${task.lesson.title} →`;
-        link.href = `/agent-prepare.html?taskId=${encodeURIComponent(task.id)}`; actions.append(link);
+      const data = await api.request('/api/courses/' + encodeURIComponent(id)); if (version !== courseVersion || id !== context.courseId) return;
+      course = data.course; outlineCourse = id;
+      outline = (data.snapshot?.payload?.courseStructure || []).flatMap((stage, index) => (stage.topics || []).map((value, topicIndex) => {
+        const topic = typeof value === 'object' && value ? value : { title: String(value || '') };
+        return { ...topic, displayPhase: index + 1, legacyPhaseIndex: topic.legacyPhaseIndex || index + 1, legacyTopicIndex: topic.legacyTopicIndex || topicIndex + 1 };
+      }));
+      paintCurrent({ ...course, href: '/plan?courseId=' + encodeURIComponent(id) }); renderContext();
+    } catch (_) { if (version === courseVersion) { course = null; outlineCourse = ''; renderContext(); restoreCurrent(); } }
+  }
+  window.GangyiNavigation = { setContext, restoreCurrent };
+  paintCurrent(null); restoreCurrent(); setContext(context);
+  window.addEventListener('focus', restoreCurrent); window.addEventListener('storage', restoreCurrent);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) restoreCurrent(); });
+  const navigation = element('details'); navigation.id = 'learning-navigation';
+  const toggle = element('summary', 'AI 状态'); toggle.setAttribute('aria-label', '打开 AI 状态与控制');
+  const body = element('div', '', 'gy-navigation-body'), panel = element('section'); panel.id = 'agent-control-panel';
+  const label = element('h2', 'AI 教学状态'), state = element('p', '', 'ai-control-notice'); state.setAttribute('role', 'status');
+  const operation = element('div', '', 'ai-current-operation'); operation.setAttribute('aria-live', 'polite'); operation.setAttribute('aria-atomic', 'true');
+  const operationLabel = element('p', '当前操作', 'ai-operation-eyebrow'), operationTitle = element('h3', '正在读取任务状态', 'ai-operation-title');
+  const target = element('p', '', 'ai-operation-target'), operationDetail = element('p', '', 'ai-operation-detail');
+  operation.append(operationLabel, operationTitle, target, operationDetail);
+  const actions = element('div', '', 'ai-control-actions'), changes = element('div', '', 'ai-control-changes');
+  function disclosure(title, className) { const node = element('details', '', className), summary = element('summary', title); node.append(summary); return node; }
+  const history = disclosure('最近步骤', 'ai-control-history'), historyList = element('ol', '', 'ai-step-list'); history.append(historyList);
+  const taskDetails = disclosure('任务详情', 'ai-task-details'), facts = element('dl', '', 'ai-task-facts'); taskDetails.append(facts);
+  const adjustments = disclosure('最近调整', 'ai-control-adjustments'); adjustments.append(changes); adjustments.hidden = true;
+  const metrics = element('p', '', 'ai-call-metrics'), globalActions = element('div', '', 'ai-control-actions');
+  const callList = element('div', '', 'ai-live-calls'); callList.id = 'ai-live-calls';
+  const callHistory = disclosure('调用历史', 'ai-call-history'), pastList = element('div'); callHistory.append(pastList);
+  const currentDetails = disclosure('当前课时的执行详情', 'ai-context-details');
+  const callNotice = element('p', '', 'ai-control-notice'); callNotice.hidden = true; callNotice.setAttribute('role', 'status');
+  currentDetails.append(operation, state, actions, history, taskDetails, adjustments);
+  panel.append(label, metrics, globalActions, callNotice, callList, callHistory, currentDetails);
+  body.append(panel); navigation.append(toggle, body); document.body.append(navigation);
+  let globalPaused = false, globalBusy = false, globalKey = '', activityVersion = 0, historyLimit = 20, liveKey = '', pastKey = '', latestView;
+  const rows = new Map();
+  const statusText = { pending: '排队等待', queued: '等待请求', running: '本地处理', requesting: '正在请求 AI', receiving: '正在接收 AI 回复',
+    paused: '已暂停', ready: '任务已完成', completed: '请求已完成', waiting_student: '等待你的回应', failed: '请求未完成',
+    cancelled: '已停止', superseded: '已被新任务替代', interrupted: '软件退出，请求已中断' };
+  const ongoing = task => ['pending', 'queued', 'running', 'requesting', 'receiving', 'paused'].includes(task.status);
+  function callRow(task) {
+    let value = rows.get(task.id);
+    if (!value) {
+      const row = element('article', '', 'ai-call-row'), source = element('p', '', 'ai-call-source'), purpose = element('h3', '', 'ai-call-purpose');
+      const status = element('p', '', 'ai-call-status'), action = element('p', '', 'ai-call-operation'), target = element('p', '', 'ai-call-target');
+      const count = element('p', '', 'ai-call-count'), detail = disclosure('详情', 'ai-call-detail'), facts = element('p'), controls = element('div', '', 'ai-control-actions');
+      detail.append(facts, controls); row.append(source, purpose, status, action, target, count, detail);
+      value = { row, source, purpose, status, action, target, count, facts, controls, key: '' }; rows.set(task.id, value);
+    }
+    value.row.dataset.status = task.status;
+    value.source.textContent = task.source || 'AI 服务'; value.purpose.textContent = task.purpose || '处理学习请求';
+    value.status.textContent = statusText[task.status] || '已保存状态';
+    value.action.textContent = task.failure?.message || task.activity?.title || ({ requesting: '等待模型开始返回内容。', receiving: '正在接收内容，完整返回后再校验保存。',
+      pending: '任务已经提交，尚未发起模型请求。', queued: '请求已准备，等待发送。', paused: '输入和有效结果保留，恢复后继续未完成任务。' })[task.status] || '';
+    value.action.hidden = !value.action.textContent;
+    value.target.textContent = [task.target?.courseTitle, task.target?.lessonTitle].filter(Boolean).join(' · '); value.target.hidden = !value.target.textContent;
+    value.count.textContent = task.tracked || !task.legacyCalls ? '实际请求 ' + Number(task.calls || 0) + ' 次' : '历史模型轮次 ' + Number(task.legacyCalls) + ' 次（旧版未记录实际请求）';
+    if (task.tracked && task.legacyCalls) value.count.textContent += ' · 另有旧版模型轮次 ' + Number(task.legacyCalls) + ' 次';
+    value.facts.textContent = [task.model && '模型：' + task.model, task.updatedAt && '最近更新：' + new Date(task.updatedAt).toLocaleString('zh-CN'), task.activity?.detail].filter(Boolean).join('\n');
+    const key = JSON.stringify([task.taskId, task.status, globalPaused]);
+    if (value.key !== key) {
+      value.key = key; value.controls.replaceChildren();
+      function control(text, command) {
+        const button = element('button', text); button.type = 'button';
+        button.onclick = async () => { button.disabled = true; try {
+          const updated = await api.control({ command, taskId: task.taskId });
+          document.dispatchEvent(new CustomEvent('gangyi:agent-control', { detail: { command, task: updated } })); await load();
+        } catch (error) { state.textContent = error.message; state.hidden = false; } finally { button.disabled = false; } };
+        value.controls.append(button);
       }
-      changes.replaceChildren();
-      for (const change of (task.changeHistory || []).filter(item => item.status === 'applied').slice(-5).reverse()) {
-        const row = document.createElement('article'), reason = document.createElement('p'), undo = document.createElement('button');
-        reason.textContent = change.reason; undo.type = 'button'; undo.textContent = '撤回这次调整';
+      if (task.taskId) {
+        if (task.status === 'paused' && !globalPaused) control('恢复此任务', 'resume');
+        if (['failed', 'cancelled', 'superseded'].includes(task.status) && !globalPaused) control('重试此任务', 'retry');
+        if (ongoing(task)) control('停止此任务', 'cancel');
+      }
+    }
+    return value.row;
+  }
+  function renderCalls(view) {
+    latestView = view; callNotice.hidden = true;
+    globalPaused = Boolean(view.paused);
+    const tasks = [...(view.tasks || [])].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+    const active = tasks.filter(ongoing), past = tasks.filter(task => !ongoing(task));
+    const requesting = active.filter(task => ['requesting', 'receiving'].includes(task.status)).length;
+    navigation.dataset.status = globalPaused ? 'paused' : requesting ? 'running' : active.length ? 'pending' : 'idle';
+    toggle.textContent = globalPaused ? '全部 AI 已暂停' : requesting ? 'AI 正在调用 · ' + requesting + ' 项' : active.length ? 'AI 待处理 · ' + active.length + ' 项' : 'AI 状态';
+    label.textContent = '全软件 AI 调用';
+    metrics.textContent = '正在请求 ' + requesting + ' 项 · 今日实际请求 ' + Number(view.todayCalls || 0) + ' 次 · 实时更新';
+    if (globalKey !== String(globalPaused)) {
+      globalKey = String(globalPaused); globalActions.replaceChildren();
+      const control = element('button', globalPaused ? '恢复全部 AI' : '暂停全部 AI'); control.type = 'button';
+      control.onclick = async () => {
+        if (globalBusy) return; globalBusy = true; control.disabled = true; ++activityVersion;
+        const command = globalPaused ? 'resume' : 'pause';
+        try {
+          const result = await api.request('/api/ai-activity/control', { command }); renderCalls(result);
+          document.dispatchEvent(new CustomEvent('gangyi:agent-control', { detail: { command, all: true } }));
+          await load();
+        } catch (error) { callNotice.textContent = error.message; callNotice.hidden = false; }
+        finally { globalBusy = false; for (const button of globalActions.querySelectorAll('button')) button.disabled = false; }
+      };
+      control.disabled = globalBusy; globalActions.append(control);
+    }
+    // 复用每行节点，实时更新不打断折叠开合和按钮焦点。
+    active.sort((a,b) => String(b.createdAt || b.id).localeCompare(String(a.createdAt || a.id)));
+    const activeNodes = active.map(callRow), pastNodes = past.slice(0, historyLimit).map(callRow);
+    const nextLiveKey = JSON.stringify([active.map(task => task.id), globalPaused]), nextPastKey = JSON.stringify([past.map(task => task.id), historyLimit]);
+    if (liveKey !== nextLiveKey) {
+      liveKey = nextLiveKey; callList.replaceChildren(...activeNodes);
+      if (!active.length) callList.append(element('p', globalPaused ? '全部 AI 已暂停，新的请求也会等待恢复。' : '目前没有正在调用 AI 的任务。', 'ai-call-empty'));
+    }
+    if (pastKey !== nextPastKey) {
+      pastKey = nextPastKey; pastList.replaceChildren(...pastNodes);
+      if (past.length > historyLimit) {
+        const more = element('button', '查看更多历史'); more.type = 'button'; more.onclick = () => { historyLimit += 20; renderCalls(latestView); }; pastList.append(more);
+      }
+    }
+    callHistory.firstChild.textContent = '调用历史 · ' + past.length + ' 项';
+    const present = new Set(tasks.map(task => task.id)); for (const id of rows.keys()) if (!present.has(id)) rows.delete(id);
+  }
+  let actionsKey = '', historyKey = '', changesKey = '', controlBusy = false;
+  const clock = value => { const date = new Date(value); return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }); };
+  function renderOperation(task, paused) {
+    const activity = task.activity, finished = ['ready', 'waiting_student'].includes(task.status);
+    const names = [task.target?.courseTitle, task.target?.lessonTitle].filter(Boolean);
+    target.textContent = names.join(' · '); target.hidden = !names.length;
+    operationLabel.textContent = paused ? '暂停位置' : task.status === 'failed' ? '未完成的操作' : finished ? '本次结果' : '当前操作';
+    operationTitle.textContent = activity?.title || ({ idle: '暂无正在执行的任务', pending: '等待开始：' + (task.purpose || '本次学习请求'),
+      running: '正在处理本次学习请求', paused: '本次处理已暂停', ready: '本次处理已完成', waiting_student: '等待你的回答或补充信息',
+      cancelled: '本次任务已停止', superseded: '本次任务已由新学习记录替代' })[task.status] || '任务状态已保存';
+    operationDetail.textContent = activity?.detail || (task.id ? '此历史任务未记录具体执行步骤，已有内容和记录仍然保留。' : '提交学习目标或进入课堂后，会在这里显示真实执行操作。');
+    if (paused) {
+      if (finished) { operationTitle.textContent = '后续 AI 处理已暂停'; operationDetail.textContent = '本次任务已经完成，已有结果保留。恢复后会继续响应新的学习操作。'; }
+      else { operationTitle.textContent = activity ? '已暂停：' + activity.title : '本次处理已暂停'; operationDetail.textContent = task.pauseReason === 'shutdown' ? '软件关闭时暂停在这里，输入和有效结果已保存。' : '你已暂停本次处理，输入和有效结果已保存。恢复后继续未完成的步骤。'; }
+    } else if (task.status === 'pending') {
+      operationTitle.textContent = '等待开始：' + (task.purpose || '本次学习请求'); operationDetail.textContent = '任务已提交；AI 尚未开始本次处理。';
+    } else if (task.status === 'failed') {
+      operationTitle.textContent = task.failure?.operation || activity?.title || '本次处理未完成'; operationDetail.textContent = api.failureMessage(task);
+    } else if (task.status === 'cancelled' || task.status === 'superseded') {
+      operationTitle.textContent = task.status === 'cancelled' ? '本次任务已停止' : '旧任务已停止，避免覆盖新记录'; operationDetail.textContent = '此前已保存的有效内容和学习记录保留。';
+    } else if (task.status === 'ready') {
+      operationTitle.textContent = '已完成：' + (task.purpose || '本次处理');
+    }
+    state.textContent = !paused && ['pending', 'running'].includes(task.status) && task.failure ? '上一步未完成，正在重新处理：' + api.failureMessage(task) : '';
+    state.hidden = !state.textContent;
+  }
+  function renderHistory(task) {
+    const completed = (task.events || []).filter(event => event.type === 'action');
+    const recent = completed.slice(-6).reverse(), key = JSON.stringify([task.id, recent]);
+    history.firstChild.textContent = '最近步骤' + (completed.length ? ' · 已完成 ' + completed.length + ' 项' : '');
+    if (key === historyKey) return; historyKey = key; historyList.replaceChildren();
+    if (!recent.length) { historyList.append(element('li', '尚无已完成的操作。', 'ai-step-empty')); return; }
+    for (const event of recent) {
+      const row = element('li'), title = element('strong', event.activity?.title || '教学操作已完成');
+      const time = element('time', clock(event.at)); if (event.at) { time.dateTime = event.at; time.title = new Date(event.at).toLocaleString('zh-CN'); }
+      row.append(title, time, element('p', event.activity?.detail || '历史任务仅保存了执行记录，未记录具体操作。')); historyList.append(row);
+    }
+    if (completed.length > recent.length) historyList.append(element('li', '显示最近 ' + recent.length + ' 项操作。', 'ai-step-empty'));
+  }
+  function renderFacts(task) {
+    facts.replaceChildren();
+    function fact(title, value) { if (value === undefined || value === null || value === '') return; facts.append(element('dt', title), element('dd', String(value))); }
+    fact('任务', task.purpose); fact('主控处理轮次', Number(task.calls || 0) + ' 次'); fact('使用模型', task.model);
+    fact('最近记录', task.updatedAt ? new Date(task.updatedAt).toLocaleString('zh-CN') : '');
+    if (task.failure) { fact('未完成操作', task.failure.operation || task.activity?.title); fact('连续失败', task.failure.attempt ? task.failure.attempt + ' 次' : ''); }
+    taskDetails.hidden = !task.id; history.hidden = !task.id;
+  }
+  function button(title, command, taskId) {
+    const node = element('button', title); node.type = 'button'; node.onclick = async () => {
+      if (controlBusy) return; controlBusy = true; for (const control of actions.querySelectorAll('button')) control.disabled = true;
+      try { const task = await api.control({ command, taskId }); document.dispatchEvent(new CustomEvent('gangyi:agent-control', { detail: { command, task } })); await load(); }
+      catch (error) { state.textContent = error.message; state.hidden = false; }
+      finally { controlBusy = false; for (const control of actions.querySelectorAll('button')) control.disabled = false; }
+    }; actions.append(node);
+  }
+  async function load() {
+    const callVersion = ++activityVersion;
+    api.request('/api/ai-activity').then(view => { if (callVersion === activityVersion) renderCalls(view); })
+      .catch(error => { if (callVersion === activityVersion) { callNotice.textContent = '实时调用状态暂时无法更新：' + error.message; callNotice.hidden = false; } });
+    const version = ++stateVersion;
+    const requested = context.teachingTaskId || context.taskId || '';
+    try {
+      const task = await api.request('/api/learning-agent' + (requested ? '?taskId=' + encodeURIComponent(requested) : ''));
+      if (version !== stateVersion || requested !== (context.teachingTaskId || context.taskId || '')) return;
+      current = task;
+      currentDetails.firstChild.textContent = requested ? '本页任务的执行详情' : '最近任务的执行详情';
+      const active = ['pending', 'running'].includes(task.status), paused = task.paused || task.status === 'paused';
+      renderOperation(task, paused); renderHistory(task); renderFacts(task);
+      const nextActions = JSON.stringify([task.id, paused, task.status, task.lesson?.entered]);
+      if (actionsKey !== nextActions) {
+        actionsKey = nextActions; actions.replaceChildren();
+        if (task.id) {
+          if (paused && !globalPaused) button('恢复此任务', 'resume', task.id);
+          if (['failed', 'superseded', 'cancelled'].includes(task.status)) button('重试', 'retry', task.id);
+          if (active || task.status === 'paused') button('停止任务', 'cancel', task.id);
+          if (task.lesson && !task.lesson.entered && ['ready', 'waiting_student'].includes(task.status)) actions.append(anchor('进入已备好的课堂 →', '/agent-prepare.html?taskId=' + encodeURIComponent(task.id)));
+          for (const control of actions.querySelectorAll('button')) control.disabled = controlBusy;
+        }
+      }
+      const applied = (task.changeHistory || []).filter(item => item.status === 'applied').slice(-5).reverse(), nextChanges = JSON.stringify(applied);
+      adjustments.hidden = !applied.length;
+      if (changesKey === nextChanges) return; changesKey = nextChanges; changes.replaceChildren();
+      for (const change of applied) {
+        const row = element('article'), reason = element('p', change.reason), undo = element('button', '撤回这次调整'); undo.type = 'button';
         undo.onclick = async () => { undo.disabled = true; try { await api.control({ command: 'undo', changeId: change.id }); await load(); } catch (error) { reason.textContent = error.message; } finally { undo.disabled = false; } };
         row.append(reason, undo); changes.append(row);
       }
-    } catch (error) { state.textContent = error.message; }
+    } catch (error) { if (version === stateVersion && requested === (context.teachingTaskId || context.taskId || '')) { state.textContent = '无法更新任务状态：' + error.message; state.hidden = false; } }
   }
-  load(); const timer = setInterval(() => { if (!document.hidden) load(); }, 1800);
-  window.addEventListener('pagehide', () => clearInterval(timer));
+  navigation.addEventListener('toggle', () => { if (navigation.open) load(); });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && navigation.open) { navigation.open = false; toggle.focus(); } });
+  load(); const timer = setInterval(() => { if (!document.hidden) load(); }, 1000); window.addEventListener('pagehide', () => clearInterval(timer));
 })();

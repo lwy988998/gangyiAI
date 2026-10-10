@@ -33,6 +33,11 @@ std::optional<CourseWithSnapshot> getCourseWithSnapshot(Database& db, const std:
 std::vector<Course> listCoursesForIdentity(Database& db, const std::string& userId,
                                            const std::string& anonymousId, size_t limit, size_t offset);
 
+// 从真实访问或学习记录恢复最近的有效课程，不把创建时间当成学习记录。
+std::optional<Course> currentCourseForIdentity(Database& db, const std::string& userId = {},
+                                               const std::string& anonymousId = {});
+void rememberCurrentCourse(Database& db, const std::string& courseId);
+
 // 删除属于指定身份的课程及其快照、进度和学习会话。身份不匹配时返回 false。
 bool deleteCourseForIdentity(Database& db, const std::string& courseId, const std::string& userId,
                              const std::string& anonymousId);

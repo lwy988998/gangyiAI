@@ -1,4 +1,4 @@
-﻿build/
+build/
 build-windows/
 build-*/
 dist/
@@ -9,10 +9,9 @@ __pycache__/
 *.pyc
 .env
 .env.local
-
 third_party/
 preview-data/
 verification/
 public/ui-previews/
-
 home-recommendations.json*
+/%SystemDrive%/

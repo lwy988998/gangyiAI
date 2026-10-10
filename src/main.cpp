@@ -244,7 +244,26 @@ nlohmann::json localAgentView(gangyi::Database& db, const std::string& taskId = 
 }
 
 nlohmann::json studyPlanAgentAction(gangyi::Database& db, nlohmann::json body, const std::string& action) {
+    static std::mutex manualPlanMutex;
+    std::lock_guard<std::mutex> guard(manualPlanMutex);
+    static std::atomic_uint64_t sequence{0};
     const auto access = localAgentAccess(db);
+    nlohmann::json event;
+    if (action == "replan") {
+        body["requestId"] = body.value("requestId", "schedule-" + nowIso8601() + "-" + std::to_string(++sequence));
+        event = {{"type", "schedule_replan"}, {"requestId", body.at("requestId")}, {"scheduleRequest", body},
+            {"text", "我手动请求重新排课。请根据最新时间设置、全部课程和真实表现生成候选安排，保留当前课表与未保存编辑，等待我确认。"}};
+        // 重复提交复用同一任务，不再次改变学习版本或生成候选。
+        const auto index = nlohmann::json::parse(db.profileMeta("agent-index"), nullptr, false);
+        if (index.is_array()) for (const auto& id : index) {
+            if (!id.is_string()) continue;
+            const auto row = db.getClassroomActivity(id); if (!row) continue;
+            const auto task = nlohmann::json::parse(row->payload, nullptr, false);
+            if (!task.is_object() || task.value("scopeId", "") != access.scopeId || task.value("requestId", "") != body.at("requestId")) continue;
+            if (!task.value("manualScheduleReplan", false) || task.at("event") != event) throw std::invalid_argument("重复排课请求的内容不一致");
+            return {{"ok", true}, {"plan", gangyi::studyPlanView(db)}, {"task", gangyi::agentView(db, access, id)}};
+        }
+    }
     const auto result = gangyi::studyPlanProposal(db, body, action);
     if (action == "confirm" || action == "cancel") {
         const auto row = db.getClassroomActivity(body.at("proposalId"));
@@ -257,10 +276,12 @@ nlohmann::json studyPlanAgentAction(gangyi::Database& db, nlohmann::json body, c
             gangyi::agentSaveChange(db, change);
         }
     }
-    static std::atomic_uint64_t sequence{0};
-    auto view = result; view["task"] = gangyi::agentSubmit(db, access, {{"type", "schedule_" + action},
-        {"requestId", body.value("requestId", "schedule-" + nowIso8601() + "-" + std::to_string(++sequence))},
-        {"text", action == "replan" ? "请根据我的最新时间设置、全部课程和真实表现重新安排学习；保留未保存草稿，在必要时保存候选。" : action == "cancel" ? "我取消这份课表候选，请尊重我的决定，不立即重做同一改动。" : "我确认这份 AI 安排，请按同一份已保存安排继续。"}});
+    if (action != "replan") return result;
+    auto view = result; view["task"] = gangyi::agentSubmit(db, access, event, gangyi::AgentSubmissionOrigin::manualScheduleReplan);
+    const auto raw = db.profileMeta("learning-flow"); auto state = nlohmann::json::parse(raw);
+    state["replanTaskId"] = view["task"]["id"];
+    if (!db.compareProfileMeta("learning-flow", raw, state.dump())) throw std::invalid_argument("课表状态已变化，请刷新读取已提交的任务");
+    view["plan"] = gangyi::studyPlanView(db);
     return view;
 }
 
@@ -306,6 +327,7 @@ void recordInteraction(gangyi::Database& db, const std::string& kind, const nloh
     if (!courseId.empty()) item.courseId = courseId;
     if (!conversationId.empty()) item.conversationId = conversationId;
     if (!db.insert(item)) throw std::runtime_error("学习记录保存失败");
+    if (kind == "course-visit" || kind == "lesson-visit") gangyi::rememberCurrentCourse(db, courseId);
 }
 
 
@@ -321,6 +343,10 @@ int main() {
     } catch (...) {}
     db.open(config.database_path);
     db.migrate();
+    const auto activityPath = std::filesystem::u8path(config.database_path).parent_path() / "ai-activity.json";
+    const bool activityExists = std::filesystem::exists(activityPath);
+    gangyi::AIActivity::configure(activityPath.u8string());
+    if (!activityExists && gangyi::agentView(db, localAgentAccess(db)).value("paused", false)) gangyi::AIActivity::setPaused(true);
     gangyi::LearningAgent learningAgent(config.database_path);
     gangyi::registerAgentPreferenceTools(learningAgent);
     gangyi::registerAgentLessonTools(learningAgent);
@@ -362,7 +388,7 @@ int main() {
         std::string courseId = courseIdP ? courseIdP : "";
         std::string anonymousId = anonymousIdP ? anonymousIdP : "";
         std::string goal = goalP ? goalP : "";
-        std::string mode = modeP && *modeP ? modeP : "deep";
+        std::string mode = modeP && *modeP ? modeP : "";
         std::string phaseIndex = phaseIndexP ? phaseIndexP : "1";
         std::string phaseName = phaseNameP ? phaseNameP : "";
         nlohmann::json plan = nlohmann::json::object();
@@ -387,23 +413,38 @@ int main() {
                 }
             }
         }
+        if (mode.empty()) mode = "deep";
         crow::response response(gangyi::renderPhasePage(courseId, anonymousId, goal, mode, phaseIndex, phaseName,
             gangyi::publicCoursePayload(plan), card));
         response.set_header("Content-Type", "text/html; charset=utf-8");
         return response;
     });
 
-    // /learn 微课程页：课程页和阶段页仍会生成此链接，必须保持与学习 API 配套注册。
-    CROW_ROUTE(app, "/learn")([&db](const crow::request& req) {
+    // 三个课堂页面共用已保存课时；旧索引只做身份解析。
+    const auto classroomPage = [&db](const crow::request& req, const std::string& view) {
         try {
             const auto scope = questionRequestBody(req);
+            const std::string target = req.url_params.get("review") ? "practice" : view;
+            if (!scope.value("lessonId", "").empty()) {
+                gangyi::agentLessonView(db, localAgentAccess(db), scope.at("lessonId"));
+                if (target != view) { crow::response response(302); response.set_header("Location", "/practice?" + req.raw_url.substr(req.raw_url.find('?') + 1)); return response; }
+                crow::response response(gangyi::renderClassroomPage(view));
+                response.set_header("Content-Type", "text/html; charset=utf-8"); return response;
+            }
             const auto saved = gangyi::agentLegacyLesson(db, localAgentAccess(db), scope);
             crow::response response(302);
-            if (!saved.empty()) response.set_header("Location", saved.at("href").get<std::string>());
-            else response.set_header("Location", "/agent-prepare.html?" + (req.raw_url.find('?') == std::string::npos ? std::string() : req.raw_url.substr(req.raw_url.find('?') + 1)));
+            if (!saved.empty()) response.set_header("Location", "/" + target + "?lessonId=" + saved.at("lessonId").get<std::string>() +
+                (req.raw_url.find('?') == std::string::npos ? std::string() : "&" + req.raw_url.substr(req.raw_url.find('?') + 1)));
+            else response.set_header("Location", "/agent-prepare.html?" + (req.raw_url.find('?') == std::string::npos ? std::string() : req.raw_url.substr(req.raw_url.find('?') + 1)) + "&view=" + target);
             return response;
-        } catch (const std::exception& error) { return crow::response(409, error.what()); }
-    });
+        } catch (const std::exception&) {
+            crow::response response(409, "课堂入口已失效，请返回课程选择知识点，或让 AI 重新备课。");
+            response.set_header("Content-Type", "text/plain; charset=utf-8"); return response;
+        }
+    };
+    CROW_ROUTE(app, "/learn")([classroomPage](const crow::request& req) { return classroomPage(req, "learn"); });
+    CROW_ROUTE(app, "/practice")([classroomPage](const crow::request& req) { return classroomPage(req, "practice"); });
+    CROW_ROUTE(app, "/summary")([classroomPage](const crow::request& req) { return classroomPage(req, "summary"); });
 
     CROW_ROUTE(app, "/learn/next")([&db](const crow::request& req) {
         crow::response response(302);
@@ -525,6 +566,20 @@ int main() {
         return response;
     });
 
+    CROW_ROUTE(app, "/current-course")([&db] {
+        if (const auto course = gangyi::currentCourseForIdentity(db)) {
+            crow::response response(302);
+            response.set_header("Location", "/plan?courseId=" + course->id);
+            response.set_header("Cache-Control", "no-store");
+            return response;
+        }
+        const bool hasCourses = !gangyi::listCoursesForIdentity(db, "", "", 1, 0).empty();
+        crow::response response(gangyi::renderCurrentCourseEmptyPage(hasCourses));
+        response.set_header("Content-Type", "text/html; charset=utf-8");
+        response.set_header("Cache-Control", "no-store");
+        return response;
+    });
+
     CROW_ROUTE(app, "/my-courses")([&db](const crow::request& req) {
         const std::string anonymousId = requestAnonymousId(req);
         const auto courses = gangyi::listCoursesForIdentity(db, "", "", 100, 0);
@@ -639,7 +694,8 @@ int main() {
         const auto body = nlohmann::json::parse(message, nullptr, false);
         if (!body.is_object()) { state->send({{"type", "error"}, {"message", "消息格式无效"}}); return; }
         if (body.value("type", "") == "stop") {
-            state->stopRequested = true; state->cancelled = true;
+            // 停止生成后仍发送终态，让客户端解除等待；只有断开连接才终止投递。
+            state->stopRequested = true;
             std::string taskId; { std::lock_guard<std::mutex> guard(state->mutex); taskId = state->taskId; }
             if (!taskId.empty()) try { gangyi::Database db; db.open(config.database_path);
                 gangyi::agentControl(db, localAgentAccess(db), {{"command", "cancel"}, {"taskId", taskId}});
@@ -1021,6 +1077,33 @@ int main() {
         return response;
     });
 
+    CROW_ROUTE(app, "/api/ai-activity")([databasePath = config.database_path] {
+        try {
+            gangyi::Database connection; connection.open(databasePath);
+            crow::response response(gangyi::agentActivityView(connection, localAgentAccess(connection)).dump());
+            response.set_header("Content-Type", "application/json; charset=utf-8");
+            response.set_header("Cache-Control", "no-store"); return response;
+        } catch (const std::exception& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/ai-activity/control").methods(crow::HTTPMethod::POST)([databasePath = config.database_path](const crow::request& req) {
+        try {
+            const auto body = nlohmann::json::parse(req.body); const auto command = body.value("command", "");
+            if (command != "pause" && command != "resume") throw std::invalid_argument("全软件 AI 控制指令无效");
+            if (command == "pause") gangyi::AIActivity::setPaused(true);
+            gangyi::Database connection; connection.open(databasePath); const auto access = localAgentAccess(connection);
+            if (command == "resume") {
+                gangyi::agentResumeGlobalTasks(connection, access);
+                // 兼容升级前用户暂停的当前任务；历史已结束任务不重新发起。
+                const auto current = gangyi::agentView(connection, access);
+                if (current.contains("id") && (current.value("scopePaused", false) || current.value("status", "") == "paused") &&
+                    (current.value("status", "") == "paused" || current.value("status", "") == "pending" || current.value("status", "") == "running"))
+                    gangyi::agentControl(connection, access, {{"command", "resume"}, {"taskId", current.at("id")}});
+                gangyi::AIActivity::setPaused(false);
+            }
+            crow::response response(gangyi::agentActivityView(connection, access).dump());
+            response.set_header("Content-Type", "application/json; charset=utf-8"); return response;
+        } catch (const std::exception& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
     CROW_ROUTE(app, "/api/learning-agent/events").methods(crow::HTTPMethod::POST)([databasePath = config.database_path](const crow::request& req) {
         try {
             gangyi::Database connection; connection.open(databasePath);
@@ -1194,7 +1277,10 @@ int main() {
                     {"summary", c.summary ? nlohmann::json(*c.summary) : nlohmann::json(nullptr)},
                     {"createdAt", c.createdAt}, {"updatedAt", c.updatedAt}, {"href", href}});
             }
-            return crow::response(200, nlohmann::json{{"courses", arr}}.dump());
+            nlohmann::json current = nullptr;
+            if (const auto course = gangyi::currentCourseForIdentity(db))
+                current = {{"id", course->id}, {"title", course->title}, {"href", "/plan?courseId=" + course->id}};
+            return crow::response(200, nlohmann::json{{"courses", arr}, {"currentCourse", current}}.dump());
         } catch (...) {
             return crow::response(200, nlohmann::json{{"courses", nlohmann::json::array()}}.dump());
         }
@@ -1212,8 +1298,14 @@ int main() {
                 {"summary", found->course.summary ? nlohmann::json(*found->course.summary) : nlohmann::json(nullptr)},
                 {"source", found->course.source},
                 {"createdAt", found->course.createdAt}, {"updatedAt", found->course.updatedAt}};
+            nlohmann::json cards = nlohmann::json::array();
+            forEachTopic(found->payload, [&](int phaseIndex, int topicIndex, const std::string&) {
+                const auto saved = db.findLearningCardProgress(courseId, phaseIndex, topicIndex);
+                cards.push_back({{"phaseIndex", phaseIndex}, {"topicIndex", topicIndex},
+                    {"status", saved ? saved->status : "not_started"}});
+            });
             return crow::response(200, nlohmann::json{{"course", course},
-                {"snapshot", {{"payload", gangyi::publicCoursePayload(found->payload)}}}}.dump());
+                {"snapshot", {{"payload", gangyi::publicCoursePayload(found->payload)}}}, {"cards", cards}}.dump());
         } catch (...) {
             return crow::response(500, nlohmann::json{{"error", "课程读取失败，请稍后重试。"}}.dump());
         }
@@ -1360,6 +1452,7 @@ int main() {
                     return crow::response(403, nlohmann::json{{"ok", false}}.dump());
                 }
                 std::thread([&app] {
+                    gangyi::AIActivity::shutdown();
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     app.stop();
                 }).detach();
@@ -1374,6 +1467,7 @@ int main() {
     // 画像由同一真实 AI 主控按学习事件更新，不再启动独立评分线程。
     std::cout << "gangyiAI " << gangyi::kVersion << " listening on " << config.host << ':' << config.port << '\n';
     app.bindaddr(config.host).port(config.port).multithreaded().run();
+    gangyi::AIActivity::shutdown();
     learningAgent.stop();
     { std::lock_guard<std::mutex> guard(socketMapMutex); for (const auto& [connection, state] : socketMap) state->cancelled = true; }
     while (socketWorkerCount > 0) std::this_thread::sleep_for(std::chrono::milliseconds(100));
