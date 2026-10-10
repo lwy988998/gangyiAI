@@ -267,7 +267,9 @@
       api.recordMessages(record.taskId, Math.max(...record.sequences), record.sequences);
   }
   function setDisabled() {
-    const locked = busy || sending || Boolean(admissionError);
+    const locked = !loaded || busy || sending || Boolean(admissionError);
+    // 先恢复课时与草稿再开放输入；AI 处理中仍可继续编辑草稿。
+    input.disabled = !loaded;
     for (const control of scroll.querySelectorAll('form button, form input')) control.disabled = locked;
     for (const id of ['lesson-send', 'explain-again', 'continue-teaching', 'finish-lesson']) $(id).disabled = locked;
   }
@@ -414,5 +416,6 @@
   document.addEventListener('gangyi:agent-control', event => { const {command, task, all} = event.detail || {};
     if (watchingTask && ['pause', 'resume', 'retry', 'cancel'].includes(command) && (all || task?.id === watchingTask)) observe(watchingTask, true); });
   window.addEventListener('pagehide', () => { saveDraft(); if (loaded && !initialPosition) api.storage.set(pageKey('scroll'), JSON.stringify(readingPosition())); unsubscribe?.(); watchEpoch++; });
+  setDisabled();
   load().catch(error => { $('page-status').textContent = error.message; $('page-status').classList.add('agent-error'); $('lesson-task-status').textContent = '课堂暂未就绪'; });
 })();
