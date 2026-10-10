@@ -38,16 +38,18 @@ int main() {
     for (const auto* view : {"learn", "practice", "summary"}) {
         const auto page = gangyi::renderClassroomPage(view);
         expect(page.find(std::string("data-lesson-view=\"") + view + "\"") != std::string::npos,
-            "三页必须声明自己的展示分区");
+            "旧路由必须保留对应内容的定位标识");
         expect(page.find("/agent-classroom.js") != std::string::npos && page.find("id=\"lesson-sections\"") != std::string::npos,
             "三页都绑定同一真实课堂控制器");
         expect(page.find("data-lesson-link=\"learn\"") != std::string::npos && page.find("data-lesson-link=\"practice\"") != std::string::npos && page.find("data-lesson-link=\"summary\"") != std::string::npos,
-            "三页保持自由切换入口");
+            "聊天课堂保留三个自由定位入口");
+        expect(page.find("id=\"lesson-scroll\"") != std::string::npos && page.find("id=\"lesson-input\"") != std::string::npos &&
+            page.find("id=\"lesson-latest\"") != std::string::npos, "课堂使用独立消息滚动区与常驻输入框");
     }
     expect(learn.find("expectedAnswer") == std::string::npos && learn.find("quiz-submit") == std::string::npos,
         "页面骨架不携带答案或旧批量评分入口");
-    expect(learn.find("id=\"finish-lesson\"") != std::string::npos && learn.find("id=\"finish-stop\"") != std::string::npos && learn.find("id=\"finish-retry\"") != std::string::npos,
-        "真实主控完成入口提供停止和重试");
+    expect(learn.find("id=\"finish-lesson\"") != std::string::npos && learn.find("id=\"lesson-stop\"") != std::string::npos && learn.find("id=\"lesson-retry\"") != std::string::npos,
+        "真实主控完成入口共用常驻的停止和重试操作");
     const auto planPage = gangyi::renderPlanPage("目标", "deep", "", "anonymous-1");
     expect(planPage.find("course-stages") != std::string::npos && planPage.find("course-more") != std::string::npos,
         "课程阶段突出显示，其余完整内容默认折叠");

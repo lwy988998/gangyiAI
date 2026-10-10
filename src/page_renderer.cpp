@@ -171,12 +171,18 @@ std::string renderClassroomPage(const std::string& view) {
     const std::string label = view == "practice" ? "练习" : view == "summary" ? "小结" : "讲解";
     const std::string body = headerShell("learn") + R"HTML(
 <main class="lesson-page" data-lesson-view=")HTML" + htmlEscape(view) + R"HTML(">
-  <div class="lesson-heading"><div><p class="uc-eyebrow">本节 · )HTML" + label + R"HTML(</p><h1 id="lesson-title">正在读取课堂</h1><p id="lesson-purpose"></p></div><nav class="lesson-tabs" aria-label="本节导航"><a data-lesson-link="learn">讲解</a><a data-lesson-link="practice">练习</a><a data-lesson-link="summary">小结</a></nav></div>
+  <div class="lesson-heading"><div><p class="uc-eyebrow">知识点 · 聊天课堂</p><h1 id="lesson-title">正在读取课堂</h1><p id="lesson-purpose"></p></div><nav class="lesson-tabs" aria-label="定位课堂内容"><button type="button" data-lesson-link="learn">讲解</button><button type="button" data-lesson-link="practice">练习</button><button type="button" data-lesson-link="summary">小结</button></nav></div>
   <p id="page-status" role="status" aria-live="polite"></p>
-  <section id="lesson-sections" aria-label="教学内容"></section>
-  <nav id="question-navigation" class="question-navigation" aria-label="题目导航" hidden><button id="previous-question" type="button">← 上一题</button><span id="question-position"></span><button id="next-question" type="button">下一题 →</button></nav>
-  <section id="lesson-chat-panel" class="lesson-chat-panel"><h2>和 AI 老师继续互动</h2><form id="lesson-chat"><label for="lesson-input">你的问题或学习反馈</label><textarea id="lesson-input" rows="3"></textarea><button type="submit">发送给 AI</button></form><div id="lesson-dialog" class="agent-dialog"></div></section>
-  <section id="lesson-completion" class="lesson-completion" hidden><button id="finish-lesson" type="button">请 AI 确认本节完成情况</button><button id="prepare-next" type="button">请 AI 准备下一课 →</button><p id="finish-status" role="status"></p><div id="finish-dialog" class="agent-dialog"></div><button id="finish-stop" type="button" hidden>停止</button><button id="finish-retry" type="button" hidden>重试</button></section>
+  <div id="lesson-scroll" tabindex="0" role="region" aria-label="课堂消息">
+    <section id="lesson-sections" aria-label="教学内容与对话"></section>
+    <section id="lesson-completion" class="lesson-completion"><details id="lesson-summary"><summary>本节小结与完成</summary><div id="lesson-summary-content"></div><p id="completion-note"></p><button id="finish-lesson" type="button">请 AI 确认本节完成情况</button><button id="prepare-next" type="button">请 AI 准备下一课 →</button></details></section>
+  </div>
+  <button id="lesson-latest" type="button" hidden>↓ 回到最新</button>
+  <section id="lesson-chat-panel" class="lesson-chat-panel" aria-label="课堂输入">
+    <div class="composer-context"><span id="composer-target">和 AI 老师交流</span><button id="composer-chat" type="button" class="secondary" hidden>自由交流</button></div>
+    <form id="lesson-chat"><label class="sr-only" for="lesson-input">你的答案、问题或学习反馈</label><textarea id="lesson-input" rows="2" placeholder="输入答案、你的想法，或向 AI 老师追问…"></textarea><button id="lesson-send" type="submit">发送 ↑</button></form>
+    <div class="composer-toolbar"><button id="explain-again" type="button" class="secondary">换一种讲法</button><button id="continue-teaching" type="button" class="secondary">请 AI 继续</button><button id="lesson-stop" type="button" class="secondary" hidden>停止回答</button><button id="lesson-retry" type="button" class="secondary" hidden>重试同次回答</button><span id="lesson-task-status" role="status">正在读取课堂</span></div>
+  </section>
 </main>)HTML";
     return document(label + " - 钢一定制AI", body, "<script defer src=\"/agent-classroom.js\"></script>", "<link rel=\"stylesheet\" href=\"/agent-classroom.css\">");
 }

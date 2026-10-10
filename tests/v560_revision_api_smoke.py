@@ -149,6 +149,8 @@ def main(executable):
             deletion_task = api('/api/learning-agent/events', dict(type='chat', courseId=course,
                 lessonId=info['lessonId'], requestId='revision-delete-latest-task', text='删除前检查当前课时'))
             wait(deletion_task['id'], 'waiting_student')
+            # 删除记录也会触发合法的后台学习更新；先暂停该作用域，单独验证失效最近标记。
+            api('/api/learning-agent/control', dict(command='pause', taskId=deletion_task['id']))
             request('/api/my-courses/'+course, method='DELETE')
             assert api('/api/learning-agent')['status'] == 'idle', '删课后失效的最近任务应回到空闲状态'
             assert api('/api/home/next-step')['status'] == 'idle', '首页不能因为已删任务返回服务器错误'

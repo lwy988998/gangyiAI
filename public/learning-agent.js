@@ -17,6 +17,7 @@
   const id = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const exposures = new Map();
   const sectionExposures = new Map();
+  const shownMessages = new Map(); let exposureTimer;
   const flushExposure = async () => {
     await Promise.all([...sectionExposures].map(async ([lessonId, sections]) => {
       await request('/api/learn/exposure', {lessonId, sections: [...sections.values()]});
@@ -74,6 +75,18 @@
   };
   const failureMessage = task => task?.failure?.message || task?.error || 'AI 请求未完成，输入和已有有效结果已保留，可重试。';
   window.GangyiAgent = { request, watch, storage, id, richText, flushExposure, failureMessage,
+    recordMessages(taskId, seq, sequences) {
+      const shown = shownMessages.get(taskId) || new Set();
+      const fresh = sequences.filter(sequence => !shown.has(sequence));
+      if (!fresh.length) return;
+      fresh.forEach(sequence => shown.add(sequence)); shownMessages.set(taskId, shown);
+      const previous = exposures.get(taskId), displayedSequences = new Set(previous?.displayedSequences || []);
+      for (const sequence of sequences) displayedSequences.add(sequence);
+      exposures.set(taskId, {seq: Math.max(seq, previous?.seq || 0), displayedSequences});
+      clearTimeout(exposureTimer); exposureTimer = setTimeout(() => flushExposure().catch(() => {
+        /* 网络恢复或下次提交时继续保存，未确认的已读队列仍保留。 */
+      }), 400);
+    },
     recordSections(lessonId, sections) {
       if (!sections.length) return;
       const saved = new Map(sectionExposures.get(lessonId) || []);

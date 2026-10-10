@@ -408,6 +408,19 @@ int main() {
         assert(readFocus["teachingDialog"].size() == 1);
         assert(readFocus["teachingDialog"][0]["text"] == "先比较化合价，再说说你对电子变化的理解。");
         assert(readFocus.dump().find("失去电子") == std::string::npos);
+        // 未读消息可在新聊天布局恢复，但只读接口不能把它标记成已看或增加学生评价。
+        const auto exposureBeforeTimeline = db.profileMeta("agent-exposure:" + start.at("id").get<std::string>());
+        std::size_t recoveredMessages = 0, recoveredSections = 0;
+        for (const auto& item : readFocus.at("timeline")) {
+            if (item.at("type") == "message") {
+                ++recoveredMessages; assert(item.at("role") == "assistant" && !item.at("sequences").empty());
+                assert(item.at("taskId") == start.at("id") && !item.at("partial").get<bool>());
+            } else if (item.at("type") == "section") ++recoveredSections;
+        }
+        assert(recoveredMessages == 2 && recoveredSections == 4);
+        assert(gangyi::agentLessonView(db, access, preparedLessonId).at("timeline") == readFocus.at("timeline"));
+        assert(db.profileMeta("agent-exposure:" + start.at("id").get<std::string>()) == exposureBeforeTimeline);
+        assert(db.listInteractions().size() == beforeStartRecords);
         for (int i = 0; i < 5; ++i) gangyi::agentControl(db, access, {{"command", "start_lesson"}, {"lessonId", preparedLessonId}});
         teacher.process(db, start["id"]);
         assert(teachingCalls == 2 && db.listInteractions().size() == beforeStartRecords);

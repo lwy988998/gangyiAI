@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, '../public/agent-classroom.js'), 'utf8');
-const declaration = source.slice(source.indexOf('  function readDraft('), source.indexOf('\n  const status ='));
+const declaration = source.slice(source.indexOf('  function readDraft('), source.indexOf('\n  function material('));
 
 function fixture(lessonId = 'legacy-session', query = new URLSearchParams()) {
   const cache = new Map();

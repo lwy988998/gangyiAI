@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <map>
 #include <random>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 
@@ -100,7 +101,7 @@ Json publicLesson(const Json& lesson) {
     result["sections"] = Json::array();
     for (const auto& section : lesson.at("sections")) {
         Json shown;
-        for (const auto* key : {"id", "kind", "title", "body", "displayed", "version", "legacyKind", "legacyIndex", "questionKind", "presentation"}) if (section.contains(key)) shown[key] = section[key];
+        for (const auto* key : {"id", "kind", "title", "body", "displayed", "version", "legacyKind", "legacyIndex", "questionKind", "presentation", "createdAt"}) if (section.contains(key)) shown[key] = section[key];
         if (section.at("kind") == "question") {
             shown.erase("body"); Json question;
             for (const auto* key : {"question", "options", "type", "materials"}) if (section.at("question").contains(key)) question[key] = section["question"][key];
@@ -456,8 +457,11 @@ Json agentLessonView(Database& db, const AgentAccess& access, const std::string&
     }
     for (auto& section : shown["sections"]) {
         section["dialog"] = Json::array();
+        section["legacyDialog"] = Json::array();
         for (const auto& source : saved.at("sections")) if (source.at("id") == section.at("id"))
-            for (const auto& item : source.value("legacyDialog", Json::array())) section["dialog"].push_back(item);
+            for (const auto& item : source.value("legacyDialog", Json::array())) {
+                section["legacyDialog"].push_back(item); section["dialog"].push_back(item);
+            }
         for (const auto& interaction : interactions) if (interaction.kind == "chat-user") {
             const auto input = Json::parse(interaction.payload, nullptr, false);
             if (!input.is_object() || input.value("scopeId", "") != access.scopeId || input.value("lessonId", "") != lessonId ||
@@ -497,7 +501,8 @@ Json agentLessonView(Database& db, const AgentAccess& access, const std::string&
         for (const auto& inputRow : interactions) if (inputRow.id == value.at("interactionId") && inputRow.kind == "chat-user") {
             const auto input = Json::parse(inputRow.payload, nullptr, false);
             if (!input.is_object() || input.value("scopeId", "") != access.scopeId || input.value("lessonId", "") != lessonId) continue;
-            Json evaluation = {{"id", row.id}, {"sectionId", input.value("sectionId", "")}};
+            Json evaluation = {{"id", row.id}, {"sectionId", input.value("sectionId", "")},
+                {"interactionId", inputRow.id}, {"requestId", input.value("requestId", "")}};
             for (const auto* field : {"questionId", "response", "score", "credible", "feedback", "reason", "uncertainty", "assisted", "at"})
                 if (value.contains(field)) evaluation[field] = value.at(field);
             shown["evaluations"].push_back(std::move(evaluation));
@@ -530,6 +535,62 @@ Json agentLessonView(Database& db, const AgentAccess& access, const std::string&
                 if (value.contains(field) && (value.at(field).is_string() || value.at(field).is_boolean() || value.at(field).is_number() || value.at(field).is_null())) record[field] = value.at(field);
             shown["historicalAssessments"].push_back(std::move(record));
         }
+    }
+    // 聊天课堂重放真实任务顺序。仅公开教师文字和已提交板块的身份，不能带出工具参数、答案或评分标准。
+    // teachingDialog 继续保留原来的“实际已展示”协议；timeline 可读取未读回复，读取本身不修改已读证据。
+    shown["timeline"] = Json::array();
+    for (const auto& row : tasks) if (row.kind == "agent-task") {
+        const auto task = Json::parse(row.payload, nullptr, false);
+        if (!task.is_object() || task.value("scopeId", "") != access.scopeId ||
+            task.value("event", Json::object()).value("lessonId", "") != lessonId) continue;
+        const auto taskId = task.at("id");
+        for (const auto& interaction : interactions) if (interaction.kind == "chat-user") {
+            const auto input = Json::parse(interaction.payload, nullptr, false);
+            if (!input.is_object() || input.value("scopeId", "") != access.scopeId || input.value("lessonId", "") != lessonId ||
+                input.value("requestId", "") != task.at("requestId")) continue;
+            shown["timeline"].push_back({{"type", "message"}, {"id", interaction.id}, {"role", "user"},
+                {"text", input.value("text", "")}, {"sectionId", input.value("sectionId", "")}, {"taskId", taskId}, {"at", interaction.createdAt}});
+        }
+        const auto valid = task.value("validSteps", Json::array());
+        const auto completed = task.value("completedActions", Json::object());
+        std::map<int, std::size_t> messages;
+        std::set<std::string> evaluations;
+        for (const auto& event : task.value("events", Json::array())) {
+            if (event.value("type", "") == "delta" && event.value("field", "") == "message") {
+                const auto step = event.value("step", 0);
+                if (!messages.count(step)) {
+                    messages[step] = shown["timeline"].size();
+                    shown["timeline"].push_back({{"type", "message"}, {"id", taskId.get<std::string>() + ":step:" + std::to_string(step)},
+                        {"role", "assistant"}, {"text", ""}, {"taskId", taskId}, {"step", step}, {"sequences", Json::array()},
+                        {"partial", std::find(valid.begin(), valid.end(), step) == valid.end()}, {"at", task.value("createdAt", row.updatedAt)}});
+                }
+                auto& message = shown["timeline"][messages.at(step)];
+                message["text"] = message.at("text").get<std::string>() + event.value("text", "");
+                message["sequences"].push_back(event.at("seq"));
+            } else if (event.value("type", "") == "action" && completed.is_object()) {
+                const auto id = event.value("actionId", ""); if (!completed.contains(id)) continue;
+                const auto action = Json::parse(completed.at(id).value("encoded", ""), nullptr, false);
+                if (!action.is_object() || !action.value("args", Json()).is_object()) continue;
+                const auto tool = action.value("tool", "");
+                if (tool == "evaluate_answer") for (const auto& evaluation : shown["evaluations"])
+                    if (evaluation.value("interactionId", "") == action.at("args").value("interactionId", "")) {
+                        shown["timeline"].push_back({{"type", "evaluation"}, {"id", evaluation.at("id")}, {"taskId", taskId}});
+                        evaluations.insert(evaluation.at("id").get<std::string>());
+                    }
+                if (action.at("args").value("lessonId", "") != lessonId) continue;
+                std::vector<std::string> identities;
+                if (tool == "append_section" && action.at("args").value("activate", true))
+                    identities.push_back(completed.at(id).value("result", Json::object()).value("sectionId", ""));
+                else if (tool == "select_teaching_focus") for (const auto* key : {"sectionId", "interactionSectionId", "practiceSectionId"})
+                    if (action.at("args").contains(key)) identities.push_back(action.at("args").value(key, ""));
+                for (const auto& identity : identities) for (const auto& section : shown["sections"]) if (section.at("id") == identity)
+                    shown["timeline"].push_back({{"type", "section"}, {"id", taskId.get<std::string>() + ":" + id + ":" + identity},
+                        {"sectionId", identity}, {"taskId", taskId}});
+            }
+        }
+        for (const auto& evaluation : shown["evaluations"]) if (evaluation.value("requestId", "") == task.at("requestId") &&
+            !evaluations.count(evaluation.at("id").get<std::string>()))
+            shown["timeline"].push_back({{"type", "evaluation"}, {"id", evaluation.at("id")}, {"taskId", taskId}});
     }
     if (shown.contains("teachingTaskId")) {
         const auto task = agentView(db, access, shown.at("teachingTaskId"));
