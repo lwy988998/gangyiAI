@@ -75,11 +75,26 @@ def main(executable):
             expect(practice.locator('input[type=radio]').first).to_be_checked()
             page.locator('[data-lesson-link=summary]').click()
             page.get_by_text('本节尚无足够的实际作答评价；阅读和追问不表示掌握。',exact=True).wait_for()
+            # 课时读取返回前不能提前输入，恢复完成后再写实际作答说明。
+            loading_routes = []
+            loading_pattern = '**/api/learning-agent/lesson?lessonId='+lesson
+            def hold_loading(route):
+                if not loading_routes and '/practice?' in route.request.frame.url:
+                    assert field.is_disabled(), '课时读取尚未返回时必须锁定输入'
+                    loading_routes.append(route.request.url)
+                route.continue_()
+            page.route(loading_pattern, hold_loading)
             page.locator('[data-lesson-link=practice]').click()
+            expect(page).to_have_url(info['base']+'/practice?lessonId='+lesson)
+            expect(page.locator('#page-status')).to_contain_text('本页独立保存交流和草稿')
+            expect(field).to_be_enabled()
+            assert loading_routes, '延迟加载场景必须实际拦截课时读取'
+            page.unroute(loading_pattern, hold_loading)
             field.fill('我认为从0升高到+2。')
             with urlopen(Request(info['fixture']+'/fixture-control',data=b'{"slow":true}',headers={'Content-Type':'application/json'})): pass
             practice.get_by_role('button',name='提交答案',exact=True).click()
             expect(page.locator('.chat-message.user .chat-message-body').last).to_contain_text('我选1')
+            expect(page.locator('.chat-message.user .chat-message-body').last).to_contain_text('我认为从0升高到+2。')
             page.locator('#learning-navigation > summary').click()
             expect(page.locator('#agent-control-panel .ai-control-history')).not_to_have_attribute('open', '')
             expect(page.locator('#agent-control-panel .ai-task-details')).not_to_have_attribute('open', '')
@@ -193,13 +208,24 @@ def main(executable):
             assert second['status'] == 'ready'
             other_lesson = second['lesson']['id']
             assert other_lesson != lesson
+            # 模拟首次开课的焦点晚到：先写聊天草稿，再读取实际题目焦点。
+            focus_route = '**/api/learning-agent/lesson?lessonId='+other_lesson
+            def delay_focus(route):
+                response = route.fetch()
+                data = response.json()
+                data['teachingFocus'] = {}
+                route.fulfill(response=response, json=data)
+            page.route(focus_route, delay_focus)
             page.goto(info['base']+'/learn?lessonId='+other_lesson)
             expect(page.locator('#lesson-task-status')).to_have_text('你可以继续回答或追问')
+            expect(page.locator('#composer-target')).to_have_text('和 AI 老师交流')
             expect(page.locator('#lesson-input')).to_have_value('')
             page.locator('#lesson-input').fill('另一知识点的草稿。')
+            page.unroute(focus_route, delay_focus)
             page.goto(info['base']+'/learn?lessonId='+lesson)
             expect(page.locator('#lesson-input')).to_have_value('原知识点独立保存的草稿。')
             page.goto(info['base']+'/learn?lessonId='+other_lesson)
+            expect(page.locator('#composer-target')).to_have_text('和 AI 老师交流')
             expect(page.locator('#lesson-input')).to_have_value('另一知识点的草稿。')
             # 完成按钮使用真实主控判断；刷新后回复保留，不能伪造一条没有保存的学生消息。
             page.locator('[data-lesson-link=summary]').click()
@@ -287,7 +313,7 @@ def main(executable):
             browser.close()
         with closing(sqlite3.connect(info['database'])) as database:
             values=[json.loads(row[0]) for row in database.execute("SELECT payload FROM LearningInteraction WHERE kind='practice'")]
-            assert len(values)==1 and values[0]['response'].startswith('我选1') and values[0]['response'].endswith('我认为从0升高到+2。')
+            assert len(values)==1 and values[0]['response'].startswith('我选1') and values[0]['response'].endswith('我认为从0升高到+2。'), values
             assert values[0]['assisted'] and values[0]['model']=='fixture-v560'
         print('聊天课堂、固定输入、内容定位、卡片作答、分题草稿、全局暂停恢复、评价顺序、历史回看与窄屏回归通过（隔离协议夹具）')
 

@@ -56,7 +56,12 @@
     !['interaction', 'diagnostic'].includes(section.questionKind || section.legacyKind) ? 'practice' : 'learn');
   const pageKey = prefix => prefix + ':' + lessonId + ':' + activeView;
   const draftKey = () => selectedQuestion ? 'draft:' + lessonId + ':' + selectedQuestion : pageKey('chat-draft');
-  function saveDraft() { if (loaded) api.storage.set(draftKey(), input.value); }
+  function saveDraft() {
+    if (!loaded) return;
+    // 同时保存输入目标，首次开课的 AI 焦点晚到时仍能恢复原草稿。
+    api.storage.set(pageKey('composer'), selectedQuestion || 'chat');
+    api.storage.set(draftKey(), input.value);
+  }
   function selectQuestion(id, focusInput = false) {
     if (id && (!isQuestion(sectionFor(id)) || areaFor(sectionFor(id)) !== activeView)) return;
     saveDraft(); selectedQuestion = id || ''; api.storage.set(pageKey('composer'), selectedQuestion || 'chat');
@@ -262,7 +267,9 @@
       api.recordMessages(record.taskId, Math.max(...record.sequences), record.sequences);
   }
   function setDisabled() {
-    const locked = busy || sending || Boolean(admissionError);
+    const locked = !loaded || busy || sending || Boolean(admissionError);
+    // 先恢复课时与草稿再开放输入；AI 处理中仍可继续编辑草稿。
+    input.disabled = !loaded;
     for (const control of scroll.querySelectorAll('form button, form input')) control.disabled = locked;
     for (const id of ['lesson-send', 'explain-again', 'continue-teaching', 'finish-lesson']) $(id).disabled = locked;
   }
@@ -409,5 +416,6 @@
   document.addEventListener('gangyi:agent-control', event => { const {command, task, all} = event.detail || {};
     if (watchingTask && ['pause', 'resume', 'retry', 'cancel'].includes(command) && (all || task?.id === watchingTask)) observe(watchingTask, true); });
   window.addEventListener('pagehide', () => { saveDraft(); if (loaded && !initialPosition) api.storage.set(pageKey('scroll'), JSON.stringify(readingPosition())); unsubscribe?.(); watchEpoch++; });
+  setDisabled();
   load().catch(error => { $('page-status').textContent = error.message; $('page-status').classList.add('agent-error'); $('lesson-task-status').textContent = '课堂暂未就绪'; });
 })();
