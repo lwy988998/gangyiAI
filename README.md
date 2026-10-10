@@ -1,70 +1,57 @@
-# gangyiAI
+# 钢一定制AI
 
-gangyiAI（钢一定制AI）是面向柳州市钢一中学的 Windows 本机 AI 学习平台。程序在独立桌面窗口中运行；每次冷启动播放光栅扫描动画，并通过过渡动效呈现真实首页。普通浏览器访问首页、应用内返回首页和恢复窗口不会重复播放。
+钢一定制AI 是面向柳州市钢一中学的 Windows 本机 AI 学习平台，当前版本为 **v5.6.0**。使用 C++17、Crow、SQLite、WebView2 和原生 HTML/CSS/JavaScript，课程与学习记录保存在本机，无需在线账号。
 
-平台基于 C++17、Crow、SQLite、WebView2 和原生 HTML/CSS/JavaScript 构建，支持学习目标输入与图片识别、快速或深度课程规划、阶段学习、微课程、测验、AI 对话和课程管理。深色动态界面展示依据本机学习记录生成的专属学习画像；课程和对话记录保存在本机，不需要在线账号。首次启动可暂不配置 AI 接口，先使用本地功能。
+## 学习与 AI
 
-当前源码版本为 **v5.5.0**。
+- 首页输入学习目标或上传参考图，选择快速规划或深度课程；我的课程管理课程、统一学习安排、画像和学习时间。
+- 当前课程恢复最近访问的有效课程；没有课程时显示“当前没有课程”，提供创建入口。
+- 每个知识点有讲解、练习、小结三个独立聊天页面，固定底部输入框。各页保存自己的交流、草稿和滚动位置，AI 共享完整学习背景。
+- 真实 AI 主控决定教学内容、题量、难度、评价和下一课。实际作答先评价再讲解，纯追问与示范不新增评分；切换、刷新和读取已有内容不重新备课。
+- 学科画像与学习能力六维图依据真实作答评估。充分性由 AI 判断，无固定三题门槛；证据不足显示待评估，六维都有有效评分后显示完整区域。
+- 全软件 AI 悬浮监控显示正在调用的任务、来源、用途、具体操作和请求次数，支持暂停全部请求、恢复未完成任务及失败重试。
 
-v5.5.0 将诊断、互动、例题、练习、测验和复习统一为先作答再连续对话。真实 AI 先评价学生回答，再流式讲解；下一课由 AI 读取最新学习情况，逐段备课，校验并保存后自动进入课堂，可推进、巩固、复习或切换学科。漏答表示信息不足，画像每维仍要求至少三道不同题目的可靠反馈。手动课表保留预览确认保护，原课程、进度、双模式雷达和 AI 配置兼容。
+详细行为见 [AI 教学主控](docs/ai-controller.md)、[课堂与页面协议](docs/v5.6.0-ai-classroom.md)、[AI 调用监控](docs/AI调用监控.md) 和 [版本说明](docs/releases/v5.6.0.md)。
 
-v5.1.0 把“我的课程”升级为用户中心（侧栏导航，含概览、课程、学习时间、学习画像与 AI 设置），把每周可学习时间从首页搬进用户中心；AI 回答改为逐字输出、Markdown 排版、数学公式、复制与追问建议，公式引擎随包发布。
+## Windows 使用
 
-v5.0.0 整合普通导师连续对话、课堂互动和个性化算法。普通导师支持最近八条上下文、逐段显示和停止回答；导师与每个课时分开记忆，共享本机学习画像。数据库自动迁移至 schema 6，补齐旧版缺失的课堂表并保留旧记录；Windows 发布包必检课堂脚本和样式。
+在 [GitHub Releases](https://github.com/lwy988998/gangyiAI/releases/latest) 下载 `gangyiAI-setup-v5.6.0-x64.exe`，或完整解压 `gangyiAI-portable-v5.6.0-x64.zip` 后运行 `gangyiAI-launcher.exe`。
 
-v4.1.0 新增“诊断 → 学习 → 互动 → 测评 → 补弱与复习 → 下一课”的课堂闭环：支持诊断分流、三类课堂互动、流式连续追问、短补弱、1／3／7 天复习、可编辑周计划及受证据门槛保护的课程路径调整。Windows 冷启动统一使用光栅扫描动画。v4.0.0 的学习画像、证据链、联网搜索和本机凭据管理继续保留。
+独立窗口恢复上次大小与位置，每次冷启动播放一次光栅扫描动画。首次启动可暂不配置 AI，后续在设置中填写服务商、接口地址、模型和 API Key。密钥保存在 Windows 凭据管理器，配置与课程数据位于 `%LOCALAPPDATA%/GangyiAI`；卸载默认保留课程数据。AI 不可用时保留有效内容并提供重试。
 
-## Windows 安装包
+托盘提供日志、数据目录、诊断报告、数据库备份恢复及服务重启。服务异常后按限次退避策略恢复。免安装包不携带本机档案；程序需要 WebView2 Runtime，目前未进行代码签名。
 
-普通用户可前往 [GitHub Releases](https://github.com/lwy988998/gangyiAI/releases/latest) 下载
-`gangyiAI-setup-v5.5.0-x64.exe`，也可下载 `gangyiAI-portable-v5.5.0-x64.zip` 解压免安装使用。
-Windows v5.5.0 使用可缩放的独立窗口展示现有动态页面，不再默认打开浏览器。冷启动播放一次光栅扫描动画，动画完成后平滑呈现真实首页。“我的课程”提供 API 接口快捷入口，可配置服务商、API 地址、API Key 和模型；密钥保存在 Windows 凭据管理器。首次启动可选择“暂不配置，直接使用”；需要 AI 生成或问答时，也可从托盘“设置”中配置。可用系统按钮最小化、最大化或关闭；关闭主窗口会退出程序。
-首次发布版本尚未进行代码签名，Windows SmartScreen 可能显示未知发布者提示。
-
-安装包同页提供 `SHA256SUMS.txt`，可使用以下命令校验下载文件：
-
-```powershell
-Get-FileHash .\gangyiAI-setup-v5.5.0-x64.exe -Algorithm SHA256
-```
-
-### 发布构建
-
-发布环境需要 Windows 10/11 x64、CMake、MinGW-w64、PowerShell 5.1+ 和 Inno Setup 6。执行：
+下载页提供 `SHA256SUMS.txt`，校验命令：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
+Get-FileHash ./gangyiAI-setup-v5.6.0-x64.exe -Algorithm SHA256
 ```
 
-脚本会下载固定版本的构建依赖、编译服务和原生 Win32 托盘启动器，并生成：
+## 构建与验收
+
+Windows 发布环境需要 CMake、MinGW-w64、PowerShell 和 Inno Setup 6：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ./scripts/build_windows.ps1
+```
+
+脚本下载固定版本依赖，编译、运行核心测试、自检并生成 `dist/installer` 中的安装包、免安装包及 SHA256 文件。仅编译和生成免安装包可加 `-SkipInstaller`。
+
+源码保留核心回归和当前课堂、雷达、启动及页面就绪浏览器验收；共用夹具采用隔离档案和模拟服务。GitHub Actions 执行 Windows/Linux 编译、测试、Sanitizer 和隔离安装卸载验收，版本标签触发正式发布。人工检查见 [Windows 发布检查](docs/windows-release-checklist.md)。
+
+本机 `verification`、构建缓存、测试数据和预览不进入 Git 或发布包。`third_party` 为构建依赖，不能当作演示目录删除。
+
+## 服务端运行
+
+Linux 或直接运行服务时设置以下环境变量，默认只监听本机：
 
 ```text
-dist\installer\gangyiAI-setup-v5.5.0-x64.exe
-dist\installer\gangyiAI-portable-v5.5.0-x64.zip
-dist\installer\SHA256SUMS.txt
-```
-
-安装程序按当前用户安装，不需要管理员权限。首次启动可跳过 API 配置并直接使用本地功能；AI 生成功能需要稍后在托盘“设置”中配置。配置 API 时可先点击“测试连接”，确认有效后保存启动。API Key 保存在 Windows 凭据管理器中，课程数据库保存在 `%LOCALAPPDATA%\GangyiAI\data`，卸载程序默认保留课程数据。
-
-托盘菜单提供日志查看、数据目录、诊断报告、课程数据库备份恢复和服务重启。服务异常退出后会按限次退避策略自动恢复。免安装版同样把配置和数据保存在 `%LOCALAPPDATA%\GangyiAI`，复制 ZIP 不会自动携带课程数据。
-
-GitHub Actions 会在全新 Windows Runner 中执行编译、CTest、健康检查、静默安装、卸载和免安装版验收。真实 Windows 10/11 图形界面发布检查见 [人工验收清单](docs/windows-release-checklist.md)。
-
-只编译、不生成安装包：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1 -SkipInstaller
-```
-
-## 服务器运行
-
-Linux 或已有部署方式仍可通过环境变量启动 `gangyiAI`：
-
-```text
+HOST=127.0.0.1
+PORT=39002
+DATABASE_PATH=gangyiAI.db
 AI_BASE_URL=https://api.deepseek.com/v1
 AI_API_KEY=你的密钥
 AI_MODEL=deepseek-chat
-DATABASE_PATH=gangyiAI.db
-PORT=39002
 ```
 
-默认仅监听 `127.0.0.1`。学习画像的依据保存在本机；评估时只向已配置的 AI 接口发送必要摘要，更新失败会保留最近一次有效结果。
+运行服务程序 `gangyiAI`。课程、画像及记录保存在指定数据库；模型请求发送至你配置的服务，页面只读查询与显示操作不属于模型推理请求。
