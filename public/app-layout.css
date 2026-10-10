@@ -87,3 +87,6 @@
 .preparation-milestones .is-interrupted:before{content:"!";color:#ef9e8f}.preparation-milestones .is-paused:before{content:"Ⅱ";color:#d9bf6f}
 
 .dark-app .progress-track{background:#253c37}.dark-app .progress-track i{background:var(--gy-accent)}
+.dark-app .current-course-empty{min-height:calc(100vh - 220px);padding-top:64px}
+.dark-app .current-course-empty .empty-course-actions{margin-top:28px}
+.dark-app .current-course-empty .empty-course-actions a{display:inline-block;padding:12px 20px;border:1px solid #42675e;border-radius:8px;background:#173630;color:var(--gy-accent);text-decoration:none}

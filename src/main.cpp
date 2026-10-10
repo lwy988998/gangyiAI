@@ -566,6 +566,20 @@ int main() {
         return response;
     });
 
+    CROW_ROUTE(app, "/current-course")([&db] {
+        if (const auto course = gangyi::currentCourseForIdentity(db)) {
+            crow::response response(302);
+            response.set_header("Location", "/plan?courseId=" + course->id);
+            response.set_header("Cache-Control", "no-store");
+            return response;
+        }
+        const bool hasCourses = !gangyi::listCoursesForIdentity(db, "", "", 1, 0).empty();
+        crow::response response(gangyi::renderCurrentCourseEmptyPage(hasCourses));
+        response.set_header("Content-Type", "text/html; charset=utf-8");
+        response.set_header("Cache-Control", "no-store");
+        return response;
+    });
+
     CROW_ROUTE(app, "/my-courses")([&db](const crow::request& req) {
         const std::string anonymousId = requestAnonymousId(req);
         const auto courses = gangyi::listCoursesForIdentity(db, "", "", 100, 0);

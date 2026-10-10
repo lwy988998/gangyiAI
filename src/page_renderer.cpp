@@ -69,7 +69,7 @@ std::string headerShell(const std::string& active) {
     const std::string links = navLink("/", "首页", is("home")) +
         navLink("/my-courses", "我的课程", is("my-courses")) +
         std::string("<a data-current-course-link class=\"dark-nav-link") + (is("learn") ? " is-active" : "") +
-        "\" aria-disabled=\"true\" tabindex=\"-1\" title=\"暂未选择课程\">当前课程</a>" + navLink("/ask", "AI 导师", is("ask"));
+        "\" href=\"/current-course\" title=\"查看当前课程\">当前课程</a>" + navLink("/ask", "AI 导师", is("ask"));
     return R"HTML(<header class="site-header dark-header"><div class="dark-nav-shell"><a class="dark-brand" href="/"><img class="dark-brand-mark" src="/school-logo.png" alt="柳州市钢一中学校徽"><span>钢一<b>定制AI</b></span></a><nav class="dark-nav-links" aria-label="主导航">)HTML" + links +
         R"HTML(</nav><a class="dark-nav-cta" href="/my-courses#profile">我的画像 ↗</a><details class="dark-mobile-nav"><summary aria-label="打开菜单">☰</summary><nav aria-label="移动导航">)HTML" + links +
         R"HTML(</nav></details></div></header>)HTML";
@@ -202,6 +202,15 @@ std::string renderAskPage(const std::string& question) {
 </section></main>)HTML";
     const std::string script = "<script>window.gangyiInitialQuestion=" + jsString(question) + ";</script><script defer src=\"/ask.js\"></script>";
     return document("AI 对话 - 钢一定制AI", body, script);
+}
+
+std::string renderCurrentCourseEmptyPage(bool hasCourses) {
+    const std::string title = hasCourses ? "暂未选择当前课程" : "当前没有课程";
+    const std::string description = hasCourses ? "从我的课程选择一门课程，开始学习。" : "从首页输入学习目标，创建你的第一门课程。";
+    const std::string body = headerShell("learn") + "<main class=\"uc-shell current-course-empty\"><section class=\"uc-head\"><div><p class=\"uc-eyebrow\">当前课程</p><h1>" +
+        title + "</h1><p>" + description + "</p><div class=\"empty-course-actions\"><a href=\"" +
+        (hasCourses ? "/my-courses" : "/") + "\">" + (hasCourses ? "选择课程 →" : "创建课程 →") + "</a></div></div></section></main>";
+    return document(title + " - 钢一定制AI", body);
 }
 
 std::string renderMyCoursesPage(const nlohmann::json& data) {

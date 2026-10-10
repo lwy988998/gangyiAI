@@ -56,6 +56,9 @@ int main() {
     const nlohmann::json courses = {{"anonymousId", "anonymous-1"}, {"stats", {{"total", 1}}},
         {"courses", {{{"courseId", "course-1"}, {"title", "函数课程"}, {"goal", "学习函数"}, {"createdAt", "2026-09-08"}}}}};
     const auto myCourses = gangyi::renderMyCoursesPage(courses);
+    const auto emptyCourse = gangyi::renderCurrentCourseEmptyPage();
+    expect(emptyCourse.find("当前没有课程") != std::string::npos && emptyCourse.find("href=\"/current-course\"") != std::string::npos,
+        "空档案的当前课程入口可点击，进入独立空状态页面");
     expect(myCourses.find("data-course-id=\"course-1\"") != std::string::npos && myCourses.find("/user-center.js") != std::string::npos,
         "课程删除与设置继续绑定原控制器");
     expect(myCourses.find("aria-controls=\"courses-panel\"") != std::string::npos && myCourses.find("aria-controls=\"profile-panel\"") != std::string::npos,

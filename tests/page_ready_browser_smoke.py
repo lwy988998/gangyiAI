@@ -45,7 +45,7 @@ def main(executable):
     script = desktop_script()
     with start_session(executable) as (info, api, process):
         lesson = info['lessonId']
-        paths = ['/', '/startup', '/my-courses', '/my-courses#profile',
+        paths = ['/', '/startup', '/current-course', '/my-courses', '/my-courses#profile',
                  '/plan?courseId=' + info['courseId'],
                  '/phase?courseId=' + info['courseId'] + '&phaseIndex=1', '/ask',
                  '/agent-prepare.html?taskId=' + api('/api/learning-agent')['id'],

@@ -9,8 +9,8 @@
   function anchor(text, href, className = '') { const node = element('a', text, className); node.href = href; return node; }
   function paintCurrent(value) {
     for (const node of document.querySelectorAll('[data-current-course-link]')) {
-      if (value && localLink(value.href)) { node.href = value.href; node.removeAttribute('aria-disabled'); node.removeAttribute('tabindex'); node.title = value.title || '当前课程'; }
-      else { node.removeAttribute('href'); node.setAttribute('aria-disabled', 'true'); node.tabIndex = -1; node.title = '暂未选择课程，请从我的课程选择'; }
+      node.href = '/current-course'; node.removeAttribute('aria-disabled'); node.removeAttribute('tabindex');
+      node.title = value && localLink(value.href) ? value.title || '当前课程' : '查看当前课程';
     }
   }
   async function restoreCurrent() {

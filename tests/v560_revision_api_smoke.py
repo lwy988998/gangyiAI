@@ -36,6 +36,7 @@ def main(executable):
 
         course = info['courseId']
         assert api('/api/courses')['currentCourse']['id'] == course
+        assert info['courseId'] in request('/current-course'), '有效当前课程入口应进入真实课程总览'
         other = api('/api/generate-plan', dict(goal='第二门虚构课程', mode='lite', requestId='revision-other-course'))
         other_course = wait(other['id'])['course']['id']
         assert api('/api/courses')['currentCourse']['id'] == course, '建课不能冒充访问记录'
@@ -160,6 +161,7 @@ def main(executable):
             assert current and current['id'] == other_course
             request('/api/my-courses/'+other_course, method='DELETE')
             assert api('/api/courses')['currentCourse'] is None
+            assert '当前没有课程' in request('/current-course'), '空档案应显示独立的当前课程空状态'
         finally:
             restarted.terminate()
             restarted.wait(timeout=20)
