@@ -193,13 +193,24 @@ def main(executable):
             assert second['status'] == 'ready'
             other_lesson = second['lesson']['id']
             assert other_lesson != lesson
+            # 模拟首次开课的焦点晚到：先写聊天草稿，再读取实际题目焦点。
+            focus_route = '**/api/learning-agent/lesson?lessonId='+other_lesson
+            def delay_focus(route):
+                response = route.fetch()
+                data = response.json()
+                data['teachingFocus'] = {}
+                route.fulfill(response=response, json=data)
+            page.route(focus_route, delay_focus)
             page.goto(info['base']+'/learn?lessonId='+other_lesson)
             expect(page.locator('#lesson-task-status')).to_have_text('你可以继续回答或追问')
+            expect(page.locator('#composer-target')).to_have_text('和 AI 老师交流')
             expect(page.locator('#lesson-input')).to_have_value('')
             page.locator('#lesson-input').fill('另一知识点的草稿。')
+            page.unroute(focus_route, delay_focus)
             page.goto(info['base']+'/learn?lessonId='+lesson)
             expect(page.locator('#lesson-input')).to_have_value('原知识点独立保存的草稿。')
             page.goto(info['base']+'/learn?lessonId='+other_lesson)
+            expect(page.locator('#composer-target')).to_have_text('和 AI 老师交流')
             expect(page.locator('#lesson-input')).to_have_value('另一知识点的草稿。')
             # 完成按钮使用真实主控判断；刷新后回复保留，不能伪造一条没有保存的学生消息。
             page.locator('[data-lesson-link=summary]').click()

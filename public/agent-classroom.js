@@ -56,7 +56,12 @@
     !['interaction', 'diagnostic'].includes(section.questionKind || section.legacyKind) ? 'practice' : 'learn');
   const pageKey = prefix => prefix + ':' + lessonId + ':' + activeView;
   const draftKey = () => selectedQuestion ? 'draft:' + lessonId + ':' + selectedQuestion : pageKey('chat-draft');
-  function saveDraft() { if (loaded) api.storage.set(draftKey(), input.value); }
+  function saveDraft() {
+    if (!loaded) return;
+    // 同时保存输入目标，首次开课的 AI 焦点晚到时仍能恢复原草稿。
+    api.storage.set(pageKey('composer'), selectedQuestion || 'chat');
+    api.storage.set(draftKey(), input.value);
+  }
   function selectQuestion(id, focusInput = false) {
     if (id && (!isQuestion(sectionFor(id)) || areaFor(sectionFor(id)) !== activeView)) return;
     saveDraft(); selectedQuestion = id || ''; api.storage.set(pageKey('composer'), selectedQuestion || 'chat');
