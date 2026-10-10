@@ -58,7 +58,9 @@ def main(executable):
             original_task=api('/api/learning-agent/lesson?lessonId='+lesson)['initialTeachingTaskId']
             for area in ('practice','summary','learn'):
                 page.locator('[data-lesson-link='+area+']').click()
-                assert page.locator('#lesson-input').input_value()=='本段草稿，尚未提交。'
+                expect(page.locator('[data-lesson-view]')).to_have_attribute('data-lesson-view', area)
+                expect(field).to_have_value('本段草稿，尚未提交。' if area=='learn' else '')
+                assert all(value==area for value in page.locator('#lesson-scroll [data-area]').evaluate_all('(nodes)=>nodes.map(node=>node.dataset.area)'))
                 fits()
             assert json.load(urlopen(info['fixture']))['calls']==calls_before
             assert api('/api/learning-agent/lesson?lessonId='+lesson)['initialTeachingTaskId']==original_task
@@ -132,8 +134,8 @@ def main(executable):
             page.locator('#lesson-scroll').evaluate('(node)=>node.scrollTop=0')
             top_before=page.locator('#lesson-scroll').evaluate('(node)=>node.scrollTop')
             field_before=field.bounding_box()
-            page.get_by_role('heading',name='把化合价变化联系到电子',exact=True).wait_for()
             expect(page.locator('#lesson-task-status')).to_have_text('你可以继续回答或追问',timeout=30000)
+            assert page.get_by_role('heading',name='把化合价变化联系到电子',exact=True).count()==0
             assert abs(page.locator('#lesson-scroll').evaluate('(node)=>node.scrollTop')-top_before)<2
             assert abs(field.bounding_box()['y']-field_before['y'])<2
             expect(page.locator('#lesson-latest')).to_be_visible()
@@ -177,6 +179,9 @@ def main(executable):
             expect(page.locator('#lesson-task-status')).to_have_text('你可以继续回答或追问',timeout=30000)
             assert api('/api/learning-agent/lesson?lessonId='+lesson)['teachingTaskId']==failed_task
             assert page.locator('.chat-message.user').filter(has_text='为什么请求失败时要保留输入？').count()==1
+            page.locator('[data-lesson-link=learn]').click()
+            page.locator('#composer-chat').click()
+            expect(page.locator('.chat-message.user')).to_have_count(0)
             field.fill('原知识点独立保存的草稿。')
             second_task = api('/api/learning-agent/events', dict(type='prepare_next', courseId=info['courseId'],
                 requestId='browser-second-prepared-lesson', navigate=False))
@@ -210,10 +215,10 @@ def main(executable):
             # 相同文字的旧交流与新交流都是实际记录，不能按正文去重丢掉旧轮次。
             with closing(sqlite3.connect(info['database'])) as database:
                 saved_lesson = json.loads(database.execute('SELECT payload FROM ClassroomActivity WHERE id=?', (lesson,)).fetchone()[0])
-                saved_lesson['sections'][0]['legacyDialog'] = [dict(role='user', text='为什么停止后还能继续追问？', at=1)]
+                next(section for section in saved_lesson['sections'] if section.get('questionKind')=='practice')['legacyDialog'] = [dict(role='user', text='为什么停止后还能继续追问？', at=1)]
                 database.execute('UPDATE ClassroomActivity SET payload=? WHERE id=?', (json.dumps(saved_lesson), lesson))
                 database.commit()
-            page.goto(info['base']+'/learn?lessonId='+lesson)
+            page.goto(info['base']+'/practice?lessonId='+lesson)
             expect(page.locator('.chat-message.user').filter(has_text='为什么停止后还能继续追问？')).to_have_count(2)
             user_keys = page.locator('.chat-message.user').filter(has_text='为什么停止后还能继续追问？').evaluate_all('(nodes)=>nodes.map(node=>node.dataset.entryKey)')
             assert user_keys[0].startswith('legacy:') and not user_keys[1].startswith('legacy:')

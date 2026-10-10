@@ -28,6 +28,10 @@ button.secondary{background:transparent;border-color:#48625a;color:var(--mint)}b
 .dark-app.gy-chat-classroom .lesson-tabs{flex:0 0 auto;width:auto;display:flex;gap:2px;margin:0;padding:3px;border:1px solid #35545a;border-radius:9px;background:#0c1d24}
 .dark-app.gy-chat-classroom .lesson-tabs button{padding:8px 14px;margin:0;background:transparent;color:var(--gy-muted);border-radius:6px;font-size:12px;border:0}
 .dark-app.gy-chat-classroom .lesson-tabs button[aria-pressed=true]{background:#21423d;color:var(--gy-accent);box-shadow:none}
+.dark-app.gy-chat-classroom .lesson-tabs a{padding:8px 14px;margin:0;background:transparent;color:var(--gy-muted);border-radius:6px;font-size:12px;border:0;text-decoration:none}
+.dark-app.gy-chat-classroom .lesson-tabs a[aria-current=page]{background:#21423d;color:var(--gy-accent);box-shadow:none}
+.gy-chat-classroom #lesson-next-step{flex:none;margin:0 0 7px;font-size:12px;line-height:1.5;color:var(--gy-muted)}
+.gy-chat-classroom #lesson-next-step a{margin-left:10px;color:var(--gy-accent)}
 .dark-app.gy-chat-classroom #page-status{flex:none;margin:0 0 7px;font-size:11px;line-height:1.5;max-height:48px;overflow:auto}
 .gy-chat-classroom #page-status a{margin-left:10px}
 .gy-chat-classroom #lesson-scroll{flex:1;min-height:0;overflow:auto;overflow-anchor:none;overscroll-behavior:contain;scrollbar-gutter:stable;padding:12px max(16px,calc((100% - 820px)/2)) 20px;border-top:1px solid #294a50}

@@ -1,4 +1,4 @@
-/* 每个知识点一条真实课堂消息流；定位、回看和草稿恢复不生成教学内容。 */
+/* 同一知识点共享教学背景，三页分别呈现自己的真实内容、对话与草稿。 */
 (() => {
   'use strict';
   const api = window.GangyiAgent, query = new URLSearchParams(location.search), lessonId = query.get('lessonId');
@@ -45,20 +45,21 @@
   }
   const $ = id => document.getElementById(id), root = $('lesson-sections'), scroll = $('lesson-scroll'), input = $('lesson-input');
   const nodes = new Map(), records = new Map(), shownSections = new Set();
-  let lesson, admissionError = '', selectedQuestion = '', watchingTask = '', unsubscribe, watchEpoch = 0;
+  let lesson, admissionError = '', selectedQuestion = '', watchingTask = '', watchingView = '', unsubscribe, watchEpoch = 0;
   let busy = false, sending = false, refreshing = false, refreshAgain = false, loaded = false, rendering = false, taskRevision = 0;
   let activeView = document.querySelector('[data-lesson-view]').dataset.lessonView, initialPosition = true;
   const element = (tag, text = '', className = '') => { const node = document.createElement(tag); node.textContent = text; node.className = className; return node; };
   const focus = () => lesson?.teachingFocus || {};
   const sectionFor = id => lesson?.sections.find(section => section.id === id);
   const isQuestion = section => section?.kind === 'question' && section.legacyKind !== 'example';
-  const areaFor = section => section.kind === 'summary' ? 'summary' : isQuestion(section) &&
-    !['interaction', 'diagnostic'].includes(section.questionKind || section.legacyKind) ? 'practice' : 'learn';
-  const draftKey = () => selectedQuestion ? 'draft:' + lessonId + ':' + selectedQuestion : 'chat-draft:' + lessonId;
+  const areaFor = section => section.view || (section.kind === 'summary' ? 'summary' : isQuestion(section) &&
+    !['interaction', 'diagnostic'].includes(section.questionKind || section.legacyKind) ? 'practice' : 'learn');
+  const pageKey = prefix => prefix + ':' + lessonId + ':' + activeView;
+  const draftKey = () => selectedQuestion ? 'draft:' + lessonId + ':' + selectedQuestion : pageKey('chat-draft');
   function saveDraft() { if (loaded) api.storage.set(draftKey(), input.value); }
   function selectQuestion(id, focusInput = false) {
-    if (id && !isQuestion(sectionFor(id))) return;
-    saveDraft(); selectedQuestion = id || ''; api.storage.set('composer:' + lessonId, selectedQuestion || 'chat');
+    if (id && (!isQuestion(sectionFor(id)) || areaFor(sectionFor(id)) !== activeView)) return;
+    saveDraft(); selectedQuestion = id || ''; api.storage.set(pageKey('composer'), selectedQuestion || 'chat');
     input.value = readDraft(draftKey(), sectionFor(selectedQuestion)); resizeInput(); paintTarget();
     if (focusInput) input.focus({preventScroll:true});
   }
@@ -92,15 +93,13 @@
     requestAnimationFrame(exposeVisible);
   }
   function locate(view, updateUrl = true) {
-    activeView = view; document.querySelector('[data-lesson-view]').dataset.lessonView = view;
-    for (const button of document.querySelectorAll('[data-lesson-link]')) button.setAttribute('aria-pressed', String(button.dataset.lessonLink === view));
-    if (updateUrl) history.replaceState(null, '', lessonHref(view));
+    if (updateUrl) { saveDraft(); location.href = lessonHref(view); return; }
     const identity = view === 'learn' ? focus().sectionId : view === 'practice' ?
       (focus().responseView === 'practice' ? focus().responseSectionId : focus().practiceSectionId) : '';
     let target = [...scroll.querySelectorAll('[data-section-id]')].find(node => node.dataset.sectionId === identity);
     target ||= [...scroll.querySelectorAll('[data-area]')].find(node => node.dataset.area === view);
     if (view === 'summary') { $('lesson-summary').open = true; target = $('lesson-completion'); }
-    if (target) jumpTo(target); else $('page-status').textContent = '本节还没有已保存的' + {learn:'讲解', practice:'练习', summary:'小结'}[view] + '，可以在下方向 AI 说明你的需要。';
+    if (target) jumpTo(target);
   }
   function questionCard(section, card) {
     const question = element('div', '', 'agent-question'); api.richText(question, section.question.question); card.append(question);
@@ -146,7 +145,7 @@
     note.textContent = '这段回复未完整完成，已接收内容保留，不作为新的可靠评价。';
   }
   function makeEvaluation(record) {
-    const card = element('article', '', 'chat-evaluation'); card.dataset.area = 'summary';
+    const card = element('article', '', 'chat-evaluation'); card.dataset.area = record.view || activeView;
     card.append(element('p', 'AI · 本次作答评价', 'chat-author'), element('h2', record.credible && record.score !== null && record.score !== undefined ?
       '本次作答 · ' + record.score + ' 分' : '本次反馈 · 尚无可靠分数'));
     const body = element('div'); api.richText(body, record.feedback || ''); card.append(body);
@@ -168,7 +167,7 @@
       let archive = nodes.get('saved-materials');
       if (!archive) { archive = element('details', '', 'saved-materials'); archive.dataset.entryKey = 'saved-materials';
         archive.append(element('summary', '已保存课件 · 随时回看')); nodes.set('saved-materials', archive); }
-      const savedSections = lesson.sections.filter(section => !referenced.has(section.id) && section.kind !== 'summary');
+      const savedSections = lesson.sections.filter(section => areaFor(section) === activeView && !referenced.has(section.id) && section.kind !== 'summary');
       for (const section of savedSections) {
         const key = 'section:' + section.id;
         if (nodes.has(key) && nodes.get(key).dataset.sectionVersion !== String(section.version)) { nodes.get(key).remove(); nodes.delete(key); }
@@ -176,38 +175,56 @@
       }
       archive.hidden = !savedSections.length; order.push(archive);
       // 旧交流按原记录保留；相同文字可能来自不同轮次，不能按正文去重。
-      for (const section of lesson.sections) for (const [index, item] of (section.legacyDialog || []).entries()) {
+      for (const section of lesson.sections.filter(section => areaFor(section) === activeView)) for (const [index, item] of (section.legacyDialog || []).entries()) {
         const key = 'legacy:' + section.id + ':' + index; order.push(putRecord(key, {...item, type:'message'})); used.add(key);
       }
       for (const item of timeline) {
         if (item.type === 'section') {
-          const section = sectionFor(item.sectionId); if (!section) continue;
+          const section = sectionFor(item.sectionId); if (!section || areaFor(section) !== activeView) continue;
           const key = 'section:' + section.id; if (used.has(key)) continue;
           if (nodes.has(key) && nodes.get(key).dataset.sectionVersion !== String(section.version)) { nodes.get(key).remove(); nodes.delete(key); }
           order.push(putRecord(key, {type:'section', section})); used.add(key);
         } else if (item.type === 'evaluation') {
+          if ((item.view || 'learn') !== activeView) continue;
           const evaluation = lesson.evaluations.find(value => value.id === item.id); if (!evaluation) continue;
           const key = 'evaluation:' + item.id; order.push(putRecord(key, {...evaluation, type:'evaluation'})); used.add(key);
         } else {
+          if ((item.view || 'learn') !== activeView) continue;
           const key = item.role === 'user' ? item.taskId + ':user' : item.id;
           order.push(putRecord(key, item)); used.add(key);
         }
       }
       // 流式文字和刚提交的输入在服务端刷新前保留；同一任务、同一步骤始终复用一个消息节点。
-      for (const [key, record] of records) if (record.optimistic && !used.has(key)) { order.push(nodes.get(key)); used.add(key); }
+      for (const [key, record] of records) if (record.optimistic && (record.view || activeView) === activeView && !used.has(key)) {
+        if (key.endsWith(':fallback') && timeline.some(item => item.type === 'message' && item.role === 'assistant' && item.taskId === record.taskId)) continue;
+        order.push(nodes.get(key)); used.add(key);
+      }
       for (const evaluation of lesson.evaluations || []) { const key = 'evaluation:' + evaluation.id;
+        if (timeline.some(item => item.type === 'evaluation' && item.id === evaluation.id)) continue;
+        const section = sectionFor(evaluation.sectionId); if (section && areaFor(section) !== activeView) continue;
         if (!used.has(key)) { order.push(putRecord(key, {...evaluation, type:'evaluation'})); used.add(key); } }
       let cursor = root.firstChild;
       for (const node of order) { if (node !== cursor) root.insertBefore(node, cursor); cursor = node.nextSibling; }
       for (const [key, node] of nodes) if (key !== 'saved-materials' && !used.has(key) && !key.startsWith('summary:')) { node.remove(); nodes.delete(key); records.delete(key); }
-      renderSummary(); paintTarget(); setDisabled();
+      $('lesson-completion').hidden = activeView !== 'summary';
+      if (activeView === 'summary') { $('lesson-summary').open = true; renderSummary(); }
+      paintNextStep(); paintTarget(); setDisabled();
     });
     if (initialPosition && (focus().sectionId || admissionError || !lesson.teachingTaskId)) {
       initialPosition = false; let saved;
-      try { saved = JSON.parse(api.storage.get('scroll:' + lessonId) || 'null'); } catch (_) { /* 默认定位当前课堂。 */ }
+      try { saved = JSON.parse(api.storage.get(pageKey('scroll')) || 'null'); } catch (_) { /* 默认定位当前课堂。 */ }
       if (saved) restorePosition(saved); else locate(activeView, false);
     }
     if (lesson.teachingTaskId && !admissionError && lesson.teachingTaskId !== watchingTask) observe(lesson.teachingTaskId);
+  }
+  function paintNextStep() {
+    const prompt = $('lesson-next-step'), response = focus().responseTaskId === lesson.teachingTaskId ? sectionFor(focus().responseSectionId) : null;
+    const latest = (lesson.timeline || []).filter(item => item.taskId === lesson.teachingTaskId && item.type === 'section').at(-1);
+    const target = response ? areaFor(response) : latest ? areaFor(sectionFor(latest.sectionId)) : lesson.teachingTaskView;
+    prompt.replaceChildren(); prompt.hidden = !target || target === activeView;
+    if (prompt.hidden) return;
+    prompt.append(element('span', 'AI 已保存下一步内容。'));
+    const link = element('a', '进入' + {learn:'讲解', practice:'练习', summary:'小结'}[target] + ' →'); link.href = lessonHref(target); prompt.append(link);
   }
   function renderSummary() {
     const parent = $('lesson-summary-content');
@@ -259,27 +276,29 @@
   function observe(taskId, restart = false) {
     if (watchingTask === taskId && !restart) return;
     unsubscribe?.(); watchingTask = taskId; const epoch = ++watchEpoch;
+    watchingView = lesson.teachingTaskView || (lesson.timeline || []).find(item => item.taskId === taskId && item.view)?.view || activeView;
     window.GangyiNavigation?.setContext({teachingTaskId:taskId});
     const afterSeq = Math.max(0, ...[...records.values()].filter(record => record.taskId === taskId).flatMap(record => record.sequences || []));
     unsubscribe = api.watch(taskId, {afterSeq,
       onEvent(event) {
         if (epoch !== watchEpoch) return false;
         if (event.type === 'action') { refreshLesson(); return false; }
-        if (event.type !== 'delta' || event.field !== 'message') return false;
+        if (event.type !== 'delta' || event.field !== 'message' || watchingView !== activeView) return false;
         const key = taskId + ':step:' + event.step, previous = records.get(key);
-        const record = {...previous, type:'message', role:'assistant', taskId, id:key, step:event.step,
+        const record = {...previous, type:'message', role:'assistant', taskId, view:watchingView, id:key, step:event.step,
           text:(previous?.text || '') + event.text, sequences:[...(previous?.sequences || []), event.seq], partial:true, optimistic:true};
         mutate(() => { const node = putRecord(key, record); if (!node.isConnected) root.append(node); });
         return false; // 可见性检查单独记录已读，向上回看时不把新回复算作已看。
       },
       onState(task) { if (epoch !== watchEpoch) return; paintState(task);
+        if (task.view) watchingView = task.view;
         if (['ready', 'waiting_student'].includes(task.status)) for (const scope of ['chat', 'finish', ...lesson.sections.filter(isQuestion).map(section => section.id)]) {
-          const key = 'pending:' + lessonId + ':' + scope;
+          const key = 'pending:' + lessonId + ':' + (scope === 'chat' ? scope + ':' + watchingView : scope);
           try { const pending = JSON.parse(api.storage.get(key) || 'null'); if (pending?.requestId === task.requestId) api.storage.remove(key); }
           catch (_) { /* 其他窗口的输入缓存不能被旧任务清除。 */ }
         }
         if (!['pending', 'running'].includes(task.status)) {
-          if (task.message && ![...records.values()].some(record => record.taskId === taskId && record.role === 'assistant'))
+          if (watchingView === activeView && task.message && ![...records.values()].some(record => record.taskId === taskId && record.role === 'assistant'))
             mutate(() => root.append(putRecord(taskId + ':fallback', {type:'message', role:'assistant', taskId, text:task.message, optimistic:true})));
           for (const [key, record] of records) if (record.taskId === taskId && record.role === 'assistant') updateMessage(nodes.get(key), record);
           refreshLesson();
@@ -304,11 +323,11 @@
     if (admissionError || busy || sending) return;
     sending = true; setDisabled();
     const scope = event.type === 'question_answer' ? event.sectionId : event.type === 'lesson_finish_request' ? 'finish' : 'chat';
-    const pendingKey = 'pending:' + lessonId + ':' + scope;
+    const pendingKey = 'pending:' + lessonId + ':' + (scope === 'chat' ? scope + ':' + activeView : scope);
     event = {...event, courseId:lesson.courseId, lessonId, view:activeView, ...reviewContext, requestId:api.id()};
     try { const pending = JSON.parse(api.storage.get(pendingKey) || 'null');
       if (pending && pending.type === event.type && pending.text === event.text && pending.action === event.action &&
-        pending.sectionId === event.sectionId && pending.sectionVersion === event.sectionVersion) event = pending;
+        pending.sectionId === event.sectionId && pending.sectionVersion === event.sectionVersion && pending.view === activeView) event = pending;
     } catch (_) { /* 损坏缓存不改变本次输入。 */ }
     api.storage.set(pendingKey, JSON.stringify(event));
     try {
@@ -320,7 +339,7 @@
         api.storage.set(sourceDraft.key, '');
       }
       if (choiceState && api.storage.get(choiceState.key) === choiceState.value) { api.storage.set(choiceState.key, '[]'); for (const choice of choiceState.form.querySelectorAll('input')) choice.checked = false; }
-      taskRevision++; lesson.teachingTaskId = task.id; paintState(task); observe(task.id); refreshLesson();
+      taskRevision++; lesson.teachingTaskId = task.id; lesson.teachingTaskView = activeView; paintState(task); observe(task.id); refreshLesson();
     } catch (error) { $('lesson-task-status').textContent = error.message; }
     finally { sending = false; setDisabled(); }
   }
@@ -353,15 +372,20 @@
     const context = {courseId:lesson.courseId, lessonId, phaseIndex:lesson.phaseIndex, topicIndex:lesson.topicIndex, topicId:lesson.topicId, teachingTaskId:lesson.teachingTaskId};
     window.GangyiNavigation?.setContext(context); document.dispatchEvent(new CustomEvent('gangyi:lesson-context', {detail:context}));
     api.storage.set('current-lesson', JSON.stringify({lessonId, courseId:lesson.courseId, href:lessonHref('learn')}));
-    const savedTarget = api.storage.get('composer:' + lessonId);
-    selectedQuestion = savedTarget === 'chat' ? '' : isQuestion(sectionFor(savedTarget)) ? savedTarget : focus().responseSectionId ||
-      (activeView === 'practice' ? focus().practiceSectionId : focus().interactionSectionId) || '';
-    if (!isQuestion(sectionFor(selectedQuestion))) selectedQuestion = '';
+    const savedTarget = api.storage.get(pageKey('composer')) || (activeView === 'learn' ? api.storage.get('composer:' + lessonId) : '');
+    selectedQuestion = savedTarget === 'chat' ? '' : [savedTarget, focus().responseSectionId,
+      activeView === 'practice' ? focus().practiceSectionId : focus().interactionSectionId]
+      .find(id => isQuestion(sectionFor(id)) && areaFor(sectionFor(id)) === activeView) || '';
+    if (!isQuestion(sectionFor(selectedQuestion)) || areaFor(sectionFor(selectedQuestion)) !== activeView) selectedQuestion = '';
+    if (!selectedQuestion && activeView === 'learn' && !api.storage.get(pageKey('chat-draft')))
+      api.storage.set(pageKey('chat-draft'), api.storage.get('chat-draft:' + lessonId));
     input.value = readDraft(draftKey(), sectionFor(selectedQuestion)); loaded = true; resizeInput();
-    $('page-status').textContent = admissionError ? admissionError + '。你可以回看已保存内容；继续学习请重新备课。' : '每个知识点独立保存对话；讲解、练习和小结可随时定位。';
+    $('page-status').textContent = admissionError ? admissionError + '。你可以回看已保存内容；继续学习请重新备课。' :
+      {learn:'讲解与随堂互动', practice:'集中练习与作答交流', summary:'小结、检查点与完成判断'}[activeView] + ' · 本页独立保存交流和草稿，AI 共享本节学习记录。';
     if (admissionError) { $('page-status').classList.add('agent-error'); const link = element('a', '按最新学习情况重新备课 →');
       link.href = '/agent-prepare.html?' + new URLSearchParams({courseId:lesson.courseId, ...(lesson.topicId ? {topicId:lesson.topicId} : {})}); $('page-status').append(link); }
-    render(); for (const button of document.querySelectorAll('[data-lesson-link]')) button.setAttribute('aria-pressed', String(button.dataset.lessonLink === activeView));
+    render(); for (const link of document.querySelectorAll('[data-lesson-link]')) { link.href = lessonHref(link.dataset.lessonLink);
+      if (link.dataset.lessonLink === activeView) link.setAttribute('aria-current', 'page'); }
     if (!lesson.teachingTaskId) $('lesson-task-status').textContent = admissionError || '你可以继续回答或追问';
   }
   input.addEventListener('input', () => { saveDraft(); resizeInput(); });
@@ -378,12 +402,12 @@
   for (const button of document.querySelectorAll('[data-lesson-link]')) button.onclick = () => locate(button.dataset.lessonLink);
   let scrollFrame;
   scroll.addEventListener('scroll', () => { if (rendering || !loaded || initialPosition) return; cancelAnimationFrame(scrollFrame);
-    scrollFrame = requestAnimationFrame(() => { api.storage.set('scroll:' + lessonId, JSON.stringify(readingPosition())); $('lesson-latest').hidden = nearBottom(); exposeVisible(); }); });
+    scrollFrame = requestAnimationFrame(() => { api.storage.set(pageKey('scroll'), JSON.stringify(readingPosition())); $('lesson-latest').hidden = nearBottom(); exposeVisible(); }); });
   scroll.addEventListener('toggle', () => requestAnimationFrame(exposeVisible), true);
   new ResizeObserver(() => { if (loaded) exposeVisible(); }).observe(scroll);
   new ResizeObserver(() => document.body.style.setProperty('--classroom-composer-height', $('lesson-chat-panel').offsetHeight + 'px')).observe($('lesson-chat-panel'));
   document.addEventListener('gangyi:agent-control', event => { const {command, task, all} = event.detail || {};
     if (watchingTask && ['pause', 'resume', 'retry', 'cancel'].includes(command) && (all || task?.id === watchingTask)) observe(watchingTask, true); });
-  window.addEventListener('pagehide', () => { saveDraft(); if (loaded && !initialPosition) api.storage.set('scroll:' + lessonId, JSON.stringify(readingPosition())); unsubscribe?.(); watchEpoch++; });
+  window.addEventListener('pagehide', () => { saveDraft(); if (loaded && !initialPosition) api.storage.set(pageKey('scroll'), JSON.stringify(readingPosition())); unsubscribe?.(); watchEpoch++; });
   load().catch(error => { $('page-status').textContent = error.message; $('page-status').classList.add('agent-error'); $('lesson-task-status').textContent = '课堂暂未就绪'; });
 })();

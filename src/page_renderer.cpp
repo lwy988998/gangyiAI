@@ -171,8 +171,9 @@ std::string renderClassroomPage(const std::string& view) {
     const std::string label = view == "practice" ? "练习" : view == "summary" ? "小结" : "讲解";
     const std::string body = headerShell("learn") + R"HTML(
 <main class="lesson-page" data-lesson-view=")HTML" + htmlEscape(view) + R"HTML(">
-  <div class="lesson-heading"><div><p class="uc-eyebrow">知识点 · 聊天课堂</p><h1 id="lesson-title">正在读取课堂</h1><p id="lesson-purpose"></p></div><nav class="lesson-tabs" aria-label="定位课堂内容"><button type="button" data-lesson-link="learn">讲解</button><button type="button" data-lesson-link="practice">练习</button><button type="button" data-lesson-link="summary">小结</button></nav></div>
+  <div class="lesson-heading"><div><p class="uc-eyebrow">知识点 · )HTML" + label + R"HTML(</p><h1 id="lesson-title">正在读取课堂</h1><p id="lesson-purpose"></p></div><nav class="lesson-tabs" aria-label="课堂页面"><a data-lesson-link="learn">讲解</a><a data-lesson-link="practice">练习</a><a data-lesson-link="summary">小结</a></nav></div>
   <p id="page-status" role="status" aria-live="polite"></p>
+  <p id="lesson-next-step" hidden></p>
   <div id="lesson-scroll" tabindex="0" role="region" aria-label="课堂消息">
     <section id="lesson-sections" aria-label="教学内容与对话"></section>
     <section id="lesson-completion" class="lesson-completion"><details id="lesson-summary"><summary>本节小结与完成</summary><div id="lesson-summary-content"></div><p id="completion-note"></p><button id="finish-lesson" type="button">请 AI 确认本节完成情况</button><button id="prepare-next" type="button">请 AI 准备下一课 →</button></details></section>

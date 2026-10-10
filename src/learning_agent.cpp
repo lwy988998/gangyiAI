@@ -145,6 +145,11 @@ Json publicTask(const Json& task) {
             "model", "calls", "error", "failure", "pauseReason", "lesson", "course", "navigate", "replacementTaskId", "changes", "teachingFocus", "activity"})
         if (task.contains(field)) output[field] = task[field];
     output["purpose"] = taskPurpose(task.at("event").value("type", ""));
+    const auto event = task.at("event");
+    auto view = event.value("view", "");
+    if (event.value("type", "") == "lesson_finish_request") view = "summary";
+    if (event.value("type", "") == "lesson_start") view = "learn";
+    if (view == "learn" || view == "practice" || view == "summary") output["view"] = view;
     return output;
 }
 std::vector<std::string> ids(Database& db) {

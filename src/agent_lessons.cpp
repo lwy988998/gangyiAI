@@ -539,17 +539,29 @@ Json agentLessonView(Database& db, const AgentAccess& access, const std::string&
     // 聊天课堂重放真实任务顺序。仅公开教师文字和已提交板块的身份，不能带出工具参数、答案或评分标准。
     // teachingDialog 继续保留原来的“实际已展示”协议；timeline 可读取未读回复，读取本身不修改已读证据。
     shown["timeline"] = Json::array();
+    const auto taskView = [&](const Json& task) {
+        const auto& event = task.at("event");
+        if (event.value("type", "") == "lesson_finish_request") return std::string("summary");
+        if (event.value("view", "") == "summary") return std::string("summary");
+        return responseView(saved, task);
+    };
+    for (auto& section : shown["sections"]) {
+        const auto kind = section.value("questionKind", section.value("legacyKind", "practice"));
+        section["view"] = section.at("kind") == "summary" ? "summary" : section.at("kind") == "question" &&
+            kind != "interaction" && kind != "diagnostic" && kind != "example" ? "practice" : "learn";
+    }
     for (const auto& row : tasks) if (row.kind == "agent-task") {
         const auto task = Json::parse(row.payload, nullptr, false);
         if (!task.is_object() || task.value("scopeId", "") != access.scopeId ||
             task.value("event", Json::object()).value("lessonId", "") != lessonId) continue;
         const auto taskId = task.at("id");
+        const auto view = taskView(task);
         for (const auto& interaction : interactions) if (interaction.kind == "chat-user") {
             const auto input = Json::parse(interaction.payload, nullptr, false);
             if (!input.is_object() || input.value("scopeId", "") != access.scopeId || input.value("lessonId", "") != lessonId ||
                 input.value("requestId", "") != task.at("requestId")) continue;
             shown["timeline"].push_back({{"type", "message"}, {"id", interaction.id}, {"role", "user"},
-                {"text", input.value("text", "")}, {"sectionId", input.value("sectionId", "")}, {"taskId", taskId}, {"at", interaction.createdAt}});
+                {"text", input.value("text", "")}, {"view", view}, {"sectionId", input.value("sectionId", "")}, {"taskId", taskId}, {"at", interaction.createdAt}});
         }
         const auto valid = task.value("validSteps", Json::array());
         const auto completed = task.value("completedActions", Json::object());
@@ -561,7 +573,7 @@ Json agentLessonView(Database& db, const AgentAccess& access, const std::string&
                 if (!messages.count(step)) {
                     messages[step] = shown["timeline"].size();
                     shown["timeline"].push_back({{"type", "message"}, {"id", taskId.get<std::string>() + ":step:" + std::to_string(step)},
-                        {"role", "assistant"}, {"text", ""}, {"taskId", taskId}, {"step", step}, {"sequences", Json::array()},
+                        {"role", "assistant"}, {"text", ""}, {"view", view}, {"taskId", taskId}, {"step", step}, {"sequences", Json::array()},
                         {"partial", std::find(valid.begin(), valid.end(), step) == valid.end()}, {"at", task.value("createdAt", row.updatedAt)}});
                 }
                 auto& message = shown["timeline"][messages.at(step)];
@@ -574,27 +586,37 @@ Json agentLessonView(Database& db, const AgentAccess& access, const std::string&
                 const auto tool = action.value("tool", "");
                 if (tool == "evaluate_answer") for (const auto& evaluation : shown["evaluations"])
                     if (evaluation.value("interactionId", "") == action.at("args").value("interactionId", "")) {
-                        shown["timeline"].push_back({{"type", "evaluation"}, {"id", evaluation.at("id")}, {"taskId", taskId}});
+                        shown["timeline"].push_back({{"type", "evaluation"}, {"id", evaluation.at("id")}, {"view", view}, {"taskId", taskId}});
                         evaluations.insert(evaluation.at("id").get<std::string>());
                     }
                 if (action.at("args").value("lessonId", "") != lessonId) continue;
+                if (tool == "append_section" && view == "practice") {
+                    const auto sectionId = completed.at(id).value("result", Json::object()).value("sectionId", "");
+                    for (auto& section : shown["sections"]) if (section.at("id") == sectionId && section.at("kind") != "summary")
+                        section["view"] = "practice";
+                }
                 std::vector<std::string> identities;
                 if (tool == "append_section" && action.at("args").value("activate", true))
                     identities.push_back(completed.at(id).value("result", Json::object()).value("sectionId", ""));
                 else if (tool == "select_teaching_focus") for (const auto* key : {"sectionId", "interactionSectionId", "practiceSectionId"})
                     if (action.at("args").contains(key)) identities.push_back(action.at("args").value(key, ""));
-                for (const auto& identity : identities) for (const auto& section : shown["sections"]) if (section.at("id") == identity)
+                for (const auto& identity : identities) for (auto& section : shown["sections"]) if (section.at("id") == identity) {
+                    // 练习中新增的答题解释与互动题属于该次练习；小结与集中练习仍按内容用途分区。
+                    if (tool == "append_section" && view == "practice" && section.at("kind") != "summary") section["view"] = "practice";
                     shown["timeline"].push_back({{"type", "section"}, {"id", taskId.get<std::string>() + ":" + id + ":" + identity},
-                        {"sectionId", identity}, {"taskId", taskId}});
+                        {"sectionId", identity}, {"view", section.at("view")}, {"taskId", taskId}});
+                }
             }
         }
         for (const auto& evaluation : shown["evaluations"]) if (evaluation.value("requestId", "") == task.at("requestId") &&
             !evaluations.count(evaluation.at("id").get<std::string>()))
-            shown["timeline"].push_back({{"type", "evaluation"}, {"id", evaluation.at("id")}, {"taskId", taskId}});
+            shown["timeline"].push_back({{"type", "evaluation"}, {"id", evaluation.at("id")}, {"view", view}, {"taskId", taskId}});
     }
     if (shown.contains("teachingTaskId")) {
         const auto task = agentView(db, access, shown.at("teachingTaskId"));
         shown["teachingTaskStatus"] = task.at("status");
+        const auto current = db.getClassroomActivity(shown.at("teachingTaskId"));
+        shown["teachingTaskView"] = current ? taskView(Json::parse(current->payload)) : task.value("view", "learn");
         const auto exposure = Json::parse(db.profileMeta("agent-exposure:" + task.at("id").get<std::string>()), nullptr, false);
         shown["teachingAfterSeq"] = exposure.is_object() ? exposure.value("seq", 0) : 0;
     }

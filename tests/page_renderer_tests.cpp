@@ -42,7 +42,7 @@ int main() {
         expect(page.find("/agent-classroom.js") != std::string::npos && page.find("id=\"lesson-sections\"") != std::string::npos,
             "三页都绑定同一真实课堂控制器");
         expect(page.find("data-lesson-link=\"learn\"") != std::string::npos && page.find("data-lesson-link=\"practice\"") != std::string::npos && page.find("data-lesson-link=\"summary\"") != std::string::npos,
-            "聊天课堂保留三个自由定位入口");
+            "聊天课堂保留三个独立页面入口");
         expect(page.find("id=\"lesson-scroll\"") != std::string::npos && page.find("id=\"lesson-input\"") != std::string::npos &&
             page.find("id=\"lesson-latest\"") != std::string::npos, "课堂使用独立消息滚动区与常驻输入框");
     }
