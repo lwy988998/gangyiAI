@@ -1,4 +1,5 @@
 #include "learning_agent.hpp"
+#include "mobile_policy.hpp"
 #include "agent_preferences.hpp"
 #include "agent_lessons.hpp"
 #include "agent_profiles.hpp"
@@ -320,6 +321,7 @@ Json agentSubmit(Database& db, const AgentAccess& access, const Json& event, Age
         if (std::find(scopes.begin(), scopes.end(), scopeKey(access)) == scopes.end()) scopes.push_back(scopeKey(access));
         db.setProfileMeta("agent-scopes", scopes.dump());
     });
+    if (task.value("status", "") == "pending") MobilePolicy::submitted(task.at("id"), event.at("type"));
     return publicTask(task);
 }
 
@@ -454,6 +456,7 @@ Json agentControl(Database& db, const AgentAccess& access, const Json& body) {
             command == "cancel" ? "任务已取消。" : "AI 将从已保存的步骤继续。"}});
         saveTask(db, task); db.setProfileMeta(scopeKey(access), scope.dump());
     });
+    if (command == "resume" || command == "retry") MobilePolicy::resumed(task.at("id"));
     return publicTask(task);
 }
 
@@ -794,7 +797,12 @@ void LearningAgent::run() {
     for (const auto& id : ids(db)) {
         const auto row = db.getClassroomActivity(id); if (!row) continue;
         auto task = parsed(row->payload);
-        if (task.value("status", "") == "running" ||
+        if (MobilePolicy::enabled() && (task.value("status", "") == "running" || task.value("status", "") == "pending" ||
+            (task.value("status", "") == "paused" && task.value("pauseReason", "") == "shutdown"))) {
+            task["status"] = "paused"; task["pauseReason"] = "mobile_restart";
+            recordEvent(task, {{"type", "paused"}, {"message", "上次任务尚未完成，请点击继续恢复。"}});
+            saveTask(db, task);
+        } else if (task.value("status", "") == "running" ||
             (task.value("status", "") == "paused" && task.value("pauseReason", "") == "shutdown")) {
             task["status"] = "pending"; task.erase("pauseReason"); task["learningVersion"] = db.learningRevision();
             saveTask(db, task);
@@ -815,7 +823,7 @@ void LearningAgent::run() {
                 if (scope.value("paused", false)) continue;
                 const AgentAccess access{scope.value("scopeId", ""), scope.value("courseIds", std::vector<std::string>{})};
                 const auto fingerprint = agentLearnerFingerprint(db, access);
-                if (fingerprint != scope.value("fingerprint", "")) {
+                if (MobilePolicy::automaticWorkAllowed() && fingerprint != scope.value("fingerprint", "")) {
                     agentSubmit(db, access, {{"type", "learning_updated"}, {"requestId", "learning-" + fingerprint}});
                 }
             }
@@ -824,7 +832,7 @@ void LearningAgent::run() {
                 const auto row = db.getClassroomActivity(id); if (!row) continue;
                 const auto task = parsed(row->payload);
                 const auto scope = parsed(db.profileMeta(scopeKey(accessFor(task))));
-                if (task.value("status", "") == "pending" && !scope.value("paused", false)) {
+                if (task.value("status", "") == "pending" && !scope.value("paused", false) && MobilePolicy::allows(id)) {
                     process(db, id); worked = true; break;
                 }
             }

@@ -1,4 +1,5 @@
 #include "ai_activity.hpp"
+#include "mobile_policy.hpp"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -172,6 +173,7 @@ bool AIActivity::requestStarted(const std::string& id) {
     if (state.value("paused", false)) return false;
     if (state.value("day", "") != stamp(true)) { state["day"] = stamp(true); state["todayCalls"] = 0; }
     for (auto& row : state["tasks"]) if (row.value("id", "") == id) {
+        if (!MobilePolicy::requestAllowed(id)) return false;
         row["status"] = "requesting"; row["calls"] = row.value("calls", 0) + 1; row["updatedAt"] = stamp();
         state["todayCalls"] = state.value("todayCalls", 0) + 1; writeState(state); return true;
     }

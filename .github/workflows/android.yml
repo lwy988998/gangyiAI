@@ -1,0 +1,68 @@
+name: 安卓试用版构建与验收
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 安装固定版本 SDK
+        run: |
+          cli="$ANDROID_HOME/cmdline-tools/latest/bin/android"
+          if [ -x "$cli" ]; then
+            for package in platforms/android-36 build-tools/36.0.0 ndk/28.2.13676358 cmake/3.22.1; do
+              "$cli" --sdk="$ANDROID_HOME" sdk install "$package"
+            done
+          else
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
+          fi
+      - name: 准备原生核心
+        env:
+          GANGYI_ANDROID_DEPS: ${{ runner.temp }}/gangyi-native
+        run: |
+          python scripts/prepare_android_native.py --root "$GANGYI_ANDROID_DEPS" --sdk "$ANDROID_HOME" --abi arm64-v8a
+          python scripts/prepare_android_native.py --root "$GANGYI_ANDROID_DEPS" --sdk "$ANDROID_HOME" --abi x86_64
+          python -m pip install websocket-client==1.9.0
+      - name: 构建安装包
+        env:
+          GANGYI_ANDROID_DEPS: ${{ runner.temp }}/gangyi-native
+        run: |
+          chmod +x android/gradlew
+          android/gradlew -p android :app:assembleRelease -PgangyiAbi=arm64-v8a --console plain --max-workers 4
+          mv android/app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/GangyiAI-Android-arm64-unsigned.apk"
+          android/gradlew -p android :app:assembleDebug :app:assembleDebugAndroidTest -PgangyiAbi=x86_64 --console plain --max-workers 4
+      - name: 启用模拟器硬件加速
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: 安卓 16 模拟 AI 验收
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: python scripts/android_acceptance.py --adb "$ANDROID_HOME/platform-tools/adb" --serial emulator-5554 --apk android/app/build/outputs/apk/debug/app-debug.apk --test-apk android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk --output verification/android-api36
+      - name: 保存构建与验收报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-preview-build
+          path: |
+            ${{ runner.temp }}/GangyiAI-Android-arm64-unsigned.apk
+            android/app/build/outputs/apk/debug/*.apk
+            verification/android-api36/
+# 此工作流不签名、不发布，不替换 Windows 发布资产。

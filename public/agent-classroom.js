@@ -2,10 +2,11 @@
 (() => {
   'use strict';
   const api = window.GangyiAgent, query = new URLSearchParams(location.search), lessonId = query.get('lessonId');
+  const mobileRestore = Boolean(window.GangyiAndroid && query.get('androidRestore') === '1');
   const reviewContext = query.has('review') ? {day: Number(query.get('review')), reviewId: query.get('reviewId') || ''} : {};
   const lessonHref = path => {
     const params = new URLSearchParams({lessonId});
-    for (const key of ['review', 'reviewId', 'day', 'lessonTaskId']) if (query.has(key)) params.set(key, query.get(key));
+    for (const key of ['review', 'reviewId', 'day', 'lessonTaskId', 'androidRestore']) if (query.has(key)) params.set(key, query.get(key));
     return '/' + path + '?' + params;
   };
   function readDraft(key, section) {
@@ -373,7 +374,7 @@
     if (lesson.status !== 'ready') throw new Error('课时尚未完整保存，请等待 AI 备课后进入。');
     try {
       if (!lesson.entered) await api.control({command:'enter_lesson', lessonId});
-      if (activeView === 'learn' && !lesson.initialTeachingTaskId) { await api.control({command:'start_lesson', lessonId});
+      if (activeView === 'learn' && !lesson.initialTeachingTaskId && !mobileRestore) { await api.control({command:'start_lesson', lessonId});
         lesson = await api.request('/api/learning-agent/lesson?lessonId=' + encodeURIComponent(lessonId)); }
     } catch (error) { admissionError = error.message; }
     const context = {courseId:lesson.courseId, lessonId, phaseIndex:lesson.phaseIndex, topicIndex:lesson.topicIndex, topicId:lesson.topicId, teachingTaskId:lesson.teachingTaskId};
@@ -391,6 +392,16 @@
       {learn:'讲解与随堂互动', practice:'集中练习与作答交流', summary:'小结、检查点与完成判断'}[activeView] + ' · 本页独立保存交流和草稿，AI 共享本节学习记录。';
     if (admissionError) { $('page-status').classList.add('agent-error'); const link = element('a', '按最新学习情况重新备课 →');
       link.href = '/agent-prepare.html?' + new URLSearchParams({courseId:lesson.courseId, ...(lesson.topicId ? {topicId:lesson.topicId} : {})}); $('page-status').append(link); }
+    if (mobileRestore && !lesson.initialTeachingTaskId && !admissionError) {
+      $('page-status').textContent = '本节记录已恢复，点击继续后才启动 AI。';
+      const button = element('button', '继续本节学习'); button.type = 'button'; button.id = 'android-continue-lesson';
+      button.onclick = async () => {
+        button.disabled = true;
+        try { await api.control({command:'start_lesson', lessonId}); query.delete('androidRestore'); location.replace(lessonHref(activeView)); }
+        catch (error) { button.disabled = false; $('lesson-task-status').textContent = error.message; }
+      };
+      $('page-status').append(button);
+    }
     render(); for (const link of document.querySelectorAll('[data-lesson-link]')) { link.href = lessonHref(link.dataset.lessonLink);
       if (link.dataset.lessonLink === activeView) link.setAttribute('aria-current', 'page'); }
     if (!lesson.teachingTaskId) $('lesson-task-status').textContent = admissionError || '你可以继续回答或追问';

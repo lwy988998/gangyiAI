@@ -44,10 +44,10 @@ endif()
 include(FetchContent)
 
 # 优先使用本地依赖；缺失时由 FetchContent 拉取。
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/Crow-1.3.0)
+if(NOT ANDROID AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/Crow-1.3.0)
     set(FETCHCONTENT_SOURCE_DIR_CROW ${CMAKE_CURRENT_SOURCE_DIR}/third_party/Crow-1.3.0)
 endif()
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/json-3.11.3)
+if(NOT ANDROID AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/json-3.11.3)
     set(FETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON ${CMAKE_CURRENT_SOURCE_DIR}/third_party/json-3.11.3)
 endif()
 # Windows 使用固定版本的 Asio，Crow 使用正式版本修复连接释放问题。
@@ -174,7 +174,11 @@ if(WIN32)
     set(SQLITE_SRC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/sqlite)
     file(GLOB SQLITE_AMALG_DIR ${SQLITE_SRC}/sqlite-amalgamation-*)
 endif()
-if(WIN32 AND SQLITE_AMALG_DIR AND EXISTS ${SQLITE_AMALG_DIR}/sqlite3.c)
+if(ANDROID)
+    add_library(sqlite3_amalgamation STATIC ${GANGYI_ANDROID_DEPS}/sqlite/sqlite3.c)
+    target_include_directories(sqlite3_amalgamation PUBLIC ${GANGYI_ANDROID_DEPS}/sqlite)
+    set(GANGYI_SQLITE_LIB sqlite3_amalgamation)
+elseif(WIN32 AND SQLITE_AMALG_DIR AND EXISTS ${SQLITE_AMALG_DIR}/sqlite3.c)
     add_library(sqlite3_amalgamation STATIC ${SQLITE_AMALG_DIR}/sqlite3.c)
     target_include_directories(sqlite3_amalgamation PUBLIC ${SQLITE_AMALG_DIR})
     set(GANGYI_SQLITE_LIB sqlite3_amalgamation)
@@ -187,7 +191,14 @@ if(WIN32)
     set(CURL_DEV_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/curl)
     file(GLOB CURL_MINGW_DIR ${CURL_DEV_DIR}/curl-*-win64-mingw)
 endif()
-if(WIN32 AND CURL_MINGW_DIR AND EXISTS ${CURL_MINGW_DIR}/include/curl/curl.h)
+if(ANDROID)
+    set(GANGYI_CURL_INCLUDE ${GANGYI_ANDROID_DEPS}/curl/include)
+    foreach(dependency curl ssl crypto)
+        add_library(android_${dependency} STATIC IMPORTED)
+        set_target_properties(android_${dependency} PROPERTIES IMPORTED_LOCATION ${GANGYI_ANDROID_DEPS}/install/${ANDROID_ABI}/lib/lib${dependency}.a)
+    endforeach()
+    set(GANGYI_CURL_LINK android_curl android_ssl android_crypto z)
+elseif(WIN32 AND CURL_MINGW_DIR AND EXISTS ${CURL_MINGW_DIR}/include/curl/curl.h)
     set(GANGYI_CURL_INCLUDE ${CURL_MINGW_DIR}/include)
     # 官方 Windows 包的 libcurl DLL 已静态包含传输层依赖，这里只链接导入库。
     set(GANGYI_CURL_LINK ${CURL_MINGW_DIR}/lib/libcurl.dll.a)
@@ -198,11 +209,20 @@ else()
     set(GANGYI_CURL_LINK CURL::libcurl OpenSSL::Crypto)
 endif()
 
-add_executable(gangyiAI src/main.cpp src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/json_fix.cpp src/plan_generator.cpp src/page_renderer.cpp
+set(GANGYI_CORE_SOURCES src/server_runtime.cpp src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/json_fix.cpp src/plan_generator.cpp src/page_renderer.cpp
     src/plan_cache.cpp src/plan_adapter.cpp src/search_client.cpp src/quality_gate.cpp src/course_service.cpp
     src/progress_service.cpp src/profile_service.cpp src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/classroom_service.cpp src/image_goal_analyzer.cpp src/home_recommendations.cpp src/learning_flow.cpp src/next_lesson.cpp
     src/learning_agent.cpp src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/agent_curriculum.cpp
-    ${GANGYI_SERVICE_RESOURCE})
+)
+if(ANDROID)
+    add_library(gangyi_android SHARED ${GANGYI_CORE_SOURCES} android/native/jni.cpp)
+    target_include_directories(gangyi_android PRIVATE include src ${ASIO_INCLUDE_DIR} ${GANGYI_CURL_INCLUDE})
+    target_compile_definitions(gangyi_android PRIVATE CURL_STATICLIB)
+    target_link_libraries(gangyi_android PRIVATE Crow::Crow nlohmann_json::nlohmann_json ${GANGYI_SQLITE_LIB} ${GANGYI_CURL_LINK} log)
+    target_link_options(gangyi_android PRIVATE -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384)
+    return()
+endif()
+add_executable(gangyiAI src/main.cpp ${GANGYI_CORE_SOURCES} ${GANGYI_SERVICE_RESOURCE})
 
 target_include_directories(gangyiAI PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -247,6 +267,9 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(mobile-policy-tests tests/mobile_policy_tests.cpp)
+    target_include_directories(mobile-policy-tests PRIVATE include)
+    add_test(NAME mobile-policy COMMAND mobile-policy-tests)
     add_executable(next-lesson-tests tests/next_lesson_tests.cpp src/learning_generator.cpp
         src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp)
     target_include_directories(next-lesson-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${GANGYI_CURL_INCLUDE})
