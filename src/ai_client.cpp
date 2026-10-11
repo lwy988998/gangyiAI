@@ -1,4 +1,6 @@
 #include "ai_client.hpp"
+#include "tls_config.hpp"
+#include "ai_model_catalog.hpp"
 #include "search_client.hpp"
 
 #include <curl/curl.h>
@@ -180,6 +182,7 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
     headers = curl_slist_append(headers, authorization.c_str());
     // 必须存局部变量：body.dump() 的临时 string 在语句结束即析构，直接传 c_str() 会悬垂导致请求体为空
     const std::string postBody = body.dump();
+    gangyi::configureBundledTls(curl);
     curl_easy_setopt(curl, CURLOPT_URL, chatEndpoint(endpoint.url).c_str());
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postBody.c_str());
@@ -304,6 +307,7 @@ AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int
         return onChunk(chunk);
     };
     StreamState state{{}, {}, model, {}, receiver, false, options.cancelled};
+    gangyi::configureBundledTls(curl);
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postBody.c_str());
@@ -391,7 +395,7 @@ AIClient::AIClient(AIClientConfig config)
     curl_global_init(CURL_GLOBAL_DEFAULT);
 }
 
-std::vector<std::string> requestModels(const Endpoint& endpoint, int timeoutMs) {
+std::vector<std::string> requestModels(const Endpoint& endpoint, int timeoutMs, const std::function<bool()>& cancelled = {}) {
     if (endpoint.key.empty()) throw AIClientError("missing_config", "AI_API_KEY is not configured");
     CURL* curl = curl_easy_init();
     if (!curl) throw AIClientError("network_error", "unable to initialize curl");
@@ -400,13 +404,14 @@ std::vector<std::string> requestModels(const Endpoint& endpoint, int timeoutMs) 
     const std::string authorization = "Authorization: Bearer " + endpoint.key;
     headers = curl_slist_append(headers, authorization.c_str());
     const std::string url = modelsEndpoint(endpoint.url);
+    gangyi::configureBundledTls(curl);
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeBody);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseBody);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeoutMs));
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-    CURLcode code = curl_easy_perform(curl);
+    CURLcode code = perform(curl, cancelled);
     long status = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
     curl_easy_cleanup(curl);
@@ -482,5 +487,9 @@ AIResult AIClient::chatStream(const ChatOptions& options,
 std::vector<std::string> AIClient::listModels(int timeoutMs) const {
     const Endpoint endpoint{baseUrl_, apiKey_, model_};
     return requestModels(endpoint, timeoutMs > 0 ? timeoutMs : timeoutMs_);
+}
+std::vector<std::string> loadModelCatalog(const AIClientConfig& config, const std::function<bool()>& cancelled, int timeoutMs) {
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    return requestModels({config.baseUrl, config.apiKey, config.model}, timeoutMs, cancelled);
 }
 }

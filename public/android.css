@@ -1,0 +1,49 @@
+/* 原生窗口已处理系统安全边距，网页只负责应用内容与软键盘布局。 */
+.gangyi-android { --android-height:100vh; --android-nav-height:56px; }
+.gangyi-android .dark-app { padding-bottom:var(--android-nav-height); min-height:var(--android-height); }
+.gangyi-android .dark-header { height:56px!important; }
+.gangyi-android .dark-nav-shell { padding:0 16px!important; gap:12px; }
+.gangyi-android .dark-nav-links { display:none; }
+.gangyi-android .dark-header button:not(.android-settings) { display:none; }
+.gangyi-android .dark-brand { font-size:15px; }
+.gangyi-android .dark-brand-mark { width:32px;height:32px; }
+.gangyi-android .dark-nav-cta { margin-left:auto;font-size:12px;padding:7px 10px; }
+.gangyi-android .android-settings { border:0;padding:9px 4px;background:transparent;color:#a4e9de;font-size:13px; }
+.android-navigation { position:fixed;z-index:80;bottom:0;left:0;right:0;height:56px;display:flex;align-items:stretch;background:#0c1b23;border-top:1px solid #34524e; }
+.android-navigation a { flex:1;display:flex;align-items:center;justify-content:center;color:#93adaa;font-size:13px;text-decoration:none; }
+.android-navigation a[aria-current=page] { color:#a4e9de;background:#16342f;box-shadow:inset 0 3px #a4e9de; }
+.gangyi-android #learning-navigation { bottom:calc(var(--android-nav-height) + 12px);right:12px;max-width:calc(100vw - 24px); }
+.gangyi-android #learning-navigation .gy-navigation-body { max-height:calc(var(--android-height) - 140px); }
+.gangyi-android .dark-app.gy-chat-classroom .lesson-page { height:calc(var(--android-height) - 56px - var(--android-nav-height));padding:8px 12px 10px; }
+.gangyi-android .gy-chat-classroom #learning-navigation { bottom:calc(var(--android-nav-height) + var(--classroom-composer-height,132px) + 12px); }
+.gangyi-android .gy-chat-classroom #learning-navigation .gy-navigation-body { max-height:calc(var(--android-height) - var(--classroom-composer-height,132px) - 150px); }
+.gangyi-android .course-directory { top:66px;bottom:calc(var(--android-nav-height) + 10px); }
+.gangyi-android:not(.android-tablet) .course-directory { display:none!important; }
+.gangyi-android:not(.android-tablet) .course-directory-mobile { display:block; }
+.gangyi-android:not(.android-tablet) .dark-app.gy-course-view :is(.lesson-page,.phase-page,.plan-page) { margin:0!important;width:100%;max-width:100%; }
+.gangyi-android .course-directory-mobile[open] { position:absolute;z-index:60;left:12px;right:12px;top:8px;padding:14px;background:#10232b;border:1px solid #598675;box-shadow:0 12px 30px #0009; }
+.gangyi-android .course-directory-mobile[open] .course-directory-tree { max-height:calc(var(--android-height) - 230px); }
+.gangyi-android .android-recovery { border:1px solid #5f7151;border-radius:8px;background:#243323;color:#e2e8d0;padding:10px 12px;margin:8px 0;font-size:12px; }
+.gangyi-android .android-recovery button { margin:4px 0 0 8px;padding:4px 8px;font-size:12px; }
+.gangyi-android.android-typing { --android-nav-height:0px; }
+.gangyi-android.android-typing .android-navigation { display:none; }
+.gangyi-android.android-short .gy-chat-classroom :is(.course-context-navigation,#lesson-purpose,.uc-eyebrow,#page-status) { display:none; }
+.gangyi-android.android-short .gy-chat-classroom .lesson-heading { padding-bottom:6px; }
+.gangyi-android.android-short .gy-chat-classroom .lesson-heading h1 { font-size:14px; }
+@media(max-width:700px) {
+  .gangyi-android .home-hero { display:flex!important;flex-direction:column;padding:24px 16px!important; }
+  .gangyi-android .home-intro { padding-left:0!important; }
+  .gangyi-android .home-intro h1 { font-size:29px!important; }
+  .gangyi-android .home-profile { margin-top:24px; }
+  .gangyi-android .home-profile,.gangyi-android .profile-panel { min-width:0;width:100%; }
+  .gangyi-android :is(.uc-page,.plan-page,.phase-page,.ask-page) { padding-left:16px;padding-right:16px; }
+  .gangyi-android :is(input,textarea,button,select) { touch-action:manipulation; }
+  .gangyi-android :is(textarea,input[type=text]) { font-size:16px; }
+  .gangyi-android .lesson-heading { flex-wrap:wrap; }
+  .gangyi-android .lesson-heading>div { flex-basis:100%; }
+  .gangyi-android .lesson-tabs { width:100%!important; }
+  .gangyi-android .lesson-tabs a { flex:1;text-align:center;min-height:36px; }
+  .gangyi-android.android-short .lesson-heading { flex-wrap:nowrap; }
+  .gangyi-android.android-short .lesson-heading>div { display:none; }
+  .gangyi-android #lesson-input { min-height:40px!important;max-height:90px!important; }
+}

@@ -17,6 +17,8 @@
 
 在 [GitHub Releases](https://github.com/lwy988998/gangyiAI/releases/latest) 下载 `gangyiAI-setup-v5.6.0-x64.exe`，或完整解压 `gangyiAI-portable-v5.6.0-x64.zip` 后运行 `gangyiAI-launcher.exe`。
 
+安卓独立运行试用版在独立分支开发，安装、构建与后台任务策略见 [安卓说明](docs/ANDROID.md)。安卓版本使用单独的应用标识、签名与下载资产，现有 Windows v5.6.0 下载保持不变。
+
 独立窗口恢复上次大小与位置，每次冷启动播放一次光栅扫描动画。首次启动可暂不配置 AI，后续在设置中填写服务商、接口地址、模型和 API Key。密钥保存在 Windows 凭据管理器，配置与课程数据位于 `%LOCALAPPDATA%/GangyiAI`；卸载默认保留课程数据。AI 不可用时保留有效内容并提供重试。
 
 托盘提供日志、数据目录、诊断报告、数据库备份恢复及服务重启。服务异常后按限次退避策略恢复。免安装包不携带本机档案；程序需要 WebView2 Runtime，目前未进行代码签名。

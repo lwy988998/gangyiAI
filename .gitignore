@@ -15,3 +15,12 @@ verification/
 public/ui-previews/
 home-recommendations.json*
 /%SystemDrive%/
+/android/.gradle/
+/android/.native-cache/
+/android/**/build/
+/android/**/.cxx/
+/android/local.properties
+*.apk
+*.aab
+*.jks
+*.keystore

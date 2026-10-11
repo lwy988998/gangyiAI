@@ -1,4 +1,5 @@
 #include "search_client.hpp"
+#include "tls_config.hpp"
 
 #include <curl/curl.h>
 #include <algorithm>
@@ -266,6 +267,7 @@ HttpResult postJson(const std::string& url, const std::string& key, const json& 
         headers = curl_slist_append(headers, auth.c_str());
     }
     const std::string payload = body.dump();
+    gangyi::configureBundledTls(curl);
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.c_str());
