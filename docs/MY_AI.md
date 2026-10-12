@@ -29,10 +29,10 @@
 ## 构建与验收
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File ./scripts/build_windows.ps1 -Preview
+powershell -ExecutionPolicy Bypass -File ./scripts/build_windows.ps1
 python tests/my_ai_browser_smoke.py ./build-windows/gangyiAI.exe ./verification/my-ai
 ```
 
-试用版使用 `%LOCALAPPDATA%/GangyiAI-MyAI-Preview` 和独立安装标识；正式版的档案、凭据和安装目录继续保留。已有学习记录可通过正式版备份、试用版恢复进行复制体验。
+v5.6.1 正式版使用 `%LOCALAPPDATA%/GangyiAI`，升级保留已有档案、凭据和安装目录。构建时添加 `-Preview` 可生成独立试用包，使用 `%LOCALAPPDATA%/GangyiAI-MyAI-Preview` 和独立安装标识。
 
 图表使用随包提供的 Apache ECharts 6.1.0，许可证与 NOTICE 位于 `public/vendor/echarts`。交互参考 LibreChat、Open WebUI 和 assistant-ui，界面与控制逻辑在本项目原生架构中实现。

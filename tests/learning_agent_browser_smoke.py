@@ -221,7 +221,8 @@ def main(executable):
             expect(page.locator('#composer-target')).to_have_text('和 AI 老师交流')
             expect(page.locator('#lesson-input')).to_have_value('')
             page.locator('#lesson-input').fill('另一知识点的草稿。')
-            page.unroute(focus_route, delay_focus)
+            # 等待仍在处理的拦截请求，避免切页时重复完成同一路由。
+            page.unroute_all(behavior='wait')
             page.goto(info['base']+'/learn?lessonId='+lesson)
             expect(page.locator('#lesson-input')).to_have_value('原知识点独立保存的草稿。')
             page.goto(info['base']+'/learn?lessonId='+other_lesson)

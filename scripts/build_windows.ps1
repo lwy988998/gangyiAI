@@ -203,7 +203,6 @@ if (-not $SkipInstaller) {
     }
     if (-not $iscc) { throw '缺少 Inno Setup 6（ISCC.exe）' }
     $isccPath = if ($iscc -is [System.Management.Automation.CommandInfo]) { $iscc.Source } else { $iscc.FullName }
-    $previewCompilerFlags = if ($Preview) { @("/DMyAIPreview=1") } else { @() }
     if ($Preview) { & $isccPath "/DMyAIPreview=1" "/DMyAppVersion=$version" (Join-Path $repoRoot 'installer\gangyiAI.iss') }
     else { & $isccPath "/DMyAppVersion=$version" (Join-Path $repoRoot 'installer\gangyiAI.iss') }
     if ($LASTEXITCODE -ne 0) { throw 'Inno Setup 打包失败' }
