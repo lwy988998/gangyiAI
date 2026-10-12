@@ -1,5 +1,6 @@
 #include "db.hpp"
 #include "profile_service.hpp"
+#include "db_schema_version.hpp"
 #include "question_evidence.hpp"
 
 #include <sqlite3.h>
@@ -167,7 +168,7 @@ int main() {
     if (sqlite3_open(v4Path.u8string().c_str(), &legacy) != SQLITE_OK) return 18;
     sqlite3_stmt* statement = nullptr;
     sqlite3_prepare_v2(legacy, "PRAGMA user_version", -1, &statement, nullptr);
-    if (sqlite3_step(statement) != SQLITE_ROW || sqlite3_column_int(statement, 0) != 6) return 19;
+    if (sqlite3_step(statement) != SQLITE_ROW || sqlite3_column_int(statement, 0) != gangyi::kDatabaseSchemaVersion) return 19;
     sqlite3_finalize(statement);
     sqlite3_close(legacy);
     std::filesystem::remove(v4Path, ignored);

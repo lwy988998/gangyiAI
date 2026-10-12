@@ -19,6 +19,8 @@ struct PreparedAgentTool {
     AgentJson result = AgentJson::object();
     // 真实模型调用在准备阶段完成；提交闭包只执行数据库操作。
     std::function<void(Database&)> commit;
+    // 已持久化的控制操作在短事务结束后执行，避免嵌套写事务。
+    std::function<void(Database&)> afterCommit;
 };
 struct AgentTool {
     std::string description;

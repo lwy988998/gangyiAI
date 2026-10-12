@@ -1,5 +1,6 @@
 ﻿param(
     [switch]$SkipDependencies,
+    [switch]$Preview,
     [switch]$SkipInstaller,
     [string]$BuildDir = '',
     [string]$Generator = 'MinGW Makefiles'
@@ -94,6 +95,8 @@ if (-not $SkipDependencies) {
 $cmakeArgs = @('-S', $repoRoot, '-B', $buildDir, '-G', $Generator, '-DCMAKE_BUILD_TYPE=Release')
 $curlCa = Get-ChildItem -LiteralPath (Join-Path $thirdParty 'curl') -Filter 'curl-ca-bundle.crt' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($curlCa) { $cmakeArgs += "-DCMAKE_TLS_CAINFO=$($curlCa.FullName.Replace('\', '/'))" }
+$myAIPreviewMode = if ($Preview) { "ON" } else { "OFF" }
+$cmakeArgs += "-DGANGYI_PREVIEW_BUILD=$myAIPreviewMode"
 cmake @cmakeArgs
 if ($LASTEXITCODE -ne 0) { throw 'CMake 配置失败' }
 cmake --build $buildDir --parallel 4
@@ -132,7 +135,7 @@ $caBundle = Join-Path $buildDir 'curl-ca-bundle.crt'
 if (Test-Path -LiteralPath $caBundle) { Copy-Item -LiteralPath $caBundle -Destination $distDir }
 $publicDist = Join-Path $distDir 'public'
 New-Item -ItemType Directory -Force -Path $publicDist | Out-Null
-foreach ($asset in @('styles.css', 'plan.css', 'dark.css', 'dark.js', 'app-layout.css', 'app-layout.js', 'profile-radar.js', 'profile-radar.css', 'startup.css', 'startup.js', 'ask.js', 'classroom.js', 'classroom.css', 'learning-flow.js', 'learning-flow.css', 'learning-agent.js', 'agent-shell.js', 'agent-classroom.html', 'agent-classroom.js', 'agent-classroom.css', 'agent-prepare.html', 'agent-prepare.js', 'chat-render.js', 'user-center.js', 'school-logo.png', 'campus-background.jpg')) {
+foreach ($asset in @('my-ai.css', 'my-ai.js', 'my-ai-study.js', 'styles.css', 'plan.css', 'dark.css', 'dark.js', 'app-layout.css', 'app-layout.js', 'profile-radar.js', 'profile-radar.css', 'startup.css', 'startup.js', 'ask.js', 'classroom.js', 'classroom.css', 'learning-flow.js', 'learning-flow.css', 'learning-agent.js', 'agent-shell.js', 'agent-classroom.html', 'agent-classroom.js', 'agent-classroom.css', 'agent-prepare.html', 'agent-prepare.js', 'chat-render.js', 'user-center.js', 'school-logo.png', 'campus-background.jpg')) {
     Copy-Item -LiteralPath (Join-Path $repoRoot "public\$asset") -Destination $publicDist
 }
 # 公式渲染引擎随包发布：断网也能显示数学公式。
@@ -140,7 +143,7 @@ Copy-Item -LiteralPath (Join-Path $repoRoot 'public\vendor') -Destination $publi
 $requiredFiles = @(
     'gangyiAI.exe', 'gangyiAI-launcher.exe', 'libcurl-x64.dll',
     'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll',
-    'public\styles.css', 'public\dark.css', 'public\dark.js', 'public\startup.css', 'public\startup.js', 'public\ask.js',
+    'public\my-ai.css', 'public\my-ai.js', 'public\my-ai-study.js', 'public\vendor\echarts\echarts.min.js', 'public\styles.css', 'public\dark.css', 'public\dark.js', 'public\startup.css', 'public\startup.js', 'public\ask.js',
     'public\app-layout.js', 'public\app-layout.css', 'public\profile-radar.js', 'public\profile-radar.css', 'public\classroom.js', 'public\classroom.css', 'public\learning-flow.js', 'public\learning-flow.css', 'public\learning-agent.js', 'public\agent-shell.js', 'public\agent-classroom.html', 'public\agent-classroom.js', 'public\agent-classroom.css', 'public\agent-prepare.html', 'public\agent-prepare.js', 'public\chat-render.js', 'public\user-center.js',
     'public\vendor\katex\katex.min.js', 'public\vendor\katex\katex.min.css',
     'public\vendor\katex\fonts\KaTeX_Main-Regular.woff2',
@@ -161,12 +164,13 @@ foreach ($executable in @(
     }
 }
 
+$profileDirectoryName = if ($Preview) { "GangyiAI-MyAI-Preview" } else { "GangyiAI" }
 $portableGuide = @"
 钢一定制AI v$version 免安装版
 
 1. 请完整解压 ZIP，不要直接在压缩包内运行。
 2. 双击 gangyiAI-launcher.exe，可先点击“暂不配置，直接使用”；需要 AI 功能时再配置服务商、API Key 和模型。
-3. 配置、凭据、日志和课程数据库保存在 %LOCALAPPDATA%\GangyiAI。
+3. 配置、凭据、日志和课程数据库保存在 %LOCALAPPDATA%\$profileDirectoryName。
 4. 本版本无需 CMake、编译器、Visual Studio、Python 或 Node.js。
 5. 独立窗口界面需要 Microsoft Edge WebView2 Runtime；若提示缺失，请联网安装后重试。
 6. 当前程序尚未签名，Windows SmartScreen 可能提示未知发布者。
@@ -199,7 +203,9 @@ if (-not $SkipInstaller) {
     }
     if (-not $iscc) { throw '缺少 Inno Setup 6（ISCC.exe）' }
     $isccPath = if ($iscc -is [System.Management.Automation.CommandInfo]) { $iscc.Source } else { $iscc.FullName }
-    & $isccPath "/DMyAppVersion=$version" (Join-Path $repoRoot 'installer\gangyiAI.iss')
+    $previewCompilerFlags = if ($Preview) { @("/DMyAIPreview=1") } else { @() }
+    if ($Preview) { & $isccPath "/DMyAIPreview=1" "/DMyAppVersion=$version" (Join-Path $repoRoot 'installer\gangyiAI.iss') }
+    else { & $isccPath "/DMyAppVersion=$version" (Join-Path $repoRoot 'installer\gangyiAI.iss') }
     if ($LASTEXITCODE -ne 0) { throw 'Inno Setup 打包失败' }
 
     $installerName = "gangyiAI-setup-v$version-x64.exe"

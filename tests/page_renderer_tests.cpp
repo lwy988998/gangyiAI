@@ -61,10 +61,10 @@ int main() {
         "空档案的当前课程入口可点击，进入独立空状态页面");
     expect(myCourses.find("data-course-id=\"course-1\"") != std::string::npos && myCourses.find("/user-center.js") != std::string::npos,
         "课程删除与设置继续绑定原控制器");
-    expect(myCourses.find("aria-controls=\"courses-panel\"") != std::string::npos && myCourses.find("aria-controls=\"profile-panel\"") != std::string::npos,
-        "课程和画像分为两个可访问页签");
-    expect(myCourses.find("id=\"uc-time\"") != std::string::npos && myCourses.find("id=\"uc-availability-grid\"") != std::string::npos,
-        "时间设置集中在画像页");
+    expect(myCourses.find("aria-controls=\"courses-panel\"") != std::string::npos && myCourses.find("href=\"/my-ai/reports\"") != std::string::npos,
+        "课程管理提供独立学习报告入口");
+    expect(myCourses.find("href=\"/my-ai/plan\"") != std::string::npos && myCourses.find("id=\"uc-availability-grid\"") == std::string::npos,
+        "时间设置迁入独立学习计划页");
     expect(myCourses.find("id=\"open-api-settings\"") != std::string::npos, "原 AI 配置入口继续存在");
     return failures == 0 ? 0 : 1;
 }

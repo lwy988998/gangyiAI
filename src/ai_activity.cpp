@@ -1,4 +1,5 @@
 #include "ai_activity.hpp"
+#include <sqlite3.h>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -26,6 +27,7 @@ namespace {
 using Json = nlohmann::json;
 std::mutex stateMutex;
 std::filesystem::path statePath;
+std::string usageDatabase;
 Json memoryState;
 std::atomic<unsigned long long> sequence{0};
 std::atomic_bool closing{false};
@@ -117,6 +119,35 @@ void writeState(const Json& state) {
 #endif
 }
 bool unfinished(const std::string& status) { return status == "queued" || status == "requesting" || status == "receiving" || status == "paused"; }
+long long clockMillis() { return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count(); }
+void saveUsage(const Json& row,const std::string& status,const Json& tokens=nullptr,const std::string& model={}) {
+    if(usageDatabase.empty())return;
+    Json value;for(const auto* key:{"taskId","source","purpose","courseId","model"})value[key]=row.value(key,"");
+    value["day"]=row.value("requestDay",stamp(true));value["at"]=row.value("requestAt",stamp());value["status"]=status;
+    value["durationMs"]=status=="requesting"?0LL:std::max(0LL,clockMillis()-row.value("requestStartedMs",clockMillis()));value["tokens"]=tokens;
+    if(!model.empty())value["model"]=model;
+    const auto key="usage:"+row.at("id").get<std::string>()+":"+std::to_string(row.value("calls",0));
+    sqlite3* connection=nullptr;sqlite3_stmt* statement=nullptr;
+    const auto close=[&]{sqlite3_finalize(statement);if(connection)sqlite3_close(connection);};
+    if(sqlite3_open(usageDatabase.c_str(),&connection)!=SQLITE_OK){close();throw std::runtime_error("无法保存调用统计");}
+    sqlite3_busy_timeout(connection,5000);
+    const auto payload=value.dump(),at=stamp();
+    const char* sql="INSERT INTO MyAIRecord(id,kind,payload,updatedAt,version) VALUES(?,'usage',?,?,1) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,updatedAt=excluded.updatedAt,version=MyAIRecord.version+1";
+    if(sqlite3_prepare_v2(connection,sql,-1,&statement,nullptr)!=SQLITE_OK){close();throw std::runtime_error("调用统计结构不可用");}
+    sqlite3_bind_text(statement,1,key.c_str(),-1,SQLITE_TRANSIENT);sqlite3_bind_text(statement,2,payload.c_str(),-1,SQLITE_TRANSIENT);sqlite3_bind_text(statement,3,at.c_str(),-1,SQLITE_TRANSIENT);
+    const auto result=sqlite3_step(statement);close();if(result!=SQLITE_DONE)throw std::runtime_error("调用统计保存失败");
+}
+}
+
+void AIActivity::configureUsage(const std::string& path) { std::lock_guard<std::mutex> lock(stateMutex);usageDatabase=path; }
+void AIActivity::requestFinished(const std::string& id,const std::string& status,const Json& tokens,const std::string& model) {
+    Json request;
+    {
+        std::lock_guard<std::mutex> lock(stateMutex);FileLock file(statePath);const auto state=readState();
+        for(const auto& row:state["tasks"])if(row.value("id","")==id&&row.contains("requestStartedMs")){request=row;break;}
+    }
+    // 状态文件锁必须先释放；页面在数据库快照中读取暂停状态，不能形成互相等待。
+    if(request.is_object())saveUsage(request,status,tokens,model);
 }
 
 void AIActivity::configure(const std::string& path) {
@@ -168,15 +199,21 @@ std::string AIActivity::begin(const AIActivityInfo& info, const std::string& mod
     writeState(state); return id;
 }
 bool AIActivity::requestStarted(const std::string& id) {
-    std::lock_guard<std::mutex> lock(stateMutex); FileLock file(statePath); auto state = readState();
-    if (state.value("paused", false)) return false;
-    if (state.value("day", "") != stamp(true)) { state["day"] = stamp(true); state["todayCalls"] = 0; }
-    for (auto& row : state["tasks"]) if (row.value("id", "") == id) {
-        row["status"] = "requesting"; row["calls"] = row.value("calls", 0) + 1; row["updatedAt"] = stamp();
-        state["todayCalls"] = state.value("todayCalls", 0) + 1; writeState(state); return true;
+    Json request;
+    {
+        std::lock_guard<std::mutex> lock(stateMutex);FileLock file(statePath);auto state=readState();
+        if(state.value("paused",false))return false;
+        if(state.value("day","")!=stamp(true)){state["day"]=stamp(true);state["todayCalls"]=0;}
+        for(auto& row:state["tasks"])if(row.value("id","")==id){
+            row["status"]="requesting";row["calls"]=row.value("calls",0)+1;row["updatedAt"]=stamp();
+            row["requestStartedMs"]=clockMillis();row["requestAt"]=stamp();row["requestDay"]=stamp(true);
+            state["todayCalls"]=state.value("todayCalls",0)+1;request=row;writeState(state);break;
+        }
     }
-    throw std::runtime_error("AI 请求缺少调用记录");
+    if(!request.is_object())throw std::runtime_error("AI请求缺少调用记录");
+    saveUsage(request,"requesting");return true;
 }
+
 void AIActivity::update(const std::string& id, const std::string& status, const std::string& model) {
     std::lock_guard<std::mutex> lock(stateMutex); FileLock file(statePath); auto state = readState();
     for (auto& row : state["tasks"]) if (row.value("id", "") == id) {

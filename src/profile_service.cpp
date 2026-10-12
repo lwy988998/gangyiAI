@@ -1,4 +1,5 @@
 #include "profile_service.hpp"
+#include "my_ai_context.hpp"
 
 #include "ai_client.hpp"
 #include "db.hpp"
@@ -390,6 +391,7 @@ std::string profileContext(Database& db) {
     }
     while (context.dump().size() > 3500 && !context["topics"].empty()) context["topics"].erase(context["topics"].end() - 1);
     while (context.dump().size() > 3500 && !context["subjects"].empty()) context["subjects"].erase(context["subjects"].end() - 1);
+    context["personalCenter"]=myAIPersonalContext(db);
     return context.dump();
 }
 

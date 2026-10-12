@@ -39,10 +39,21 @@ namespace {
 
 constexpr wchar_t kWindowClass[] = L"GangyiAILauncherWindow";
 constexpr wchar_t kDesktopWindowClass[] = L"GangyiAIDesktopWindow";
+#ifdef GANGYI_MY_AI_PREVIEW
+constexpr wchar_t kMutexName[] = L"GangyiAI-MyAI-Preview.Launcher.v1";
+constexpr wchar_t kRegistryKey[] = L"Software\\GangyiAI-MyAI-Preview";
+constexpr wchar_t kCredentialTarget[] = L"GangyiAI-MyAI-Preview/APIKey";
+constexpr wchar_t kBochaCredentialTarget[] = L"GangyiAI-MyAI-Preview/BochaKey";
+constexpr wchar_t kDataName[]=L"GangyiAI-MyAI-Preview";
+constexpr int kFirstPort=49002;
+#else
 constexpr wchar_t kMutexName[] = L"GangyiAI.Launcher.v1";
 constexpr wchar_t kRegistryKey[] = L"Software\\GangyiAI";
 constexpr wchar_t kCredentialTarget[] = L"GangyiAI/APIKey";
 constexpr wchar_t kBochaCredentialTarget[] = L"GangyiAI/BochaKey";
+constexpr wchar_t kDataName[]=L"GangyiAI";
+constexpr int kFirstPort=39002;
+#endif
 constexpr UINT kTrayMessage = WM_APP + 1;
 constexpr UINT kServiceReady = WM_APP + 2;
 constexpr UINT kServiceFailed = WM_APP + 3;
@@ -282,10 +293,10 @@ bool configureAutoStart(bool enabled) {
     LONG result = ERROR_SUCCESS;
     if (enabled) {
         const std::wstring command = L"\"" + executablePath() + L"\" --background";
-        result = RegSetValueExW(key, L"GangyiAI", 0, REG_SZ, reinterpret_cast<const BYTE*>(command.c_str()),
+        result = RegSetValueExW(key, kDataName, 0, REG_SZ, reinterpret_cast<const BYTE*>(command.c_str()),
             static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t)));
     } else {
-        result = RegDeleteValueW(key, L"GangyiAI");
+        result = RegDeleteValueW(key, kDataName);
         if (result == ERROR_FILE_NOT_FOUND) result = ERROR_SUCCESS;
     }
     RegCloseKey(key);
@@ -354,7 +365,7 @@ std::wstring randomToken() {
 }
 
 int findAvailablePort() {
-    for (int port = 39002; port <= 39099; ++port) {
+    for (int port = kFirstPort; port <= kFirstPort+97; ++port) {
         SOCKET candidate = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
         if (candidate == INVALID_SOCKET) return 0;
         sockaddr_in address{};
@@ -620,7 +631,43 @@ void desktopPageReady(const char* id, const char*, void*) {
     webview_return(g.desktopView, id, 0, "null");
 }
 
-void openApiSettings(const char* id, const char*, void*) {
+bool myAILocalOrigin() {
+    if(!g.desktopView||g.desktopOrigin.empty())return false;
+    auto* controller=static_cast<ICoreWebView2Controller*>(webview_get_native_handle(g.desktopView,WEBVIEW_NATIVE_HANDLE_KIND_BROWSER_CONTROLLER));
+    if(!controller)return false;ICoreWebView2* browser=nullptr;if(FAILED(controller->get_CoreWebView2(&browser))||!browser)return false;
+    LPWSTR source=nullptr;const auto result=browser->get_Source(&source);browser->Release();const std::wstring uri=source?source:L"";CoTaskMemFree(source);
+    const auto expected=g.desktopOrigin+L"/";return SUCCEEDED(result)&&uri.compare(0,expected.size(),expected)==0;
+}
+std::wstring myAIProposedModel;
+constexpr UINT kMyAIBackup = WM_APP + 61;
+constexpr UINT kMyAIRestore = WM_APP + 62;
+void myAIBackupBridge(const char* id,const char*,void*) {
+    if(!myAILocalOrigin()){webview_return(g.desktopView,id,1,"\"请在钢一定制AI的本机页面操作\"");return;}
+    if(!g.window || !PostMessageW(g.window,kMyAIBackup,0,0)) {webview_return(g.desktopView,id,1,"\"无法打开备份窗口\"");return;}
+    webview_return(g.desktopView,id,0,"null");
+}
+void myAIRestoreBridge(const char* id,const char*,void*) {
+    if(!myAILocalOrigin()){webview_return(g.desktopView,id,1,"\"请在钢一定制AI的本机页面操作\"");return;}
+    if(!g.window || !PostMessageW(g.window,kMyAIRestore,0,0)) {webview_return(g.desktopView,id,1,"\"无法打开恢复窗口\"");return;}
+    webview_return(g.desktopView,id,0,"null");
+}
+void myAIDesktopInfo(const char* id,const char*,void*) {
+    if(!myAILocalOrigin()){webview_return(g.desktopView,id,1,"\"请在钢一定制AI的本机页面操作\"");return;}
+    const auto settings=g.smokeMode?g.settings:loadSettings();nlohmann::json value={{"provider",toUtf8(gangyi::launcher::providerProfile(settings.provider).name)},{"baseUrl",toUtf8(settings.baseUrl)},{"model",toUtf8(settings.model)},{"configured",!g.smokeMode&&!readApiKey().empty()},{"autoStart",settings.autoStart}};
+    webview_return(g.desktopView,id,0,value.dump().c_str());
+}
+void openApiSettings(const char* id, const char* request, void*) {
+    try {
+        const auto args=nlohmann::json::parse(request?request:"[]");
+        if(args.is_array()&&!args.empty()&&args[0].is_object()&&args[0].contains("model")) {
+            if(!myAILocalOrigin())throw std::runtime_error("请在本机页面检查设置建议");
+            const auto model=args[0].at("model").get<std::string>(),before=args[0].value("before","");
+            if(model.empty()||model.size()>200||model.find_first_of("\r\n")!=std::string::npos||model.find('\0')!=std::string::npos)throw std::runtime_error("模型名称无效");
+            if(!before.empty()&&before!=toUtf8(loadSettings().model))throw std::runtime_error("当前模型已变化，请重新检查设置建议");
+            myAIProposedModel=toWide(model);
+        }
+    }catch(const std::exception& error){webview_return(g.desktopView,id,1,nlohmann::json(error.what()).dump().c_str());return;}
+
     if (!g.window || !PostMessageW(g.window, kOpenApiSettings, 0, 0)) {
         webview_return(g.desktopView, id, 1, "\"无法打开 API 接口设置，请从托盘菜单进入设置。\"");
         return;
@@ -742,6 +789,9 @@ void openDesktop() {
         }
         webview_bind(g.desktopView, "gangyiPageReady", desktopPageReady, nullptr);
         webview_bind(g.desktopView, "gangyiOpenApiSettings", openApiSettings, nullptr);
+        webview_bind(g.desktopView,"gangyiDesktopInfo",myAIDesktopInfo,nullptr);
+        webview_bind(g.desktopView,"gangyiBackupData",myAIBackupBridge,nullptr);
+        webview_bind(g.desktopView,"gangyiRestoreData",myAIRestoreBridge,nullptr);
         webview_init(g.desktopView, kDesktopScript);
         auto* controller = static_cast<ICoreWebView2Controller*>(webview_get_native_handle(
             g.desktopView, WEBVIEW_NATIVE_HANDLE_KIND_BROWSER_CONTROLLER));
@@ -772,6 +822,7 @@ void openDesktop() {
             }
         }
         g.desktopOrigin = L"http://127.0.0.1:" + std::to_wstring(g.port);
+        gangyi::AIActivity::configureUsage((std::filesystem::path(g.dataDir)/L"data"/L"gangyiAI.db").u8string());
         g.displayPort = g.port;
         if (g.desktopRoute.empty() || g.desktopRoute.front() != L'/') g.desktopRoute = L"/";
         g.pageReady = false;
@@ -1484,8 +1535,11 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     case kOpenDesktop:
         if (processRunning()) openDesktop(); else if (!startService(true)) showSettingsWindow();
         return 0;
+    case kMyAIBackup: backupCourseData(); return 0;
+    case kMyAIRestore: restoreCourseData(); return 0;
     case kOpenApiSettings:
         showSettingsWindow();
+        if(!myAIProposedModel.empty()&&g.modelEdit){SetWindowTextW(g.modelEdit,myAIProposedModel.c_str());myAIProposedModel.clear();}
         return 0;
     case kConnectionTestComplete: {
         std::wstring message;
@@ -1609,7 +1663,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     g.launchSessionId = randomToken();
     const std::wstring exe = executablePath();
     g.installDir = std::filesystem::path(exe).parent_path().wstring();
-    g.dataDir = (std::filesystem::path(localAppDataPath()) / L"GangyiAI").wstring();
+    g.dataDir = (std::filesystem::path(localAppDataPath()) / kDataName).wstring();
     gangyi::AIActivity::configure(toUtf8((std::filesystem::path(g.dataDir) / L"data" / L"ai-activity.json").wstring()));
     g.background = arguments.find(L"--background") != std::wstring::npos;
     g.settings = g.smokeMode ? Settings{} : loadSettings();

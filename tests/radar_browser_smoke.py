@@ -78,14 +78,14 @@ def main(executable, screenshots=None):
                 page.wait_for_function("[...document.querySelectorAll('#home-radar .radar-axis-name')].some(n => n.textContent === '历史')")
                 page.reload()
                 page.wait_for_function("[...document.querySelectorAll('#home-radar .radar-axis-name')].some(n => n.textContent === '历史')")
-                page.goto(h.base + '/my-courses#profile')
-                user_widget = page.locator('#uc-profile-radar')
+                page.goto(h.base + '/my-ai/reports')
+                user_widget = page.locator('#my-ai-radar')
                 user_widget.locator('.radar-axis').last.wait_for()
                 assert user_widget.locator('.radar-axis').count() == 6
                 assert '历史' in user_widget.locator('.radar-axis-name').all_text_contents()
                 user_widget.get_by_role('button', name='学习能力', exact=True).focus()
                 page.keyboard.press('Enter')
-                page.wait_for_function("document.querySelector('#uc-profile-radar .radar-axis-name')?.textContent === '知识记忆'")
+                page.wait_for_function("document.querySelector('#my-ai-radar .radar-axis-name')?.textContent === '知识记忆'")
                 assert len(h.calls) == calls, '显示操作不得触发 AI 评估'
                 touch = browser.new_context(viewport={'width': 375, 'height': 812}, is_mobile=True,
                     has_touch=True, reduced_motion='reduce')

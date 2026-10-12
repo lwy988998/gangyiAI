@@ -268,5 +268,6 @@
       finally { this.refresh.disabled = false; }
     }
   }
+  window.GangyiProfileRadar = {mount: root => new Radar(root)};
   document.querySelectorAll('[data-profile-radar]').forEach(root => new Radar(root));
 })();

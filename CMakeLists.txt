@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(gangyiAI VERSION 5.6.0 LANGUAGES C CXX)
+project(gangyiAI VERSION 5.7.0 LANGUAGES C CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -198,10 +198,10 @@ else()
     set(GANGYI_CURL_LINK CURL::libcurl OpenSSL::Crypto)
 endif()
 
-add_executable(gangyiAI src/main.cpp src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/json_fix.cpp src/plan_generator.cpp src/page_renderer.cpp
+add_executable(gangyiAI src/my_ai_pages.cpp src/main.cpp src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/json_fix.cpp src/plan_generator.cpp src/page_renderer.cpp
     src/plan_cache.cpp src/plan_adapter.cpp src/search_client.cpp src/quality_gate.cpp src/course_service.cpp
     src/progress_service.cpp src/profile_service.cpp src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/classroom_service.cpp src/image_goal_analyzer.cpp src/home_recommendations.cpp src/learning_flow.cpp src/next_lesson.cpp
-    src/learning_agent.cpp src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/agent_curriculum.cpp
+    src/learning_agent.cpp src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/agent_curriculum.cpp src/my_ai.cpp src/my_ai_tools.cpp
     ${GANGYI_SERVICE_RESOURCE})
 
 target_include_directories(gangyiAI PRIVATE
@@ -272,7 +272,7 @@ if(BUILD_TESTING)
     target_link_libraries(agent-stream-tests PRIVATE nlohmann_json::nlohmann_json)
     add_test(NAME agent-stream COMMAND agent-stream-tests)
     add_executable(learning-agent-tests tests/learning_agent_tests.cpp src/learning_agent.cpp
-        src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/agent_curriculum.cpp
+        src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/agent_curriculum.cpp src/my_ai.cpp src/my_ai_tools.cpp
         src/learning_flow.cpp src/next_lesson.cpp src/classroom_service.cpp src/learning_generator.cpp src/profile_service.cpp
         src/course_service.cpp src/progress_service.cpp src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp)
     target_include_directories(learning-agent-tests PRIVATE include ${GANGYI_CURL_INCLUDE})
@@ -412,4 +412,25 @@ if(GANGYI_CURL_INCLUDE AND EXISTS ${CURL_MINGW_DIR}/bin/libcurl-x64.dll)
                 $<TARGET_FILE_DIR:gangyiAI>/curl-ca-bundle.crt
         )
     endif()
+endif()
+
+if(BUILD_TESTING)
+  add_executable(my-ai-tests tests/my_ai_tests.cpp src/my_ai.cpp src/db.cpp src/course_service.cpp src/profile_service.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp)
+  target_include_directories(my-ai-tests PRIVATE include ${GANGYI_CURL_INCLUDE})
+  target_link_libraries(my-ai-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_SQLITE_LIB} ${GANGYI_CURL_LINK} Threads::Threads)
+  add_test(NAME my-ai COMMAND my-ai-tests)
+endif()
+
+# 调用统计采用 SQLite，所有模型客户端目标都连接同一依赖。
+get_property(gangyiTargets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(gangyiTarget IN LISTS gangyiTargets)
+  get_target_property(gangyiTargetType ${gangyiTarget} TYPE)
+  if(gangyiTargetType STREQUAL "EXECUTABLE")
+    target_link_libraries(${gangyiTarget} PRIVATE ${GANGYI_SQLITE_LIB})
+  endif()
+endforeach()
+
+option(GANGYI_PREVIEW_BUILD "使用独立的我的AI试用档案" OFF)
+if(GANGYI_PREVIEW_BUILD AND WIN32)
+  target_compile_definitions(gangyiAI-launcher PRIVATE GANGYI_MY_AI_PREVIEW=1)
 endif()

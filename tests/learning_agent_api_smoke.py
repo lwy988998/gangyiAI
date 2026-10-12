@@ -207,7 +207,7 @@ def main(executable):
             for section in (item for item in shown['sections'] if item['kind'] == 'question'):
                 answered = submit(dict(type='question_answer', courseId=course, lessonId=lesson, sectionId=section['id'],
                     sectionVersion=section['version'], text='化合价升高'), 'waiting_student')
-                assert answered['calls'] == 2, '全部题型必须先评价，再发起讲解请求'
+                assert answered['calls'] == 2, str(answered) +  '全部题型必须先评价，再发起讲解请求'
                 api('/api/learn/exposure', dict(taskId=answered['id'], seq=answered['seq']))
             first = shown['sections'][0]
             before = api('/api/learning-agent/lesson?lessonId=' + lesson)

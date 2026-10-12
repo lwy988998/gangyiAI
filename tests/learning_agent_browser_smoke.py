@@ -266,7 +266,7 @@ def main(executable):
                 database.execute("INSERT INTO ProfileMeta(key,value) VALUES('learning-flow',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(json.dumps(raw),))
                 database.commit()
             page.set_viewport_size({'width':1440,'height':900})
-            page.goto(info['base']+'/my-courses')
+            page.goto(info['base']+'/my-ai/plan')
             links = page.locator('#weekly-entries .weekly-row a')
             expect(links).to_have_count(2)
             assert links.nth(0).get_attribute('href') == '/learn?lessonId='+lesson

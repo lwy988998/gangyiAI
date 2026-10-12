@@ -139,6 +139,12 @@ AIResult monitoredCall(const ChatOptions& options, const std::string& model, Cal
 }
 
 struct BodyState { std::string content, activityId; bool received = false; std::exception_ptr error; };
+json reportedUsage(const json& value) {
+    if(!value.is_object())return nullptr;json result=json::object();
+    for(const auto* key:{"prompt_tokens","completion_tokens","total_tokens"})
+        if(value.value(key,json()).is_number_integer()&&value[key].get<long long>()>=0)result[key]=value[key];
+    return result.empty()?json(nullptr):result;
+}
 size_t writeResponse(char* data, size_t size, size_t count, void* user) {
     auto& state = *static_cast<BodyState*>(user);
     try {
@@ -198,6 +204,7 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
     curl_easy_cleanup(curl);
     curl_slist_free_all(headers);
+    AIActivity::requestFinished(activityId,code==CURLE_ABORTED_BY_CALLBACK?"cancelled":"failed");
     if (transferError) std::rethrow_exception(transferError);
     if (response.error) std::rethrow_exception(response.error);
     if (code == CURLE_ABORTED_BY_CALLBACK) throw AIClientError("cancelled", "AI 请求已停止");
@@ -219,6 +226,8 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
         result.model = std::move(responseModel);
         result.status = static_cast<int>(status);
         result.finishReason = choice.value("finish_reason", "");
+        result.tokenUsage=reportedUsage(parsed.value("usage",json()));
+        AIActivity::requestFinished(activityId,"completed",result.tokenUsage,result.model);
         return result;
     } catch (const std::exception& error) {
         throw AIClientError("invalid_response", error.what());
@@ -232,6 +241,8 @@ struct StreamState {
     std::function<bool()> shouldCancel;
     bool completed = false;
     std::exception_ptr callbackError = nullptr;
+    json usage = nullptr;
+    std::string errorBody;
 };
 
 int streamProgress(void* user, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
@@ -251,11 +262,12 @@ size_t writeStreamContent(char* data, size_t size, size_t count, void* user) {
         std::string line = state.pending.substr(0, end);
         state.pending.erase(0, end + 1);
         if (!line.empty() && line.back() == '\r') line.pop_back();
-        if (line.compare(0, 5, "data:") != 0) continue;
+        if (line.compare(0, 5, "data:") != 0) {if(state.errorBody.size()<4096)state.errorBody+=line.substr(0,4096-state.errorBody.size());continue;}
         std::string payload = line.substr(5);
         if (!payload.empty() && payload.front() == ' ') payload.erase(payload.begin());
         if (payload == "[DONE]") { state.completed = true; continue; }
         const json event = json::parse(payload, nullptr, false);
+        if(event.is_object()&&event.contains("usage"))state.usage=reportedUsage(event["usage"]);
         if (!event.is_object() || !event.contains("choices") || !event["choices"].is_array() || event["choices"].empty()) continue;
         if (event.contains("model") && event["model"].is_string()) state.model = event["model"].get<std::string>();
         if (!event["choices"][0].is_object()) continue;
@@ -289,6 +301,7 @@ AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int
     const std::string model = options.model.empty() ? endpoint.model : options.model;
     json body{{"model", model}, {"temperature", options.temperature},
               {"max_tokens", options.maxTokens}, {"stream", true}, {"messages", json::array()}};
+    if(options.requestTokenUsage&&!std::getenv("AI_DISABLE_STREAM_USAGE"))body["stream_options"]={{"include_usage",true}};
     if (!options.responseFormat.empty()) body["response_format"] = {{"type", options.responseFormat}};
     for (const auto& message : options.messages)
         body["messages"].push_back({{"role", message.role}, {"content", message.content}});
@@ -325,13 +338,16 @@ AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
     curl_easy_cleanup(curl);
     curl_slist_free_all(headers);
+    AIActivity::requestFinished(activityId,code==CURLE_ABORTED_BY_CALLBACK?"cancelled":"failed",state.usage,state.model);
     if (transferError) std::rethrow_exception(transferError);
     if (state.callbackError) std::rethrow_exception(state.callbackError);
     if (state.cancelled || code == CURLE_ABORTED_BY_CALLBACK) throw AIClientError("cancelled", "stream cancelled");
+    if(status==400&&options.requestTokenUsage&&((state.errorBody+state.pending).find("stream_options")!=std::string::npos||(state.errorBody+state.pending).find("include_usage")!=std::string::npos))throw AIClientError("unsupported_stream_usage","接口不支持流式用量选项",400);
     if (code != CURLE_OK || status < 200 || status >= 300)
         throw errorFor(code, status, code == CURLE_OK ? "AI provider returned HTTP " + std::to_string(status) : curl_easy_strerror(code));
     if (state.content.empty() || !state.completed || state.finishReason == "length") throw AIClientError("invalid_response", "AI stream is incomplete");
-    return {state.content, state.model, static_cast<int>(status), "stop", "not_requested", {}};
+    AIResult result{state.content,state.model,static_cast<int>(status),"stop","not_requested",{}};
+    result.tokenUsage=state.usage;AIActivity::requestFinished(activityId,"completed",result.tokenUsage,result.model);return result;
 }
 
 ChatOptions prepareSearch(const ChatOptions& options, std::string& searchStatus, std::vector<std::string>& sources) {
@@ -471,8 +487,13 @@ AIResult AIClient::chatStream(const ChatOptions& options,
     std::string searchStatus = "not_requested";
     std::vector<std::string> sources;
     const auto prepared = prepareSearch(tracked, searchStatus, sources);
-    auto result = streamRequest({baseUrl_, apiKey_, model_}, prepared,
-        options.timeoutMs > 0 ? options.timeoutMs : timeoutMs_, onChunk, activityId);
+    AIResult result;
+    try {result = streamRequest({baseUrl_, apiKey_, model_}, prepared,options.timeoutMs > 0 ? options.timeoutMs : timeoutMs_,onChunk,activityId);}
+    catch(const AIClientError& error){
+        if(error.errorType!="unsupported_stream_usage")throw;
+        auto compatible=prepared;compatible.requestTokenUsage=false;
+        result=streamRequest({baseUrl_,apiKey_,model_},compatible,options.timeoutMs>0?options.timeoutMs:timeoutMs_,onChunk,activityId);
+    }
     result.searchStatus = searchStatus;
     result.sources = std::move(sources);
     return result;
