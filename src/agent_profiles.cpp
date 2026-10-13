@@ -1,5 +1,6 @@
 #include "agent_profiles.hpp"
 #include "question_evidence.hpp"
+#include "teaching_evidence.hpp"
 #include "agent_curriculum.hpp"
 #include <algorithm>
 #include <array>
@@ -81,9 +82,7 @@ Json agentProfileEvidence(Database& db, const AgentAccess& access) {
         if (!allowed(db, access, courseId) || !snapshot.is_object() || !snapshot.value("question", Json()).is_string() ||
             snapshot.at("question").get<std::string>().empty() || answer.is_null() ||
             (answer.is_string() && answer.get<std::string>().empty())) return;
-        Json identity = {{"question", snapshot.at("question")}};
-        if (snapshot.contains("options")) identity["options"] = snapshot.at("options");
-        evidence.push_back({{"id", id}, {"courseId", courseId}, {"questionId", questionIdentity(courseId, identity)},
+        evidence.push_back({{"id", id}, {"courseId", courseId}, {"questionId", teachingQuestionIdentity(courseId, snapshot)},
             {"question", snapshot}, {"answer", answer}, {"unknown", unknown}, {"assisted", assisted},
             {"hintHistory", hints}, {"at", at}, {"topic", topic}});
         evidence.back()["helpMode"] = "help_unknown";

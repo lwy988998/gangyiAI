@@ -9,4 +9,9 @@ $argsList += $objects.FullName
 $argsList += @((Join-Path $BuildDir 'libsqlite3_amalgamation.a'),(Join-Path $curl.FullName 'lib\libcurl.dll.a'),'-lws2_32','-o',(Join-Path $BuildDir $OutputName))
 & g++ @argsList
 if ($LASTEXITCODE -ne 0) { throw '教学验收入口编译失败。' }
-Copy-Item -LiteralPath (Join-Path $curl.FullName 'bin\libcurl-x64.dll') -Destination $BuildDir -Force
+$curlSource = Join-Path $curl.FullName 'bin\libcurl-x64.dll'
+$curlTarget = Join-Path $BuildDir 'libcurl-x64.dll'
+if (-not (Test-Path -LiteralPath $curlTarget) -or
+    (Get-FileHash -LiteralPath $curlSource -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $curlTarget -Algorithm SHA256).Hash) {
+    Copy-Item -LiteralPath $curlSource -Destination $BuildDir -Force
+}

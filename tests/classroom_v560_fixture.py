@@ -100,7 +100,8 @@ class FixtureAI(BaseHTTPRequestHandler):
                 message = '请围绕当前段说说你的思路；我会根据你的反馈再决定下一步。'
                 state = 'waiting_student'
         elif event['type'] == 'question_answer':
-            actual = next(item for item in context['feedback'] if item['payload'].get('requestId') == event['requestId'])
+            actual_input = next(item for item in context['currentInputs'] if item['requestId'] == event['requestId'])
+            actual = {'id': actual_input['interactionId'], 'payload': actual_input}
             if '选择题' in event['text']:
                 actions = [dict(id='classify', tool='classify_input', args=dict(interactionId=actual['id'], isAnswer=False, reason='学生希望改用选择题练习')),
                     dict(id='followup-choice', tool='append_section', args=dict(lessonId=event['lessonId'], section=dict(kind='question', questionKind='interaction', title='根据你的回答：比较电子得失',

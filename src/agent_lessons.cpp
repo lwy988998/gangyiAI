@@ -75,14 +75,6 @@ void selectResponseQuestion(Json& focus, const Json& lesson, const Json& task, c
     focus["responseSectionId"] = section.at("id"); focus["responseView"] = view;
     focus["responseTaskId"] = task.at("id");
 }
-Json publicMaterial(const Json& value) {
-    if (value.is_array()) { Json result = Json::array(); for (const auto& item : value) result.push_back(publicMaterial(item)); return result; }
-    if (!value.is_object()) return value;
-    Json result = Json::object();
-    for (const auto* key : {"type", "title", "text", "body", "latex", "formula", "imageUrl", "alt", "rows", "columns", "headers", "values", "cells", "table"})
-        if (value.contains(key)) result[key] = publicMaterial(value.at(key));
-    return result;
-}
 Json publicLesson(const Json& lesson) {
     Json result;
     for (const auto* key : {"id", "courseId", "title", "purpose", "status", "version", "updatedAt", "model", "sourceLearningVersion", "entered", "completed", "phaseIndex", "topicIndex", "topicId", "phaseName", "topicTitle", "teachingTaskId", "initialTeachingTaskId"})
@@ -106,7 +98,7 @@ Json publicLesson(const Json& lesson) {
         if (section.at("kind") == "question") {
             shown.erase("body"); Json question;
             for (const auto* key : {"question", "options", "type", "materials"}) if (section.at("question").contains(key)) question[key] = section["question"][key];
-            if (question.contains("materials")) question["materials"] = publicMaterial(question.at("materials"));
+            if (question.contains("materials")) question["materials"] = teachingMaterialSnapshot(question.at("materials"));
             shown["question"] = question; shown["questionId"] = section.at("questionId");
         }
         result["sections"].push_back(std::move(shown));
@@ -174,12 +166,23 @@ void registerAgentLessonTools(LearningAgent& agent) {
             return PreparedAgentTool{{{"lessonId", lesson.at("id")}, {"status", "draft"}},
                 [lesson, access](Database& connection) { requireCourse(connection, access, lesson.at("courseId")); saveLesson(connection, lesson); }};
         }});
-    agent.registerTool("read_lesson", {"读取指定 lessonId 的原始教学板块、题目标准和展示状态供 AI 判断；这些内部资料不直接发送到用户页面。", true,
+    agent.registerTool("read_lesson", {"读取指定 lessonId 的原始教学板块、题目标准和展示状态供 AI 判断；可选 sectionIds:[板块ID] 只读所需板块，省略读取整课。这些内部资料不直接发送到用户页面。", true,
         [](Database& db, const Json& args, const Json& task, const AIResult&) {
             auto lesson = lessonFor(db, accessFor(task), text(args, "lessonId"));
             const auto exposure = Json::parse(db.profileMeta("agent-section-exposure:" + lesson.at("id").get<std::string>()), nullptr, false);
             for (auto& section : lesson["sections"])
                 section["displayed"] = exposure.is_object() && exposure.value(section.at("id").get<std::string>(), 0) == section.at("version");
+            if (args.contains("sectionIds")) {
+                if (!args.at("sectionIds").is_array() || args.at("sectionIds").empty()) throw std::invalid_argument("sectionIds 必须为非空板块ID列表");
+                Json selected = Json::array();
+                for (const auto& id : args.at("sectionIds")) {
+                    if (!id.is_string()) throw std::invalid_argument("sectionIds 必须使用文字ID");
+                    const auto found = std::find_if(lesson["sections"].begin(), lesson["sections"].end(), [&](const Json& section) { return section.at("id") == id; });
+                    if (found == lesson["sections"].end()) throw std::invalid_argument("指定板块不属于当前课时");
+                    selected.push_back(*found);
+                }
+                lesson["sections"] = std::move(selected); lesson["partialSections"] = true;
+            }
             return PreparedAgentTool{lesson, {}};
         }});
     agent.registerTool("select_teaching_focus", {"选择本课当前教学焦点。参数 lessonId，以及可选 sectionId（讲解段）、interactionSectionId（questionKind=interaction 的讲解互动题）、practiceSectionId（集中练习题）。省略保留当前值，空字符串清除相应焦点。先 read_lesson；只能选择已经保存的同一课时板块。依据学生真实反馈决定继续、补讲或再问，不能把切换页面当成掌握。", false,
@@ -251,12 +254,21 @@ void registerAgentLessonTools(LearningAgent& agent) {
                     throw std::invalid_argument("section.question.options：选择题必须保存至少两个选项");
                 section["question"] = question;
                 section["question"]["type"] = questionType;
-                Json identity = {{"question", question.at("question")}};
-                if (question.contains("options")) identity["options"] = question["options"];
-                section["questionId"] = questionIdentity(lesson.at("courseId"), identity);
+                section["questionId"] = teachingQuestionIdentity(lesson.at("courseId"), question);
+                if (task.at("event").value("type", "") == "teaching_request" &&
+                    task.at("event").value("requestType", "") == "retry_question") {
+                    for (const auto& original : lesson.at("sections"))
+                        if (original.at("id") == task.at("event").value("sectionId", "") &&
+                            input.value("rePracticeOf", "") != original.value("questionId", ""))
+                            throw std::invalid_argument("section.rePracticeOf 必须关联本次再试一道请求实际选中的原题");
+                }
                 if (input.contains("rePracticeOf")) {
                     const auto original = text(input, "rePracticeOf"); bool found = false;
-                    for (const auto& previous : lesson.at("sections")) if (previous.value("questionId", "") == original) found = true;
+                    for (const auto& previous : lesson.at("sections")) if (previous.value("questionId", "") == original) {
+                        found = true;
+                        if (previous.contains("question") && teachingQuestionIdentity(lesson.at("courseId"), previous.at("question")) == section.at("questionId"))
+                            throw std::invalid_argument("复练题干、选项和材料必须与原题不同，不能用新的板块标识重复原题");
+                    }
                     if (!found || original == section.at("questionId")) throw std::invalid_argument("复练必须关联本课已保存的原问题，并生成不同的新题");
                     section["rePracticeOf"] = original;
                 }
@@ -271,6 +283,14 @@ void registerAgentLessonTools(LearningAgent& agent) {
                     const auto target = text(input, "targetQuestionId"); bool found = false;
                     for (const auto& previous : lesson.at("sections")) if (previous.value("questionId", "") == target) found = true;
                     if (!found) throw std::invalid_argument("本题帮助必须关联本课真实题目标识");
+                    const auto& event = task.at("event");
+                    const auto request = event.value("requestType", "");
+                    if (event.value("type", "") == "teaching_request" &&
+                        (request == "hint" || request == "worked_example" || request == "rephrase")) {
+                        for (const auto& original : lesson.at("sections"))
+                            if (original.at("id") == event.value("sectionId", "") && original.value("questionId", "") != target)
+                                throw std::invalid_argument("section.targetQuestionId 必须使用本次教学请求实际选中的原题，不能沿用其他教学焦点的题目");
+                    }
                     if (task.at("event").value("requestType", "") == "hint" && help == "worked_example")
                         throw std::invalid_argument("学生只求一点提示，本轮不能提供完整示范");
                     section["targetQuestionId"] = target;
@@ -303,7 +323,7 @@ void registerAgentLessonTools(LearningAgent& agent) {
             lesson["sourceLearningVersion"] = task.at("learningVersion"); lesson["version"] = lesson.at("version").get<int>() + 1;
             return update(db, task, id, lesson, {{"lesson", link(lesson)}, {"version", lesson.at("version")}});
         }});
-    agent.registerTool("evaluate_answer", {"真实 AI 评价实际学生回答。参数 interactionId、score(0..100 或 null)、credible(bool)、feedback、reason、uncertainty。只能引用真实学生记录；同题多轮保留稳定 questionId，提示经历不丢弃。没有可靠回答或评价不完整时不要给正式分数。", false,
+    agent.registerTool("evaluate_answer", {"真实 AI 评价实际学生回答。args 参数 interactionId、score(0..100 或 null)、credible(bool)、feedback、reason、uncertainty；后三项必须是非空文字。新版任务的 args 内还必须有 diagnosis:{summary,evidence:[回答原话],teachingDirection,needsClarification:bool}，不能放在根对象。只能引用真实学生记录；同题多轮保留稳定 questionId，提示经历不丢弃。没有可靠回答或评价不完整时不要给正式分数。", false,
         [](Database& db, const Json& args, const Json& task, const AIResult& source) {
             const auto access = accessFor(task); const auto interactionId = text(args, "interactionId");
             Json answer; std::string courseId;
@@ -444,12 +464,15 @@ void agentRecordLearnerEvent(Database& db, const AgentAccess& access, const Json
         for (const auto& row : db.listClassroomActivities(courseId)) if (row.kind == "agent-task") {
             const auto task = Json::parse(row.payload, nullptr, false);
             if (task.is_object() && task.value("scopeId", "") == access.scopeId &&
-                task.value("event", Json::object()).value("sectionVersion", section->at("version").get<int>()) == section->at("version") &&
-                task.value("event", Json::object()).value("sectionId", "") == sectionId &&
                 task.value("event", Json::object()).value("lessonId", "") == lesson.at("id"))
                 for (const auto& item : displayedMessages(db, task)) {
                     const auto metadata = task.value("teachingHelp", Json::object()).value(std::to_string(item.value("step", 0)), Json::object());
-                    if (metadata.contains("questionId") && metadata.at("questionId") != questionId) continue;
+                    const auto& origin = task.at("event");
+                    const bool sameSection = origin.value("sectionId", "") == sectionId &&
+                        origin.value("sectionVersion", section->at("version").get<int>()) == section->at("version");
+                    const bool sameQuestion = metadata.value("questionIdentity", "") == teachingQuestionIdentity(courseId, section->at("question"));
+                    if (!sameSection && !sameQuestion) continue;
+                    if (metadata.contains("questionId") && metadata.at("questionId") != questionId && !sameQuestion) continue;
                     remember({{"helpType", item.value("partial", false) ? "unknown" : metadata.value("helpType", "unknown")},
                         {"text", item.at("text")}, {"questionId", questionId}, {"taskId", task.at("id")},
                         {"step", item.at("step")}, {"partial", item.at("partial")}});

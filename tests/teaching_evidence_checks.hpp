@@ -2,6 +2,7 @@
 #include "teaching_evidence.hpp"
 #include "agent_profiles.hpp"
 #include "my_ai.hpp"
+#include "agent_prompt.hpp"
 
 // 接口回归使用确定性模型夹具；真实教学效果另由同模型多轮对照验证。
 inline void runTeachingEvidenceChecks(const std::filesystem::path& path) {
@@ -32,21 +33,65 @@ inline void runTeachingEvidenceChecks(const std::filesystem::path& path) {
     };
     const auto first = submit("q1", "question_answer", "2/5");
     assert(inputFor(first).at("helpMode") == "independent" && inputFor(first).at("relatedLearning").size() == 1);
+    const auto sourceContext = gangyi::agentContext(db, access, Json::parse(db.getClassroomActivity(first.at("id"))->payload).at("event"));
+    auto longContext = sourceContext;
+    longContext["courses"].push_back({{"id", "other-course"}, {"outline", std::string(12000, 'x')}});
+    longContext["studyPlan"] = {{"large", std::string(12000, 'x')}};
+    const auto compactContext = gangyi::agentPromptContext(longContext, true);
+    assert(compactContext.at("currentInputs") == sourceContext.at("currentInputs"));
+    assert(compactContext.at("personalCenter") == sourceContext.at("personalCenter"));
+    assert(compactContext.at("courses").size() == 1 && !compactContext.contains("studyPlan"));
+    assert(longContext.at("courses").size() == 2 && longContext.contains("studyPlan"));
+    const Json duplicateRead = {{"sections", {std::string(12000, 'x')}}, {"version", 1}};
+    const Json changedRead = {{"sections", {std::string(12000, 'y')}}, {"version", 2}};
+    const Json readAction = {{"encoded", Json{{"tool", "read_lesson"}, {"args", {{"lessonId", "lesson-check"}}}}.dump()}};
+    const Json writeAction = {{"encoded", Json{{"tool", "append_section"}, {"args", Json::object()}}.dump()}};
+    Json history = Json::array();
+    for (const auto& id : {"read1", "read2", "read3", "write1", "write2"})
+        history.push_back({{"role", "user"}, {"content", Json{{"toolResults", {{{"id", id}, {"result", std::string(id) == "read3" ? changedRead : duplicateRead}}}}}.dump()}});
+    history.push_back({{"role", "user"}, {"content", Json{{"toolError", "需要修正实际字段"}}.dump()}});
+    const Json actionIndex = {{"read1", readAction}, {"read2", readAction}, {"read3", readAction}, {"write1", writeAction}, {"write2", writeAction}};
+    const auto compactHistory = gangyi::agentPromptHistory(history, actionIndex, {"read_lesson"});
+    assert(Json::parse(compactHistory[1].at("content").get<std::string>()).at("toolResults")[0].at("result").at("unchangedFrom") == "read1");
+    assert(compactHistory[0] == history[0] && compactHistory[2] == history[2] && compactHistory[3] == history[3] &&
+        compactHistory[4] == history[4] && compactHistory[5] == history[5]);
     gangyi::agentControl(db, access, {{"command", "cancel"}, {"taskId", first.at("id")}});
     auto hint = submit("q1", "teaching_request", "给一点提示", "hint");
     assert(inputFor(hint).at("type") == "teaching_request");
-    bool fullExample = true;
+    bool fullExample = true, wrongTarget = false;
     gangyi::LearningAgent helper(path.string(), [&](const auto&, const auto& sink) {
+        Json actions = Json::array();
+        if (wrongTarget) actions.push_back({{"id", "wrong-hint-target"}, {"tool", "append_section"}, {"args", {
+            {"lessonId", "lesson-check"}, {"section", {{"kind", "explanation"}, {"title", "另一题提示"},
+                {"body", "这是另一题的提示，不应该展示"}, {"helpType", "hint"}, {"targetQuestionId", "qid-2"}}}
+        }}});
         return output({{"message", fullExample ? "完整答案5/6" : "先想想两种分数的每份大小是否相同。"},
-            {"teaching", {{"helpType", fullExample ? "worked_example" : "hint"}}}, {"actions", Json::array()}, {"state", "waiting_student"}}, sink);
+            {"teaching", {{"helpType", fullExample ? "worked_example" : "hint"}}}, {"actions", actions}, {"state", "waiting_student"}}, sink);
     });
     gangyi::registerAgentLessonTools(helper); helper.process(db, hint.at("id"));
     auto rejected = gangyi::agentView(db, access, hint.at("id")); assert(rejected.at("status") == "failed");
     for (const auto& event : rejected.at("events")) assert(event.value("field", "") != "message");
-    fullExample = false; gangyi::agentControl(db, access, {{"command", "retry"}, {"taskId", hint.at("id")}});
+    fullExample = false; wrongTarget = true;
+    gangyi::agentControl(db, access, {{"command", "retry"}, {"taskId", hint.at("id")}}); helper.process(db, hint.at("id"));
+    rejected = gangyi::agentView(db, access, hint.at("id")); assert(rejected.at("status") == "failed");
+    assert(gangyi::agentLessonView(db, access, "lesson-check").at("sections").size() == 3);
+    for (const auto& event : rejected.at("events")) assert(event.value("field", "") != "message" && event.value("field", "") != "body");
+    wrongTarget = false; gangyi::agentControl(db, access, {{"command", "retry"}, {"taskId", hint.at("id")}});
     helper.process(db, hint.at("id"));
     auto rawHint = Json::parse(db.getClassroomActivity(hint.at("id"))->payload);
     gangyi::agentExposeTask(db, access, {{"taskId", hint.at("id")}, {"seq", rawHint.at("seq")}});
+    const auto wrongExample = submit("q1", "teaching_request", "看本题示范", "worked_example");
+    gangyi::LearningAgent exampleGuard(path.string(), [&](const auto&, const auto& sink) {
+        const Json section = {{"kind", "explanation"}, {"title", "另一题示范"}, {"body", "另一题完整步骤不能显示"},
+            {"helpType", "worked_example"}, {"targetQuestionId", "qid-2"}};
+        const Json action = {{"id", "wrong-example-target"}, {"tool", "append_section"}, {"args", {{"lessonId", "lesson-check"}, {"section", section}}}};
+        return output({{"message", "另一题完整步骤不能显示"}, {"teaching", {{"helpType", "worked_example"}}},
+            {"actions", Json::array({action})}, {"state", "waiting_student"}}, sink);
+    });
+    gangyi::registerAgentLessonTools(exampleGuard); exampleGuard.process(db, wrongExample.at("id"));
+    const auto deniedExample = gangyi::agentView(db, access, wrongExample.at("id")); assert(deniedExample.at("status") == "failed");
+    assert(deniedExample.value("message", "").empty());
+    for (const auto& event : deniedExample.at("events")) assert(event.value("field", "") != "message" && event.value("field", "") != "body");
     const auto assisted = submit("q1", "question_answer", "5/6");
     assert(inputFor(assisted).at("helpMode") == "after_hint" && inputFor(assisted).at("helpHistory").size() == 1);
     gangyi::agentControl(db, access, {{"command", "cancel"}, {"taskId", assisted.at("id")}});
@@ -72,14 +117,25 @@ inline void runTeachingEvidenceChecks(const std::filesystem::path& path) {
     bool premature = false; try { gangyi::checkedDiagnosis(diagnosisArgs, "2/5"); } catch (...) { premature = true; } assert(premature);
     // 新题关联由主控实际保存，私有标准不能出现在学生接口。
     auto retry = submit("q1", "teaching_request", "再试一道", "retry_question");
+    int relationMode = 0;
     gangyi::LearningAgent practice(path.string(), [&](const auto&, const auto& sink) {
-        const Json section = {{"kind", "question"}, {"title", "独立复练"}, {"rePracticeOf", "qid-1"},
+        Json section = {{"kind", "question"}, {"title", "独立复练"}, {"rePracticeOf", "qid-1"},
             {"question", {{"question", "1/5+1/2=?"}, {"expectedAnswer", "7/10"}, {"rubric", "PRIVATE-RETRY"}}}};
+        if (relationMode == 0) section.erase("rePracticeOf");
+        if (relationMode == 1) section["rePracticeOf"] = "qid-2";
         const Json action = {{"id", "new-question"}, {"tool", "append_section"}, {"args", {{"lessonId", "lesson-check"}, {"section", section}}}};
         return output({{"message", "试试这道新题，说明每一步。"}, {"actions", Json::array({action})},
             {"teaching", {{"helpType", "none"}}}, {"state", "waiting_student"}}, sink);
     });
-    gangyi::registerAgentLessonTools(practice); practice.process(db, retry.at("id"));
+    gangyi::registerAgentLessonTools(practice);
+    for (relationMode = 0; relationMode < 2; ++relationMode) {
+        practice.process(db, retry.at("id"));
+        const auto invalid = gangyi::agentView(db, access, retry.at("id")); assert(invalid.at("status") == "failed");
+        assert(invalid.value("message", "").empty());
+        assert(gangyi::agentLessonView(db, access, "lesson-check").at("sections").size() == 3);
+        gangyi::agentControl(db, access, {{"command", "retry"}, {"taskId", retry.at("id")}});
+    }
+    practice.process(db, retry.at("id"));
     const auto shown = gangyi::agentLessonView(db, access, "lesson-check");
     assert(shown.at("sections").back().at("rePracticeOf") == "qid-1");
     assert(shown.dump().find("PRIVATE-") == std::string::npos && shown.dump().find("expectedAnswer") == std::string::npos);
@@ -119,4 +175,62 @@ inline void runTeachingEvidenceChecks(const std::filesystem::path& path) {
     assert(inputFor(historical).at("helpMode") == "help_unknown");
     assert(inputFor(historical).at("helpHistory").empty());
     assert(inputFor(historical).at("relatedLearning").back().at("association") == "lesson_only");
+    gangyi::agentControl(db, access, {{"command", "cancel"}, {"taskId", historical.at("id")}});
+    // 阅读题题干相同而材料不同，仍是关联的新题；重复同一材料不能伪装成独立复练。
+    auto cleanRow = *db.getClassroomActivity("lesson-check"); auto clean = Json::parse(cleanRow.payload);
+    clean["sections"].erase(clean["sections"].end()-1); cleanRow.payload = clean.dump(); assert(db.upsert(cleanRow));
+    Json materialQuestion = {{"question", "概括材料主旨。"}, {"materials", Json::array({{{"text", "节约用水，从随手关紧水龙头做起。"},
+        {"standardAnswer", "PRIVATE-MATERIAL"}}})}, {"expectedAnswer", "节约用水"}};
+    const auto originalMaterial = materialQuestion;
+    auto correctedMaterial = materialQuestion; correctedMaterial["materials"][0]["standardAnswer"] = "PRIVATE-CORRECTED";
+    assert(gangyi::teachingQuestionIdentity("math", originalMaterial) == gangyi::teachingQuestionIdentity("math", correctedMaterial));
+    std::string originalId;
+    gangyi::LearningAgent materialMaker(path.string(), [&](const auto&, const auto& sink) {
+        Json section = {{"kind", "question"}, {"title", "阅读材料题"}, {"question", materialQuestion}};
+        if (!originalId.empty()) section["rePracticeOf"] = originalId;
+        return output({{"message", "请依据这份材料回答。"}, {"teaching", {{"helpType", "none"}}},
+            {"actions", {{{"id", "material-question"}, {"tool", "append_section"}, {"args", {{"lessonId", "lesson-check"}, {"section", section}}}}}},
+            {"state", "waiting_student"}}, sink);
+    });
+    gangyi::registerAgentLessonTools(materialMaker);
+    const auto createMaterial = submit("q2", "chat", "增加材料题"); materialMaker.process(db, createMaterial.at("id"));
+    auto materialLesson = gangyi::agentLessonView(db, access, "lesson-check");
+    const auto originalSection = materialLesson.at("sections").back().at("id").get<std::string>();
+    // 模拟保留旧导入题目标识，后续关系仍使用这个原标识。
+    originalId = "legacy-material-id";
+    auto importedRow = *db.getClassroomActivity("lesson-check"); auto importedLesson = Json::parse(importedRow.payload);
+    for (auto& section : importedLesson["sections"]) if (section.at("id") == originalSection) section["questionId"] = originalId;
+    importedRow.payload = importedLesson.dump(); assert(db.upsert(importedRow));
+    const auto differentMaterial = submit(originalSection, "teaching_request", "再试一道材料题", "retry_question");
+    materialQuestion["materials"][0]["text"] = "珍惜粮食，从按需取餐开始。"; materialQuestion["expectedAnswer"] = "珍惜粮食";
+    materialMaker.process(db, differentMaterial.at("id"));
+    materialLesson = gangyi::agentLessonView(db, access, "lesson-check");
+    assert(gangyi::agentView(db, access, differentMaterial.at("id")).at("status") == "waiting_student");
+    const auto newSection = materialLesson.at("sections").back().at("id").get<std::string>();
+    assert(materialLesson.at("sections").back().at("questionId") != originalId);
+    assert(materialLesson.at("sections").back().at("rePracticeOf") == originalId);
+    assert(materialLesson.dump().find("PRIVATE-") == std::string::npos);
+    const auto sameMaterial = submit(originalSection, "teaching_request", "再试一道材料题", "retry_question");
+    materialQuestion = correctedMaterial; materialMaker.process(db, sameMaterial.at("id"));
+    assert(gangyi::agentView(db, access, sameMaterial.at("id")).at("status") == "failed");
+    assert(gangyi::agentLessonView(db, access, "lesson-check").at("sections").size() == materialLesson.at("sections").size());
+    originalId.clear();
+    const auto repeatedMaterial = submit(originalSection, "chat", "再展示同一道材料题");
+    materialMaker.process(db, repeatedMaterial.at("id"));
+    materialLesson = gangyi::agentLessonView(db, access, "lesson-check");
+    const auto repeatedSection = materialLesson.at("sections").back().at("id").get<std::string>();
+    const auto materialDemo = submit(originalSection, "teaching_request", "看示范", "worked_example");
+    gangyi::LearningAgent materialTeacher(path.string(), [&](const auto&, const auto& sink) {
+        return output({{"message", "原材料要求随手关紧水龙头，主旨是节约用水。"},
+            {"teaching", {{"helpType", "worked_example"}}}, {"actions", Json::array()}, {"state", "waiting_student"}}, sink);
+    });
+    gangyi::registerAgentLessonTools(materialTeacher); materialTeacher.process(db, materialDemo.at("id"));
+    const auto rawDemo = Json::parse(db.getClassroomActivity(materialDemo.at("id"))->payload);
+    gangyi::agentExposeTask(db, access, {{"taskId", materialDemo.at("id")}, {"seq", rawDemo.at("seq")}});
+    const auto independentMaterial = submit(newSection, "question_answer", "珍惜粮食");
+    assert(inputFor(independentMaterial).at("helpMode") == "independent");
+    gangyi::agentControl(db, access, {{"command", "cancel"}, {"taskId", independentMaterial.at("id")}});
+    const auto repeatedAnswer = submit(repeatedSection, "question_answer", "节约用水");
+    assert(inputFor(repeatedAnswer).at("helpMode") == "after_example");
+    assert(inputFor(repeatedAnswer).at("helpHistory").size() == 1);
 }

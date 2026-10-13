@@ -9,6 +9,25 @@ import sqlite3
 import time
 import uuid
 import winreg
+from contextlib import closing
+import hashlib
+
+
+def reviewed_criteria(case):
+    """只有材料校验值和案例正文均匹配时，沿用用户已经确认的标准。"""
+    root = Path(__file__).parents[1] / 'verification'
+    try:
+        source = (root / 'cases.json').read_bytes()
+        receipt = json.loads((root / 'criteria-review-status.json').read_text(encoding='utf-8'))
+        approved = receipt.get('status') == '用户人工核对通过并确认采用'
+        if approved and receipt.get('materialSha256') == hashlib.sha256(source).hexdigest():
+            if any(saved == case for saved in json.loads(source)):
+                return {'status': receipt['status'], 'author': receipt['author'],
+                        'materialSha256': receipt['materialSha256'],
+                        'confirmationDate': receipt['confirmationDate']}
+    except (OSError, ValueError, KeyError):
+        pass
+    return {'status': '待人工复核的AI候选材料'}
 
 
 def configured_environment():
@@ -44,12 +63,17 @@ def call_api(prompt, options, context):
     config = options['config']
     case = context['vars']['case']
     variant = config['variant']
+    criteria = reviewed_criteria(case)
+    harness_hash = hashlib.sha256((Path(__file__).parents[1]/'tests'/'teaching_eval_driver.cpp').read_bytes()).hexdigest()
+    driver_hash = hashlib.sha256(Path(config['driver']).read_bytes()).hexdigest()
     root = Path(config['outputDir']).resolve() / f"{case['id']}-{variant}-{uuid.uuid4().hex[:8]}"
     root.mkdir(parents=True)
     actual = json.loads(json.dumps(case, ensure_ascii=False))
     source = Path(os.environ['LOCALAPPDATA']) / 'GangyiAI' / 'data' / 'gangyiAI.db'
-    if source.exists():
-        with sqlite3.connect(source.as_uri()+'?mode=ro', uri=True) as db:
+    if config.get('preferencesFile'):
+        actual['preferences'] = json.loads(Path(config['preferencesFile']).read_text(encoding='utf-8'))
+    elif source.exists():
+        with closing(sqlite3.connect(source.as_uri()+'?mode=ro', uri=True)) as db:
             row = db.execute("SELECT payload FROM MyAIRecord WHERE id='preferences'").fetchone()
             if row:
                 actual['preferences'] = json.loads(row[0])
@@ -60,6 +84,10 @@ def call_api(prompt, options, context):
                 event['type'] = 'chat'
                 event.pop('requestType', None)
     env = configured_environment()
+    if config.get('budgetFile'):
+        env['GANGYI_EVAL_BUDGET_FILE'] = str(Path(config['budgetFile']).resolve())
+    for field,key in [('maxCalls','GANGYI_EVAL_MAX_CALLS'),('maxOutputTokens','GANGYI_EVAL_MAX_OUTPUT_TOKENS')]:
+        if config.get(field):env[key]=str(config[field])
     reuse = config.get('reuseDir')
     if reuse and variant == 'baseline':
         for previous in Path(reuse).glob(case['id']+'-baseline-*'):
@@ -67,8 +95,12 @@ def call_api(prompt, options, context):
             old_case = previous/'case.json'
             if old_result.exists() and old_case.exists() and json.loads(old_case.read_text(encoding='utf-8')) == actual:
                 value = json.loads(old_result.read_text(encoding='utf-8'))
-                if value.get('model') == env['AI_MODEL'] and len(value['turns']) == len(actual['turns']):
+                if (value.get('model') == env['AI_MODEL'] and value.get('harnessSha256') == harness_hash and
+                    value.get('driverSha256') == driver_hash and len(value['turns']) == len(actual['turns']) and
+                    all(turn['task']['status'] not in ('failed','superseded') for turn in value['turns'])):
                     value['baselineReused'] = True
+                    value['criteriaStatus'] = criteria['status']
+                    value['criteriaReview'] = criteria
                     output_file = root/'result.json'
                     output_file.write_text(json.dumps(value,ensure_ascii=False,indent=2),encoding='utf-8')
                     return {'output':json.dumps(value,ensure_ascii=False),'metadata':{'baselineReused':True,'originalRecordPath':str(old_result)}}
@@ -84,8 +116,18 @@ def call_api(prompt, options, context):
     result['model'] = env['AI_MODEL']
     result['durationSeconds'] = round(time.monotonic()-started, 3)
     result['recordPath'] = str(output_file)
+    result['harnessSha256'] = harness_hash
+    result['driverSha256'] = driver_hash
+    result['caseSha256'] = hashlib.sha256(json.dumps(actual,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
+    result['criteriaStatus'] = criteria['status']
+    result['criteriaReview'] = criteria
+    if config.get('budgetFile'):
+        result['budgetStatus'] = json.loads(Path(config['budgetFile']).read_text(encoding='utf-8'))
     output_file.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
-    known = [u['tokenUsage'] for u in result['usage'] if isinstance(u.get('tokenUsage'), dict)]
+    if 'httpRequests' in result:
+        known = [u['tokens'] for u in result['httpRequests'] if isinstance(u.get('tokens'), dict)]
+    else:
+        known = [u['tokenUsage'] for u in result['usage'] if isinstance(u.get('tokenUsage'), dict)]
     total = sum(u.get('total_tokens', 0) for u in known)
     response = {'output': json.dumps(result, ensure_ascii=False), 'metadata': {'recordPath': str(output_file)}}
     if known:

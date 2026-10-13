@@ -1,9 +1,29 @@
 #pragma once
+#include "question_evidence.hpp"
 #include <nlohmann/json.hpp>
 #include <stdexcept>
 #include <string>
 
 namespace gangyi {
+// 题目身份只使用学生看到的题干、选项和材料，校正私有标准不能增加独立证据。
+inline nlohmann::json teachingMaterialSnapshot(const nlohmann::json& value) {
+    using Json = nlohmann::json;
+    if (value.is_array()) { Json result = Json::array(); for (const auto& item : value) result.push_back(teachingMaterialSnapshot(item)); return result; }
+    if (!value.is_object()) return value;
+    Json result = Json::object();
+    for (const auto* key : {"type", "title", "text", "body", "latex", "formula", "imageUrl", "alt", "rows", "columns", "headers", "values", "cells", "table"})
+        if (value.contains(key)) result[key] = teachingMaterialSnapshot(value.at(key));
+    return result;
+}
+inline std::string teachingQuestionIdentity(const std::string& scope, const nlohmann::json& question) {
+    nlohmann::json identity = {{"question", question.at("question")}};
+    if (question.contains("options")) identity["options"] = question.at("options");
+    if (question.contains("materials")) {
+        const auto material = teachingMaterialSnapshot(question.at("materials"));
+        if (!material.empty()) identity["materials"] = material;
+    }
+    return questionIdentity(scope, identity);
+}
 // 教法由模型选择；这里只校验记录结构，防止把讲过概念当成本题提示。
 inline bool teachingHelpType(const std::string& type) {
     return type == "explanation" || type == "hint" || type == "worked_example" ||

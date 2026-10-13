@@ -2,18 +2,82 @@
 #include "agent_lessons.hpp"
 #include "agent_profiles.hpp"
 #include "question_evidence.hpp"
+#include "teaching_evidence.hpp"
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <set>
+#include <cstdlib>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 using Json = nlohmann::json;
+// 仅开发验收使用：请求前预留输入字节上界、输出和一次SDK兼容重试，未知用量不退款。
+class EvaluationBudget {
+    std::filesystem::path file_; std::size_t reservation_ = 0, requestUpper_ = 0;
+    std::set<std::string> previous_;
+    Json read() const { std::ifstream input(file_); Json value; input >> value; return value; }
+    void write(const Json& value) const { std::ofstream output(file_); output << value.dump(2); }
+    struct Lock {
+#ifdef _WIN32
+        HANDLE handle = INVALID_HANDLE_VALUE;
+        explicit Lock(const std::filesystem::path& file) {
+            const auto lockFile = file.wstring()+L".lock";
+            for (int attempt=0;attempt<3000;++attempt) {
+                handle=CreateFileW(lockFile.c_str(),GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
+                if (handle!=INVALID_HANDLE_VALUE) return;
+                Sleep(10);
+            }
+            throw std::runtime_error("验收用量锁暂不可用，未调用模型");
+        }
+        ~Lock() { if(handle!=INVALID_HANDLE_VALUE)CloseHandle(handle); }
+#else
+        explicit Lock(const std::filesystem::path&) { throw std::runtime_error("预算验收入口仅用于本机Windows"); }
+#endif
+    };
+public:
+    EvaluationBudget(gangyi::Database& db, const gangyi::ChatOptions& options) {
+        const auto path=std::getenv("GANGYI_EVAL_BUDGET_FILE"); if(!path||!*path)return;
+        file_=std::filesystem::u8path(path);
+        requestUpper_=static_cast<std::size_t>(options.maxTokens)+1024;
+        for(const auto& message:options.messages)requestUpper_+=message.content.size()+64;
+        reservation_=requestUpper_*2;
+        Lock lock(file_); auto value=read();
+        if(value.value("usedTokens",0ULL)+value.value("reservedTokens",0ULL)+reservation_>value.at("limitTokens").get<std::size_t>())
+            throw gangyi::AIClientError("eval_budget","验收Token预算不足以预留下一次请求，未调用模型");
+        value["reservedTokens"]=value.value("reservedTokens",0ULL)+reservation_; write(value);
+        for(const auto& row:db.myAIRecords("usage"))previous_.insert(row.id);
+    }
+    void settle(gangyi::Database& db) {
+        if(file_.empty()||reservation_==0)return;
+        std::size_t tokens=0,unknown=0,requests=0;
+        for(const auto& row:db.myAIRecords("usage"))if(!previous_.count(row.id)) {
+            const auto value=Json::parse(row.payload); ++requests;
+            if(value.value("tokens",Json()).is_object()&&value.at("tokens").value("total_tokens",Json()).is_number())
+                tokens+=value.at("tokens").at("total_tokens").get<std::size_t>();
+            else ++unknown;
+        }
+        Lock lock(file_); auto value=read();
+        value["reservedTokens"]=value.value("reservedTokens",0ULL)-reservation_+(requests==0?reservation_:unknown*requestUpper_);
+        value["usedTokens"]=value.value("usedTokens",0ULL)+tokens;
+        value["httpRequests"]=value.value("httpRequests",0ULL)+requests;
+        value["unknownUsageRequests"]=value.value("unknownUsageRequests",0ULL)+unknown;
+        if(tokens+unknown*requestUpper_>reservation_)value["unexpectedUsage"]=true;
+        write(value); reservation_=0;
+    }
+};
 // 开发验收入口直接调用现有 C++ 主控；不进入安装包。评分标准只来自隔离用例。
 int main(int argc, char** argv) {
     try {
         if (argc != 4) throw std::invalid_argument("参数：用例JSON 隔离数据库 输出JSON");
         std::ifstream input(std::filesystem::u8path(argv[1])); Json test; input >> test;
         gangyi::Database db; db.open(argv[2]); db.migrate();
+        gangyi::AIActivity::configureUsage(argv[2]);
         if (test.contains("preferences"))
             db.saveMyAIRecord({"preferences", "preferences", test.at("preferences").dump(), "2026-10-13", 0}, 0);
         const gangyi::AgentAccess access{"local-profile", {"eval-course"}};
@@ -27,19 +91,25 @@ int main(int argc, char** argv) {
         for (const auto& question : test.at("questions")) {
             if (index > 0 && !test.value("seedSecond", true)) break;
             const auto id = "question-" + std::to_string(index++);
-            Json identity = {{"question", question.at("question")}};
-            if (question.contains("options")) identity["options"] = question.at("options");
             sections.push_back({{"id", id}, {"kind", "question"}, {"title", "实际作答"}, {"questionKind", "practice"},
-                {"version", 1}, {"question", question}, {"questionId", gangyi::questionIdentity(courseId, identity)}});
+                {"version", 1}, {"question", question}, {"questionId", gangyi::teachingQuestionIdentity(courseId, question)}});
         }
         Json lesson = {{"id", lessonId}, {"scopeId", access.scopeId}, {"courseId", courseId}, {"title", test.at("title")},
             {"purpose", "依据真实回答诊断并安排独立复练"}, {"status", "ready"}, {"entered", true},
-            {"version", 1}, {"model", "人工验收材料"}, {"updatedAt", "2026-10-13"}, {"sections", sections},
+            {"version", 1}, {"model", "预编验收材料"}, {"updatedAt", "2026-10-13"}, {"sections", sections},
             {"sourceLearningVersion", db.learningRevision()}, {"teachingFocus", {{"practiceSectionId", "question-0"}}}};
         db.upsert(gangyi::ClassroomActivity{lessonId, courseId, "agent-lesson", lesson.dump(), "2026-10-13", 0, 0});
         gangyi::agentExposeTask(db, access, {{"lessonId", lessonId}, {"sections", {{{"id", "concept"}, {"version", 1}}}}});
-        Json usage = Json::array();
+        Json usage = Json::array(), promptAudit = Json::array();
         gangyi::LearningAgent agent(argv[2], [&](const gangyi::ChatOptions& options, const std::function<bool(const std::string&)>& sink) {
+            Json prompt = {{"purpose", options.activity.purpose}, {"inputBytes", 0}};
+            Json messages = Json::array(); std::size_t bytes = 0;
+            for (const auto& message : options.messages) {
+                bytes += message.content.size(); messages.push_back({{"role", message.role}, {"content", message.content}});
+            }
+            prompt["inputBytes"] = bytes;
+            if (test.value("capturePrompts", false)) prompt["messages"] = messages;
+            promptAudit.push_back(std::move(prompt));
             if (test.value("fixtureMode", false)) {
                 const auto context = Json::parse(options.messages[1].content);
                 const auto event = context.at("event"); const auto actual = context.at("currentInputs").at(0);
@@ -77,10 +147,18 @@ int main(int argc, char** argv) {
                 return result;
             }
             const auto start = std::chrono::steady_clock::now();
+            if (const auto limit=std::getenv("GANGYI_EVAL_MAX_CALLS"))
+                if (usage.size()>=static_cast<std::size_t>(std::stoul(limit)))
+                    throw gangyi::AIClientError("eval_call_limit","本次协议复核的请求次数已用完，未继续调用模型");
+            auto requestOptions=options;
+            if (const auto limit=std::getenv("GANGYI_EVAL_MAX_OUTPUT_TOKENS"))
+                requestOptions.maxTokens=std::min(options.maxTokens,std::stoi(limit));
             gangyi::AIClient client; gangyi::AIResult response;
-            try { response = client.chatStream(options, sink); }
-            catch (...) { usage.push_back({{"model", options.model}, {"tokenUsage", nullptr}, {"failed", true},
+            EvaluationBudget budget(db,requestOptions);
+            try { response = client.chatStream(requestOptions, sink); }
+            catch (...) { budget.settle(db); usage.push_back({{"model", options.model}, {"tokenUsage", nullptr}, {"failed", true},
                 {"durationMs", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-start).count()}}); throw; }
+            budget.settle(db);
             usage.push_back({{"model", response.model}, {"tokenUsage", response.tokenUsage},
                 {"durationMs", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-start).count()}});
             return response;
@@ -107,7 +185,13 @@ int main(int argc, char** argv) {
         }
         Json interactions = Json::array();
         for (const auto& row : db.listInteractions()) interactions.push_back({{"id", row.id}, {"kind", row.kind}, {"payload", Json::parse(row.payload)}});
+        Json httpRequests = Json::array();
+        for (const auto& row : db.myAIRecords("usage")) {
+            auto request = Json::parse(row.payload); request["id"] = row.id; httpRequests.push_back(std::move(request));
+        }
         Json result = {{"caseId", test.at("id")}, {"turns", turns}, {"interactions", interactions}, {"usage", usage},
+            {"httpRequests", httpRequests}, {"httpRequestCount", httpRequests.size()},
+            {"promptAudit", promptAudit},
             {"lesson", Json::parse(db.getClassroomActivity(lessonId)->payload)}, {"profileEvidence", gangyi::agentProfileEvidence(db, access)}};
         std::ofstream output(std::filesystem::u8path(argv[3])); output << result.dump(2);
         std::cout << test.at("id") << "：完成 " << turns.size() << " 轮，实际调用 " << usage.size() << " 次\n";

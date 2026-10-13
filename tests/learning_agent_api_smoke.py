@@ -87,7 +87,8 @@ class ProtocolAI(BaseHTTPRequestHandler):
             for index, item in enumerate(inputs):
                 if item.get('action') in ('hint', 'skip', 'omitted'):
                     continue
-                actual = next(value for value in context['feedback'] if value['payload'].get('requestId') == item['requestId'])
+                actual_input = next(value for value in context['currentInputs'] if value['requestId'] == item['requestId'])
+                actual = {'id': actual_input['interactionId'], 'payload': actual_input}
                 if item.get('text') == '为什么这样判断？':
                     actions.append(dict(id='classify-' + str(index), tool='classify_input', args=dict(
                         interactionId=actual['id'], isAnswer=False, reason='这是对已给出反馈的追问')))
