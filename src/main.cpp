@@ -1,3 +1,4 @@
+#include "my_ai.hpp"
 #include "config.hpp"
 #include "version.hpp"
 #include "db.hpp"
@@ -343,6 +344,7 @@ int main() {
     } catch (...) {}
     db.open(config.database_path);
     db.migrate();
+    gangyi::AIActivity::configureUsage(config.database_path);
     const auto activityPath = std::filesystem::u8path(config.database_path).parent_path() / "ai-activity.json";
     const bool activityExists = std::filesystem::exists(activityPath);
     gangyi::AIActivity::configure(activityPath.u8string());
@@ -354,6 +356,56 @@ int main() {
     // 访问路径可能包含用户填写的学习目标，避免将其写入信息级访问日志。
     app.loglevel(crow::LogLevel::Warning);
 
+
+    const auto personalPage=[](const std::string& page){
+        try { crow::response response(gangyi::renderMyAIPage(page));response.set_header("Content-Type","text/html; charset=utf-8");return response; }
+        catch(...) {return crow::response(404,"页面不存在");}
+    };
+    CROW_ROUTE(app,"/my-ai")([personalPage]{return personalPage("overview");});
+    CROW_ROUTE(app,"/my-ai/<string>")([personalPage](const std::string& page){return personalPage(page);});
+    CROW_ROUTE(app,"/api/my-ai/<string>").methods(crow::HTTPMethod::GET,crow::HTTPMethod::POST)([path=config.database_path](const crow::request& req,const std::string& section){
+        try {
+            gangyi::Database connection;connection.open(path);nlohmann::json value;
+            if(req.method==crow::HTTPMethod::GET){
+                nlohmann::json query=nlohmann::json::object();
+                for(const auto* key:{"id","search","courseId","subject","from","to","model"})if(req.url_params.get(key))query[key]=req.url_params.get(key);
+                query["archived"]=req.url_params.get("archived")&&std::string(req.url_params.get("archived"))=="true";
+                if(section=="tasks") {
+                    const auto access=localAgentAccess(connection);value={{"items",nlohmann::json::array()}};
+                    const auto ids=nlohmann::json::parse(connection.profileMeta("agent-index"),nullptr,false);
+                    if(ids.is_array())for(auto it=ids.rbegin();it!=ids.rend();++it)try{value["items"].push_back(gangyi::agentView(connection,access,it->get<std::string>(),true));}catch(const std::exception&){}
+                }
+                else connection.readSnapshot([&]{value=gangyi::myAIRead(connection,section,query);});
+            }else{
+                if(req.body.size()>400000)return crow::response(413,"内容太大");
+                const auto body=nlohmann::json::parse(req.body);
+                if(section=="proposal")connection.transaction([&]{value=gangyi::myAIProposal(connection,body,body.at("requestId"));});
+                else if(section=="confirm")value=gangyi::myAIConfirm(connection,body.at("id"),body);
+                else if(section=="undo") {
+                    connection.transaction([&]{const auto row=connection.myAIRecord(body.at("id"));if(!row||row->kind!="undo")throw std::invalid_argument("撤回记录不存在");
+                        auto change=nlohmann::json::parse(row->payload);if(change["state"]=="undone"){value=change;return;}
+                        auto before=change.at("before");before["version"]=change.at("afterVersion");value=gangyi::myAIWrite(connection,"preferences",before,false);
+                        change["state"]="undone";if(!connection.saveMyAIRecord({row->id,row->kind,change.dump(),nowIso8601(),0},row->version))throw std::runtime_error("撤回状态已改变");
+                    });
+                }else value=gangyi::myAIWrite(connection,section,body);
+            }
+            crow::response response(value.dump());response.set_header("Content-Type","application/json; charset=utf-8");response.set_header("Cache-Control","no-store");return response;
+        }catch(const std::invalid_argument& error){return crow::response(400,nlohmann::json{{"error",error.what()}}.dump());}
+        catch(const std::exception& error){return crow::response(409,nlohmann::json{{"error",error.what()}}.dump());}
+    });
+    CROW_ROUTE(app,"/api/my-ai/chat/send").methods(crow::HTTPMethod::POST)([path=config.database_path](const crow::request& req){
+        try {
+            gangyi::Database connection;connection.open(path);const auto body=nlohmann::json::parse(req.body);const std::string chatId=body.at("id");
+            const auto message=gangyi::myAIChatMessage(connection,chatId,body);const auto access=localAgentAccess(connection);
+            nlohmann::json task;
+            if(message.contains("taskId"))task=gangyi::agentView(connection,access,message.at("taskId"));
+            else {
+                const auto event=nlohmann::json{{"type","assistant_chat"},{"chatId",chatId},{"text",body.at("text")},{"requestId","my-ai:"+chatId+":"+body.at("requestId").get<std::string>()}};
+                task=gangyi::agentSubmit(connection,access,event);gangyi::myAIChatTask(connection,chatId,body.at("requestId"),task);
+            }
+            return crow::response(202,task.dump());
+        }catch(const std::exception& error){return crow::response(409,nlohmann::json{{"error",error.what()}}.dump());}
+    });
     CROW_ROUTE(app, "/")([] {
         crow::response response(gangyi::renderHomePage());
         response.set_header("Content-Type", "text/html; charset=utf-8");

@@ -1,15 +1,25 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "5.6.0"
+  #define MyAppVersion "5.6.1"
 #endif
 
-#define MyAppName "钢一定制AI"
+#ifdef MyAIPreview
+  #define MyAppName "钢一定制AI 我的AI试用版"
+  #define MyAppId "{{8499F5D6-1094-4B62-8C58-73B70E1D1A4C}"
+  #define MyAppDirectory "GangyiAI-MyAI-Preview"
+  #define MyAppMutex "GangyiAI-MyAI-Preview.Launcher.v1"
+#else
+  #define MyAppName "钢一定制AI"
+  #define MyAppId "{{40A2568D-0B65-42D4-8ADC-391221CFBD52}"
+  #define MyAppDirectory "GangyiAI"
+  #define MyAppMutex "GangyiAI.Launcher.v1"
+#endif
 #define MyAppExeName "gangyiAI-launcher.exe"
 
 [Languages]
 Name: "chinesesimplified"; MessagesFile: ".\ChineseSimplified.isl"
 
 [Setup]
-AppId={{40A2568D-0B65-42D4-8ADC-391221CFBD52}
+AppId={#MyAppId}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher=柳州市钢一中学
@@ -17,7 +27,7 @@ AppPublisherURL=https://github.com/lwy988998/gangyiAI
 AppSupportURL=https://github.com/lwy988998/gangyiAI/issues
 AppUpdatesURL=https://github.com/lwy988998/gangyiAI/releases
 AppComments=项目作者：lwy
-DefaultDirName={localappdata}\Programs\GangyiAI
+DefaultDirName={localappdata}\Programs\{#MyAppDirectory}
 DefaultGroupName={#MyAppName}
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
@@ -31,7 +41,7 @@ SetupIconFile=..\assets\windows\gangyiAI.ico
 WizardImageFile=..\assets\windows\wizard-large.bmp
 WizardSmallImageFile=..\assets\windows\wizard-small.bmp
 CloseApplications=yes
-AppMutex=GangyiAI.Launcher.v1
+AppMutex={#MyAppMutex}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 VersionInfoCompany=柳州市钢一中学
 VersionInfoCopyright=项目作者：lwy

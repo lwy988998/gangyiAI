@@ -221,7 +221,8 @@ def main(executable):
             expect(page.locator('#composer-target')).to_have_text('和 AI 老师交流')
             expect(page.locator('#lesson-input')).to_have_value('')
             page.locator('#lesson-input').fill('另一知识点的草稿。')
-            page.unroute(focus_route, delay_focus)
+            # 等待仍在处理的拦截请求，避免切页时重复完成同一路由。
+            page.unroute_all(behavior='wait')
             page.goto(info['base']+'/learn?lessonId='+lesson)
             expect(page.locator('#lesson-input')).to_have_value('原知识点独立保存的草稿。')
             page.goto(info['base']+'/learn?lessonId='+other_lesson)
@@ -266,7 +267,7 @@ def main(executable):
                 database.execute("INSERT INTO ProfileMeta(key,value) VALUES('learning-flow',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(json.dumps(raw),))
                 database.commit()
             page.set_viewport_size({'width':1440,'height':900})
-            page.goto(info['base']+'/my-courses')
+            page.goto(info['base']+'/my-ai/plan')
             links = page.locator('#weekly-entries .weekly-row a')
             expect(links).to_have_count(2)
             assert links.nth(0).get_attribute('href') == '/learn?lessonId='+lesson

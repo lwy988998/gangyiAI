@@ -30,6 +30,7 @@ struct ChatOptions {
     std::function<bool()> cancelled;
     std::string searchQuery;
     AIActivityInfo activity{};
+    bool requestTokenUsage = true;
 };
 
 struct AIResult {
@@ -39,6 +40,8 @@ struct AIResult {
     std::string finishReason;
     std::string searchStatus = "not_requested";
     std::vector<std::string> sources;
+    // 服务商未返回用量时保持空值，不按文字长度估算。
+    nlohmann::json tokenUsage = nullptr;
 };
 
 struct AIClientConfig {

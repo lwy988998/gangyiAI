@@ -75,6 +75,8 @@ struct TopicMastery {
     int phaseIndex = 0, evidenceCount = 0, version = 0;
     std::optional<int> score;
 };
+// 个人中心的版本化记录；修改必须携带读取时的版本。
+struct MyAIRecord { std::string id, kind, payload, updatedAt; int version = 0; };
 
 class Database {
 public:
@@ -108,6 +110,7 @@ public:
     bool upsert(const WeeklyPlan&); std::optional<WeeklyPlan> getWeeklyPlan(const std::string&) const;
     void deleteClassroomData(const std::string&);
     bool deleteConversation(const std::string&); bool deleteInteractionsForCourse(const std::string&);
+    void deleteInteractionsForConversation(const std::string& id);
     bool upsert(const SubjectMastery&); void replaceMastery(const std::vector<SubjectMastery>&); std::vector<SubjectMastery> listMastery() const;
     bool upsert(const TopicMastery&); std::vector<TopicMastery> listTopicMastery() const;
     bool deleteTopicMasteryForCourse(const std::string&);
@@ -118,6 +121,9 @@ public:
     void setProfileSearch(const std::string& status, const std::string& sources);
     std::string profileMeta(const std::string& key) const;
     void setProfileMeta(const std::string& key, const std::string& value);
+    std::optional<MyAIRecord> myAIRecord(const std::string& id) const;
+    std::vector<MyAIRecord> myAIRecords(const std::string& kind) const;
+    bool saveMyAIRecord(const MyAIRecord& record, int expectedVersion);
     bool setProfileMetaAtRevision(const std::string& key, const std::string& value, int revision);
     bool replaceMasteryAtRevision(const std::vector<SubjectMastery>& values, int revision);
     bool upsertTopicMasteryAtRevision(const TopicMastery& value, int revision);

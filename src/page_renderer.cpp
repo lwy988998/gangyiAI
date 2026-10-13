@@ -69,9 +69,9 @@ std::string headerShell(const std::string& active) {
     const std::string links = navLink("/", "首页", is("home")) +
         navLink("/my-courses", "我的课程", is("my-courses")) +
         std::string("<a data-current-course-link class=\"dark-nav-link") + (is("learn") ? " is-active" : "") +
-        "\" href=\"/current-course\" title=\"查看当前课程\">当前课程</a>" + navLink("/ask", "AI 导师", is("ask"));
+        "\" href=\"/current-course\" title=\"查看当前课程\">当前课程</a>" + navLink("/ask", "AI 导师", is("ask")) + navLink("/my-ai", "我的AI", is("my-ai"));
     return R"HTML(<header class="site-header dark-header"><div class="dark-nav-shell"><a class="dark-brand" href="/"><img class="dark-brand-mark" src="/school-logo.png" alt="柳州市钢一中学校徽"><span>钢一<b>定制AI</b></span></a><nav class="dark-nav-links" aria-label="主导航">)HTML" + links +
-        R"HTML(</nav><a class="dark-nav-cta" href="/my-courses#profile">我的画像 ↗</a><details class="dark-mobile-nav"><summary aria-label="打开菜单">☰</summary><nav aria-label="移动导航">)HTML" + links +
+        R"HTML(</nav><a class="dark-nav-cta" href="/my-ai/reports">我的画像 ↗</a><details class="dark-mobile-nav"><summary aria-label="打开菜单">☰</summary><nav aria-label="移动导航">)HTML" + links +
         R"HTML(</nav></details></div></header>)HTML";
 }
 
@@ -97,7 +97,7 @@ std::string renderHomePageContent(bool startup) {
       <div id="image-preview" class="hidden mt-3 items-center gap-3 rounded-2xl border border-sky-100 bg-sky-50 p-3"><img class="h-16 w-16 rounded-xl border border-white object-cover" alt="图片预览"><div class="min-w-0 flex-1"><p id="image-name" class="truncate text-sm font-semibold"></p><p id="image-meta" class="mt-1 text-xs text-slate-500"></p></div><button id="remove-image" type="button" class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500">移除</button></div><p id="goal-message" class="hidden mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700"></p>
     </form>
     <div id="goal-examples" class="mt-4 flex max-w-4xl flex-wrap justify-center gap-2"></div>
-    <aside class="home-profile-compact home-visual"><div class="profile-heading"><div><p>来自真实学习记录</p><h2>学习画像</h2></div><a href="/my-courses#profile">查看画像 ↗</a></div><div id="home-radar" data-profile-radar></div><p class="home-radar-note">从每一次真实作答，看见自己的进步。</p></aside>
+    <aside class="home-profile-compact home-visual"><div class="profile-heading"><div><p>来自真实学习记录</p><h2>学习画像</h2></div><a href="/my-ai/reports">查看画像 ↗</a></div><div id="home-radar" data-profile-radar></div><p class="home-radar-note">从每一次真实作答，看见自己的进步。</p></aside>
   </section>
   <section id="profile" class="profile-section" aria-labelledby="profile-title">
     <div class="profile-heading"><div><p>继续学习</p><h2 id="profile-title">最近课程</h2></div><a class="recent-courses-all" href="/my-courses">全部课程 ↗</a></div>
@@ -248,12 +248,12 @@ std::string renderMyCoursesPage(const nlohmann::json& data) {
 <main class="uc-main"><div class="uc-shell"><div class="uc-content">
   <header class="uc-head"><div><p class="uc-eyebrow">本机学习档案</p><h1>我的课程</h1></div><div class="uc-head-actions"><a class="uc-primary" href="/">＋ 新课程</a><button id="open-api-settings" type="button">AI 设置</button></div></header>
   <p id="api-settings-message" class="uc-message" role="status" aria-live="polite"></p><p id="course-message" class="uc-message" aria-live="polite"></p>
-  <div class="uc-tabs" role="tablist" aria-label="我的学习"><button id="courses-tab" type="button" role="tab" aria-controls="courses-panel" aria-selected="true" data-uc-tab="courses">我的课程</button><button id="profile-tab" type="button" role="tab" aria-controls="profile-panel" aria-selected="false" data-uc-tab="profile">我的画像</button></div>
+  <div class="uc-tabs" role="tablist" aria-label="我的学习"><button id="courses-tab" type="button" role="tab" aria-controls="courses-panel" aria-selected="true" data-uc-tab="courses">我的课程</button><a href="/my-ai/reports">学习报告 →</a><a href="/my-ai/plan">学习计划 →</a></div>
   <section id="courses-panel" role="tabpanel" aria-labelledby="courses-tab"><div class="uc-course-grid" data-paged-list data-page-size="4">)HTML" +
       (cardsHtml.empty() ? "<p>还没有课程，去首页输入学习目标开始吧。</p>" : cardsHtml) + R"HTML(</div>
-    <div id="uc-study-plan-anchor"></div><details class="uc-review-details"><summary>待复习清单</summary>)HTML" + (dueHtml.empty() ? "<p>目前没有到期复习。</p>" : "<ul class=\"uc-due-list\">" + dueHtml + "</ul>") + R"HTML(</details>
+    <a class="uc-primary" href="/my-ai/plan">查看统一学习安排 →</a><details class="uc-review-details"><summary>待复习清单</summary>)HTML" + (dueHtml.empty() ? "<p>目前没有到期复习。</p>" : "<ul class=\"uc-due-list\">" + dueHtml + "</ul>") + R"HTML(</details>
   </section>
-  <section id="profile-panel" role="tabpanel" aria-labelledby="profile-tab" hidden><section id="uc-profile"><h2>我的画像</h2><div id="uc-profile-radar" data-profile-radar></div><details><summary>学科与知识点详情</summary><div id="uc-profile-subjects"></div><div id="uc-profile-topics"></div></details></section><section id="uc-time"><h2>学习时间</h2><p id="uc-availability-summary" role="status"></p><fieldset class="uc-availability"><legend class="sr-only">每周可学习时间</legend><div id="uc-availability-grid" class="availability-grid"></div></fieldset></section></section>
+
 </div></div></main>)HTML";
     const std::string script = R"HTML(<script defer src="/user-center.js"></script>)HTML";
     return document("我的课程 - 钢一定制AI", body, script);

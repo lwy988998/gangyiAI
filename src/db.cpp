@@ -26,6 +26,28 @@ bool done(Stmt& s) { const int rc = sqlite3_step(s.p); check(rc, s.db, "execute"
 }
 
 Database::~Database() { close(); }
+void Database::deleteInteractionsForConversation(const std::string& key) {Stmt s(db_,"DELETE FROM LearningInteraction WHERE conversationId=?");text(s,1,key);done(s);
+    Stmt tasks(db_,"DELETE FROM ClassroomActivity WHERE kind='agent-task' AND CASE WHEN json_valid(payload) THEN json_extract(payload,'$.event.chatId') ELSE NULL END=?");text(tasks,1,key);done(tasks);
+}
+std::optional<MyAIRecord> Database::myAIRecord(const std::string& key) const {
+    Stmt s(db_, "SELECT id,kind,payload,updatedAt,version FROM MyAIRecord WHERE id=?"); text(s,1,key);
+    if (sqlite3_step(s.p)!=SQLITE_ROW) return {};
+    return MyAIRecord{str(s.p,0),str(s.p,1),str(s.p,2),str(s.p,3),sqlite3_column_int(s.p,4)};
+}
+std::vector<MyAIRecord> Database::myAIRecords(const std::string& kind) const {
+    std::vector<MyAIRecord> result; Stmt s(db_, "SELECT id,kind,payload,updatedAt,version FROM MyAIRecord WHERE kind=? ORDER BY updatedAt DESC,id"); text(s,1,kind);
+    while (sqlite3_step(s.p)==SQLITE_ROW) result.push_back({str(s.p,0),str(s.p,1),str(s.p,2),str(s.p,3),sqlite3_column_int(s.p,4)});
+    return result;
+}
+bool Database::saveMyAIRecord(const MyAIRecord& row, int expected) {
+    if (expected < 0) throw std::invalid_argument("记录版本无效");
+    if (!expected) {
+        Stmt s(db_, "INSERT OR IGNORE INTO MyAIRecord(id,kind,payload,updatedAt,version) VALUES(?,?,?,?,1)");
+        text(s,1,row.id);text(s,2,row.kind);text(s,3,row.payload);text(s,4,row.updatedAt);return done(s);
+    }
+    Stmt s(db_, "UPDATE MyAIRecord SET payload=?,updatedAt=?,version=version+1 WHERE id=? AND kind=? AND version=?");
+    text(s,1,row.payload);text(s,2,row.updatedAt);text(s,3,row.id);text(s,4,row.kind);integer(s,5,expected);return done(s);
+}
 void Database::readSnapshot(const std::function<void()>& action) {
     exec(db_, "BEGIN");
     try { action(); exec(db_, "COMMIT"); }
@@ -85,7 +107,7 @@ void Database::migrate() {
         const char* filename = sqlite3_db_filename(db_, "main");
         if (filename && *filename && std::string(filename) != ":memory:") {
             const auto backupPath = std::filesystem::u8path(filename).u8string() +
-                (currentVersion < 4 ? ".pre-v4.db" : currentVersion < 5 ? ".pre-v5.db" : ".pre-v6.db");
+                (currentVersion < 4 ? ".pre-v4.db" : currentVersion < 5 ? ".pre-v5.db" : currentVersion < 6 ? ".pre-v6.db" : ".pre-v7.db");
             if (!std::filesystem::exists(std::filesystem::u8path(backupPath))) {
                 sqlite3* backupDb = nullptr;
                 check(sqlite3_open(backupPath.c_str(), &backupDb), backupDb, "open migration backup");
@@ -129,6 +151,8 @@ CREATE INDEX IF NOT EXISTS LearningInteraction_course_idx ON LearningInteraction
 CREATE INDEX IF NOT EXISTS LearningInteraction_conversation_idx ON LearningInteraction(conversationId,createdAt);
 CREATE TABLE IF NOT EXISTS SubjectMastery(subject TEXT PRIMARY KEY, score INTEGER CHECK(score BETWEEN 0 AND 100), rationale TEXT NOT NULL DEFAULT '', weakPoints TEXT NOT NULL DEFAULT '[]', recommendation TEXT NOT NULL DEFAULT '', evidenceCount INTEGER NOT NULL DEFAULT 0, model TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', updatedAt TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS ProfileMeta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS MyAIRecord(id TEXT PRIMARY KEY,kind TEXT NOT NULL,payload TEXT NOT NULL,updatedAt TEXT NOT NULL,version INTEGER NOT NULL DEFAULT 1);
+CREATE INDEX IF NOT EXISTS MyAIRecordKind ON MyAIRecord(kind,updatedAt);
 INSERT OR IGNORE INTO ProfileMeta(key,value) VALUES('revision','1');
 INSERT OR IGNORE INTO ProfileMeta(key,value) VALUES('assessed','0');
 INSERT OR IGNORE INTO ProfileMeta(key,value) VALUES('error','');
@@ -137,6 +161,7 @@ INSERT OR IGNORE INTO ProfileMeta(key,value) VALUES('error','');
             exec(db_, "COMMIT");
         } catch (...) { exec(db_, "ROLLBACK"); throw; }
     }
+    exec(db_,"CREATE TABLE IF NOT EXISTS MyAIRecord(id TEXT PRIMARY KEY,kind TEXT NOT NULL,payload TEXT NOT NULL,updatedAt TEXT NOT NULL,version INTEGER NOT NULL DEFAULT 1);CREATE INDEX IF NOT EXISTS MyAIRecordKind ON MyAIRecord(kind,updatedAt);");
     if (currentVersion < 5) {
         exec(db_, "BEGIN IMMEDIATE");
         try {
@@ -165,6 +190,7 @@ CREATE TABLE IF NOT EXISTS WeeklyPlan(courseId TEXT PRIMARY KEY, payload TEXT NO
             exec(db_, "COMMIT");
         } catch (...) { exec(db_, "ROLLBACK"); throw; }
     }
+    if(currentVersion<7)exec(db_,"PRAGMA user_version=7");
 }
 
 // Course and User are kept explicit below; the repeated progress tables use the same SQL shape.

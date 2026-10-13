@@ -18,6 +18,9 @@ struct AIActivityInfo {
 class AIActivity {
 public:
     static void configure(const std::string& path);
+    static void configureUsage(const std::string& databasePath);
+    static void requestFinished(const std::string& id, const std::string& status,
+                                const nlohmann::json& tokens = nullptr, const std::string& model = {});
     static nlohmann::json snapshot();
     static void setPaused(bool paused);
     static bool paused();

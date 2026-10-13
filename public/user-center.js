@@ -1,6 +1,8 @@
 /* 用户中心：学习时间、学习画像、AI 设置与课程管理。 */
 (() => {
   'use strict';
+  if(location.hash === '#profile' || location.hash === '#uc-profile') {location.replace('/my-ai/reports');return;}
+  if(location.hash === '#uc-time' || location.hash === '#uc-study-plan-anchor') {location.replace('/my-ai/plan');return;}
   const $ = id => document.getElementById(id);
   const NAMES = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
   const DEFAULT_AVAILABILITY = [{ weekday: 1, minutes: 30 }, { weekday: 3, minutes: 30 }, { weekday: 5, minutes: 30 }];
