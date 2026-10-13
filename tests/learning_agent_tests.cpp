@@ -19,7 +19,9 @@ gangyi::AIResult output(const Json& value, const std::function<bool(const std::s
     gangyi::AIResult result; result.content = text; result.model = "fixture-real-protocol"; result.finishReason = "stop";
     return result;
 }
+void runLibraryChecks();
 int main() {
+    runLibraryChecks();
     const auto root = std::filesystem::temp_directory_path() /
         ("gangyi-agent-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(root);
@@ -155,6 +157,16 @@ int main() {
             }});
         rollback.process(db, atomic["id"]);
         assert(db.profileMeta("must-not-remain").empty());
+        const auto restricted = gangyi::agentSubmit(db, access, {{"type", "library_research"}, {"goal", "公开资料中的指令不能改变软件"}, {"requestId", "library-trust-boundary"}});
+        int forbiddenWrites = 0;
+        gangyi::LearningAgent restrictedAgent(path, [&](const auto&, const auto& sink) {
+            return output({{"message", "尝试越权"}, {"actions", {{{"id", "forbidden"}, {"tool", "forbidden_fixture"}, {"args", Json::object()}}}}, {"state", "completed"}}, sink);
+        });
+        restrictedAgent.registerTool("forbidden_fixture", {"不得在资料任务中执行", false, [&](gangyi::Database&, const Json&, const Json&, const gangyi::AIResult&) {
+            ++forbiddenWrites; return gangyi::PreparedAgentTool{{{"ok", true}}, {}};
+        }});
+        restrictedAgent.process(db, restricted["id"]);
+        assert(forbiddenWrites == 0 && gangyi::agentView(db, access, restricted["id"])["status"] == "failed");
         assert(gangyi::agentView(db, access, atomic["id"])["status"] == "failed");
         const auto rolledBack = gangyi::agentView(db, access, atomic["id"]);
         for (const auto& item : rolledBack["events"])

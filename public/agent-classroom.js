@@ -135,6 +135,11 @@
       section.presentation === 'example' || section.legacyKind === 'example' ? 'AI · 示范例题' : 'AI · 讲解', 'chat-author'), element('h2', section.title));
     if (isQuestion(section)) questionCard(section, card);
     else { const body = element('div', '', 'lesson-body'); api.richText(body, section.body || ''); card.append(body); }
+    if(section.materialOrigin)card.append(element('p',isQuestion(section)?'AI编写或改编的练习':section.materialOrigin==='source_based'?'依据资料讲解':'AI补充讲解','library-origin'));
+    if(section.citations?.length){const details=element('details','','library-citations');details.append(element('summary','查看本段资料依据（'+section.citations.length+'）'));
+      for(const citation of section.citations){const entry=element('p');const link=element('a',citation.title||'查看原文依据');link.href=citation.href;entry.append(link);
+        entry.append(element('span',citation.locator?.page?' · 第'+citation.locator.page+'页':citation.locator?.start!=null?' · '+citation.locator.start+'秒':' · '+citation.segmentId));
+        if(citation.quote)entry.append(element('p',citation.quote));details.append(entry);}card.append(details);}
     return card;
   }
   function makeMessage(record) {
@@ -378,6 +383,7 @@
     } catch (error) { admissionError = error.message; }
     const context = {courseId:lesson.courseId, lessonId, phaseIndex:lesson.phaseIndex, topicIndex:lesson.topicIndex, topicId:lesson.topicId, teachingTaskId:lesson.teachingTaskId};
     window.GangyiNavigation?.setContext(context); document.dispatchEvent(new CustomEvent('gangyi:lesson-context', {detail:context}));
+    if(!document.getElementById('lesson-library-link')){const link=element('a','本课资料 →','ma-link');link.id='lesson-library-link';link.href='/my-ai/library?'+new URLSearchParams({courseId:lesson.courseId});$('page-status').insertAdjacentElement('afterend',link);}
     api.storage.set('current-lesson', JSON.stringify({lessonId, courseId:lesson.courseId, href:lessonHref('learn')}));
     const savedTarget = api.storage.get(pageKey('composer')) || (activeView === 'learn' ? api.storage.get('composer:' + lessonId) : '');
     selectedQuestion = savedTarget === 'chat' ? '' : [savedTarget, focus().responseSectionId,

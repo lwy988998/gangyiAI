@@ -16,6 +16,9 @@ struct SearchResource {
     bool free = true;
     double score = 70.0;
     std::string reason;
+    // 这些日期来自服务商或原网页；空字符串表示未知。
+    std::string publishedAt = {};
+    std::string updatedAt = {};
 };
 
 }  // namespace gangyi

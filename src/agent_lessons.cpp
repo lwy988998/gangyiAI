@@ -1,4 +1,5 @@
 #include "agent_lessons.hpp"
+#include "learning_library.hpp"
 #include "question_evidence.hpp"
 #include "agent_curriculum.hpp"
 #include "course_service.hpp"
@@ -101,7 +102,7 @@ Json publicLesson(const Json& lesson) {
     result["sections"] = Json::array();
     for (const auto& section : lesson.at("sections")) {
         Json shown;
-        for (const auto* key : {"id", "kind", "title", "body", "displayed", "version", "legacyKind", "legacyIndex", "questionKind", "presentation", "createdAt"}) if (section.contains(key)) shown[key] = section[key];
+        for (const auto* key : {"id", "kind", "title", "body", "displayed", "version", "legacyKind", "legacyIndex", "questionKind", "presentation", "createdAt", "materialOrigin", "citations"}) if (section.contains(key)) shown[key] = section[key];
         if (section.at("kind") == "question") {
             shown.erase("body"); Json question;
             for (const auto* key : {"question", "options", "type", "materials"}) if (section.at("question").contains(key)) question[key] = section["question"][key];
@@ -228,6 +229,15 @@ void registerAgentLessonTools(LearningAgent& agent) {
             if (kind != "explanation" && kind != "question" && kind != "summary") throw std::invalid_argument("教学板块类型无效");
             Json section = {{"id", newId("section")}, {"kind", kind}, {"title", text(input, "title")},
                 {"version", 1}, {"displayed", false}, {"model", source.model}, {"createdAt", now()}};
+            const auto origin = input.value("materialOrigin", kind == "question" ? "ai_exercise" : "ai_supplement");
+            if(origin!="source_based"&&origin!="ai_supplement"&&origin!="ai_exercise")throw std::invalid_argument("教学内容来源类型无效");
+            const auto citations=libraryValidateCitations(db,input.value("citations",Json::array()),true,lesson.at("courseId"));
+            if(origin=="source_based"&&citations.empty())throw std::invalid_argument("依据资料的讲解需要实际原文引用");
+            section["materialOrigin"]=origin;section["citations"]=citations;
+            for(const auto& citation:citations) {
+                if(!lesson.contains("references"))lesson["references"]=Json::array();
+                lesson["references"].push_back(citation);
+            }
             if (kind == "question") {
                 const auto question = input.at("question");
                 if (!question.is_object()) throw std::invalid_argument("section.question 必须为 JSON 对象，不能使用数组；一个题目对应一个 question 板块");

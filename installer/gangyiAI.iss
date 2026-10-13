@@ -3,10 +3,10 @@
 #endif
 
 #ifdef MyAIPreview
-  #define MyAppName "钢一定制AI 我的AI试用版"
-  #define MyAppId "{{8499F5D6-1094-4B62-8C58-73B70E1D1A4C}"
-  #define MyAppDirectory "GangyiAI-MyAI-Preview"
-  #define MyAppMutex "GangyiAI-MyAI-Preview.Launcher.v1"
+  #define MyAppName "钢一定制AI 资料中心试用版"
+  #define MyAppId "{{8783400F-B9C3-4A8A-BA00-F19F81AE49BF}"
+  #define MyAppDirectory "GangyiAI-Library-Preview"
+  #define MyAppMutex "GangyiAI-Library-Preview.Launcher.v1"
 #else
   #define MyAppName "钢一定制AI"
   #define MyAppId "{{40A2568D-0B65-42D4-8ADC-391221CFBD52}"

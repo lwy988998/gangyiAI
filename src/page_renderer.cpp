@@ -185,7 +185,7 @@ std::string renderClassroomPage(const std::string& view) {
     <div class="composer-toolbar"><button id="explain-again" type="button" class="secondary">换一种讲法</button><button id="continue-teaching" type="button" class="secondary">请 AI 继续</button><button id="lesson-stop" type="button" class="secondary" hidden>停止回答</button><button id="lesson-retry" type="button" class="secondary" hidden>重试同次回答</button><span id="lesson-task-status" role="status">正在读取课堂</span></div>
   </section>
 </main>)HTML";
-    return document(label + " - 钢一定制AI", body, "<script defer src=\"/agent-classroom.js\"></script>", "<link rel=\"stylesheet\" href=\"/agent-classroom.css\">");
+    return document(label + " - 钢一定制AI", body, "<script defer src=\"/agent-classroom.js\"></script>", "<link rel=\"stylesheet\" href=\"/agent-classroom.css\"><link rel=\"stylesheet\" href=\"/library.css\">");
 }
 
 std::string renderLearnPage([[maybe_unused]] const std::string& courseId, [[maybe_unused]] const std::string& goal, [[maybe_unused]] const std::string& mode,
@@ -234,7 +234,7 @@ std::string renderMyCoursesPage(const nlohmann::json& data) {
   <p class="uc-course-goal">)HTML" + htmlEscape(goal) + R"HTML(</p>
   <div class="uc-bar"><i style="width: )HTML" + std::to_string(coursePercent) + R"HTML(%"></i></div>
   <p class="uc-course-meta">完成 )HTML" + std::to_string(courseDone) + R"HTML( / )HTML" + std::to_string(courseTotal) + R"HTML( 节 · )HTML" + std::to_string(coursePercent) + R"HTML( %</p>
-  <div class="uc-course-actions"><a class="uc-primary" href="/plan?courseId=)HTML" + htmlEscape(courseId) + R"HTML(">继续学习</a><button type="button" class="delete-course uc-ghost-danger" data-course-id=")HTML" + htmlEscape(courseId) + R"HTML(">删除</button></div>
+  <div class="uc-course-actions"><a class="uc-primary" href="/plan?courseId=)HTML" + htmlEscape(courseId) + R"HTML(">继续学习</a><a class="uc-ghost" href="/my-ai/library?courseId=)HTML" + htmlEscape(courseId) + R"HTML(">本课资料</a><button type="button" class="delete-course uc-ghost-danger" data-course-id=")HTML" + htmlEscape(courseId) + R"HTML(">删除</button></div>
   )HTML" + (createdAt.empty() ? "" : R"HTML(<p class="uc-course-created">创建于 )HTML" + htmlEscape(createdAt) + "</p>") + R"HTML(
 </article>)HTML";
     }

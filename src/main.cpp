@@ -1,4 +1,5 @@
 #include "my_ai.hpp"
+#include "learning_library.hpp"
 #include "config.hpp"
 #include "version.hpp"
 #include "db.hpp"
@@ -368,14 +369,14 @@ int main() {
             gangyi::Database connection;connection.open(path);nlohmann::json value;
             if(req.method==crow::HTTPMethod::GET){
                 nlohmann::json query=nlohmann::json::object();
-                for(const auto* key:{"id","search","courseId","subject","from","to","model"})if(req.url_params.get(key))query[key]=req.url_params.get(key);
+                for(const auto* key:{"id","search","courseId","subject","from","to","model","snapshotId","filter"})if(req.url_params.get(key))query[key]=req.url_params.get(key);
                 query["archived"]=req.url_params.get("archived")&&std::string(req.url_params.get("archived"))=="true";
                 if(section=="tasks") {
                     const auto access=localAgentAccess(connection);value={{"items",nlohmann::json::array()}};
                     const auto ids=nlohmann::json::parse(connection.profileMeta("agent-index"),nullptr,false);
                     if(ids.is_array())for(auto it=ids.rbegin();it!=ids.rend();++it)try{value["items"].push_back(gangyi::agentView(connection,access,it->get<std::string>(),true));}catch(const std::exception&){}
                 }
-                else connection.readSnapshot([&]{value=gangyi::myAIRead(connection,section,query);});
+                else connection.readSnapshot([&]{value=section=="library" ? gangyi::libraryRead(connection,query) : gangyi::myAIRead(connection,section,query);});
             }else{
                 if(req.body.size()>400000)return crow::response(413,"内容太大");
                 const auto body=nlohmann::json::parse(req.body);
@@ -387,9 +388,31 @@ int main() {
                         auto before=change.at("before");before["version"]=change.at("afterVersion");value=gangyi::myAIWrite(connection,"preferences",before,false);
                         change["state"]="undone";if(!connection.saveMyAIRecord({row->id,row->kind,change.dump(),nowIso8601(),0},row->version))throw std::runtime_error("撤回状态已改变");
                     });
-                }else value=gangyi::myAIWrite(connection,section,body);
+                }else value=section=="library" ? gangyi::libraryWrite(connection,body) : gangyi::myAIWrite(connection,section,body);
             }
             crow::response response(value.dump());response.set_header("Content-Type","application/json; charset=utf-8");response.set_header("Cache-Control","no-store");return response;
+        }catch(const std::invalid_argument& error){return crow::response(400,nlohmann::json{{"error",error.what()}}.dump());}
+        catch(const std::exception& error){return crow::response(409,nlohmann::json{{"error",error.what()}}.dump());}
+    });
+    CROW_ROUTE(app,"/api/my-ai/library/usage")([path=config.database_path]{
+        gangyi::Database connection;connection.open(path);nlohmann::json value;
+        connection.readSnapshot([&]{value=gangyi::libraryUsage(connection);});
+        crow::response response(value.dump());response.set_header("Content-Type","application/json; charset=utf-8");response.set_header("Cache-Control","no-store");return response;
+    });
+    CROW_ROUTE(app,"/api/my-ai/library/research").methods(crow::HTTPMethod::POST)([path=config.database_path](const crow::request& req){
+        try {
+            if(req.body.size()>100000)return crow::response(413,"内容太大");
+            gangyi::Database connection;connection.open(path);const auto body=nlohmann::json::parse(req.body);
+            auto goal=body.value("goal",""),sourceId=body.value("sourceId","");
+            if(!sourceId.empty()){const auto source=gangyi::libraryRead(connection,{{"id",sourceId}});
+                if(body.contains("version")&&body.at("version")!=source.at("version"))throw std::runtime_error("资料版本已变化，请刷新后更新");
+                goal=source.value("title",goal);
+            }
+            if(goal.empty()||goal.size()>3000)throw std::invalid_argument("请填写本次学习目标或问题");
+            const auto event=nlohmann::json{{"type","library_research"},{"goal",goal},{"text",body.value("text",goal)},
+                {"courseId",body.value("courseId","")},{"sourceId",sourceId},{"refresh",body.value("refresh",false)},{"requestId",body.at("requestId")}};
+            const auto task=gangyi::agentSubmit(connection,localAgentAccess(connection),event);
+            crow::response response(202,task.dump());response.set_header("Content-Type","application/json; charset=utf-8");return response;
         }catch(const std::invalid_argument& error){return crow::response(400,nlohmann::json{{"error",error.what()}}.dump());}
         catch(const std::exception& error){return crow::response(409,nlohmann::json{{"error",error.what()}}.dump());}
     });

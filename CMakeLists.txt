@@ -201,7 +201,7 @@ endif()
 add_executable(gangyiAI src/my_ai_pages.cpp src/main.cpp src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/json_fix.cpp src/plan_generator.cpp src/page_renderer.cpp
     src/plan_cache.cpp src/plan_adapter.cpp src/search_client.cpp src/quality_gate.cpp src/course_service.cpp
     src/progress_service.cpp src/profile_service.cpp src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/classroom_service.cpp src/image_goal_analyzer.cpp src/home_recommendations.cpp src/learning_flow.cpp src/next_lesson.cpp
-    src/learning_agent.cpp src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/agent_curriculum.cpp src/my_ai.cpp src/my_ai_tools.cpp
+    src/learning_agent.cpp src/learning_library.cpp src/library_io.cpp src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/agent_curriculum.cpp src/my_ai.cpp src/my_ai_tools.cpp
     ${GANGYI_SERVICE_RESOURCE})
 
 target_include_directories(gangyiAI PRIVATE
@@ -240,6 +240,14 @@ if(WIN32)
     )
 endif()
 
+if(WIN32)
+    add_executable(gangyiAI-source-reader src/source_reader.cpp)
+    target_link_libraries(gangyiAI-source-reader PRIVATE webview::core nlohmann_json::nlohmann_json ole32 user32)
+    target_compile_definitions(gangyiAI-source-reader PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    if(MINGW)
+        target_link_options(gangyiAI-source-reader PRIVATE -municode -static-libgcc -static-libstdc++)
+    endif()
+endif()
 if(MINGW)
     target_link_options(gangyiAI PRIVATE -static-libgcc -static-libstdc++)
     target_link_options(gangyiAI-launcher PRIVATE -municode -static-libgcc -static-libstdc++)
@@ -271,7 +279,7 @@ if(BUILD_TESTING)
     target_include_directories(agent-stream-tests PRIVATE include)
     target_link_libraries(agent-stream-tests PRIVATE nlohmann_json::nlohmann_json)
     add_test(NAME agent-stream COMMAND agent-stream-tests)
-    add_executable(learning-agent-tests tests/learning_agent_tests.cpp src/learning_agent.cpp
+    add_executable(learning-agent-tests tests/learning_agent_tests.cpp src/learning_agent.cpp src/learning_library.cpp src/library_io.cpp
         src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/agent_curriculum.cpp src/my_ai.cpp src/my_ai_tools.cpp
         src/learning_flow.cpp src/next_lesson.cpp src/classroom_service.cpp src/learning_generator.cpp src/profile_service.cpp
         src/course_service.cpp src/progress_service.cpp src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp)
@@ -281,6 +289,7 @@ if(BUILD_TESTING)
     if(WIN32)
         target_link_libraries(learning-agent-tests PRIVATE ws2_32)
     endif()
+    target_sources(learning-agent-tests PRIVATE tests/library_checks.cpp)
     add_test(NAME learning-agent COMMAND learning-agent-tests)
     add_executable(socket-adaptor-tests tests/socket_adaptor_tests.cpp)
     target_link_libraries(socket-adaptor-tests PRIVATE Crow::Crow Threads::Threads)

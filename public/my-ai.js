@@ -2,6 +2,7 @@
 (() => {
   'use strict';
   const page=document.body.dataset.myAiPage,root=document.getElementById('my-ai-content'),notice=document.getElementById('my-ai-status');
+  if(page==='library')return;
   const escape=value=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const status=(text,error=false)=>{notice.textContent=text;notice.classList.toggle('error',error);};
   async function api(section,body,query={}) {
@@ -85,6 +86,10 @@
   async function usage() {
     const data=await api('usage');root.innerHTML='<div class="ma-metrics">'+metric(data.calls,'实际模型请求')+metric(data.tasks,'关联学习任务')+metric(data.success,'成功请求')+metric(data.tokens??'未提供','已知Token合计')+'</div>'+card('调用明细','<p class="ma-note">'+escape(data.note)+'</p><div class="ma-table-wrap"><table class="ma-table"><thead><tr><th>时间</th><th>来源与用途</th><th>模型</th><th>状态</th><th>耗时</th><th>Token</th></tr></thead><tbody>'+data.items.map(r=>'<tr><td>'+escape(time(r.at))+'</td><td>'+escape(r.source)+'<br><small>'+escape(r.purpose)+'</small></td><td>'+escape(r.model)+'</td><td>'+escape(taskLabels[r.status]||r.status)+'</td><td>'+(r.durationMs/1000).toFixed(1)+'秒</td><td>'+escape(r.tokens?.total_tokens??'未提供')+'</td></tr>').join('')+'</tbody></table></div>'+(data.items.length?'':empty('还没有升级后的实际模型请求。')));status('Token仅使用服务商返回值；已知合计可能只覆盖部分请求。');
   }
+  async function libraryUsageView() {
+    const data=await existing('/api/my-ai/library/usage');
+    root.insertAdjacentHTML('afterbegin',card('联网资料使用情况','<div class="ma-metrics">'+metric(data.searchRequests,'博查实际请求')+metric(data.fetchRequests,'正文获取请求')+metric(data.cacheHits,'缓存命中')+metric(data.failures,'失败记录')+'</div><p class="ma-note">检索与正文读取单独统计，Token仅显示模型服务商实际返回值。</p>'));
+  }
   async function settings() {
     root.innerHTML=card('AI服务与模型','<p>使用桌面设置配置服务商、接口地址、模型和密钥，并测试连接。</p><p class="ma-note">密钥保存在Windows凭据管理器。调整配置后按桌面设置提示应用到服务。</p>'+button('打开AI设置','open-settings'))+card('桌面设置','<p class="ma-note">开机启动及现有桌面选项在同一设置窗口管理。</p>');
     if(window.gangyiDesktopInfo){const info=await window.gangyiDesktopInfo();const summary=document.createElement('article');summary.className='ma-card';summary.innerHTML='<h2>当前AI配置</h2><p>服务商：'+escape(info.provider)+'</p><p>模型：'+escape(info.model)+'</p><p class="ma-note">接口：'+escape(info.baseUrl)+'</p><p>'+ (info.configured?'已配置密钥':'尚未配置密钥')+'</p>';root.prepend(summary);}
@@ -128,5 +133,5 @@
     window.addEventListener('pagehide',()=>{if(!state)return;localStorage.setItem('my-ai-draft:'+chatId,input.value);fetch('/api/my-ai/chat',{method:'POST',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify({id:chatId,version:state.version,draft:input.value,scroll:scroll.scrollTop})}).catch(()=>{});});status('多个聊天共享个人偏好和长期记忆，各自保留对话与草稿。');
   }
   const handlers={overview,profile,preferences,memories,reports,plan,tasks,usage,settings,data:dataPage,chat};
-  (handlers[page]||overview)().catch(error=>status(error.message,true));
+  (handlers[page]||overview)().then(()=>page==='usage'?libraryUsageView():null).catch(error=>status(error.message,true));
 })();

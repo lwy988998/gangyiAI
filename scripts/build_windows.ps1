@@ -95,6 +95,7 @@ if (-not $SkipDependencies) {
 $cmakeArgs = @('-S', $repoRoot, '-B', $buildDir, '-G', $Generator, '-DCMAKE_BUILD_TYPE=Release')
 $curlCa = Get-ChildItem -LiteralPath (Join-Path $thirdParty 'curl') -Filter 'curl-ca-bundle.crt' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($curlCa) { $cmakeArgs += "-DCMAKE_TLS_CAINFO=$($curlCa.FullName.Replace('\', '/'))" }
+if (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'third_party\pdfium-8100\bin\pdfium.dll'))) { & (Join-Path $PSScriptRoot 'setup_library_dependencies.ps1') }
 $myAIPreviewMode = if ($Preview) { "ON" } else { "OFF" }
 $cmakeArgs += "-DGANGYI_PREVIEW_BUILD=$myAIPreviewMode"
 cmake @cmakeArgs
@@ -121,7 +122,12 @@ if (Test-Path -LiteralPath $distDir) {
     Remove-Item -LiteralPath $distDir -Recurse -Force
 }
 New-Item -ItemType Directory -Force -Path $distDir | Out-Null
-Copy-Item -LiteralPath $server, $launcher -Destination $distDir
+Copy-Item -LiteralPath $server, $launcher, (Join-Path $buildDir 'gangyiAI-source-reader.exe') -Destination $distDir
+Copy-Item -LiteralPath (Join-Path $repoRoot 'third_party\pdfium-8100\bin\pdfium.dll') -Destination $distDir
+$licenseDist = Join-Path $distDir 'licenses\pdfium'
+New-Item -ItemType Directory -Force -Path $licenseDist | Out-Null
+Copy-Item -LiteralPath (Join-Path $repoRoot 'third_party\pdfium-8100\LICENSE') -Destination $licenseDist
+Copy-Item -LiteralPath (Join-Path $repoRoot 'third_party\pdfium-8100\licenses') -Destination $licenseDist -Recurse
 Copy-Item -LiteralPath (Join-Path $buildDir 'libcurl-x64.dll') -Destination $distDir
 $compiler = (Get-Command 'g++').Source
 foreach ($runtime in @('libwinpthread-1.dll', 'libgcc_s_seh-1.dll', 'libstdc++-6.dll')) {
@@ -135,13 +141,13 @@ $caBundle = Join-Path $buildDir 'curl-ca-bundle.crt'
 if (Test-Path -LiteralPath $caBundle) { Copy-Item -LiteralPath $caBundle -Destination $distDir }
 $publicDist = Join-Path $distDir 'public'
 New-Item -ItemType Directory -Force -Path $publicDist | Out-Null
-foreach ($asset in @('my-ai.css', 'my-ai.js', 'my-ai-study.js', 'styles.css', 'plan.css', 'dark.css', 'dark.js', 'app-layout.css', 'app-layout.js', 'profile-radar.js', 'profile-radar.css', 'startup.css', 'startup.js', 'ask.js', 'classroom.js', 'classroom.css', 'learning-flow.js', 'learning-flow.css', 'learning-agent.js', 'agent-shell.js', 'agent-classroom.html', 'agent-classroom.js', 'agent-classroom.css', 'agent-prepare.html', 'agent-prepare.js', 'chat-render.js', 'user-center.js', 'school-logo.png', 'campus-background.jpg')) {
+foreach ($asset in @('library.css', 'library.js', 'my-ai.css', 'my-ai.js', 'my-ai-study.js', 'styles.css', 'plan.css', 'dark.css', 'dark.js', 'app-layout.css', 'app-layout.js', 'profile-radar.js', 'profile-radar.css', 'startup.css', 'startup.js', 'ask.js', 'classroom.js', 'classroom.css', 'learning-flow.js', 'learning-flow.css', 'learning-agent.js', 'agent-shell.js', 'agent-classroom.html', 'agent-classroom.js', 'agent-classroom.css', 'agent-prepare.html', 'agent-prepare.js', 'chat-render.js', 'user-center.js', 'school-logo.png', 'campus-background.jpg')) {
     Copy-Item -LiteralPath (Join-Path $repoRoot "public\$asset") -Destination $publicDist
 }
 # 公式渲染引擎随包发布：断网也能显示数学公式。
 Copy-Item -LiteralPath (Join-Path $repoRoot 'public\vendor') -Destination $publicDist -Recurse -Force
 $requiredFiles = @(
-    'gangyiAI.exe', 'gangyiAI-launcher.exe', 'libcurl-x64.dll',
+    'gangyiAI.exe', 'gangyiAI-launcher.exe', 'gangyiAI-source-reader.exe', 'pdfium.dll', 'public\library.js', 'public\library.css', 'libcurl-x64.dll',
     'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll',
     'public\my-ai.css', 'public\my-ai.js', 'public\my-ai-study.js', 'public\vendor\echarts\echarts.min.js', 'public\styles.css', 'public\dark.css', 'public\dark.js', 'public\startup.css', 'public\startup.js', 'public\ask.js',
     'public\app-layout.js', 'public\app-layout.css', 'public\profile-radar.js', 'public\profile-radar.css', 'public\classroom.js', 'public\classroom.css', 'public\learning-flow.js', 'public\learning-flow.css', 'public\learning-agent.js', 'public\agent-shell.js', 'public\agent-classroom.html', 'public\agent-classroom.js', 'public\agent-classroom.css', 'public\agent-prepare.html', 'public\agent-prepare.js', 'public\chat-render.js', 'public\user-center.js',
@@ -164,7 +170,7 @@ foreach ($executable in @(
     }
 }
 
-$profileDirectoryName = if ($Preview) { "GangyiAI-MyAI-Preview" } else { "GangyiAI" }
+$profileDirectoryName = if ($Preview) { "GangyiAI-Library-Preview" } else { "GangyiAI" }
 $portableGuide = @"
 钢一定制AI v$version 免安装版
 

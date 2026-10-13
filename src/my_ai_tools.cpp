@@ -59,9 +59,9 @@ void registerMyAITools(LearningAgent& agent) {
             const auto key=task.at("id").get<std::string>()+":"+std::to_string(task.value("calls",0));
             return PreparedAgentTool{{{"requiresConfirmation",true},{"actionId","action:"+key},{"href","/my-ai/data"}},[args,key](Database& db){myAIProposal(db,args,key);}};
         }});
-    agent.registerTool("open_personal_page",{"打开独立功能页面。参数 page:reports|plan|preferences|memories|tasks|usage|profile|settings|data；返回入口，由学生点击跳转。",true,
+    agent.registerTool("open_personal_page",{"打开独立功能页面。参数 page:library|reports|plan|preferences|memories|tasks|usage|profile|settings|data；返回入口，由学生点击跳转。",true,
         [](Database&,const Json& args,const Json&,const AIResult&){const std::string page=args.at("page");
-            if(page!="reports"&&page!="plan"&&page!="preferences"&&page!="memories"&&page!="tasks"&&page!="usage"&&page!="profile"&&page!="settings"&&page!="data")throw std::invalid_argument("页面不存在");
+            if(page!="library"&&page!="reports"&&page!="plan"&&page!="preferences"&&page!="memories"&&page!="tasks"&&page!="usage"&&page!="profile"&&page!="settings"&&page!="data")throw std::invalid_argument("页面不存在");
             return PreparedAgentTool{{{"href","/my-ai/"+page}}, {}};
         }});
 }
