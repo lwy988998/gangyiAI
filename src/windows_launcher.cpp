@@ -39,7 +39,14 @@ namespace {
 
 constexpr wchar_t kWindowClass[] = L"GangyiAILauncherWindow";
 constexpr wchar_t kDesktopWindowClass[] = L"GangyiAIDesktopWindow";
-#ifdef GANGYI_MY_AI_PREVIEW
+#ifdef GANGYI_TEACHING_PREVIEW
+constexpr wchar_t kMutexName[] = L"GangyiAI-Teaching-Preview.Launcher.v1";
+constexpr wchar_t kRegistryKey[] = L"Software\\GangyiAI-Teaching-Preview";
+constexpr wchar_t kCredentialTarget[] = L"GangyiAI-Teaching-Preview/APIKey";
+constexpr wchar_t kBochaCredentialTarget[] = L"GangyiAI-Teaching-Preview/BochaKey";
+constexpr wchar_t kDataName[] = L"GangyiAI-Teaching-Preview";
+constexpr int kFirstPort = 59002;
+#elif defined(GANGYI_MY_AI_PREVIEW)
 constexpr wchar_t kMutexName[] = L"GangyiAI-Library-Preview.Launcher.v1";
 constexpr wchar_t kRegistryKey[] = L"Software\\GangyiAI-Library-Preview";
 constexpr wchar_t kCredentialTarget[] = L"GangyiAI-Library-Preview/APIKey";
@@ -163,23 +170,21 @@ void enablePerMonitorDpi() {
 
 std::wstring readRegistryString(const wchar_t* name, const std::wstring& fallback = {}) {
     const auto read = [&](const wchar_t* registry) -> std::optional<std::wstring> {
-    HKEY key = nullptr;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, registry, 0, KEY_READ, &key) != ERROR_SUCCESS) return {};
-    DWORD type = 0;
-    DWORD bytes = 0;
-    if (RegQueryValueExW(key, name, nullptr, &type, nullptr, &bytes) != ERROR_SUCCESS || type != REG_SZ) {
+        HKEY key = nullptr;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, registry, 0, KEY_READ, &key) != ERROR_SUCCESS) return {};
+        DWORD type = 0, bytes = 0;
+        if (RegQueryValueExW(key, name, nullptr, &type, nullptr, &bytes) != ERROR_SUCCESS || type != REG_SZ) {
+            RegCloseKey(key); return {};
+        }
+        std::vector<wchar_t> value(bytes / sizeof(wchar_t) + 1, L'\0');
+        const LONG result = RegQueryValueExW(key, name, nullptr, nullptr, reinterpret_cast<BYTE*>(value.data()), &bytes);
         RegCloseKey(key);
-        return {};
-    }
-    std::vector<wchar_t> value(bytes / sizeof(wchar_t) + 1, L'\0');
-    const LONG result = RegQueryValueExW(key, name, nullptr, nullptr,
-        reinterpret_cast<BYTE*>(value.data()), &bytes);
-    RegCloseKey(key);
-    return result == ERROR_SUCCESS ? std::optional<std::wstring>(value.data()) : std::nullopt;
+        return result == ERROR_SUCCESS ? std::optional<std::wstring>(value.data()) : std::nullopt;
     };
     auto value = read(kRegistryKey);
-#ifdef GANGYI_MY_AI_PREVIEW
-    if(!value)value=read(L"Software\\GangyiAI");
+#if defined(GANGYI_TEACHING_PREVIEW) || defined(GANGYI_MY_AI_PREVIEW)
+    // 按字段沿用未设置的正式配置，保留试用版已明确设置的空值与覆盖项。
+    if (!value) value = read(L"Software\\GangyiAI");
 #endif
     return value.value_or(fallback);
 }
@@ -241,14 +246,14 @@ bool writeCredential(const wchar_t* target, const std::wstring& value) {
 }
 std::wstring readApiKey() {
     auto value=readCredential(kCredentialTarget);
-#ifdef GANGYI_MY_AI_PREVIEW
+#if defined(GANGYI_TEACHING_PREVIEW) || defined(GANGYI_MY_AI_PREVIEW)
     if(value.empty())value=readCredential(L"GangyiAI/APIKey");
 #endif
     return value;
 }
 std::wstring readBochaKey() {
     auto value=readCredential(kBochaCredentialTarget);
-#ifdef GANGYI_MY_AI_PREVIEW
+#if defined(GANGYI_TEACHING_PREVIEW) || defined(GANGYI_MY_AI_PREVIEW)
     if(value.empty()&&!readRegistryDword(L"BochaDisabled",0))value=readCredential(L"GangyiAI/BochaKey");
 #endif
     return value;
@@ -1686,16 +1691,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     const std::wstring exe = executablePath();
     g.installDir = std::filesystem::path(exe).parent_path().wstring();
     g.dataDir = (std::filesystem::path(localAppDataPath()) / kDataName).wstring();
-#ifdef GANGYI_MY_AI_PREVIEW
-    if(!g.smokeMode){
-        const auto original=std::filesystem::path(localAppDataPath())/L"GangyiAI"/L"data"/L"gangyiAI.db";
-        const auto target=std::filesystem::path(g.dataDir)/L"data"/L"gangyiAI.db";
-        if(!std::filesystem::exists(target)&&std::filesystem::exists(original)){
-            std::error_code error;std::filesystem::create_directories(target.parent_path(),error);
+#if defined(GANGYI_TEACHING_PREVIEW) || defined(GANGYI_MY_AI_PREVIEW)
+    if (!g.smokeMode) {
+        const auto target = std::filesystem::path(g.dataDir) / L"data" / L"gangyiAI.db";
+        const auto original = std::filesystem::path(localAppDataPath()) / L"GangyiAI" / L"data" / L"gangyiAI.db";
+        // 复用已有 SQLite 备份机制，首次复制学习档案；正式档案仅作为只读来源。
+        if (!std::filesystem::exists(target) && std::filesystem::exists(original)) {
+            std::error_code directoryError; std::filesystem::create_directories(target.parent_path(), directoryError);
             std::wstring backupError;
-            if(error||!gangyi::launcher::backupDatabase(original,target,backupError)){
-                MessageBoxW(nullptr,L"无法复制现有档案到资料试用目录，请查看日志。",L"资料中心试用版",MB_OK|MB_ICONERROR);
-                CloseHandle(mutex);WSACleanup();CoUninitialize();return 1;
+            if (directoryError || !gangyi::launcher::backupDatabase(original, target, backupError)) {
+                MessageBoxW(nullptr, (L"无法复制现有学习档案到试用目录：" + backupError).c_str(), L"电脑版试用版", MB_OK | MB_ICONERROR);
+                CloseHandle(mutex); WSACleanup(); CoUninitialize(); return 1;
             }
         }
     }

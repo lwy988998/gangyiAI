@@ -2,16 +2,26 @@
   #define MyAppVersion "5.6.1"
 #endif
 
-#ifdef MyAIPreview
-  #define MyAppName "钢一定制AI 资料中心试用版"
+#ifdef TeachingPreview
+  #define MyAppName "钢一定制AI 教学优化试用版"
+  #define MyAppId "{{732D4D1A-206D-4B7F-A5B7-1E5083B89F0A}"
+  #define MyAppDirectory "GangyiAI-Teaching-Preview"
+  #define MyAppMutex "GangyiAI-Teaching-Preview.Launcher.v1"
+  #define MyPackageName "gangyiAI-teaching-preview1"
+#elif defined MyAIPreview
+  #define MyAppName "钢一定制AI 学习增强试用版"
   #define MyAppId "{{8783400F-B9C3-4A8A-BA00-F19F81AE49BF}"
   #define MyAppDirectory "GangyiAI-Library-Preview"
   #define MyAppMutex "GangyiAI-Library-Preview.Launcher.v1"
+  #define MyPackageName "gangyiAI-learning-preview1"
 #else
   #define MyAppName "钢一定制AI"
   #define MyAppId "{{40A2568D-0B65-42D4-8ADC-391221CFBD52}"
   #define MyAppDirectory "GangyiAI"
   #define MyAppMutex "GangyiAI.Launcher.v1"
+#endif
+#ifndef MyPackageName
+  #define MyPackageName "gangyiAI-setup"
 #endif
 #define MyAppExeName "gangyiAI-launcher.exe"
 
@@ -33,7 +43,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\dist\installer
-OutputBaseFilename=gangyiAI-setup-v{#MyAppVersion}-x64
+OutputBaseFilename={#MyPackageName}-v{#MyAppVersion}-x64
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

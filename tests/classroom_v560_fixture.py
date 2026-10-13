@@ -100,7 +100,8 @@ class FixtureAI(BaseHTTPRequestHandler):
                 message = '请围绕当前段说说你的思路；我会根据你的反馈再决定下一步。'
                 state = 'waiting_student'
         elif event['type'] == 'question_answer':
-            actual = next(item for item in context['feedback'] if item['payload'].get('requestId') == event['requestId'])
+            actual_input = next(item for item in context['currentInputs'] if item['requestId'] == event['requestId'])
+            actual = {'id': actual_input['interactionId'], 'payload': actual_input}
             if '选择题' in event['text']:
                 actions = [dict(id='classify', tool='classify_input', args=dict(interactionId=actual['id'], isAnswer=False, reason='学生希望改用选择题练习')),
                     dict(id='followup-choice', tool='append_section', args=dict(lessonId=event['lessonId'], section=dict(kind='question', questionKind='interaction', title='根据你的回答：比较电子得失',
@@ -112,8 +113,14 @@ class FixtureAI(BaseHTTPRequestHandler):
             elif event.get('action') == 'skip':
                 message = '这道题已跳过，不把跳过当成可靠作答。'
             else:
-                actions = [dict(id='evaluate', tool='evaluate_answer', args=dict(interactionId=actual['id'], score=80, credible=True, feedback='依据这次实际输入给出反馈，请继续说明判断理由。', reason='引用本次学生输入', uncertainty='只反映这道题'))]
+                actions = [dict(id='evaluate', tool='evaluate_answer', args=dict(interactionId=actual['id'], score=80, credible=True, feedback='依据这次实际输入给出反馈，请继续说明判断理由。', reason='引用本次学生输入', uncertainty='只反映这道题',
+                    diagnosis=dict(summary='需要补充电子变化的理由', evidence=[actual['payload']['text']], teachingDirection='用电子得失解释化合价变化', needsClarification=False)))]
                 message = '你已经给出了观察，接下来可以补充电子变化的理由。'
+            state = 'waiting_student'
+        elif event['type'] == 'teaching_request':
+            message = {'hint':'先标出同一种元素的前后化合价，比较变化方向。',
+                       'worked_example':'示范：Fe 的化合价由 0 升到 +2，对应失去两个电子。',
+                       'rephrase':'换一种讲法：先看前后状态，再解释电子变化。'}.get(event.get('requestType'), '我们继续独立复练。')
             state = 'waiting_student'
         elif event['type'] == 'lesson_finish_request':
             message = '请结合本节检查点回顾，已有记录会保留，缺少证据的部分继续练习。'
@@ -127,7 +134,12 @@ class FixtureAI(BaseHTTPRequestHandler):
         elif event['type'] == 'acceptance_tool':
             actions = [dict(id='control-check', tool=event['tool'], args=event['args'])]
             message = '测试调整已保存。你可以从学习导航撤回这次调整，已有作答记录仍保留。'
-        value = json.dumps(dict(message=message, actions=actions, state=state), ensure_ascii=False)
+        for action in actions:
+            section = action.get('args', {}).get('section')
+            if action.get('tool') == 'append_section' and isinstance(section, dict) and section.get('kind') != 'question':
+                section.setdefault('helpType', 'explanation')
+        help_type = event.get('requestType') if event.get('requestType') in ('hint','worked_example') else 'explanation'
+        value = json.dumps(dict(teaching=dict(helpType=help_type), message=message, actions=actions, state=state), ensure_ascii=False)
         self.send_response(200)
         self.send_header('Content-Type', 'text/event-stream')
         self.end_headers()

@@ -11,6 +11,7 @@ using Json = nlohmann::json;
 struct StringValue {
     std::vector<std::string> path;
     std::string value;
+    bool complete = false;
 };
 struct Token { std::string value; bool complete = false; };
 
@@ -50,7 +51,7 @@ private:
         if (position_ == input_.size()) return false;
         if (input_[position_] == '"') {
             const auto token = string();
-            strings_.push_back({std::move(path), token.value});
+            strings_.push_back({std::move(path), token.value, token.complete});
             return token.complete;
         }
         if (input_[position_] == '{') {
@@ -107,7 +108,10 @@ void AgentPublicStream::push(const std::string& chunk) {
     content_ += chunk;
     const auto values = PrefixReader(content_).read();
     std::map<std::string, std::string> properties;
-    for (const auto& item : values) properties[key(item.path)] = item.value;
+    for (const auto& item : values) {
+        properties[key(item.path)] = item.value;
+        if (item.path == std::vector<std::string>{"teaching", "helpType"} && item.complete) helpType_ = item.value;
+    }
     for (const auto& item : values) {
         AgentStreamDelta delta;
         if (item.path == std::vector<std::string>{"message"}) delta.field = "message";

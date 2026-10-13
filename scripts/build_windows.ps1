@@ -1,6 +1,7 @@
 ﻿param(
     [switch]$SkipDependencies,
     [switch]$Preview,
+    [switch]$TeachingPreview,
     [switch]$SkipInstaller,
     [string]$BuildDir = '',
     [string]$Generator = 'MinGW Makefiles'
@@ -98,6 +99,7 @@ if ($curlCa) { $cmakeArgs += "-DCMAKE_TLS_CAINFO=$($curlCa.FullName.Replace('\',
 if (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'third_party\pdfium-8100\bin\pdfium.dll'))) { & (Join-Path $PSScriptRoot 'setup_library_dependencies.ps1') }
 $myAIPreviewMode = if ($Preview) { "ON" } else { "OFF" }
 $cmakeArgs += "-DGANGYI_PREVIEW_BUILD=$myAIPreviewMode"
+$cmakeArgs += "-DGANGYI_TEACHING_PREVIEW=$(if ($TeachingPreview) { 'ON' } else { 'OFF' })"
 cmake @cmakeArgs
 if ($LASTEXITCODE -ne 0) { throw 'CMake 配置失败' }
 cmake --build $buildDir --parallel 4
@@ -170,7 +172,7 @@ foreach ($executable in @(
     }
 }
 
-$profileDirectoryName = if ($Preview) { "GangyiAI-Library-Preview" } else { "GangyiAI" }
+$profileDirectoryName = if ($TeachingPreview) { "GangyiAI-Teaching-Preview" } elseif ($Preview) { "GangyiAI-Library-Preview" } else { "GangyiAI" }
 $portableGuide = @"
 钢一定制AI v$version 免安装版
 
@@ -182,7 +184,7 @@ $portableGuide = @"
 6. 当前程序尚未签名，Windows SmartScreen 可能提示未知发布者。
 "@
 Set-Content -LiteralPath (Join-Path $distDir '免安装版使用说明.txt') -Value $portableGuide -Encoding utf8
-$portableName = "gangyiAI-portable-v$version-x64.zip"
+$portableName = if ($TeachingPreview) { "gangyiAI-teaching-preview1-v$version-x64.zip" } elseif ($Preview) { "gangyiAI-learning-preview1-v$version-x64.zip" } else { "gangyiAI-portable-v$version-x64.zip" }
 $portablePath = Join-Path $repoRoot "dist\installer\$portableName"
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $portablePath) | Out-Null
 if (Test-Path -LiteralPath $portablePath) { Remove-Item -LiteralPath $portablePath -Force }
@@ -209,18 +211,19 @@ if (-not $SkipInstaller) {
     }
     if (-not $iscc) { throw '缺少 Inno Setup 6（ISCC.exe）' }
     $isccPath = if ($iscc -is [System.Management.Automation.CommandInfo]) { $iscc.Source } else { $iscc.FullName }
-    if ($Preview) { & $isccPath "/DMyAIPreview=1" "/DMyAppVersion=$version" (Join-Path $repoRoot 'installer\gangyiAI.iss') }
+    if ($TeachingPreview) { & $isccPath "/DTeachingPreview=1" "/DMyAppVersion=$version" (Join-Path $repoRoot 'installer\gangyiAI.iss') }
+    elseif ($Preview) { & $isccPath "/DMyAIPreview=1" "/DMyAppVersion=$version" (Join-Path $repoRoot 'installer\gangyiAI.iss') }
     else { & $isccPath "/DMyAppVersion=$version" (Join-Path $repoRoot 'installer\gangyiAI.iss') }
     if ($LASTEXITCODE -ne 0) { throw 'Inno Setup 打包失败' }
 
-    $installerName = "gangyiAI-setup-v$version-x64.exe"
+    $installerName = if ($TeachingPreview) { "gangyiAI-teaching-preview1-v$version-x64.exe" } elseif ($Preview) { "gangyiAI-learning-preview1-v$version-x64.exe" } else { "gangyiAI-setup-v$version-x64.exe" }
     $installerPath = Join-Path $repoRoot "dist\installer\$installerName"
     if (-not (Test-Path -LiteralPath $installerPath)) { throw "安装包未生成：$installerPath" }
 }
 
 $checksums = @()
 if (-not $SkipInstaller) {
-    $installerName = "gangyiAI-setup-v$version-x64.exe"
+    $installerName = if ($TeachingPreview) { "gangyiAI-teaching-preview1-v$version-x64.exe" } elseif ($Preview) { "gangyiAI-learning-preview1-v$version-x64.exe" } else { "gangyiAI-setup-v$version-x64.exe" }
     $installerPath = Join-Path $repoRoot "dist\installer\$installerName"
     $installerHash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $checksums += "$installerHash *$installerName"

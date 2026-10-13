@@ -20,9 +20,11 @@ public:
     explicit AgentPublicStream(Sink sink);
     void push(const std::string& chunk);
     const std::string& content() const { return content_; }
+    const std::string& helpType() const { return helpType_; }
 private:
     Sink sink_;
     std::string content_;
+    std::string helpType_;
     std::map<std::string, std::string> emitted_;
 };
 

@@ -54,6 +54,22 @@
     root.querySelectorAll('[data-delete-memory]').forEach(b=>b.onclick=action(async()=>{const m=data.items[Number(b.dataset.deleteMemory)];await api('memories',{id:m.id,version:m.version,deleted:true});await memories();status('记忆已删除，旧来源不会再次自动建立它。');}));status('你可以决定AI记住什么。');
   }
   function chart(host,series,type='line') {if(!host||!window.echarts)return;const view=window.echarts.init(host,null,{renderer:'svg'});view.setOption({backgroundColor:'transparent',textStyle:{color:'#a6b8c9'},tooltip:{trigger:'axis'},legend:{textStyle:{color:'#a6b8c9'}},grid:{left:45,right:20,bottom:35,top:40},xAxis:{type:'category',data:series.dates,axisLine:{lineStyle:{color:'#334858'}}},yAxis:{type:'value',splitLine:{lineStyle:{color:'#22313e'}}},series:series.values.map(item=>({name:item.name,type,data:item.data,connectNulls:false,smooth:false}))});window.addEventListener('resize',()=>view.resize());}
+  function teachingEvidenceRow(e) {
+    const request = e.inputKind === 'teaching_request' || Boolean(e.requestType), followup = e.inputKind === 'followup';
+    const mode = request ? '教学请求 · '+({hint:'给一点提示',worked_example:'看示范',rephrase:'换一种讲法',retry_question:'再试一道'}[e.requestType] || '帮助') :
+      followup ? '追问，未作为作答评分' : {independent:'独立作答',after_hint:'提示后作答',after_example:'示范后作答',help_unknown:'帮助程度未确定'}[e.helpMode] || '';
+    let body = (e.question?'<h3>'+escape(e.question)+'</h3>':'')+'<p>'+escape(e.text||'已保存的真实学习互动')+'</p>';
+    body += '<p class="ma-note">'+escape(time(e.at))+(mode?' · '+mode:'')+(e.rePracticeOf?' · 关联新题复练':'')+'</p>';
+    if (e.diagnosis?.summary) body += '<p>卡点：'+escape(e.diagnosis.summary)+'</p>';
+    if (e.diagnosis?.evidence?.length) body += '<p class="ma-note">回答依据：'+escape(e.diagnosis.evidence.join('；'))+'</p>';
+    if (e.feedback) body += '<p>'+escape(e.feedback)+'</p>';
+    if (e.uncertainty) body += '<p class="ma-note">'+escape(e.uncertainty)+'</p>';
+    for (const h of request || followup ? [] : e.helpHistory || []) body += '<details><summary>'+escape({hint:'实际获得的提示',worked_example:'实际看到的完整示范',unknown:'程度未确定的帮助'}[h.helpType]||'教学帮助')+'</summary><p>'+escape(h.text)+'</p></details>';
+    if (e.relatedLearning?.length) body += '<p class="ma-note">曾学过 '+e.relatedLearning.length+' 段相关讲解。</p>';
+    if (e.lessonId) body += '<div class="ma-actions"><a class="ma-link" href="/learn?lessonId='+encodeURIComponent(e.lessonId)+'">查看对应课时 →</a>'+(e.sectionId?'<a class="ma-link" href="/'+(e.view==='learn'?'learn':'practice')+'?lessonId='+encodeURIComponent(e.lessonId)+'&sectionId='+encodeURIComponent(e.sectionId)+'">继续巩固 →</a>':'')+'</div>';
+    else if (e.courseId) body += '<a class="ma-link" href="/plan?courseId='+encodeURIComponent(e.courseId)+'">查看对应课程 →</a>';
+    return '<div class="ma-row" id="'+escape('evidence-'+e.id)+'">'+body+'</div>';
+  }
   async function reports() {
     const all=await api('overview');const query={};for(const key of ['from','to','subject','courseId'])if(params.get(key))query[key]=params.get(key);
     const data=await api('reports',null,query);
@@ -65,7 +81,7 @@
       card('知识点掌握度',data.topics.length?data.topics.map(t=>'<div class="ma-row"><h3>'+escape(t.topic)+' · '+score(t.score)+'</h3><p>'+escape(t.rationale)+'</p><p class="ma-note">依据 '+t.evidenceCount+' 条记录</p><p>'+escape(t.recommendation)+'</p><a class="ma-link" href="/my-ai/reports?courseId='+encodeURIComponent(t.courseId)+(t.evidenceIds?.[0]?'&evidenceId='+encodeURIComponent(t.evidenceIds[0]):'')+'#evidence">查看对应记录 →</a></div>').join(''):empty('当前范围的数据不足。'))+
       card('变化趋势','<p class="ma-note">'+escape(data.historyNote)+'</p>'+(data.history.some(h=>Object.values(h.scores).some(v=>typeof v==='number'))?'<div id="profile-chart" class="ma-chart"></div>':empty('完成有效学习并更新画像后，这里会展示变化趋势。')))+
       card('有效学习时间',(data.time.length?'<div id="time-chart" class="ma-chart"></div>':empty('尚无升级后的有效学习时间记录。'))+'<p class="ma-note">只累计学习页面在前台、且最近五分钟有交互的时间。多窗口不会重复累计。</p>')+
-      '<article class="ma-card" id="evidence"><h2>学习记录与依据</h2>'+(data.evidence.length?(params.get('evidenceId')?data.evidence.filter(e=>e.id===params.get('evidenceId')):data.evidence.slice(-100)).reverse().map(e=>'<div class="ma-row" id="'+escape('evidence-'+e.id)+'">'+(e.question?'<h3>'+escape(e.question)+'</h3>':'')+'<p>'+escape(e.text||'已保存的真实学习互动')+'</p><p class="ma-note">'+escape(time(e.at))+'</p>'+(e.lessonId?'<a class="ma-link" href="/learn?lessonId='+encodeURIComponent(e.lessonId)+'">查看对应课时 →</a>':e.courseId?'<a class="ma-link" href="/plan?courseId='+encodeURIComponent(e.courseId)+'">查看对应课程 →</a>':'')+'</div>').join(''):empty('当前范围没有可展示的记录。'))+'</article>';
+      '<article class="ma-card" id="evidence"><h2>学习记录与依据</h2>'+(data.evidence.length?(params.get('evidenceId')?data.evidence.filter(e=>e.id===params.get('evidenceId')):data.evidence.slice(-100)).reverse().map(teachingEvidenceRow).join(''):empty('当前范围没有可展示的记录。'))+'</article>';
     document.getElementById('report-filter').onsubmit=event=>{event.preventDefault();const query=new URLSearchParams(new FormData(event.currentTarget));location.href='/my-ai/reports?'+query;};
     if(window.GangyiProfileRadar)window.GangyiProfileRadar.mount(document.getElementById('my-ai-radar'));
     const history=[...data.history].reverse(),subjects=[...new Set(history.flatMap(h=>Object.keys(h.scores)))];chart(document.getElementById('profile-chart'),{dates:history.map(h=>time(h.updatedAt)),values:subjects.map(name=>({name,data:history.map(h=>h.scores[name]??null)}))});
