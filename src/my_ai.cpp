@@ -85,7 +85,8 @@ Json myAIRead(Database& db,const std::string& section,const Json& query) {
             if(!query.value("model","").empty()&&value.value("model","")!=query.value("model",""))continue;
             if(value.value("tokens",Json()).is_object()&&value["tokens"].value("total_tokens",Json()).is_number_integer()){tokens+=value["tokens"]["total_tokens"].get<long long>();++known;}
             duration+=value.value("durationMs",0LL);success+=value.value("status","")=="completed";
-            if(!value.value("taskId","").empty())tasks.insert(value["taskId"]);rows.push_back(value);
+            if(!value.value("taskId","").empty())tasks.insert(value["taskId"]);
+            rows.push_back(value);
         }return {{"items",rows},{"calls",rows.size()},{"tasks",tasks.size()},{"success",success},{"durationMs",duration},{"tokens",known?Json(tokens):Json()},{"knownTokenCalls",known},{"version",rows.size()},{"note","用量仅来自实际请求；未提供的 Token 不计入已知合计。统计从升级后开始。"}};
     }
     if(section=="reports"||section=="overview") {
@@ -223,7 +224,8 @@ Json myAIProposal(Database& db,const Json& args,const std::string& actionId) {
 }
 Json myAIConfirm(Database& db,const std::string& key,const Json& body) {
     Json result;db.transaction([&]{auto value=required(db,key,"action");if(value["state"]!="pending"){result=value;return;}
-        if(body.at("version")!=value["version"])throw std::runtime_error("确认记录已经更新");const auto choice=body.value("decision","");
+        if(body.at("version")!=value["version"])throw std::runtime_error("确认记录已经更新");
+        const auto choice=body.value("decision","");
         if(choice!="cancel"&&choice!="confirm")throw std::invalid_argument("请选择确认或取消");
         if(choice=="confirm"){
             if(value["learningVersion"]!=db.learningRevision())throw std::runtime_error("学习内容已变化，请重新生成操作预览");
@@ -233,7 +235,8 @@ Json myAIConfirm(Database& db,const std::string& key,const Json& body) {
             if(kind=="clear_chats"||kind=="clear_memories")for(const auto& row:db.myAIRecords(kind=="clear_chats"?"chat":"memory")){auto record=read(db,row.id);if(kind=="clear_chats")record={{"deleted",true}};else{record["contentHash"]=memoryFingerprint(record.value("content",""));record["content"]="";record["deleted"]=true;record.erase("sourceChatId");record.erase("sourceLessonId");}save(db,row.id,row.kind,record,row.version);if(kind=="clear_chats"){db.deleteConversation(row.id);db.deleteInteractionsForConversation(row.id);}}
             if(kind=="clear_memories"||kind=="clear_chats")db.markLearningDirty();
             value["state"]=(kind=="settings"||kind=="restore")?"awaiting_native":"applied";
-            if(kind=="settings")value["href"]="/my-ai/settings";if(kind=="restore")value["href"]="/my-ai/data";
+            if(kind=="settings")value["href"]="/my-ai/settings";
+            if(kind=="restore")value["href"]="/my-ai/data";
         }else value["state"]="cancelled";
         result=save(db,key,"action",value,value["version"]);
     });return result;

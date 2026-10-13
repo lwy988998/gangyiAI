@@ -209,7 +209,8 @@ Json agentContext(Database& db, const AgentAccess& access, const Json& event) {
     if(event.value("type", "") == "assistant_chat") {
         auto chat=myAIRead(db,"chat",{{"id",event.at("chatId")}});chat.erase("requests");chat.erase("draft");chat.erase("scroll");
         auto& history=chat["messages"];while(history.size()>30)history.erase(history.begin());
-        while(history.dump().size()>48000&&history.size()>1)history.erase(history.begin());context["assistantChat"]=chat;
+        while(history.dump().size()>48000&&history.size()>1)history.erase(history.begin());
+        context["assistantChat"]=chat;
     }
     if (scheduling) {
         const auto clock = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());

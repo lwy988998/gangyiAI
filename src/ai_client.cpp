@@ -140,7 +140,8 @@ AIResult monitoredCall(const ChatOptions& options, const std::string& model, Cal
 
 struct BodyState { std::string content, activityId; bool received = false; std::exception_ptr error; };
 json reportedUsage(const json& value) {
-    if(!value.is_object())return nullptr;json result=json::object();
+    if(!value.is_object())return nullptr;
+    json result=json::object();
     for(const auto* key:{"prompt_tokens","completion_tokens","total_tokens"})
         if(value.value(key,json()).is_number_integer()&&value[key].get<long long>()>=0)result[key]=value[key];
     return result.empty()?json(nullptr):result;
@@ -316,7 +317,7 @@ AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int
         if (!receiving) { AIActivity::update(activityId, "receiving"); receiving = true; }
         return onChunk(chunk);
     };
-    StreamState state{{}, {}, model, {}, receiver, false, options.cancelled};
+    StreamState state{{}, {}, model, {}, receiver, false, options.cancelled, false, nullptr, nullptr, {}};
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postBody.c_str());
