@@ -1,5 +1,6 @@
 param(
     [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
+    [switch]$TeachingPreview,
     [switch]$AllowLocalUserData
 )
 
@@ -7,11 +8,13 @@ $ErrorActionPreference = 'Stop'
 $cmakeText = Get-Content -Raw -LiteralPath (Join-Path $RepoRoot 'CMakeLists.txt')
 if ($cmakeText -notmatch 'project\(gangyiAI VERSION ([0-9.]+)') { throw '无法读取版本号' }
 $version = $Matches[1]
-if ($env:GITHUB_ACTIONS -ne 'true' -and -not $AllowLocalUserData) {
+if ($env:GITHUB_ACTIONS -ne 'true' -and -not $AllowLocalUserData -and -not $TeachingPreview) {
     throw '发布验收会安装和卸载程序，并清理当前用户配置。仅可在 GitHub Actions 中运行；确需在隔离账户运行时请显式传入 -AllowLocalUserData。'
 }
-$installer = Join-Path $RepoRoot "dist\installer\gangyiAI-setup-v$version-x64.exe"
-$portable = Join-Path $RepoRoot "dist\installer\gangyiAI-portable-v$version-x64.zip"
+$installerName = if ($TeachingPreview) { "gangyiAI-teaching-preview1-v$version-x64.exe" } else { "gangyiAI-setup-v$version-x64.exe" }
+$portableName = if ($TeachingPreview) { "gangyiAI-teaching-preview1-v$version-x64.zip" } else { "gangyiAI-portable-v$version-x64.zip" }
+$installer = Join-Path $RepoRoot "dist\installer\$installerName"
+$portable = Join-Path $RepoRoot "dist\installer\$portableName"
 $checksumFile = Join-Path $RepoRoot 'dist\installer\SHA256SUMS.txt'
 foreach ($path in @($installer, $portable, $checksumFile)) {
     if (-not (Test-Path -LiteralPath $path)) { throw "验收文件缺失：$path" }
@@ -29,7 +32,8 @@ foreach ($artifact in @($installer, $portable)) {
 $temporary = Join-Path ([System.IO.Path]::GetTempPath()) ("GangyiAI-CI-" + [guid]::NewGuid().ToString('N'))
 $portableDir = Join-Path $temporary 'portable'
 $installDir = Join-Path $temporary 'installed'
-$dataDir = Join-Path $env:LOCALAPPDATA 'GangyiAI\data'
+$profileName = if ($TeachingPreview) { 'GangyiAI-Teaching-Preview' } else { 'GangyiAI' }
+$dataDir = Join-Path $env:LOCALAPPDATA "$profileName\data"
 $marker = Join-Path $dataDir 'ci-preserve.marker'
 New-Item -ItemType Directory -Force -Path $temporary, $portableDir, $dataDir | Out-Null
 try {
@@ -109,6 +113,9 @@ try {
     if (-not (Test-Path $marker)) { throw '卸载错误删除了用户课程数据' }
 } finally {
     Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+    $resolvedTemporary = [System.IO.Path]::GetFullPath($temporary)
+    $resolvedTempRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd('\') + '\'
+    if (-not $resolvedTemporary.StartsWith($resolvedTempRoot, [StringComparison]::OrdinalIgnoreCase)) { throw '拒绝清理临时目录之外的路径' }
     Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
 }
 

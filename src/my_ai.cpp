@@ -108,15 +108,35 @@ Json myAIRead(Database& db,const std::string& section,const Json& query) {
             if(!matches)continue;
             topics.push_back({{"courseId",t.courseId},{"topic",t.topic},{"phaseIndex",t.phaseIndex},{"score",t.score&&t.status=="ready"?Json(*t.score):Json()},{"status",t.status},{"rationale",t.rationale},{"weakPoints",Json::parse(t.weakPoints,nullptr,false)},{"recommendation",t.recommendation},{"evidenceCount",t.evidenceCount},{"evidenceIds",ids.is_array()?ids:Json::array()}});
         }
-        for(const auto& row:db.listInteractions())if(inDate(row.createdAt)&&(courseId.empty()||row.courseId==courseId)&&(subject.empty()||row.subject==subject||belongsToSubject(row.id))){
+        const auto learningRecords = db.listInteractions(); std::set<std::string> publishedInputs;
+        for (const auto& row : learningRecords) if (row.kind == "practice" && inDate(row.createdAt) &&
+            (courseId.empty() || row.courseId == courseId) && (subject.empty() || row.subject == subject || belongsToSubject(row.id))) {
+            const auto value = Json::parse(row.payload, nullptr, false);
+            if (value.is_object() && value.value("status", "") == "valid" && value.value("interactionId", Json()).is_string())
+                publishedInputs.insert(value.at("interactionId"));
+        }
+        for(const auto& row:learningRecords)if(inDate(row.createdAt)&&(courseId.empty()||row.courseId==courseId)&&(subject.empty()||row.subject==subject||belongsToSubject(row.id))){
+            if (row.kind == "chat-user" && publishedInputs.count(row.id)) continue;
             if(row.kind!="quiz"&&row.kind!="question-evaluation"&&row.kind!="practice"&&row.kind!="review"&&row.kind!="chat-user")continue;
             auto payload=Json::parse(row.payload,nullptr,false);if(!payload.is_object())continue;
             // 只公开学生自己的输入和身份，不暴露未完成题目的评分标准。
             Json item={{"id",row.id},{"courseId",row.courseId.value_or("")},{"kind",row.kind},{"at",row.createdAt},{"text",payload.value("text","")}};
             if(payload.value("lessonId",Json()).is_string())item["lessonId"]=payload["lessonId"];
-            if(row.kind=="practice"&&payload.value("status","")=="valid"&&payload.value("credible",false)) {
+            for (const auto* key : {"sectionId", "questionId", "view", "requestType", "helpMode", "rePracticeOf", "helpHistory", "relatedLearning"})
+                if (payload.contains(key)) item[key] = payload.at(key);
+            if (payload.contains("questionSnapshot")) item["question"] = payload.at("questionSnapshot").value("question", "");
+            if (payload.contains("questionId") && !item.contains("helpMode")) item["helpMode"] = "help_unknown";
+            if (row.kind == "chat-user") {
+                item["inputKind"] = payload.value("type", "") == "teaching_request" ? "teaching_request" :
+                    !db.profileMeta("agent-input-classification:" + row.id).empty() ? "followup" : "answer";
+            }
+            if(row.kind=="practice"&&payload.value("status","")=="valid") {
                 const auto snapshot=payload.value("questionSnapshot",Json::object());
-                item["question"]=snapshot.value("question","");item["text"]=payload.value("response","");item["assessed"]=true;
+                item["question"]=snapshot.value("question","");item["text"]=payload.value("response","");item["assessed"]=payload.value("credible",false);
+            }
+            if (row.kind == "practice") {
+                for (const auto* key : {"diagnosis", "feedback", "reason", "uncertainty", "credible", "score"})
+                    if (payload.contains(key)) item[key] = payload.at(key);
             }
             if((row.kind=="quiz"||row.kind=="question-evaluation")&&payload.value("results",Json()).is_array()) {
                 int index=0;for(const auto& answer:payload["results"]){if(answer.value("answered",false)&&answer.value("credible",false)&&(subject.empty()||row.subject==subject||subjectEvidence.count(row.id+":"+std::to_string(index)))){

@@ -86,17 +86,22 @@ Json agentProfileEvidence(Database& db, const AgentAccess& access) {
         evidence.push_back({{"id", id}, {"courseId", courseId}, {"questionId", questionIdentity(courseId, identity)},
             {"question", snapshot}, {"answer", answer}, {"unknown", unknown}, {"assisted", assisted},
             {"hintHistory", hints}, {"at", at}, {"topic", topic}});
+        evidence.back()["helpMode"] = "help_unknown";
     };
     for (const auto& row : interactions) {
         if (!row.courseId || !allowed(db, access, *row.courseId)) continue;
         const auto item = parse(row.payload);
         if (row.kind == "practice" && item.value("source", "") == "ai" && item.value("status", "") == "valid" && item.value("credible", false)) {
             const auto input = actualInputs.find(item.value("interactionId", ""));
-            if (input == actualInputs.end() || input->second.value("action", "") == "skip" || input->second.value("action", "") == "stop" ||
+            if (input == actualInputs.end() || !db.profileMeta("agent-input-classification:" + item.value("interactionId", "")).empty() ||
+                input->second.value("action", "") == "skip" || input->second.value("action", "") == "stop" ||
                 item.value("response", Json()) != input->second.value("text", Json()) ||
                 item.value("questionSnapshot", Json()) != input->second.value("questionSnapshot", Json())) continue;
             append(row.id, *row.courseId, item.value("questionSnapshot", Json()), item.value("response", Json()), row.createdAt,
                 input->second.value("action", "") == "unknown", item.value("assisted", false), item.value("hintHistory", Json::array()), item.value("topic", ""));
+            if (!evidence.empty() && evidence.back().at("id") == row.id)
+                for (const auto* field : {"diagnosis", "helpHistory", "relatedLearning", "helpMode", "rePracticeOf"})
+                    if (item.contains(field)) evidence.back()[field] = item.at(field);
         } else if ((row.kind == "quiz" || row.kind == "question-evaluation") && item.value("results", Json()).is_array()) {
             size_t index = 0;
             for (const auto& answer : item.at("results")) {

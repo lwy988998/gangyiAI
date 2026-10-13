@@ -1,0 +1,35 @@
+# 共用教学机制：诊断、帮助与独立复练
+
+本次从 v5.6.1 标签 `651e741` 建立独立电脑版工作区。继续使用 C++、SQLite、原生启动器、现有课堂与学习报告接口。正式版本号待试用及验收后决定。
+
+## 记录与判断
+
+普通讲解存入 `relatedLearning`，只有与当前题目关联、实际展示过的提示或示范进入 `helpHistory`。原来的 `hintHistory`、`assisted` 继续保留供旧接口读取。帮助类型包括 `explanation`、`hint`、`worked_example`、`clarification`、`none`、`unknown`；旧对话或未完成回复不能确定程度时使用 `unknown`。同题作答保存 `helpMode`：独立、提示后、示范后、帮助程度未确定。
+
+展示证据继续沿用板块版本、事件游标和逐条可见序号。未展示文字不计为获得帮助；本题帮助核对课时、板块、题目标识和版本，避免不同题目的帮助串用。
+
+新版任务记录 `teachingProtocolVersion=2`，评价须提交 `diagnosis`：简短卡点、逐字引用实际回答的依据、补讲方向、是否需要澄清。程序验证原话引用与数据结构；具体误解及教法由 AI 判断。需要澄清或没有回答依据时，不形成可信评价或正式分数。老任务仍兼容原协议。纯追问保存分类，禁止后来把同一输入重新评分。
+
+新版课堂回复与非题目板块须明确帮助类型。流式回复先读帮助类型再显示文字；类型后置时暂存未分类内容，校验通过后展示。输出原题快照给模型核对题干、实际回答和标准，防止把学生写错的答案当作题目。AI仍需在真实验收中检查诊断事实和教法是否正确。
+
+## 课堂与复练
+
+课堂增加“给一点提示”“看示范”“再试一道”，保留“换一种讲法”。新操作发送 `teaching_request`，请求类型为 `hint`、`worked_example`、`retry_question`、`rephrase`。题目请求核对原题版本，保留作答草稿与选项。教学请求不参与评分。
+
+小提示要求只给一个方向，不给答案或完整步骤；本轮公开文字暂存到类型与工具动作校验完成后再展示。若 AI 把回复声明为完整示范，程序拒绝，并把原因反馈给模型自行修正。是否真正保留了学生思考空间，仍需要实际多轮评测核对。
+
+AI 可以自主安排新题，在 `append_section.section.rePracticeOf` 中关联本课原问题。新题不能与原题具有相同题目标识。复练回答使用自己的帮助历史，不继承原问题的提示；关联信息用于判断示范后是否能独立完成。题数、难度与完成结论继续由 AI 根据证据决定。
+
+课堂评价和学习报告展示实际回答、卡点依据、帮助程度、接受帮助的原文、关联新题结果，并提供继续巩固入口。评分标准、未完成题目的答案与内部工具参数仍保留在私有存储和模型上下文中。
+
+## 试用与验收
+
+试用构建使用 `GANGYI_TEACHING_PREVIEW`，独立安装标识、注册表、凭据目标与 `%LOCALAPPDATA%\GangyiAI-Teaching-Preview` 数据目录。首次启动利用现有 SQLite 备份机制复制正式版档案；已有试用档案不覆盖。初次沿用正式版模型配置和凭据，试用修改写入独立位置。
+
+开发验收用 Promptfoo 0.124.1 的 Python 适配器，直接调用同一套 C++ 主控。标准答案、评分要求、原始对照记录及 Promptfoo 依赖只保存在忽略的 `verification` 目录，不进入安装包。测试模型夹具验证协议和保存行为；真实模型对照另行记录教学语义、耗时、实际返回用量及证据限制。
+
+## 参考设计
+
+- [Oppia 的误解模型](https://github.com/oppia/oppia/blob/c489b5729c96986801ce0498994d33189fc6e761/core/templates/domain/skill/misconception.model.ts)：参考误解与对应反馈的结构，设计本项目的卡点、回答依据与补讲方向。
+- [Kolibri 的学习日志](https://github.com/learningequality/kolibri/blob/5d47c94a8eccc63667afa097ccebe6ac9de640b0/kolibri/core/logger/models.py)：参考原回答、提示状态及互动历史的分别记录。
+- [Promptfoo 多轮配置](https://github.com/promptfoo/promptfoo/blob/8f873ce2236d53cda1edba9105e3654a4ef4b41a/site/docs/configuration/chat.md)与 [0.124.1 发布](https://github.com/promptfoo/promptfoo/releases/tag/0.124.1)：采用固定开发依赖和 Python provider，对照实际主控。
