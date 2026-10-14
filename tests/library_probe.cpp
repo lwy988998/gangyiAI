@@ -1,4 +1,6 @@
+#ifndef GANGYI_BASELINE_EVAL
 #include "learning_library.hpp"
+#endif
 #include "learning_agent.hpp"
 #include <fstream>
 #include <iostream>
@@ -13,9 +15,16 @@ int main(int argc, char** argv) {
         if (test.contains("preferences")) db.saveMyAIRecord({"preferences", "preferences", test["preferences"].dump(), "2026-10-13", 0}, 0);
         const gangyi::AgentAccess access{test.value("scopeId", "local-profile"), test.value("courseIds", std::vector<std::string>{})};
         Json sourceIds = Json::array();
+#ifdef GANGYI_BASELINE_EVAL
+        if (test.contains("urls") || test.value("readSourcesOnly", false))
+            throw std::invalid_argument("基线验收不能注入新增资料能力");
+#else
         for (const auto& url : test.value("urls", Json::array())) sourceIds.push_back(gangyi::libraryWrite(db, {{"url", url}}).at("id"));
+#endif
+        Json event={{"type", "library_research"}, {"goal", test.at("goal")}, {"text", test.at("goal")}, {"requestId", test.value("requestId", "library-live-check")}};
+        for(const auto* field:{"sourceId","refresh"})if(test.contains(field))event[field]=test.at(field);
         const auto task = test.value("retryTaskId", "").empty() ?
-            gangyi::agentSubmit(db, access, {{"type", "library_research"}, {"goal", test.at("goal")}, {"text", test.at("goal")}, {"requestId", test.value("requestId", "library-live-check")}}) :
+            gangyi::agentSubmit(db, access, event) :
             gangyi::agentControl(db, access, {{"command", "retry"}, {"taskId", test.at("retryTaskId")}});
         int calls = 0;
         Json promptAudit = Json::array();
@@ -26,6 +35,7 @@ int main(int argc, char** argv) {
                     decision["state"] = "continue";
                     decision["actions"].push_back({{"id", "read-"+std::to_string(calls)}, {"tool", "read_resource"},
                         {"args", {{"sourceId", sourceIds.at(calls)}, {"refresh", false}}}});
+                    if (test.contains("readQueries")) decision["actions"].back()["args"]["query"] = test.at("readQueries").at(calls);
                 }
                 ++calls;
                 gangyi::AIResult result; result.content = decision.dump(); result.model = "原文读取专项夹具"; result.finishReason = "stop";
@@ -38,13 +48,15 @@ int main(int argc, char** argv) {
             return gangyi::AIClient().chatStream(request, sink);
         });
         agent.process(db, task.at("id"));
-        Json output = {{"task", gangyi::agentView(db, access, task.at("id"))}, {"library", gangyi::libraryRead(db, Json::object())}};
+        Json output = {{"task", gangyi::agentView(db, access, task.at("id"))}};
+#ifndef GANGYI_BASELINE_EVAL
+        output["library"] = gangyi::libraryRead(db, Json::object());
+#endif
         output["usage"] = Json::array();
         output["promptAudit"] = promptAudit;
         for(const auto& row:db.myAIRecords("usage")) output["usage"].push_back(Json::parse(row.payload));
         std::ofstream result(std::filesystem::u8path(argv[3])); result << output.dump(2);
-        auto searchUsage=output["library"]["usage"]; searchUsage.erase("items");
-        std::cout << Json{{"status",output["task"]["status"]},{"calls",calls},{"sources",output["library"]["items"].size()},{"searchUsage",searchUsage}}.dump() << '\n';
+        std::cout << Json{{"status",output["task"]["status"]},{"calls",calls}}.dump() << '\n';
         return 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

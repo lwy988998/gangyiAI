@@ -40,13 +40,17 @@ def render(folder, output):
             details.append(f"<article><h3>{label} · {name}</h3><p class='meta'>{cells[-1]}</p><pre>{escaped(answer)}</pre>{question_html}<p><a href='{relative}'>查看完整原始记录</a></p></article>")
         rows.append(f"<tr><th>{label}</th><td>{cells[0]}</td><td>{cells[1]}</td></tr>")
     extra = []
-    for name, label in [("language-candidate-reviewed", "英语更换全文来源后的补充复核"), ("language-final-retry", "英语最终协议重试"), ("language-current-final", "最新合并版英语讲解与新题")]:
+    for name, label in [("language-candidate-reviewed", "英语更换全文来源后的补充复核"), ("language-final-retry", "英语最终协议重试"), ("language-current-final", "最新合并版英语讲解与新题"), ("programming-baseline-retry", "编程基线原任务重试（未完成）"), ("timeliness-baseline-retry", "时效基线原任务重试（未完成）"), ("../personalized-teaching-advanced", "进阶编程讲解（有限适配证据）")]:
         path = folder / name / "result.json"
         if not path.exists():
             continue
         value = record(path)
         task = value.get("task") or value["turns"][-1]["task"]
-        extra.append(f"<article><h3>{label}</h3><p>任务状态：{escaped(task['status'])}</p><pre>{escaped(task.get('message', ''))}</pre><a href='{name}/result.json'>原始记录</a></article>")
+        requests = value.get("newHttpRequests", value.get("httpRequests", []))
+        tokens = sum((item.get("tokens") or {}).get("total_tokens", 0) for item in requests)
+        unknown = sum(item.get("tokens") is None for item in requests)
+        usage = f"{len(requests)}次请求 · {tokens:,}已知Token · {unknown}次未提供用量"
+        extra.append(f"<article><h3>{label}</h3><p>任务状态：{escaped(task['status'])} · {usage}</p><pre>{escaped(task.get('message', ''))}</pre><a href='{name}/result.json'>原始记录</a></article>")
     page = """<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>资料与教学整合 · 真实验收记录</title><style>
 body{margin:0;background:#131719;color:#e8ecea;font:16px/1.65 system-ui,"Microsoft YaHei",sans-serif}main{max-width:1080px;margin:auto;padding:40px 24px}h1{font-size:30px;line-height:1.3}h2{margin-top:40px}h3{font-size:19px}a{color:#9dceb7}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:16px;border-bottom:1px solid #35413b;vertical-align:top}thead{background:#252d28}article{padding:22px;background:#1c2420;border:1px solid #35413b;border-radius:12px;margin:18px 0}.notice{padding:18px;background:#352c1e;border:1px solid #735e35;border-radius:10px}pre{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;margin:16px 0}.meta{color:#afbfb6}.question{border-top:1px solid #3a4a40;padding-top:14px}summary{cursor:pointer;color:#c1d5c8}@media(max-width:640px){main{padding:24px 14px}th,td{padding:9px;font-size:14px}h1{font-size:25px}}

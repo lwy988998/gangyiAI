@@ -5,6 +5,7 @@
 #include "learning_agent.hpp"
 #include "agent_prompt.hpp"
 #include <cassert>
+#include <algorithm>
 #include <iostream>
 using Json = nlohmann::json;
 void runLibraryChecks() {
@@ -79,6 +80,11 @@ void runLibraryChecks() {
     guard.process(db,task.at("id"));
     const auto rejected=gangyi::agentView(db,access,task.at("id"));
     assert(rejected["status"]=="failed"&&rejected.dump().find("UNVERIFIED-CITATION-MUST-NOT-APPEAR")==std::string::npos);
+    const auto noSourceTask=gangyi::agentSubmit(db,access,{{"type","chat"},{"text","用原文讲解"},{"requestId","invalid-citation-without-source"}});
+    assert(gangyi::libraryContext(db)["sources"].empty());
+    guard.process(db,noSourceTask.at("id"));
+    const auto noSourceRejected=gangyi::agentView(db,access,noSourceTask.at("id"));
+    assert(noSourceRejected["status"]=="failed"&&noSourceRejected.dump().find("UNVERIFIED-CITATION-MUST-NOT-APPEAR")==std::string::npos);
     detail=gangyi::libraryRead(db,{{"id",id}});
     gangyi::libraryWrite(db,{{"id",id},{"version",detail["version"]},{"excluded",false}});
     const auto pausedTask=gangyi::agentSubmit(db,access,{{"type","library_research"},{"goal","验证已读步骤暂停恢复"},{"requestId","library-resume"}});
@@ -97,5 +103,31 @@ void runLibraryChecks() {
     resumeGuard.process(db,pausedTask.at("id"));
     assert(gangyi::agentView(db,access,pausedTask.at("id"))["status"]=="ready"&&resumeCalls==3);
     assert(gangyi::libraryUsage(db).at("cacheHits").get<int>()==cacheBefore+1&&gangyi::libraryUsage(db)["fetchRequests"]==1);
+    const auto longSource=gangyi::libraryWrite(db,{{"url","https://example.org/long-document"},{"title","长篇原文缓存"}});
+    const std::string longId=longSource.at("id");Json paragraphs=Json::array();
+    for(int index=1;index<=40;++index)paragraphs.push_back({{"id","s"+std::to_string(index)},{"text",index==35?"list.copy creates a shallow copy.":"正文段落 "+std::to_string(index)}});
+    const Json longSnapshot={{"sourceId",longId},{"segments",paragraphs}};
+    assert(db.saveMyAIRecord({"long-snapshot","library-snapshot",longSnapshot.dump(),"2026-10-14",0},0));
+    auto longValue=Json::parse(db.myAIRecord(longId)->payload);longValue["snapshotId"]="long-snapshot";longValue["readStatus"]="read";
+    assert(db.saveMyAIRecord({longId,"library-source",longValue.dump(),"2026-10-14",0},longSource.at("version")));
+    const auto originalLong=db.myAIRecord("long-snapshot")->payload;
+    const auto queryRead=[&](const std::string& requestId,Json args){
+        args["sourceId"]=longId;
+        const auto current=gangyi::agentSubmit(db,access,{{"type","library_research"},{"goal","定位快照后半部分"},{"requestId",requestId}});
+        gangyi::LearningAgent reader(":memory:",[&](const auto&,const auto& sink){
+            gangyi::AIResult response;response.model="关键词读取夹具";response.finishReason="stop";
+            response.content=Json{{"message",""},{"actions",Json::array({{{"id","keyword-read"},{"tool","read_resource"},{"args",args}}})},{"state","completed"}}.dump();sink(response.content);return response;
+        });reader.process(db,current.at("id"));
+        return Json::parse(db.getClassroomActivity(current.at("id"))->payload);
+    };
+    const auto found=queryRead("query-copy",{{"query","COPY"}}).at("completedActions").at("keyword-read").at("result").at("snapshot");
+    assert(found["segments"].size()==1&&found["segments"][0]["id"]=="s35"&&found["totalSegments"]==40&&found["matchedSegments"]==1&&found["excerpted"]==true);
+    const auto absent=queryRead("query-absent",{{"query","missing phrase"}}).at("completedActions").at("keyword-read").at("result").at("snapshot");
+    assert(absent["segments"].empty()&&absent["matchedSegments"]==0&&absent["totalSegments"]==40&&absent["nextOffset"].is_null());
+    const auto queryHits=gangyi::libraryUsage(db).at("cacheHits");
+    assert(queryRead("query-invalid",{{"query",""}})["status"]=="failed"&&gangyi::libraryUsage(db).at("cacheHits")==queryHits);
+    assert(db.myAIRecord("long-snapshot")->payload==originalLong&&gangyi::libraryUsage(db)["fetchRequests"]==1);
+    const auto selectedContext=gangyi::libraryContext(db);
+    assert(std::any_of(selectedContext["sources"].begin(),selectedContext["sources"].end(),[&](const auto& source){return source["id"]==longId&&source["totalSegments"]==40&&source["excerpted"]==true;}));
     std::cout<<"资料引用、快照、排除、冲突及字幕专项检查通过\n";
 }

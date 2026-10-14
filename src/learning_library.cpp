@@ -91,7 +91,19 @@ Json snapshot(Database& db, const std::string& sourceId, const std::string& snap
     return value;
 }
 Json excerpt(Json saved, const Json& args) {
-    const auto all = saved.at("segments");
+    const auto complete = saved.at("segments");
+    auto all = complete;
+    if (args.contains("query")) {
+        const auto lower = [](std::string text) {
+            std::transform(text.begin(), text.end(), text.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+            return text;
+        };
+        const auto query = lower(requiredText(args, "query", 200));
+        all = Json::array();
+        for (const auto& segment : complete)
+            if (lower(segment.value("text", "")).find(query) != std::string::npos) all.push_back(segment);
+        saved["query"] = args.at("query"); saved["matchedSegments"] = all.size(); saved["selection"] = "keyword";
+    }
     const auto offset = args.value("offset", 0);
     if (offset < 0 || offset > static_cast<int>(all.size())) throw std::invalid_argument("正文读取起点无效");
     Json shown = Json::array(); size_t used = 0; int cursor = offset;
@@ -99,7 +111,8 @@ Json excerpt(Json saved, const Json& args) {
         if (used + all[cursor].dump().size() > 28000 && !shown.empty()) break;
         shown.push_back(all[cursor]); used += all[cursor].dump().size();
     }
-    saved["segments"] = shown; saved["totalSegments"] = all.size(); saved["nextOffset"] = cursor < static_cast<int>(all.size()) ? Json(cursor) : Json();
+    saved["segments"] = shown; saved["totalSegments"] = complete.size(); saved["excerpted"] = shown.size() < complete.size();
+    saved["nextOffset"] = cursor < static_cast<int>(all.size()) ? Json(cursor) : Json();
     return saved;
 }
 }
@@ -182,6 +195,7 @@ Json libraryContext(Database& db, const std::string& courseId, const std::string
         item["segments"] = Json::array();
         if (!item.value("snapshotId", "").empty()) {
             auto segments = snapshot(db, item.at("id"), item.at("snapshotId")).value("segments", Json::array());
+            item["totalSegments"] = segments.size();
             if (!question.empty()) std::stable_sort(segments.begin(), segments.end(), [&](const Json& a, const Json& b) {
                 const auto rank = [&](const Json& segment) {
                     const auto text = segment.value("text", ""); int score = 0;
@@ -193,6 +207,7 @@ Json libraryContext(Database& db, const std::string& courseId, const std::string
                 if (used + segment.dump().size() > 16000 || item["segments"].size() >= 3) break;
                 item["segments"].push_back(segment); used += segment.dump().size();
             }
+            item["excerpted"] = item["segments"].size() < segments.size();
         }
         items.push_back(item);
     }
@@ -279,17 +294,22 @@ void registerLibraryTools(LearningAgent& agent) {
             return PreparedAgentTool{{{"items", items}, {"queries", queries}, {"newSources", added}, {"noNewSources", added == 0},
                 {"next", "读取候选原文，按学习背景筛选；资料足够或补查没有有效增量时停止，不反复重复相同查询。"}}, {}};
         }});
-    agent.registerTool("read_resource", {"读取并保存原文快照。参数sourceId、refresh可选、offset为段落起点；nextOffset非空时可继续读取。返回网页段落、PDF页码或公开字幕时间点；读取失败只保留链接与缺失说明。视频可用网页公开字幕链接或文字稿；不能用简介冒充视频全文。", true,
+    agent.registerTool("read_resource", {"读取并保存原文快照。参数sourceId、refresh可选；query可用原文语言关键词查找已保存段落，英文不区分大小写。offset为段落或关键词命中列表的起点，nextOffset非空时保持相同query继续读取。totalSegments是完整快照段落数，excerpted表示仅返回摘录；当前摘录没提到某知识不代表完整快照没有。缺口可先用query读取缓存，不重复抓取，不用简介冒充视频全文。返回网页段落、PDF页码或公开字幕时间点；读取失败只保留链接与缺失说明。视频可用网页公开字幕链接或文字稿。", true,
         [](Database& db, const Json& args, const Json& task, const AIResult&) {
             const auto sourceId = requiredText(args, "sourceId");
+            if (args.contains("query")) requiredText(args, "query", 200);
+            if (args.value("offset", 0) < 0) throw std::invalid_argument("正文读取起点无效");
             auto source = load(db, sourceId, "library-source");
             if (summary(db, source, task.value("courseId", "")).at("choice").value("state", "") == "excluded")
                 throw std::invalid_argument("用户已排除此资料");
             const auto cancelled = cancelTask(db, task);
             const auto oldSnapshot = source.value("snapshotId", "");
-            if (!args.value("refresh", false) && !oldSnapshot.empty()) {
+            const auto event = task.value("event", Json::object());
+            const bool refresh = args.value("refresh", false) || (event.value("refresh", false) && event.value("sourceId", "") == sourceId);
+            if (!refresh && !oldSnapshot.empty()) {
+                const auto selected = excerpt(snapshot(db, sourceId, oldSnapshot), args);
                 db.transaction([&] { operation(db, sourceId, "fetch", "read", 0, true, task.at("id")); });
-                return PreparedAgentTool{{{"source", summary(db, source)}, {"snapshot", excerpt(snapshot(db, sourceId, oldSnapshot), args)}}, {}};
+                return PreparedAgentTool{{{"source", summary(db, source)}, {"snapshot", selected}}, {}};
             }
             const auto document = libraryFetch(source.at("url"), cancelled);
             Json parsed;

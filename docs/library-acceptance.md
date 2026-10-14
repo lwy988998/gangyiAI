@@ -18,6 +18,9 @@
 | 数学公式 | 真实OpenStax原文暴露出MathML扁平化重复的问题；已保留分数、上下标及LaTeX注解，未完整支持的复杂公式注明局部读取。原快照保留，修正生成新快照。 |
 | 英语来源覆盖 | Cambridge页面只提取到形式表，不能作为完整语法依据。补充读取EnglishClub完整公开内容；正文过短的HTML增加局部覆盖提醒，不把抓取时间冒充发布/更新日期。 |
 | 引用安全 | sourceId、snapshotId、segmentId和逐字摘录核对真实数据库；假位置、假摘录、已排除来源拒绝用于新教学。错误内容不提前流给学生；旧课堂仍可回查固定快照。语义是否完整支持结论仍须人工核对。 |
+| 摘录与完整原文 | 上下文明确标记摘录范围与完整段落数，read_resource 支持关键词和后续段落读取。实际Python官方快照的copy与None两次关键词读取均命中缓存，0模型请求、0正文获取；不能把前三段未提到说成整份快照没有。此项是原生工具验证，不是模型自动采用工具的效果证明。 |
+| 明确刷新 | 用户事件明确刷新指定来源时，即使模型工具参数漏写刷新也执行获取。实际Python官方原文验证新增1次获取、0缓存命中、0模型请求，旧快照逐字保留。 |
+| 空档案与中断 | 回归先复现空资料档案编造引用的文字提前展示，再修正为完整校验后展示。接收期间提供核验状态；中断的未校验文字不进入学生对话，不作为帮助或评分证据。 |
 | 用户控制 | API专项验证收藏、排除、手动选用、旧版本写入拒绝和独立快照；重启后选择、原文仍保留。没有将阅读或收藏计入掌握度。 |
 | 暂停与重试 | 主控专项验证读过的工具步骤暂停后恢复与重复动作复用；真实初学者任务重试1次模型请求后完成，无新增博查或正文请求。 |
 | 备份恢复 | 原生启动器专项对完整SQLite备份/恢复检查来源、快照、页码与选择版本；资料使用现有schema 7记录，不另建备份系统。 |
@@ -47,12 +50,16 @@
 - 英语换EnglishClub全文：3次模型请求、22,714 Token。有效讲解及新题保存，随后缺少来源标记的收尾回复被拒绝；需要完成该修正的复核。
 - 英语收尾复核：追加1次实际模型请求、6,374 Token，任务等待作答，0新增题目、0新增检索或抓取，原3条用量记录完整保留。解决了收尾与幂等问题，不能将示范时间线重复当作独立复练通过。
 - 最新合并版英语：1次实际模型请求、8,732 Token，正常等待作答。原文引用对应结构表s7；火车讲解示范标明AI补充；新题为Lucy到站与北京火车开走的两空题，答案reached / had left。没有直接复制示范的时间数据，但情境与关键时态仍相近；没有学生新回答，不作为掌握度或整体效果证据。
+- 编程基线原任务重试：使用只链接v5.6.1对象的验收入口，新增3次请求、16,351 Token，仍因两次结构错误及超时未完成。保留失败与原记录，不将重试算作基线通过。
+- 版本时效基线原任务重试：新增3次请求、13,477已知Token，1次未提供用量；两次结构错误及超时后仍未完成。未完成的公开文字不作为合格教学证据。
+- 进阶编程讲解：2次请求、16,198 Token，正常等待作答；讲解采用API术语、短代码并补充嵌套对象共享限制。与早期初学者讲解不是严格同版本对照；把短摘录未包含知识说成完整快照没有的问题已据此补齐读取工具与范围提示，尚未做该新工具的实际模型采用验证。
 
 以上Token均来自实际回执，缺失部分不估算为零。各阶段使用隔离档案，与用户正式学习数据分开。
 
 ## 交付门槛
 
-- 最终整合包26项完整CTest全部通过（167.25秒）。上轮整合包已完成原生安装、免安装启动、卸载保留数据验收；最终只追加教学规则提示，安装器、启动器、解析器与资源没有变化，最新程序与打包文件逐项校验。没有在请用户开始试用后并发安装/卸载同一试用标识。
+- 最新整合包26项完整CTest全部通过（1293.31秒），包括新增关键词缓存、明确刷新、空档案假引用和中断回复回归。此前旧断言仍要求显示未校验的部分文字，已随修正更新并完整重跑，失败记录保留。
+- 最新学习增强试用版已在本机独立安装，版本5.6.1；桌面快捷方式“钢一定制AI 学习增强试用版”指向独立安装目录。安装退出码0、安装版启动器自检退出码0，程序、解析器与界面文件的SHA256逐项匹配打包文件。上轮安装/卸载保留数据验收原件继续保留；本次安装后不卸载用户正在试用的版本。
 - 新增用量恢复专项确认：旧请求用量保留，重复完成回执不另算请求，缺失Token保持未知。真实英语重试也保留原3条记录。
 - 英语换源后的收尾协议已复核；新规则下真实讲解、原文结构与新题答案已核对。近似题的迁移强度、评分宽松边界以及实际教学帮助类型仍须多轮作答验证。
 - 最终页面预览、桌面与窄屏交互：待验证。
@@ -66,9 +73,15 @@
 - [英语全文来源复核](D:/gangyiAI-library/verification/five-domains-final/language-candidate-reviewed/result.json)
 - [英语任务收尾、幂等及用量保留](D:/gangyiAI-library/verification/five-domains-final/language-final-retry/summary.json)
 - [最终英语讲解与练习](D:/gangyiAI-library/verification/five-domains-final/language-current-final/result.json)
+- [编程基线原任务重试](D:/gangyiAI-library/verification/five-domains-final/programming-baseline-retry/result.json)
+- [时效基线原任务重试](D:/gangyiAI-library/verification/five-domains-final/timeliness-baseline-retry/result.json)
+- [进阶编程实际讲解](D:/gangyiAI-library/verification/personalized-teaching-advanced/result.json)
+- [实际原文关键词缓存验证](D:/gangyiAI-library/verification/actual-keyword-cache/summary.json)
+- [实际明确刷新及旧快照保留](D:/gangyiAI-library/verification/actual-explicit-refresh/summary.json)
 - [原生解析、缓存及暂停回归](D:/gangyiAI-library/verification/library-bounded-source-tests.log)
 - [安装脚本](D:/gangyiAI-library/scripts/test_windows_release.ps1)
-- [最终整合构建、26项回归与打包记录](D:/gangyiAI-library/verification/merged-teaching-boundary-package.log)
+- [最新构建、26项回归与打包记录](D:/gangyiAI-library/verification/library-final-package.log)
+- [本机安装与安装文件校验](D:/gangyiAI-library/verification/local-library-install-result.json)
 - [上轮整合包原生安装验收](D:/gangyiAI-library/verification/merged-native-install.log)
 - [最终打包文件核对](D:/gangyiAI-library/verification/merged-artifact-identity.json)
 - [真实讲解与题目的阅读报告](D:/gangyiAI-library/verification/five-domains-final/review.html)

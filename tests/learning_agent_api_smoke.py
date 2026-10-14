@@ -231,7 +231,8 @@ def main(executable):
                 assert db.execute("SELECT count(*) FROM LearningInteraction WHERE kind='practice'").fetchone()[0] == question_count, '讲解中断不能提交暂存评价'
             api('/api/learn/exposure', dict(taskId=interrupted['id'], seq=interrupted['seq']))
             partial = api('/api/learning-agent/lesson?lessonId=' + lesson)
-            assert any(item.get('partial') for item in partial['sections'][0]['dialog']), '实际看过的中断讲解应恢复'
+            assert not any(item.get('taskId') == interrupted['id'] for item in partial['sections'][0]['dialog']), '未通过完整校验的中断回复不能登记为学生看过的讲解'
+            assert interrupted['activity']['phase'] in ('receiving', 'failed'), '保留真实接收或失败进度，不公开未验证文字'
             ProtocolAI.repaired.add('interrupted-answer')
             api('/api/learning-agent/control', dict(command='retry', taskId=interrupted['id']))
             wait(interrupted['id'], 'waiting_student')
