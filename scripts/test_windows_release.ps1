@@ -1,6 +1,7 @@
 param(
     [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
     [switch]$TeachingPreview,
+    [switch]$LibraryPreview,
     [switch]$AllowLocalUserData
 )
 
@@ -8,11 +9,12 @@ $ErrorActionPreference = 'Stop'
 $cmakeText = Get-Content -Raw -LiteralPath (Join-Path $RepoRoot 'CMakeLists.txt')
 if ($cmakeText -notmatch 'project\(gangyiAI VERSION ([0-9.]+)') { throw '无法读取版本号' }
 $version = $Matches[1]
-if ($env:GITHUB_ACTIONS -ne 'true' -and -not $AllowLocalUserData -and -not $TeachingPreview) {
+if ($TeachingPreview -and $LibraryPreview) { throw '一次只验收一种试用安装标识' }
+if ($env:GITHUB_ACTIONS -ne 'true' -and -not $AllowLocalUserData -and -not $TeachingPreview -and -not $LibraryPreview) {
     throw '发布验收会安装和卸载程序，并清理当前用户配置。仅可在 GitHub Actions 中运行；确需在隔离账户运行时请显式传入 -AllowLocalUserData。'
 }
-$installerName = if ($TeachingPreview) { "gangyiAI-teaching-preview1-v$version-x64.exe" } else { "gangyiAI-setup-v$version-x64.exe" }
-$portableName = if ($TeachingPreview) { "gangyiAI-teaching-preview1-v$version-x64.zip" } else { "gangyiAI-portable-v$version-x64.zip" }
+$installerName = if ($TeachingPreview) { "gangyiAI-teaching-preview1-v$version-x64.exe" } elseif ($LibraryPreview) { "gangyiAI-learning-preview1-v$version-x64.exe" } else { "gangyiAI-setup-v$version-x64.exe" }
+$portableName = if ($TeachingPreview) { "gangyiAI-teaching-preview1-v$version-x64.zip" } elseif ($LibraryPreview) { "gangyiAI-learning-preview1-v$version-x64.zip" } else { "gangyiAI-portable-v$version-x64.zip" }
 $installer = Join-Path $RepoRoot "dist\installer\$installerName"
 $portable = Join-Path $RepoRoot "dist\installer\$portableName"
 $checksumFile = Join-Path $RepoRoot 'dist\installer\SHA256SUMS.txt'
@@ -32,7 +34,7 @@ foreach ($artifact in @($installer, $portable)) {
 $temporary = Join-Path ([System.IO.Path]::GetTempPath()) ("GangyiAI-CI-" + [guid]::NewGuid().ToString('N'))
 $portableDir = Join-Path $temporary 'portable'
 $installDir = Join-Path $temporary 'installed'
-$profileName = if ($TeachingPreview) { 'GangyiAI-Teaching-Preview' } else { 'GangyiAI' }
+$profileName = if ($TeachingPreview) { 'GangyiAI-Teaching-Preview' } elseif ($LibraryPreview) { 'GangyiAI-Library-Preview' } else { 'GangyiAI' }
 $dataDir = Join-Path $env:LOCALAPPDATA "$profileName\data"
 $marker = Join-Path $dataDir 'ci-preserve.marker'
 New-Item -ItemType Directory -Force -Path $temporary, $portableDir, $dataDir | Out-Null
@@ -81,7 +83,7 @@ try {
         if ($logo.Headers.'Content-Type' -ne 'image/png') { throw '校徽 MIME 类型错误' }
         $background = Invoke-WebRequest "http://127.0.0.1:$port/campus-background.jpg" -UseBasicParsing
         if ($background.Headers.'Content-Type' -ne 'image/jpeg') { throw '校园背景图 MIME 类型错误' }
-        foreach ($resource in @('app-layout.css', 'app-layout.js', 'profile-radar.js', 'profile-radar.css', 'classroom.js', 'classroom.css', 'ask.js', 'chat-render.js', 'user-center.js', 'learning-agent.js', 'agent-shell.js', 'agent-classroom.html', 'agent-classroom.js', 'agent-classroom.css', 'agent-prepare.html', 'agent-prepare.js',
+        foreach ($resource in @('library.js', 'library.css', 'vendor/readability/Readability.js', 'app-layout.css', 'app-layout.js', 'profile-radar.js', 'profile-radar.css', 'classroom.js', 'classroom.css', 'ask.js', 'chat-render.js', 'user-center.js', 'learning-agent.js', 'agent-shell.js', 'agent-classroom.html', 'agent-classroom.js', 'agent-classroom.css', 'agent-prepare.html', 'agent-prepare.js',
                                 'vendor/katex/katex.min.js', 'vendor/katex/katex.min.css',
                                 'vendor/katex/fonts/KaTeX_Main-Regular.woff2')) {
             $response = Invoke-WebRequest "http://127.0.0.1:$port/$resource" -UseBasicParsing

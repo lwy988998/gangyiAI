@@ -52,7 +52,7 @@
       '<a class="ma-button secondary" href="/my-ai/library?'+new URLSearchParams({id:item.id,courseId:courseId()})+'">查看依据</a></div></article>').join(''):
       '<p class="ma-empty">还没有符合筛选条件的资料。告诉AI你的学习目标，或添加公开资料网址。</p>';
     host.querySelectorAll('[data-favorite]').forEach(b=>b.onclick=action(async()=>{const item=data.items.find(x=>x.id===b.dataset.favorite);await api({id:item.id,version:item.version,favorite:!item.favorite});await list();}));
-    const usage=document.getElementById('library-usage');if(usage)usage.textContent='实际博查请求 '+data.usage.searchRequests+' 次 · 正文获取 '+data.usage.fetchRequests+' 次 · 缓存命中 '+data.usage.cacheHits+' 次 · 失败记录 '+data.usage.failures+' 条';
+    const usage=document.getElementById('library-usage');if(usage)usage.textContent='实际博查请求 '+data.usage.searchRequests+' 次 · 正文获取 '+data.usage.fetchRequests+' 次 · 缓存命中 '+data.usage.cacheHits+' 次 · 部分读取 '+(data.usage.partialReads||0)+' 条 · 失败记录 '+data.usage.failures+' 条';
   }
   async function detail() {
     let data=await api(null,{id:params.get('id'),...(params.get('snapshotId')?{snapshotId:params.get('snapshotId')}:{}),courseId:params.get('courseId')||''});
@@ -66,7 +66,7 @@
       button(data.favorite?'取消收藏':'收藏','favorite')+button(data.excluded?'允许使用':'排除此资料','exclude')+
       button(snapshot?'更新原文':'读取原文','read')+button('选为教学资料','select')+'</div></article><article class="ma-card" id="library-task" aria-live="polite"></article>'+
       '<article class="ma-card"><h2>保存的原文依据</h2>'+
-      (snapshot?'<p class="ma-note">本次引用固定在此快照；新资料不会改写已有课堂依据。'+(snapshot.automatic===true?' · 自动字幕，可能有识别错误':snapshot.kind==='captions'?' · 字幕生成方式未提供':'')+'</p>'+
+      (snapshot?'<p class="ma-note">本次引用固定在此快照；新资料不会改写已有课堂依据。'+(snapshot.automatic===true?' · 自动字幕，可能有识别错误':snapshot.automatic===false?' · 人工字幕':snapshot.kind==='captions'?' · 字幕生成方式未提供':'')+'</p>'+
         snapshot.segments.map(segment=>'<section class="library-segment" id="'+esc(segment.id)+'"><p class="ma-note">'+esc(segment.page?'第 '+segment.page+' 页':segment.start!=null?'字幕 '+segment.start+'–'+segment.end+' 秒':'段落 '+segment.id)+'</p><p class="library-source-text">'+esc(segment.text)+'</p></section>').join(''):
         '<p class="ma-empty">暂无可核对的原文。可发起读取，读取失败会保留链接与缺失说明。</p>')+'</article>';
     root.querySelectorAll('[data-operation]').forEach(b=>b.onclick=action(async()=>{

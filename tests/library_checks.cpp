@@ -2,6 +2,8 @@
 #undef NDEBUG
 #endif
 #include "learning_library.hpp"
+#include "learning_agent.hpp"
+#include "agent_prompt.hpp"
 #include <cassert>
 #include <iostream>
 using Json = nlohmann::json;
@@ -43,7 +45,57 @@ void runLibraryChecks() {
     assert(jsonCaptions["status"]=="read"&&jsonCaptions["segments"][0]["id"]=="t1");
     assert(gangyi::libraryParseCaptions("WEBVTT\n\n00:07.000 --> 00:03.000\n错误时间范围\n","text/vtt")["segments"].empty());
     assert(gangyi::libraryParseCaptions(R"({"body":[{"from":-1,"to":"invalid","content":"不能用于引用"}]})","application/json")["segments"].empty());
+    assert(gangyi::libraryParseCaptions(R"({"automatic":true,"body":[{"from":0,"to":1,"content":"自动字幕"}]})","application/json")["automatic"]==true);
+    assert(gangyi::libraryParseCaptions("WEBVTT\n\n"+std::string(400,'9')+":00:01.000 --> 00:02.000\n超长时间不可引用\n","text/vtt")["segments"].empty());
+    gangyi::LibraryDocument transcript; transcript.mime="text/plain"; transcript.body="公开文字稿第一段。\n\n第二段不伪造时间戳。";
+    const auto parsedTranscript=gangyi::libraryParseDocument(transcript);
+    assert(parsedTranscript["segments"].size()==2&&!parsedTranscript["segments"][0].contains("start"));
     assert(gangyi::libraryUsage(db)["searchRequests"]==0&&gangyi::libraryUsage(db)["tokens"].is_null());
+    assert(db.saveMyAIRecord({"partial-read","library-usage",Json{{"kind","fetch"},{"status","partial"},{"attempts",1},{"cached",false}}.dump(),"2026-10-14",0},0));
+    assert(gangyi::libraryUsage(db)["partialReads"]==1&&gangyi::libraryUsage(db)["failures"]==0&&gangyi::libraryUsage(db)["fetchRequests"]==1);
     assert(db.listInteractions().empty()&&db.listMastery().empty());
+    Json originalContext = {{"event", {{"type", "library_research"}}}, {"personalCenter", {{"preferences", "先解释再练习"}}},
+        {"savedLibrary", {{"sources", Json::array({{{"id", id}, {"snapshotId", "snap-first"}, {"publishedAt", nullptr},
+            {"choice", {{"manual", true}, {"state", "selected"}}}, {"segments", first["segments"]}}})}}}};
+    const auto promptContext=gangyi::agentPromptContext(originalContext,false);
+    assert(promptContext["personalCenter"]==originalContext["personalCenter"]&&promptContext["savedLibrary"]["sources"][0]["choice"]["manual"]==true);
+    assert(!promptContext["savedLibrary"]["sources"][0].contains("segments")&&originalContext["savedLibrary"]["sources"][0].contains("segments"));
+    const Json readResult={{"snapshot",first}};
+    const Json completed={{"read-1",{{"encoded",Json{{"tool","read_resource"},{"args",{{"sourceId",id}}}}.dump()},{"result",readResult}}}};
+    const Json messages=Json::array({{{"role","user"},{"content",Json{{"toolResults",Json::array({{{"id","read-1"},{"result",readResult}}})}}.dump()}},
+        {{"role","user"},{"content",Json{{"completedActions",completed},{"toolError","原始错误必须保留"}}.dump()}}});
+    const auto compactHistory=gangyi::agentPromptHistory(messages,completed,{"read_resource"});
+    const auto firstMessage=Json::parse(compactHistory[0].at("content").get<std::string>()),lastMessage=Json::parse(compactHistory[1].at("content").get<std::string>());
+    assert(firstMessage["toolResults"][0]["result"]==readResult&&lastMessage["completedActions"]["read-1"]["result"]["unchangedFrom"]=="read-1");
+    assert(lastMessage["toolError"]=="原始错误必须保留"&&messages[1].at("content").get<std::string>().find("snapshot")!=std::string::npos);
+    const gangyi::AgentAccess access{"local-profile", {}};
+    const auto task=gangyi::agentSubmit(db,access,{{"type","library_research"},{"goal","核验假引用拒绝"},{"requestId","invalid-citation"}});
+    gangyi::LearningAgent guard(":memory:",[&](const auto&, const auto& sink){
+        gangyi::AIResult result;result.model="引用拒绝夹具";result.finishReason="stop";
+        result.content=Json{{"message","UNVERIFIED-CITATION-MUST-NOT-APPEAR"},{"materialOrigin","source_based"},
+            {"citations",Json::array({{{"sourceId","missing-source"},{"snapshotId","missing-snapshot"},{"segmentId","s1"}}})},
+            {"actions",Json::array()},{"state","completed"}}.dump();sink(result.content);return result;
+    });
+    guard.process(db,task.at("id"));
+    const auto rejected=gangyi::agentView(db,access,task.at("id"));
+    assert(rejected["status"]=="failed"&&rejected.dump().find("UNVERIFIED-CITATION-MUST-NOT-APPEAR")==std::string::npos);
+    detail=gangyi::libraryRead(db,{{"id",id}});
+    gangyi::libraryWrite(db,{{"id",id},{"version",detail["version"]},{"excluded",false}});
+    const auto pausedTask=gangyi::agentSubmit(db,access,{{"type","library_research"},{"goal","验证已读步骤暂停恢复"},{"requestId","library-resume"}});
+    int resumeCalls=0;
+    gangyi::LearningAgent resumeGuard(":memory:",[&](const auto&,const auto& sink){
+        ++resumeCalls;
+        if(resumeCalls==2)gangyi::agentControl(db,access,{{"command","pause"},{"taskId",pausedTask.at("id")}});
+        Json decision={{"message",""},{"actions",Json::array({{{"id","saved-read"},{"tool","read_resource"},{"args",{{"sourceId",id}}}}})},
+            {"state",resumeCalls==1?"continue":"completed"}};
+        gangyi::AIResult result;result.model="缓存恢复夹具";result.finishReason="stop";result.content=decision.dump();sink(result.content);return result;
+    });
+    const auto cacheBefore=gangyi::libraryUsage(db).at("cacheHits").get<int>();
+    resumeGuard.process(db,pausedTask.at("id"));
+    assert(gangyi::agentView(db,access,pausedTask.at("id"))["status"]=="paused");
+    gangyi::agentControl(db,access,{{"command","resume"},{"taskId",pausedTask.at("id")}});
+    resumeGuard.process(db,pausedTask.at("id"));
+    assert(gangyi::agentView(db,access,pausedTask.at("id"))["status"]=="ready"&&resumeCalls==3);
+    assert(gangyi::libraryUsage(db).at("cacheHits").get<int>()==cacheBefore+1&&gangyi::libraryUsage(db)["fetchRequests"]==1);
     std::cout<<"资料引用、快照、排除、冲突及字幕专项检查通过\n";
 }

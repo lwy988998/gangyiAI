@@ -84,6 +84,20 @@ int main(int argc, char** argv) {
         const std::string lessonId = "eval-lesson", courseId = "eval-course";
         db.insert(gangyi::Course{courseId, access.scopeId, {}, test.at("title"), "deep", test.at("title"),
             {}, "ai", "active", "2026-10-13", "2026-10-13"});
+        // 联网资料对照从实际读取的隔离档案复制固定原文；基线不注入此新能力。
+        if (test.value("libraryDatabase", Json()).is_string()) {
+            gangyi::Database sources; sources.open(test.at("libraryDatabase").get<std::string>());
+            const auto ids = test.at("librarySourceIds").get<std::vector<std::string>>();
+            for (const auto& id : ids) {
+                const auto source = sources.myAIRecord(id);
+                if (!source || source->kind != "library-source") throw std::runtime_error("验收原文来源不存在");
+                auto payload = Json::parse(source->payload); payload["courseIds"] = {courseId};
+                const auto snapshot = sources.myAIRecord(payload.at("snapshotId"));
+                if (!snapshot || snapshot->kind != "library-snapshot") throw std::runtime_error("验收原文尚未读取");
+                db.saveMyAIRecord({source->id, source->kind, payload.dump(), source->updatedAt, 0}, 0);
+                db.saveMyAIRecord({snapshot->id, snapshot->kind, snapshot->payload, snapshot->updatedAt, 0}, 0);
+            }
+        }
         Json sections = Json::array();
         sections.push_back({{"id", "concept"}, {"kind", "explanation"}, {"title", "学过的相关概念"},
             {"body", test.at("concept")}, {"version", 1}, {"helpType", "explanation"}});

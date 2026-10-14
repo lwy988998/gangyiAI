@@ -27,6 +27,10 @@ void createDatabase(const std::filesystem::path& path) {
         "CREATE TABLE CourseProgress(id TEXT PRIMARY KEY);"
         "CREATE TABLE User(id TEXT PRIMARY KEY);"
         "CREATE TABLE UserSession(id TEXT PRIMARY KEY);"
+        "CREATE TABLE MyAIRecord(id TEXT PRIMARY KEY,kind TEXT NOT NULL,payload TEXT NOT NULL,updatedAt TEXT NOT NULL,version INTEGER NOT NULL);"
+        "INSERT INTO MyAIRecord VALUES('fixed-source','library-source','{\"snapshotId\":\"fixed-snapshot\"}','2026-10-14',3);"
+        "INSERT INTO MyAIRecord VALUES('fixed-snapshot','library-snapshot','{\"segments\":[{\"id\":\"p1-1\",\"page\":1,\"text\":\"saved evidence\"}]}','2026-10-14',1);"
+        "INSERT INTO MyAIRecord VALUES('manual-choice','library-choice','{\"manual\":true,\"state\":\"excluded\"}','2026-10-14',2);"
         "INSERT INTO Course VALUES('course-1');", nullptr, nullptr, nullptr);
     sqlite3_close(database);
 }
@@ -73,6 +77,16 @@ int main() {
                        &countStatement, nullptr);
     expect(sqlite3_step(countStatement) == SQLITE_ROW && sqlite3_column_int(countStatement, 0) == 1,
            "恢复后课程数据完整");
+    sqlite3_finalize(countStatement);
+    sqlite3_prepare_v2(restoredDatabase, "SELECT payload,version FROM MyAIRecord WHERE id='fixed-snapshot'", -1, &countStatement, nullptr);
+    expect(sqlite3_step(countStatement) == SQLITE_ROW && std::string(reinterpret_cast<const char*>(sqlite3_column_text(countStatement,0))) ==
+        "{\"segments\":[{\"id\":\"p1-1\",\"page\":1,\"text\":\"saved evidence\"}]}" && sqlite3_column_int(countStatement,1) == 1,
+        "备份恢复保留固定原文、页码和版本");
+    sqlite3_finalize(countStatement);
+    sqlite3_prepare_v2(restoredDatabase, "SELECT payload,version FROM MyAIRecord WHERE id='manual-choice'", -1, &countStatement, nullptr);
+    expect(sqlite3_step(countStatement) == SQLITE_ROW && std::string(reinterpret_cast<const char*>(sqlite3_column_text(countStatement,0))) ==
+        "{\"manual\":true,\"state\":\"excluded\"}" && sqlite3_column_int(countStatement,1) == 2,
+        "备份恢复保留用户排除和选择版本");
     sqlite3_finalize(countStatement);
     sqlite3_close(restoredDatabase);
     {

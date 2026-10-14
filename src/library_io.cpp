@@ -75,10 +75,11 @@ int progress(void* raw, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
     try { return state.cancelled && *state.cancelled && (*state.cancelled)() ? 1 : 0; } catch (...) { return 1; }
 }
 double captionTime(const std::string& value) {
-    if (!std::regex_match(value, std::regex(R"((\d{2,}:)?[0-5]\d:[0-5]\d[.,]\d{3})"))) return -1;
+    if (value.size() > 32 || !std::regex_match(value, std::regex(R"((\d{2,}:)?[0-5]\d:[0-5]\d[.,]\d{3})"))) return -1;
     auto raw = value; std::replace(raw.begin(), raw.end(), ',', '.');
     std::vector<double> parts; std::istringstream input(raw); std::string part;
-    while (std::getline(input, part, ':')) parts.push_back(std::stod(part));
+    try { while (std::getline(input, part, ':')) parts.push_back(std::stod(part)); }
+    catch (const std::exception&) { return -1; }
     double result = 0; for (const auto number : parts) result = result * 60 + number; return result;
 }
 }
@@ -199,6 +200,22 @@ Json libraryParseDocument(const LibraryDocument& document, const LibraryCancel& 
     if (!document.error.empty()) return {{"status", "unreadable"}, {"reason", document.error}, {"segments", Json::array()}};
     auto captions = libraryParseCaptions(document.body, document.mime);
     if (captions["status"] == "read") return captions;
+    if (document.mime.rfind("text/plain", 0) == 0) {
+        Json result = {{"status", "unreadable"}, {"kind", "transcript"}, {"segments", Json::array()},
+            {"coverage", "已读取公开文字稿；未提供时间戳时仅定位文字段落"}};
+        std::istringstream lines(document.body); std::string line, paragraph;
+        const auto append = [&] {
+            if (paragraph.empty()) return;
+            result["segments"].push_back({{"id", "s" + std::to_string(result["segments"].size() + 1)}, {"text", paragraph}});
+            paragraph.clear();
+        };
+        while (std::getline(lines, line)) {
+            if (line.empty() || paragraph.size() > 2600) append();
+            if (!line.empty()) paragraph += (paragraph.empty() ? "" : "\n") + line;
+        }
+        append(); if (!result["segments"].empty()) result["status"] = "read";
+        return result;
+    }
 #ifdef _WIN32
     wchar_t executable[MAX_PATH]{}; GetModuleFileNameW(nullptr, executable, MAX_PATH);
     auto base = std::filesystem::path(executable).parent_path();
@@ -215,16 +232,21 @@ Json libraryParseDocument(const LibraryDocument& document, const LibraryCancel& 
     auto command = L"\"" + helper.wstring() + L"\" \"" + input.wstring() + L"\" \"" + output.wstring() + L"\"";
     STARTUPINFOW startup{}; startup.cb = sizeof(startup); startup.dwFlags = STARTF_USESHOWWINDOW; startup.wShowWindow = SW_HIDE;
     PROCESS_INFORMATION process{};
-    if (!CreateProcessW(helper.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, base.c_str(), &startup, &process))
+    if (!CreateProcessW(helper.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr, base.c_str(), &startup, &process))
         return {{"status", "unreadable"}, {"reason", "reader_start_failed"}, {"segments", Json::array()}};
-    CloseHandle(process.hThread);
     const auto job = CreateJobObjectW(nullptr, nullptr);
+    bool confined = false;
     if (job) {
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
-        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_PROCESS_MEMORY;
-        limits.ProcessMemoryLimit = 768ULL * 1024 * 1024;
-        SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits)); AssignProcessToJobObject(job, process.hProcess);
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_JOB_MEMORY;
+        limits.JobMemoryLimit = 768ULL * 1024 * 1024;
+        confined = SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits)) && AssignProcessToJobObject(job, process.hProcess);
     }
+    if (!confined || ResumeThread(process.hThread) == static_cast<DWORD>(-1)) {
+        TerminateProcess(process.hProcess, 1); CloseHandle(process.hThread); CloseHandle(process.hProcess); if (job) CloseHandle(job);
+        return {{"status", "unreadable"}, {"reason", "reader_isolation_failed"}, {"segments", Json::array()}};
+    }
+    CloseHandle(process.hThread);
     const auto began = std::chrono::steady_clock::now(); bool interrupted = false;
     while (WaitForSingleObject(process.hProcess, 100) == WAIT_TIMEOUT) {
         if ((cancelled && cancelled()) || std::chrono::steady_clock::now() - began > std::chrono::seconds(60)) {

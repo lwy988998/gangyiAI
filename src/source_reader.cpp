@@ -101,7 +101,6 @@ void delivered(const char* id, const char* arguments, void* context) {
     webview_terminate(state.view);
 }
 void html(const std::string& bytes, const Json& input, const std::filesystem::path& root, const std::filesystem::path& output) {
-    const auto parser = read(root / "public/vendor/readability/JSDOMParser.js");
     const auto readability = read(root / "public/vendor/readability/Readability.js");
     const auto body = decode(bytes, input.value("mime", ""));
     const auto view = webview_create(0, nullptr); if (!view) throw std::runtime_error("网页解析环境不可用");
@@ -111,28 +110,51 @@ void html(const std::string& bytes, const Json& input, const std::filesystem::pa
     webview_bind(view, "deliver", delivered, &state);
     webview_set_html(view, "<!doctype html><html><head><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline'\"></head><body></body></html>");
     // 外部HTML仅传给纯数据DOM解析器，绝不导航到外部网站或执行网页脚本。
-    const auto script = parser + "\n" + readability + "\n(() => { try { const raw=" + Json(body).dump() +
+    const auto script = readability + "\n(() => { try { const raw=" + Json(body).dump() +
         "; const url=" + input.at("url").dump() + R"JS(;
-        const document = new JSDOMParser().parse(raw); document.documentURI=url; document.baseURI=url;
-        const article = new Readability(document).parse();
         const original = new DOMParser().parseFromString(raw, 'text/html');
+        // 数学语义和辅助文本不能拼成连续数字；优先保留原网页的LaTeX，其次转换可辨认的MathML。
+        let formulaMissing=false;
+        const mathText=node=>{
+          const children=[...node.children], parts=children.map(mathText), tag=node.localName;
+          if(tag==='annotation'||tag==='annotation-xml')return '';
+          if(tag==='semantics')return children.length?mathText(children[0]):'';
+          if(tag==='mfrac'&&parts.length===2)return '('+parts[0]+')/('+parts[1]+')';
+          if(tag==='msup'&&parts.length===2)return '('+parts[0]+')^('+parts[1]+')';
+          if(tag==='msub'&&parts.length===2)return '('+parts[0]+')_('+parts[1]+')';
+          if(tag==='msqrt')return 'sqrt('+parts.join('')+')';
+          if(tag==='mroot'&&parts.length===2)return '('+parts[0]+')^(1/('+parts[1]+'))';
+          if(['math','mrow','mstyle','mpadded','mphantom'].includes(tag))return parts.join('');
+          if(['mi','mn','mo','mtext','ms'].includes(tag))return node.textContent.trim();
+          if(tag==='mspace')return ' ';
+          formulaMissing=true;return '[公式未完整提取，请查看原网页]';
+        };
+        for(const math of original.querySelectorAll('math')) {
+          const tex=[...math.querySelectorAll('annotation')].find(a=>(a.getAttribute('encoding')||'').includes('tex'))?.textContent?.trim();
+          const replacement=original.createElement('span');replacement.textContent=tex?'\\('+tex+'\\)':mathText(math);
+          math.replaceWith(replacement);
+        }
+        const article = new Readability(original.cloneNode(true)).parse();
         const tracks = [...original.querySelectorAll('track[src]')].filter(t=>['subtitles','captions'].includes(t.getAttribute('kind')||'subtitles')).map(t=>({
           url:new URL(t.getAttribute('src'),url).href,language:t.getAttribute('srclang')||'',title:t.getAttribute('label')||'公开字幕'}));
         if(!article || !article.textContent?.trim()) { deliver(JSON.stringify({status:'unreadable',kind:'html',reason:'未提取到正文，可能需登录、动态加载或为视频页面',segments:[],tracks})); return; }
         const parsed = new DOMParser().parseFromString(article.content,'text/html');
-        const segments=[]; let index=0,used=0;
-        for(const node of parsed.querySelectorAll('h1,h2,h3,h4,p,li,pre,blockquote,table')) {
+        const segments=[]; let index=0,used=0,truncated=false;
+        const blocks='h1,h2,h3,h4,p,dt,dd,li,pre,blockquote,table,div';
+        for(const node of parsed.querySelectorAll(blocks)) {
           if(node.parentElement?.closest('li,pre,blockquote,table'))continue;
-          const text=node.textContent.trim(); if(!text)continue;
-          if(used+text.length>2000000)break;
+          if(['DIV','DD'].includes(node.tagName)&&node.querySelector(blocks))continue;
+          const text=(node.tagName==='TABLE'?[...node.querySelectorAll('tr')].map(row=>[...row.querySelectorAll('th,td')].map(cell=>cell.textContent.trim()).join(' | ')).join('\n'):node.textContent).trim(); if(!text)continue;
+          if(used+text.length>2000000){truncated=true;break;}
           // 大段落继续拆分，使模型读取和原文定位都能分段进行。
           for(let at=0;at<text.length;at+=3000) { const piece=text.slice(at,at+3000); segments.push({id:'s'+(++index),text:piece}); used+=piece.length; }
         }
         if(!segments.length)segments.push({id:'s1',text:article.textContent.slice(0,6000)});
+        const shortText=segments.reduce((total,s)=>total+s.text.length,0)<350;
         const published = article.publishedTime || original.querySelector('meta[property="article:published_time"],meta[name="date"]')?.content || null;
         const updated = original.querySelector('meta[property="article:modified_time"],meta[itemprop="dateModified"]')?.content || null;
-        deliver(JSON.stringify({status:used>=2000000?'partial':'read',kind:'html',title:article.title,author:article.byline||null,
-          publishedAt:published,sourceUpdatedAt:updated,segments,tracks,coverage:'已提取网页正文；未执行网页脚本，图片和音视频不在本次文字依据内'}));
+        deliver(JSON.stringify({status:truncated||formulaMissing||shortText?'partial':'read',kind:'html',title:article.title,author:article.byline||null,
+          publishedAt:published,sourceUpdatedAt:updated,segments,tracks,coverage:'已提取网页正文；未执行网页脚本，图片和音视频不在本次文字依据内'+(formulaMissing?'；部分公式未完整提取，已在原位置标明':'' )+(shortText?'；文字较少，可能只包含表格或局部片段，不能据此确认全文已读':'' )}));
         } catch(error) { deliver(JSON.stringify({status:'unreadable',reason:'正文提取失败：'+error.message,segments:[]})); } })();
         )JS";
     webview_eval(view, script.c_str()); webview_run(view);

@@ -9,6 +9,18 @@ namespace gangyi {
 inline nlohmann::json agentPromptContext(nlohmann::json context, bool assessment) {
     using Json = nlohmann::json;
     const auto event = context.value("event", Json::object());
+    if (event.value("type", "") == "library_research") {
+        // 检索过程的原文已在工具结果中按段返回，避免每轮再携带整批候选的正文。
+        auto& library = context["savedLibrary"];
+        for (auto& source : library["sources"]) {
+            Json brief = Json::object();
+            for (const auto* key : {"id", "title", "url", "source", "type", "language", "publishedAt", "sourceUpdatedAt",
+                                   "readStatus", "snapshotId", "lastCheckedAt", "contentGroup", "choice"})
+                if (source.contains(key)) brief[key] = source.at(key);
+            brief["detailsTool"] = "read_resource";
+            source = std::move(brief);
+        }
+    }
     if (event.value("lessonId", "").empty()) return context;
     const auto courseId = event.value("courseId", "");
     Json courses = Json::array();
@@ -32,7 +44,7 @@ inline nlohmann::json agentPromptContext(nlohmann::json context, bool assessment
     context.erase("studyPlan"); context.erase("adjustments"); context.erase("reviews");
     context["contextAvailability"] = {{"omittedFeedback", omitted}, {"historyTool", "read_history"},
         {"fullContextTool", "read_context"}, {"outlineTool", "read_outline"}};
-    if (assessment) context.erase("abilities");
+    if (assessment) { context.erase("abilities"); context.erase("savedLibrary"); }
     return context;
 }
 
@@ -45,16 +57,22 @@ inline nlohmann::json agentPromptHistory(const nlohmann::json& messages, const n
     for (auto& message : result) {
         if (message.value("role", "") != "user") continue;
         auto content = Json::parse(message.value("content", ""), nullptr, false);
-        if (!content.is_object() || !content.value("toolResults", Json()).is_array()) continue;
-        for (auto& item : content["toolResults"]) {
-            const auto id = item.value("id", "");
-            if (!actions.contains(id)) continue;
+        if (!content.is_object()) continue;
+        const auto compact = [&](const std::string& id, Json& value) {
+            if (!actions.contains(id)) return;
             const auto encoded = Json::parse(actions.at(id).value("encoded", ""), nullptr, false);
-            if (!encoded.is_object() || !readOnlyTools.count(encoded.value("tool", ""))) continue;
-            const auto key = encoded.dump() + ":" + item.value("result", Json()).dump();
+            if (!encoded.is_object() || !readOnlyTools.count(encoded.value("tool", ""))) return;
+            const auto key = encoded.dump() + ":" + value.dump();
             const auto previous = seen.find(key);
             if (previous == seen.end()) seen[key] = id;
-            else item["result"] = {{"unchangedFrom", previous->second}};
+            else value = {{"unchangedFrom", previous->second}};
+        };
+        if (content.value("toolResults", Json()).is_array()) for (auto& item : content["toolResults"]) {
+            compact(item.value("id", ""), item["result"]);
+        }
+        // 失败恢复记录保留原始错误和已执行的行动；已读正文用之前的真实工具结果引用。
+        if (content.value("completedActions", Json()).is_object()) for (auto& item : content["completedActions"].items()) {
+            if (item.value().contains("result")) compact(item.key(), item.value()["result"]);
         }
         message["content"] = content.dump();
     }
