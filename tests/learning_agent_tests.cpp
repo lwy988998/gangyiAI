@@ -27,6 +27,7 @@ gangyi::AIResult output(const Json& value, const std::function<bool(const std::s
 }
 #include "teaching_evidence_checks.hpp"
 #include "evaluation_feedback_checks.hpp"
+#include "demonstrated_question_checks.hpp"
 int main() {
     const auto root = std::filesystem::temp_directory_path() /
         ("gangyi-agent-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -609,6 +610,7 @@ int main() {
     }
     runTeachingEvidenceChecks(root / "teaching.db");
     runEvaluationFeedbackChecks(root / "evaluation-feedback.db");
+    runDemonstratedQuestionChecks(root / "demonstrated-question.db");
     std::filesystem::remove_all(root);
     std::cout << "多步 AI 主控、幂等、访问隔离、失败停止与事务回滚测试通过\n";
 }

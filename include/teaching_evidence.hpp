@@ -1,5 +1,6 @@
 #pragma once
 #include "question_evidence.hpp"
+#include <algorithm>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
 #include <string>
@@ -23,6 +24,35 @@ inline std::string teachingQuestionIdentity(const std::string& scope, const nloh
         if (!material.empty()) identity["materials"] = material;
     }
     return questionIdentity(scope, identity);
+}
+// 完整示范可以使用尚未布置的另一题；只保存可见题干、选项和材料来关联以后的复做。
+inline nlohmann::json checkedDemonstrations(const nlohmann::json& content) {
+    using Json = nlohmann::json;
+    const auto examples = content.value("demonstratedQuestions", Json::array());
+    if (!examples.is_array()) throw std::invalid_argument("demonstratedQuestions 须为已完整示范的题目快照列表，没有示范时用空列表");
+    Json result = Json::array();
+    for (const auto& example : examples) {
+        if (!example.is_object() || !example.value("question", Json()).is_string() ||
+            example.at("question").get<std::string>().find_first_not_of(" \t\r\n") == std::string::npos)
+            throw std::invalid_argument("示范题快照须包含完整非空 question 题干，不能使用答案或题目标识代替");
+        Json snapshot = {{"question", example.at("question")}};
+        if (example.contains("options")) {
+            if (!example.at("options").is_array()) throw std::invalid_argument("示范题 options 须为选项列表");
+            for (const auto& option : example.at("options")) if (!option.is_string() || option.get<std::string>().empty())
+                throw std::invalid_argument("示范题选项须为非空文字");
+            snapshot["options"] = example.at("options");
+        }
+        if (example.contains("materials")) snapshot["materials"] = teachingMaterialSnapshot(example.at("materials"));
+        if (std::find(result.begin(), result.end(), snapshot) == result.end()) result.push_back(std::move(snapshot));
+    }
+    return result;
+}
+inline bool matchesDemonstration(const nlohmann::json& content, const std::string& course, const nlohmann::json& question) {
+    const auto examples = content.value("demonstratedQuestions", nlohmann::json::array());
+    if (!examples.is_array()) return false;
+    for (const auto& example : examples) if (example.is_object() && example.value("question", nlohmann::json()).is_string() &&
+        teachingQuestionIdentity(course, example) == teachingQuestionIdentity(course, question)) return true;
+    return false;
 }
 // 只串联评价卡片公开的文字，不计入未展示的补讲方向或私有评分标准。
 inline std::string evaluationFeedbackText(const nlohmann::json& value) {
