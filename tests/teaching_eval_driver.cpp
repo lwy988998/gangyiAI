@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <set>
 #include <cstdlib>
 #ifdef _WIN32
@@ -20,7 +21,7 @@ using Json = nlohmann::json;
 // 仅开发验收使用：请求前预留输入字节上界、输出和一次SDK兼容重试，未知用量不退款。
 class EvaluationBudget {
     std::filesystem::path file_; std::size_t reservation_ = 0, requestUpper_ = 0;
-    std::set<std::string> previous_;
+    std::map<std::string, std::string> previous_;
     Json read() const { std::ifstream input(file_); Json value; input >> value; return value; }
     void write(const Json& value) const { std::ofstream output(file_); output << value.dump(2); }
     struct Lock {
@@ -51,12 +52,12 @@ public:
         if(value.value("usedTokens",0ULL)+value.value("reservedTokens",0ULL)+reservation_>value.at("limitTokens").get<std::size_t>())
             throw gangyi::AIClientError("eval_budget","验收Token预算不足以预留下一次请求，未调用模型");
         value["reservedTokens"]=value.value("reservedTokens",0ULL)+reservation_; write(value);
-        for(const auto& row:db.myAIRecords("usage"))previous_.insert(row.id);
+        for(const auto& row:db.myAIRecords("usage"))previous_[row.id]=row.payload;
     }
     void settle(gangyi::Database& db) {
         if(file_.empty()||reservation_==0)return;
         std::size_t tokens=0,unknown=0,requests=0;
-        for(const auto& row:db.myAIRecords("usage"))if(!previous_.count(row.id)) {
+        for(const auto& row:db.myAIRecords("usage"))if(!previous_.count(row.id)||previous_.at(row.id)!=row.payload) {
             const auto value=Json::parse(row.payload); ++requests;
             if(value.value("tokens",Json()).is_object()&&value.at("tokens").value("total_tokens",Json()).is_number())
                 tokens+=value.at("tokens").at("total_tokens").get<std::size_t>();
@@ -74,6 +75,34 @@ public:
 // 开发验收入口直接调用现有 C++ 主控；不进入安装包。评分标准只来自隔离用例。
 int main(int argc, char** argv) {
     try {
+        if (argc == 3 && std::string(argv[1]) == "--budget-self-test") {
+            // 免费重现旧版本请求ID更新、未知用量和请求前预算拦截。
+            const auto folder = std::filesystem::u8path(argv[2]);
+            if (!std::filesystem::create_directory(folder)) throw std::runtime_error("预算夹具目录已存在");
+            const auto budgetPath = folder / "budget.json";
+            { std::ofstream file(budgetPath); file << Json{{"limitTokens", 100000}, {"usedTokens", 0}, {"reservedTokens", 0}}.dump(); }
+#ifdef _WIN32
+            _putenv_s("GANGYI_EVAL_BUDGET_FILE", budgetPath.u8string().c_str());
+#endif
+            gangyi::Database fixture; fixture.open((folder / "isolated.db").u8string()); fixture.migrate();
+            const auto save = [&](Json tokens) {
+                const auto previous = fixture.myAIRecord("usage:legacy-task:1");
+                if (!fixture.saveMyAIRecord({"usage:legacy-task:1", "usage", Json{{"tokens", tokens}}.dump(), "2026-10-14", 0}, previous ? previous->version : 0))
+                    throw std::runtime_error("预算夹具用量未保存");
+            };
+            save({{"total_tokens", 5}});
+            gangyi::ChatOptions options; options.maxTokens = 1;
+            { EvaluationBudget budget(fixture, options); save({{"total_tokens", 11}}); budget.settle(fixture); }
+            { EvaluationBudget budget(fixture, options); save(nullptr); budget.settle(fixture); }
+            options.maxTokens = 100000; bool rejected = false;
+            try { EvaluationBudget budget(fixture, options); } catch (const gangyi::AIClientError& error) { rejected = error.errorType == "eval_budget"; }
+            Json value; { std::ifstream file(budgetPath); file >> value; }
+            if (!rejected || value.at("usedTokens") != 11 || value.at("reservedTokens") != 1025 ||
+                value.at("httpRequests") != 2 || value.at("unknownUsageRequests") != 1)
+                throw std::runtime_error("预算统计或请求前拦截不符合预期");
+            std::cout << "预算回归通过：旧ID更新计入、未知额度保留、超额请求未执行。\n";
+            return 0;
+        }
         if (argc != 4) throw std::invalid_argument("参数：用例JSON 隔离数据库 输出JSON");
         std::ifstream input(std::filesystem::u8path(argv[1])); Json test; input >> test;
         gangyi::Database db; db.open(argv[2]); db.migrate();
@@ -82,6 +111,8 @@ int main(int argc, char** argv) {
             db.saveMyAIRecord({"preferences", "preferences", test.at("preferences").dump(), "2026-10-13", 0}, 0);
         const gangyi::AgentAccess access{"local-profile", {"eval-course"}};
         const std::string lessonId = "eval-lesson", courseId = "eval-course";
+        const bool resumeExisting = std::getenv("GANGYI_EVAL_RESUME") && db.getClassroomActivity(lessonId).has_value();
+        if (!resumeExisting) {
         db.insert(gangyi::Course{courseId, access.scopeId, {}, test.at("title"), "deep", test.at("title"),
             {}, "ai", "active", "2026-10-13", "2026-10-13"});
         // 联网资料对照从实际读取的隔离档案复制固定原文；基线不注入此新能力。
@@ -114,7 +145,14 @@ int main(int argc, char** argv) {
             {"sourceLearningVersion", db.learningRevision()}, {"teachingFocus", {{"practiceSectionId", "question-0"}}}};
         db.upsert(gangyi::ClassroomActivity{lessonId, courseId, "agent-lesson", lesson.dump(), "2026-10-13", 0, 0});
         gangyi::agentExposeTask(db, access, {{"lessonId", lessonId}, {"sections", {{{"id", "concept"}, {"version", 1}}}}});
+        }
         Json usage = Json::array(), promptAudit = Json::array();
+        if (resumeExisting) for (const auto& row : db.myAIRecords("usage")) {
+            const auto saved = Json::parse(row.payload);
+            usage.push_back({{"model", saved.value("model", "")}, {"tokenUsage", saved.value("tokens", Json())},
+                {"durationMs", saved.value("durationMs", 0)}, {"failed", saved.value("status", "") != "completed"},
+                {"recoveredHttpRecord", true}});
+        }
         gangyi::LearningAgent agent(argv[2], [&](const gangyi::ChatOptions& options, const std::function<bool(const std::string&)>& sink) {
             Json prompt = {{"purpose", options.activity.purpose}, {"inputBytes", 0}};
             Json messages = Json::array(); std::size_t bytes = 0;
@@ -179,7 +217,27 @@ int main(int argc, char** argv) {
             return response;
         });
         gangyi::registerAgentLessonTools(agent);
-        Json turns = Json::array(); index = 0;
+        Json turns = Json::array(); int index = 0;
+        // 每轮留下独立检查点；验收执行器退出也不会丢失已完成对话及实际HTTP用量。
+        const auto checkpoint = [&] {
+            Json interactions = Json::array(), httpRequests = Json::array();
+            for (const auto& row : db.listInteractions()) interactions.push_back({{"id", row.id}, {"kind", row.kind}, {"payload", Json::parse(row.payload)}});
+            for (const auto& row : db.myAIRecords("usage")) {
+                auto request = Json::parse(row.payload); request["id"] = row.id; httpRequests.push_back(std::move(request));
+            }
+            const Json result = {{"caseId", test.at("id")}, {"turns", turns}, {"interactions", interactions}, {"usage", usage},
+                {"httpRequests", httpRequests}, {"httpRequestCount", httpRequests.size()}, {"promptAudit", promptAudit},
+                {"resumedExisting", resumeExisting}, {"lesson", Json::parse(db.getClassroomActivity(lessonId)->payload)},
+                {"profileEvidence", gangyi::agentProfileEvidence(db, access)}};
+            const auto outputPath = std::filesystem::u8path(argv[3]); auto temporaryPath = outputPath; temporaryPath += ".tmp";
+            { std::ofstream output(temporaryPath); output << result.dump(2); }
+#ifdef _WIN32
+            if (!MoveFileExW(temporaryPath.c_str(), outputPath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+                throw std::runtime_error("验收检查点保存失败");
+#else
+            std::filesystem::rename(temporaryPath, outputPath);
+#endif
+        };
         for (auto event : test.at("turns")) {
             auto saved = Json::parse(db.getClassroomActivity(lessonId)->payload);
             if (event.value("sectionId", "") == "$latest") {
@@ -189,8 +247,21 @@ int main(int argc, char** argv) {
             event["courseId"] = courseId; event["lessonId"] = lessonId; event["view"] = "practice";
             event["requestId"] = "eval-turn-" + std::to_string(index++);
             if (event.contains("sectionId")) event["sectionVersion"] = 1;
-            const auto task = gangyi::agentSubmit(db, access, event); agent.process(db, task.at("id"));
+            Json task;
+            if (resumeExisting) for (const auto& savedTask : db.listClassroomActivities(courseId)) {
+                if (savedTask.kind != "agent-task") continue;
+                const auto rawTask = Json::parse(savedTask.payload);
+                if (rawTask.value("event", Json::object()).value("requestId", "") == event.at("requestId")) {
+                    if (!task.is_null()) throw std::runtime_error("同一验收轮存在重复任务，不能自动恢复");
+                    task = rawTask;
+                    event = rawTask.at("event");
+                }
+            }
+            if (task.is_null()) task = gangyi::agentSubmit(db, access, event);
+            const bool alreadyShown = task.value("status", "") == "waiting_student" || task.value("status", "") == "completed" || task.value("status", "") == "ready";
+            if (!alreadyShown) agent.process(db, task.at("id"));
             const auto row = db.getClassroomActivity(task.at("id")); const auto raw = Json::parse(row->payload);
+            if (!alreadyShown) {
             gangyi::agentExposeTask(db, access, {{"taskId", task.at("id")}, {"seq", raw.at("seq")}});
             Json exposed = Json::array(); saved = Json::parse(db.getClassroomActivity(lessonId)->payload);
             for (const auto& section : saved.at("sections")) exposed.push_back({{"id", section.at("id")}, {"version", section.at("version")}});
@@ -199,20 +270,12 @@ int main(int argc, char** argv) {
             for (const auto& evaluation : shownLesson.at("evaluations"))
                 if (!evaluation.value("feedback", "").empty()) evaluations.push_back({{"id", evaluation.at("id")}, {"feedback", evaluation.at("feedback")}, {"complete", true}});
             gangyi::agentExposeTask(db, access, {{"lessonId", lessonId}, {"sections", exposed}, {"evaluations", evaluations}});
+            }
             turns.push_back({{"event", event}, {"task", raw}, {"currentInputs", gangyi::agentContext(db, access, event).at("currentInputs")}});
+            checkpoint();
             if (raw.at("status") == "failed" || raw.at("status") == "superseded") break;
         }
-        Json interactions = Json::array();
-        for (const auto& row : db.listInteractions()) interactions.push_back({{"id", row.id}, {"kind", row.kind}, {"payload", Json::parse(row.payload)}});
-        Json httpRequests = Json::array();
-        for (const auto& row : db.myAIRecords("usage")) {
-            auto request = Json::parse(row.payload); request["id"] = row.id; httpRequests.push_back(std::move(request));
-        }
-        Json result = {{"caseId", test.at("id")}, {"turns", turns}, {"interactions", interactions}, {"usage", usage},
-            {"httpRequests", httpRequests}, {"httpRequestCount", httpRequests.size()},
-            {"promptAudit", promptAudit},
-            {"lesson", Json::parse(db.getClassroomActivity(lessonId)->payload)}, {"profileEvidence", gangyi::agentProfileEvidence(db, access)}};
-        std::ofstream output(std::filesystem::u8path(argv[3])); output << result.dump(2);
+        checkpoint();
         std::cout << test.at("id") << "：完成 " << turns.size() << " 轮，实际调用 " << usage.size() << " 次\n";
         return 0;
     } catch (const std::exception& error) { std::cerr << "验收主控错误：" << error.what() << '\n'; return 1; }

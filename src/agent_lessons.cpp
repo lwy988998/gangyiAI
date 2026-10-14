@@ -224,7 +224,7 @@ void registerAgentLessonTools(LearningAgent& agent) {
             lesson["teachingFocus"] = focus; lesson["version"] = lesson.at("version").get<int>() + 1; lesson["updatedAt"] = now();
             return update(db, task, id, lesson, {{"lessonId", id}, {"teachingFocus", focus}});
         }});
-    agent.registerTool("append_section", {"追加教学板块，不改已展示内容。参数 lessonId、section:{kind:explanation|question|summary,title,body 或 question:{question,options 可选,type,expectedAnswer,rubric},questionKind:interaction|practice}，activate 可选。课堂互动追加的问题默认立即在学生当前页面显示；仅备好未来题目时用 activate=false。选择题必须有至少两个非空 options，不可只在 message 里承诺出题。题目标准只放 expectedAnswer/rubric，示范放 explanation，不评分。完整示范另一题时，section.demonstratedQuestions 保存实际示范的题干及 options/materials，不能只填答案。返回稳定板块与题目标识。嵌套动作格式示例：{\"id\":\"new-question\",\"tool\":\"append_section\",\"args\":{\"lessonId\":\"实际课时ID\",\"section\":{\"kind\":\"question\",\"title\":\"练习\",\"questionKind\":\"practice\",\"materialOrigin\":\"ai_exercise\",\"question\":{\"question\":\"题干\",\"type\":\"open\",\"expectedAnswer\":\"私有答案\",\"rubric\":\"私有标准\"}}}}。引用依据写在section.citations中；不要把私有标准放到公开body。", false,
+    agent.registerTool("append_section", {"追加教学板块，不改已展示内容。参数 lessonId、section:{kind:explanation|question|summary,title,body 或 question:{question,options 可选,type,expectedAnswer,rubric},questionKind:interaction|practice}，activate 可选。带body的explanation和summary必须另填section.helpType:none|explanation|hint|worked_example|clarification|unknown；普通概念讲解用explanation。hint和worked_example还必须填section.targetQuestionId，使用currentInputs实际选中原题的questionId，不用新的教学焦点。课堂互动追加的问题默认立即在学生当前页面显示；仅备好未来题目时用 activate=false。选择题必须有至少两个非空 options，不可只在 message 里承诺出题。题目标准只放 expectedAnswer/rubric，示范放 explanation，不评分。完整示范另一题时，section.demonstratedQuestions 保存实际示范的题干及 options/materials，不能只填答案。返回稳定板块与题目标识。嵌套动作格式示例：{\"id\":\"new-question\",\"tool\":\"append_section\",\"args\":{\"lessonId\":\"实际课时ID\",\"section\":{\"kind\":\"question\",\"title\":\"练习\",\"questionKind\":\"practice\",\"materialOrigin\":\"ai_exercise\",\"question\":{\"question\":\"题干\",\"type\":\"open\",\"expectedAnswer\":\"私有答案\",\"rubric\":\"私有标准\"}}}}。引用依据写在section.citations中；不要把私有标准放到公开body。", false,
         [](Database& db, const Json& args, const Json& task, const AIResult& source) {
             const auto id = text(args, "lessonId"); auto lesson = lessonFor(db, accessFor(task), id);
             requireTeachingTarget(task, lesson);
@@ -461,9 +461,25 @@ void agentRecordLearnerEvent(Database& db, const AgentAccess& access, const Json
         value["questionId"] = section->at("questionId"); value["questionSnapshot"] = section->at("question");
         value["view"] = responseView(lesson, Json{{"event", event}});
         value["lessonId"] = lesson.at("id"); value["sectionId"] = sectionId;
-        Json hints = Json::array(), help = Json::array(), related = Json::array(); bool unassignedExample = false;
+        Json hints = Json::array(), help = Json::array(), related = Json::array(), shownDemonstrations = Json::array(); bool unassignedExample = false;
         const auto questionId = section->at("questionId");
         if (section->contains("rePracticeOf")) value["rePracticeOf"] = section->at("rePracticeOf");
+        // 规划新题也需要看见其他题的真实示范；索引独立于本题帮助，不改变精确匹配结果。
+        const auto rememberDemonstrations = [&](const Json& content, bool partial, const Json& source) {
+            Json snapshots;
+            try { snapshots = checkedDemonstrations(content); }
+            catch (const std::exception&) { value["demonstrationHistoryIncomplete"] = true; return; }
+            for (const auto& snapshot : snapshots) {
+                const auto identity = teachingQuestionIdentity(courseId, snapshot); bool found = false;
+                for (auto& shown : shownDemonstrations) if (shown.at("questionId") == identity) {
+                    shown["complete"] = shown.at("complete").get<bool>() || !partial;
+                    if (std::find(shown["sources"].begin(), shown["sources"].end(), source) == shown["sources"].end()) shown["sources"].push_back(source);
+                    found = true; break;
+                }
+                if (!found) shownDemonstrations.push_back({{"questionId", identity}, {"questionSnapshot", snapshot},
+                    {"complete", !partial}, {"sources", Json::array({source})}});
+            }
+        };
         const auto remember = [&](Json entry) {
             const auto helpType = entry.value("helpType", "unknown");
             if (helpType == "explanation" || entry.value("association", "") == "lesson_only") {
@@ -478,7 +494,8 @@ void agentRecordLearnerEvent(Database& db, const AgentAccess& access, const Json
         };
         const auto exposure = Json::parse(db.profileMeta("agent-section-exposure:" + lesson.at("id").get<std::string>()), nullptr, false);
         if (exposure.is_object()) for (const auto& item : lesson.at("sections"))
-            if (item.at("kind") != "question" && exposure.value(item.at("id").get<std::string>(), 0) == item.at("version") && item.value("body", "") != "")
+            if (item.at("kind") != "question" && exposure.value(item.at("id").get<std::string>(), 0) == item.at("version") && item.value("body", "") != "") {
+                rememberDemonstrations(item, false, {{"kind", "section"}, {"id", item.at("id")}, {"version", item.at("version")}});
                 if (matchesDemonstration(item, courseId, section->at("question"))) {
                     remember({{"helpType", "worked_example"}, {"text", item.at("body")}, {"questionId", questionId},
                         {"sectionId", item.at("id")}, {"sectionVersion", item.at("version")}, {"source", "demonstrated_question"}});
@@ -489,11 +506,13 @@ void agentRecordLearnerEvent(Database& db, const AgentAccess& access, const Json
                 } else if (item.value("helpType", "explanation") == "explanation" || item.value("targetQuestionId", "") == questionId)
                     remember({{"helpType", item.value("helpType", "explanation")}, {"text", item.at("body")},
                         {"sectionId", item.at("id")}, {"sectionVersion", item.at("version")}, {"questionId", item.value("targetQuestionId", "")}});
+            }
         for (const auto& item : section->value("legacyDialog", Json::array())) if (item.value("role", "") == "assistant")
             remember({{"helpType", "unknown"}, {"text", item.at("text")}, {"questionId", questionId}, {"source", "legacy"}});
         const auto evaluationExposure = Json::parse(db.profileMeta("agent-evaluation-exposure:" + lesson.at("id").get<std::string>()), nullptr, false);
         if (evaluationExposure.is_object()) for (const auto& item : evaluationExposure.items()) {
             auto entry = item.value();
+            rememberDemonstrations(entry, entry.value("partial", false), {{"kind", "evaluation"}, {"id", item.key()}});
             const bool demonstrated = matchesDemonstration(entry, courseId, section->at("question"));
             if (demonstrated) { entry["helpType"] = entry.value("partial", false) ? "unknown" : "worked_example"; entry["questionId"] = questionId; }
             if (demonstrated || entry.value("questionIdentity", "") == teachingQuestionIdentity(courseId, section->at("question"))) remember(entry);
@@ -504,6 +523,7 @@ void agentRecordLearnerEvent(Database& db, const AgentAccess& access, const Json
                 task.value("event", Json::object()).value("lessonId", "") == lesson.at("id"))
                 for (const auto& item : displayedMessages(db, task)) {
                     const auto metadata = task.value("teachingHelp", Json::object()).value(std::to_string(item.value("step", 0)), Json::object());
+                    rememberDemonstrations(metadata, item.value("partial", false), {{"kind", "message"}, {"taskId", task.at("id")}, {"step", item.at("step")}});
                     const auto& origin = task.at("event");
                     const bool sameSection = origin.value("sectionId", "") == sectionId &&
                         origin.value("sectionVersion", section->at("version").get<int>()) == section->at("version");
@@ -518,6 +538,7 @@ void agentRecordLearnerEvent(Database& db, const AgentAccess& access, const Json
         }
         value["hintHistory"] = hints; value["assisted"] = !hints.empty();
         value["helpHistory"] = help; value["relatedLearning"] = related; value["helpMode"] = answerHelpMode(help);
+        value["shownDemonstrations"] = shownDemonstrations;
         if (unassignedExample && value["helpMode"] != "after_example") value["helpMode"] = "help_unknown";
         }
     }

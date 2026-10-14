@@ -39,17 +39,21 @@ inline void runDemonstratedQuestionChecks(const std::filesystem::path& path) {
     gangyi::registerAgentLessonTools(teacher);teacher.process(db,teaching.at("id"));
     assert(gangyi::agentView(db,access,teaching.at("id")).at("status")=="waiting_student");
     assert(gangyi::agentView(db,access,teaching.at("id")).dump().find("PRIVATE-")==std::string::npos);
-    assert(inspect("q2").at("helpMode")=="independent");
+    const auto notShown=inspect("q2");assert(notShown.at("helpMode")=="independent"&&notShown.at("shownDemonstrations").empty());
     const auto saved=Json::parse(db.getClassroomActivity("demo-lesson")->payload).at("sections").back();
     assert(saved.at("demonstratedQuestions").dump().find("PRIVATE-")==std::string::npos);
     gangyi::agentExposeTask(db,access,{{"lessonId","demo-lesson"},{"sections",{{{"id",saved.at("id")},{"version",1}}}}});
     assert(inspect("q2").at("helpMode")=="after_example");
     const auto original=inspect("q1");assert(original.at("helpMode")=="independent");
     assert(original.at("relatedLearning")[0].at("demonstratedQuestions")[0].at("question")==q2.at("question"));
-    assert(inspect("q3").at("helpMode")=="independent");
+    const auto different=inspect("q3");assert(different.at("helpMode")=="independent");
+    assert(different.at("shownDemonstrations").size()==1&&different.at("shownDemonstrations")[0].at("complete")==true);
+    assert(different.at("shownDemonstrations")[0].at("questionSnapshot").at("question")==q2.at("question"));
+    assert(different.at("shownDemonstrations").dump().find("PRIVATE-")==std::string::npos);
     const auto raw=Json::parse(db.getClassroomActivity(teaching.at("id"))->payload);
     gangyi::agentExposeTask(db,access,{{"taskId",teaching.at("id")},{"seq",raw.at("seq")}});
     assert(inspect("q2").at("helpHistory").size()==2);
+    assert(inspect("q3").at("shownDemonstrations")[0].at("sources").size()==2);
     // 已发布反馈中的另一题示范也使用同一关联机制，部分展示仍不能认定完整示范。
     const auto answer=submit("q1");const auto input=inputFor(answer);int calls=0;
     gangyi::LearningAgent grader(path.string(),[&](const auto&,const auto& sink) {
