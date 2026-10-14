@@ -135,6 +135,38 @@ void runLibraryChecks() {
     assert(db.myAIRecord("long-snapshot")->payload==originalLong&&gangyi::libraryUsage(db)["fetchRequests"]==1);
     const auto selectedContext=gangyi::libraryContext(db);
     assert(std::any_of(selectedContext["sources"].begin(),selectedContext["sources"].end(),[&](const auto& source){return source["id"]==longId&&source["totalSegments"]==40&&source["excerpted"]==true;}));
+    {
+        // 两份都选用时保留AI顺序；改变顺序后同步影响页面和课堂，手动选择仍优先。
+        gangyi::Database orderedDb;orderedDb.open(":memory:");orderedDb.migrate();
+        const auto tutorial=gangyi::libraryWrite(orderedDb,{{"url","https://example.org/tutorial"},{"title","教程"}});
+        const auto specification=gangyi::libraryWrite(orderedDb,{{"url","https://example.org/spec"},{"title","接口规范"}});
+        const gangyi::AgentAccess orderedAccess{"ordering-profile",{}};
+        const auto reorder=[&](const std::string& requestId,Json ids){
+            const auto current=gangyi::agentSubmit(orderedDb,orderedAccess,{{"type","library_research"},{"goal","验证推荐顺序"},{"requestId",requestId}});
+            gangyi::LearningAgent selector(":memory:",[&](const auto&,const auto& sink){
+                Json items=Json::array();for(const auto& sourceId:ids)items.push_back({{"sourceId",sourceId},{"state","selected"},{"reason","顺序契约测试"}});
+                gangyi::AIResult response;response.model="推荐排序夹具";response.finishReason="stop";
+                response.content=Json{{"message",""},{"actions",Json::array({{{"id","select-order"},{"tool","select_resources"},{"args",{{"items",items}}}}})},{"state","completed"}}.dump();
+                sink(response.content);return response;
+            });selector.process(orderedDb,current.at("id"));
+            assert(gangyi::agentView(orderedDb,orderedAccess,current.at("id"))["status"]=="ready");
+        };
+        reorder("beginner-order",Json::array({tutorial["id"],specification["id"]}));
+        assert(gangyi::libraryRead(orderedDb)["items"][0]["id"]==tutorial["id"]);
+        reorder("advanced-order",Json::array({specification["id"],tutorial["id"]}));
+        assert(gangyi::libraryRead(orderedDb)["items"][0]["id"]==specification["id"]);
+        assert(gangyi::libraryContext(orderedDb)["sources"][0]["id"]==specification["id"]);
+        const auto tutorialDetail=gangyi::libraryRead(orderedDb,{{"id",tutorial["id"]}});
+        gangyi::libraryWrite(orderedDb,{{"id",tutorial["id"]},{"version",tutorialDetail["version"]},{"state","selected"}});
+        assert(gangyi::libraryRead(orderedDb)["items"][0]["id"]==tutorial["id"]);
+        reorder("manual-priority",Json::array({specification["id"],tutorial["id"]}));
+        assert(gangyi::libraryRead(orderedDb)["items"][0]["id"]==tutorial["id"]);
+        const auto manualDetail=gangyi::libraryRead(orderedDb,{{"id",tutorial["id"]}});
+        gangyi::libraryWrite(orderedDb,{{"id",tutorial["id"]},{"version",manualDetail["version"]},{"state","excluded"}});
+        reorder("excluded-priority",Json::array({tutorial["id"],specification["id"]}));
+        assert(gangyi::libraryRead(orderedDb)["items"][0]["id"]==specification["id"]);
+        assert(gangyi::libraryRead(orderedDb,{{"id",tutorial["id"]}})["choice"]["state"]=="excluded");
+    }
     for (const bool stillLimited : {false, true}) {
         const auto limitTask=gangyi::agentSubmit(db,access,{{"type","library_research"},{"goal","验证截断后恢复"},
             {"requestId",stillLimited?"output-limit-stop":"output-limit-recover"}});

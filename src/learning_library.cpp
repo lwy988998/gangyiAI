@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cctype>
+#include <limits>
 #include <set>
 #include <stdexcept>
 namespace gangyi {
@@ -142,6 +143,19 @@ Json libraryRead(Database& db, const Json& query) {
         if (filter == "read" && value.value("readStatus", "") != "read" && value.value("readStatus", "") != "partial") continue;
         items.push_back(summary(db, value, courseId));
     }
+    std::stable_sort(items.begin(), items.end(), [](const Json& a, const Json& b) {
+        const auto priority = [](const Json& value) {
+            const auto chosen = value.value("choice", Json::object());
+            if (value.value("excluded", false) || chosen.value("state", "") == "excluded") return -1;
+            return chosen.value("state", "") == "selected" ? (chosen.value("manual", false) ? 3 : 2) : value.value("favorite", false) ? 1 : 0;
+        };
+        if (priority(a) != priority(b)) return priority(a) > priority(b);
+        const auto rank = [](const Json& value) {
+            const auto chosen = value.value("choice", Json::object());
+            return chosen.value("manual", false) ? std::numeric_limits<int>::max() : chosen.value("rank", std::numeric_limits<int>::max());
+        };
+        return rank(a) < rank(b);
+    });
     const auto revision=db.profileMeta("library-revision");
     return {{"items", items}, {"version", revision.empty()?0:std::stoi(revision)}, {"learningVersion",db.learningRevision()}, {"usage", libraryUsage(db)}};
 }
@@ -180,12 +194,6 @@ Json libraryWrite(Database& db, const Json& body) {
 Json libraryContext(Database& db, const std::string& courseId, const std::string& question) {
     Json items = Json::array();
     auto rows = libraryRead(db, {{"courseId", courseId}}).at("items");
-    std::stable_sort(rows.begin(), rows.end(), [](const Json& a, const Json& b) {
-        const auto priority = [](const Json& value) {
-            const auto chosen = value.value("choice", Json::object());
-            return chosen.value("state", "") == "selected" ? (chosen.value("manual", false) ? 3 : 2) : value.value("favorite", false) ? 1 : 0;
-        }; return priority(a) > priority(b);
-    });
     size_t used = 0;
     for (auto item : rows) {
         item.erase("queries");
@@ -356,19 +364,23 @@ void registerLibraryTools(LearningAgent& agent) {
             return PreparedAgentTool{{{"source", summary(db, source)}, {"snapshot", source.value("snapshotId", "").empty() ? Json() : excerpt(snapshot(db, sourceId, source.at("snapshotId")), args)},
                 {"readResult", parsed.value("status", "unreadable")}, {"reason", parsed.value("reason", "")},{"captionSources",captionSources}}, {}};
         }});
-    agent.registerTool("select_resources", {"按用户实际基础和目标选用资料。参数courseId、items数组，每项sourceId、reason、state:selected|excluded|candidate；conflicts可选说明资料矛盾。用户手动选择优先，不得自动撤销排除；推荐说明为何适合用户，不虚构读完或发布版本。", false,
+    agent.registerTool("select_resources", {"按用户实际基础和目标选用资料。参数courseId、items数组，每项sourceId、reason、state:selected|excluded|candidate；items顺序就是推荐优先顺序；conflicts可选说明资料矛盾。用户手动选择优先，不得自动撤销排除；推荐说明为何适合用户，不虚构读完或发布版本。", false,
         [](Database& db, const Json& args, const Json& task, const AIResult&) {
             const auto courseId = args.value("courseId", task.value("courseId", "")); checkCourseAccess(db, task, courseId);
             if (!args.value("items", Json()).is_array()) throw std::invalid_argument("资料推荐必须为数组");
             Json selections = Json::array();
+            int rank = 0;
+            std::set<std::string> selectedIds;
             for (const auto& item : args["items"]) {
                 const auto id = requiredText(item, "sourceId"); const auto source = load(db, id, "library-source");
+                if (!selectedIds.insert(id).second) throw std::invalid_argument("同次资料推荐不能重复来源");
+                const int position = rank++;
                 const auto previous = choice(db, courseId, id);
                 const auto state = item.value("state", "selected");
                 if (state != "selected" && state != "excluded" && state != "candidate") throw std::invalid_argument("推荐状态无效");
                 if (source.value("excluded", false) || previous.value("manual", false) || choice(db, "", id).value("manual", false)) continue;
                 selections.push_back({{"sourceId", id}, {"courseId", courseId}, {"state", state}, {"manual", false},
-                    {"reason", requiredText(item, "reason")}, {"version", previous.at("version")}, {"conflicts", item.value("conflicts", "")}});
+                    {"reason", requiredText(item, "reason")}, {"rank", position}, {"version", previous.at("version")}, {"conflicts", item.value("conflicts", "")}});
             }
             return PreparedAgentTool{{{"selected", selections}}, [selections](Database& connection) {
                 for (const auto& item : selections) {
