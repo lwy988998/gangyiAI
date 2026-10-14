@@ -94,7 +94,7 @@ class ProtocolAI(BaseHTTPRequestHandler):
                         interactionId=actual['id'], isAnswer=False, reason='这是对已给出反馈的追问')))
                 else:
                     actions.append(dict(id='evaluate-' + str(index), tool='evaluate_answer', args=dict(interactionId=actual['id'],
-                        score=70, credible=True, feedback='依据实际作答给出评价', reason='学生指出化合价升高', uncertainty='仅反映本题表现',
+                        score=70, credible=True, feedback='依据实际作答给出评价', feedbackHelpType='none', reason='学生指出化合价升高', uncertainty='仅反映本题表现',
                         diagnosis=dict(summary='需要补充电子变化的联系', evidence=[actual['payload']['text']], teachingDirection='联系失电子与化合价升高', needsClarification=False))))
             message = '先评价实际输入，再解释电子变化。'
             state = 'waiting_student'

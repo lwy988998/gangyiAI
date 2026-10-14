@@ -60,10 +60,15 @@
       followup ? '追问，未作为作答评分' : {independent:'独立作答',after_hint:'提示后作答',after_example:'示范后作答',help_unknown:'帮助程度未确定'}[e.helpMode] || '';
     let body = (e.question?'<h3>'+escape(e.question)+'</h3>':'')+'<p>'+escape(e.text||'已保存的真实学习互动')+'</p>';
     body += '<p class="ma-note">'+escape(time(e.at))+(mode?' · '+mode:'')+(e.rePracticeOf?' · 关联新题复练':'')+'</p>';
+    if(e.kind==='practice' && e.feedback && e.feedbackHelpType!=='none')body+='<p class="ma-note">'+escape({
+      explanation:'反馈包含相关概念讲解',hint:'反馈包含本题提示',worked_example:'反馈包含本题完整示范',
+      clarification:'反馈用于澄清思路'}[e.feedbackHelpType]||'反馈帮助程度未确定')+'</p>';
+    body += '<div'+(e.kind==='practice' && e.lessonId?' data-report-feedback="'+escape(e.id)+'"':'')+'>';
     if (e.diagnosis?.summary) body += '<p>卡点：'+escape(e.diagnosis.summary)+'</p>';
     if (e.diagnosis?.evidence?.length) body += '<p class="ma-note">回答依据：'+escape(e.diagnosis.evidence.join('；'))+'</p>';
     if (e.feedback) body += '<p>'+escape(e.feedback)+'</p>';
     if (e.uncertainty) body += '<p class="ma-note">'+escape(e.uncertainty)+'</p>';
+    body += '</div>';
     for (const h of request || followup ? [] : e.helpHistory || []) body += '<details><summary>'+escape({hint:'实际获得的提示',worked_example:'实际看到的完整示范',unknown:'程度未确定的帮助'}[h.helpType]||'教学帮助')+'</summary><p>'+escape(h.text)+'</p></details>';
     if (e.relatedLearning?.length) body += '<p class="ma-note">曾学过 '+e.relatedLearning.length+' 段相关讲解。</p>';
     if (e.lessonId) body += '<div class="ma-actions"><a class="ma-link" href="/learn?lessonId='+encodeURIComponent(e.lessonId)+'">查看对应课时 →</a>'+(e.sectionId?'<a class="ma-link" href="/'+(e.view==='learn'?'learn':'practice')+'?lessonId='+encodeURIComponent(e.lessonId)+'&sectionId='+encodeURIComponent(e.sectionId)+'">继续巩固 →</a>':'')+'</div>';
@@ -83,6 +88,21 @@
       card('有效学习时间',(data.time.length?'<div id="time-chart" class="ma-chart"></div>':empty('尚无升级后的有效学习时间记录。'))+'<p class="ma-note">只累计学习页面在前台、且最近五分钟有交互的时间。多窗口不会重复累计。</p>')+
       '<article class="ma-card" id="evidence"><h2>学习记录与依据</h2>'+(data.evidence.length?(params.get('evidenceId')?data.evidence.filter(e=>e.id===params.get('evidenceId')):data.evidence.slice(-100)).reverse().map(teachingEvidenceRow).join(''):empty('当前范围没有可展示的记录。'))+'</article>';
     document.getElementById('report-filter').onsubmit=event=>{event.preventDefault();const query=new URLSearchParams(new FormData(event.currentTarget));location.href='/my-ai/reports?'+query;};
+    // 报告里看到的本题反馈也属于实际帮助；继续巩固前先保存展示，不触发模型。
+    const evidenceById=new Map(data.evidence.map(record=>[record.id,record])); let exposureFrame;
+    const recordFeedback=()=>{for(const node of root.querySelectorAll('[data-report-feedback]')) {
+      const record=evidenceById.get(node.dataset.reportFeedback);
+      if(record)window.GangyiAgent?.recordEvaluation(record.lessonId,record,node);
+    }};
+    const scheduleFeedback=()=>{cancelAnimationFrame(exposureFrame);exposureFrame=requestAnimationFrame(recordFeedback);};
+    document.addEventListener('scroll',scheduleFeedback,true);window.addEventListener('resize',scheduleFeedback);
+    document.addEventListener('visibilitychange',scheduleFeedback);root.addEventListener('toggle',scheduleFeedback,true);
+    root.addEventListener('click',event=>{const link=event.target.closest('a');
+      if(!link||event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||!/^\/(learn|practice)\?/.test(link.getAttribute('href')||''))return;
+      event.preventDefault();recordFeedback();
+      (window.GangyiAgent?.flushExposure()||Promise.resolve()).then(()=>{location.href=link.href;}).catch(error=>status(error.message,true));
+    });
+    scheduleFeedback();
     if(window.GangyiProfileRadar)window.GangyiProfileRadar.mount(document.getElementById('my-ai-radar'));
     const history=[...data.history].reverse(),subjects=[...new Set(history.flatMap(h=>Object.keys(h.scores)))];chart(document.getElementById('profile-chart'),{dates:history.map(h=>time(h.updatedAt)),values:subjects.map(name=>({name,data:history.map(h=>h.scores[name]??null)}))});
     const daily={};for(const t of data.time)daily[t.day]=(daily[t.day]||0)+t.seconds/60;const days=Object.keys(daily).sort();chart(document.getElementById('time-chart'),{dates:days,values:[{name:'学习分钟',data:days.map(day=>Math.round(daily[day]))}]},'bar');status('课程进度为当前状态；时间和记录按筛选范围显示。画像依据跨课程的真实作答。');
