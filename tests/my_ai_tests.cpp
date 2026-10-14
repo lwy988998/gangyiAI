@@ -3,6 +3,8 @@
 #endif
 #include "my_ai.hpp"
 #include "my_ai_context.hpp"
+#include "ai_activity.hpp"
+#include <algorithm>
 #include <cassert>
 #include <filesystem>
 #include <iostream>
@@ -57,5 +59,30 @@ int main() {
     {gangyi::Database next;next.open(upgrade.string());next.migrate();assert(next.profileMeta("kept")=="原有档案");assert(next.myAIRecords("chat").empty());}
     sqlite3* upgraded=nullptr;sqlite3_stmt* version=nullptr;sqlite3_open(upgrade.string().c_str(),&upgraded);sqlite3_prepare_v2(upgraded,"PRAGMA user_version",-1,&version,nullptr);assert(sqlite3_step(version)==SQLITE_ROW&&sqlite3_column_int(version,0)==7);sqlite3_finalize(version);sqlite3_close(upgraded);
     assert(std::filesystem::exists(upgrade.string()+".pre-v7.db"));std::filesystem::remove(upgrade);std::filesystem::remove(upgrade.string()+".pre-v7.db");
-    std::cout << "个人中心版本、聊天、记忆和确认操作通过\n";
+    // 同一任务在控制记录丢失后重新发起请求，两条实际请求的用量必须分别保留。
+    const auto usageFolder=std::filesystem::temp_directory_path()/("gangyi-usage-retry-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(usageFolder);
+    {
+        const auto usagePath=usageFolder/"usage.db",controlPath=usageFolder/"control.json";
+        gangyi::Database usageDb;usageDb.open(usagePath.u8string());usageDb.migrate();
+        gangyi::AIActivity::configure(controlPath.u8string());gangyi::AIActivity::configureUsage(usagePath.u8string());
+        gangyi::AIActivityInfo info;info.taskId="persisted-same-task";info.source="用量恢复夹具";
+        auto id=gangyi::AIActivity::begin(info,"fixture-model");assert(gangyi::AIActivity::requestStarted(id));
+        gangyi::AIActivity::requestFinished(id,"completed",{{"total_tokens",17}},"fixture-model");
+        const auto original=usageDb.myAIRecords("usage");assert(original.size()==1);
+        std::filesystem::remove(controlPath);
+        gangyi::AIActivity::configure(controlPath.u8string());
+        id=gangyi::AIActivity::begin(info,"fixture-model");assert(gangyi::AIActivity::requestStarted(id));
+        gangyi::AIActivity::requestFinished(id,"failed",nullptr,"fixture-model");
+        // 重复完成回执更新当前请求，不另算一次请求。
+        gangyi::AIActivity::requestFinished(id,"failed",nullptr,"fixture-model");
+        const auto recorded=usageDb.myAIRecords("usage");assert(recorded.size()==2);
+        assert(usageDb.myAIRecord(original[0].id)->payload==original[0].payload);
+        const auto statistics=gangyi::myAIRead(usageDb,"usage");
+        assert(statistics["calls"]==2&&statistics["tokens"]==17);
+        assert(std::any_of(recorded.begin(),recorded.end(),[](const auto& row){const auto item=Json::parse(row.payload);return item["status"]=="failed"&&item["tokens"].is_null();}));
+        gangyi::AIActivity::configureUsage("");gangyi::AIActivity::configure("");
+    }
+    std::filesystem::remove_all(usageFolder);
+    std::cout << "个人中心版本、聊天、记忆、用量恢复和确认操作通过\n";
 }

@@ -11,7 +11,7 @@ int main(int argc, char** argv) {
         std::ifstream file(std::filesystem::u8path(argv[1])); Json test; file >> test;
         gangyi::Database db; db.open(argv[2]); db.migrate(); gangyi::AIActivity::configureUsage(argv[2]);
         if (test.contains("preferences")) db.saveMyAIRecord({"preferences", "preferences", test["preferences"].dump(), "2026-10-13", 0}, 0);
-        const gangyi::AgentAccess access{"local-profile", {}};
+        const gangyi::AgentAccess access{test.value("scopeId", "local-profile"), test.value("courseIds", std::vector<std::string>{})};
         Json sourceIds = Json::array();
         for (const auto& url : test.value("urls", Json::array())) sourceIds.push_back(gangyi::libraryWrite(db, {{"url", url}}).at("id"));
         const auto task = test.value("retryTaskId", "").empty() ?
