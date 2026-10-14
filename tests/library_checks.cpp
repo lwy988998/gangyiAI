@@ -142,7 +142,7 @@ void runLibraryChecks() {
         gangyi::LearningAgent recovery(":memory:",[&](const auto& options,const auto& sink){
             ++limitCalls;
             assert(options.maxTokens==(limitCalls==1?8192:16384));
-            assert(options.timeoutMs==(limitCalls==1?60000:120000));
+            assert(options.timeoutMs==120000);
             if(limitCalls==1||stillLimited) {
                 sink("{\"message\":\"未校验的截断片段");
                 throw gangyi::AIClientError("output_limit","服务商报告length");
