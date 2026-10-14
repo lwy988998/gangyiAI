@@ -68,6 +68,12 @@ void runLibraryChecks() {
     const auto compactHistory=gangyi::agentPromptHistory(messages,completed,{"read_resource"});
     const auto firstMessage=Json::parse(compactHistory[0].at("content").get<std::string>()),lastMessage=Json::parse(compactHistory[1].at("content").get<std::string>());
     assert(firstMessage["toolResults"][0]["result"]==readResult&&lastMessage["completedActions"]["read-1"]["result"]["unchangedFrom"]=="read-1");
+    const Json restoredMessages=Json::array({{{"role","user"},{"content",Json{{"savedActions",completed}}.dump()}},
+        {{"role","user"},{"content",Json{{"completedActions",completed},{"toolError","输出被截断"}}.dump()}}});
+    const auto restoredHistory=gangyi::agentPromptHistory(restoredMessages,completed,{"read_resource"});
+    assert(Json::parse(restoredHistory[0].at("content").get<std::string>())["savedActions"]["read-1"]["result"]==readResult);
+    assert(Json::parse(restoredHistory[1].at("content").get<std::string>())["completedActions"]["read-1"]["result"]["unchangedFrom"]=="read-1");
+    assert(restoredMessages[1].at("content").get<std::string>().find("输出被截断")!=std::string::npos);
     assert(lastMessage["toolError"]=="原始错误必须保留"&&messages[1].at("content").get<std::string>().find("snapshot")!=std::string::npos);
     const gangyi::AgentAccess access{"local-profile", {}};
     const auto task=gangyi::agentSubmit(db,access,{{"type","library_research"},{"goal","核验假引用拒绝"},{"requestId","invalid-citation"}});
@@ -129,5 +135,28 @@ void runLibraryChecks() {
     assert(db.myAIRecord("long-snapshot")->payload==originalLong&&gangyi::libraryUsage(db)["fetchRequests"]==1);
     const auto selectedContext=gangyi::libraryContext(db);
     assert(std::any_of(selectedContext["sources"].begin(),selectedContext["sources"].end(),[&](const auto& source){return source["id"]==longId&&source["totalSegments"]==40&&source["excerpted"]==true;}));
+    for (const bool stillLimited : {false, true}) {
+        const auto limitTask=gangyi::agentSubmit(db,access,{{"type","library_research"},{"goal","验证截断后恢复"},
+            {"requestId",stillLimited?"output-limit-stop":"output-limit-recover"}});
+        int limitCalls=0;
+        gangyi::LearningAgent recovery(":memory:",[&](const auto& options,const auto& sink){
+            ++limitCalls;
+            assert(options.maxTokens==(limitCalls==1?8192:16384));
+            assert(options.timeoutMs==(limitCalls==1?60000:120000));
+            if(limitCalls==1||stillLimited) {
+                sink("{\"message\":\"未校验的截断片段");
+                throw gangyi::AIClientError("output_limit","服务商报告length");
+            }
+            gangyi::AIResult reply;reply.model="长度恢复夹具";reply.finishReason="stop";
+            reply.content=Json{{"message","恢复成功"},{"materialOrigin","ai_supplement"},{"actions",Json::array()},{"state","completed"}}.dump();
+            sink(reply.content);return reply;
+        });
+        recovery.process(db,limitTask.at("id"));
+        const auto limitView=gangyi::agentView(db,access,limitTask.at("id"));
+        assert(limitCalls==2&&limitView["status"]==(stillLimited?"failed":"ready"));
+        assert(limitView.dump().find("未校验的截断片段")==std::string::npos);
+        const auto limitSaved=Json::parse(db.getClassroomActivity(limitTask.at("id"))->payload);
+        assert(limitSaved["responseTokenLimit"]==16384);
+    }
     std::cout<<"资料引用、快照、排除、冲突及字幕专项检查通过\n";
 }

@@ -256,6 +256,26 @@ int main(int argc, char** argv) {
             "流式教学主控应向模型请求 JSON 对象格式");
     }
     {
+        // 服务商明确报告长度截断时，不把片段当成功响应或自动原样重放。
+        MockServer server(response(200, R"({"choices":[{"message":{"content":"未完成"},"finish_reason":"length"}],"usage":{"prompt_tokens":1,"completion_tokens":8,"total_tokens":9}})"));
+        gangyi::ChatOptions options; options.messages = {{"user", "普通响应长度限制"}};
+        bool limited = false;
+        try { clientFor(server).chat(options); }
+        catch (const gangyi::AIClientError& error) { limited = error.errorType == "output_limit"; }
+        server.wait();
+        expect(limited && server.requestCount() == 1, "普通响应截断必须报告长度限制，不交付片段");
+    }
+    {
+        const std::string events = "data: {\"choices\":[{\"delta\":{\"content\":\"未完成\"},\"finish_reason\":\"length\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":8,\"total_tokens\":9}}\n\ndata: [DONE]\n\n";
+        MockServer server(response(200, events));
+        gangyi::ChatOptions options; options.messages = {{"user", "流式响应长度限制"}};
+        bool limited = false;
+        try { clientFor(server).chatStream(options, [](const std::string&) { return true; }); }
+        catch (const gangyi::AIClientError& error) { limited = error.errorType == "output_limit"; }
+        server.wait();
+        expect(limited && server.requestCount() == 1, "流式截断必须报告长度限制，不在SDK中重复相同预算");
+    }
+    {
         const std::string events = "data: {\"model\":\"mock\",\"choices\":[{\"delta\":{\"content\":\"测试\"}}]}\n\ndata: [DONE]\n\n";
         MockServer server("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: " +
             std::to_string(events.size()) + "\r\nConnection: close\r\n\r\n" + events);

@@ -228,8 +228,14 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
         result.status = static_cast<int>(status);
         result.finishReason = choice.value("finish_reason", "");
         result.tokenUsage=reportedUsage(parsed.value("usage",json()));
+        if (result.finishReason == "length") {
+            AIActivity::requestFinished(activityId,"failed",result.tokenUsage,result.model);
+            throw AIClientError("output_limit", "AI 回复达到长度限制，未接收完整内容");
+        }
         AIActivity::requestFinished(activityId,"completed",result.tokenUsage,result.model);
         return result;
+    } catch (const AIClientError&) {
+        throw;
     } catch (const std::exception& error) {
         throw AIClientError("invalid_response", error.what());
     }
@@ -346,7 +352,8 @@ AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int
     if(status==400&&options.requestTokenUsage&&((state.errorBody+state.pending).find("stream_options")!=std::string::npos||(state.errorBody+state.pending).find("include_usage")!=std::string::npos))throw AIClientError("unsupported_stream_usage","接口不支持流式用量选项",400);
     if (code != CURLE_OK || status < 200 || status >= 300)
         throw errorFor(code, status, code == CURLE_OK ? "AI provider returned HTTP " + std::to_string(status) : curl_easy_strerror(code));
-    if (state.content.empty() || !state.completed || state.finishReason == "length") throw AIClientError("invalid_response", "AI stream is incomplete");
+    if (state.finishReason == "length") throw AIClientError("output_limit", "AI 回复达到长度限制，未接收完整内容");
+    if (state.content.empty() || !state.completed) throw AIClientError("invalid_response", "AI stream is incomplete");
     AIResult result{state.content,state.model,static_cast<int>(status),"stop","not_requested",{}};
     result.tokenUsage=state.usage;AIActivity::requestFinished(activityId,"completed",result.tokenUsage,result.model);return result;
 }

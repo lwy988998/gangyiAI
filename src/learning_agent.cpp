@@ -537,7 +537,10 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
                 });
                 return;
             }
-            ChatOptions options; options.maxTokens = 8192; options.timeoutMs = 60000; options.maxAttempts = 1;
+            ChatOptions options;
+            options.maxTokens = std::clamp(task.value("responseTokenLimit", 8192), 8192, 16384);
+            options.timeoutMs = options.maxTokens == 8192 ? 60000 : 120000;
+            options.maxAttempts = 1;
             options.responseFormat = "json_object";
             options.temperature = 0.25;
             Json catalog = Json::array();
@@ -909,6 +912,21 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
             }
             const auto providerError = dynamic_cast<const AIClientError*>(&error);
             const auto kind = providerError ? providerError->errorType : failureStage;
+            // 仅在服务商明确报告截断时扩大一次空间；未校验正文和已完成操作都不重复应用。
+            if (kind == "output_limit" && task.value("responseTokenLimit", 8192) < 16384) {
+                ownedUpdate(db, task, [&](Json& current) {
+                    current["responseTokenLimit"] = 16384;
+                    current.erase("failure");
+                    recordActivity(current, {{"phase", "retry"}, {"state", "started"},
+                        {"title", "回复达到长度限制，正在恢复"},
+                        {"detail", "本次扩大回复空间，保留已经保存的步骤，完整校验后再展示。"}});
+                    current["messages"].push_back({{"role", "user"}, {"content",
+                        Json{{"toolError", "上一轮达到输出长度限制，截断内容没有应用。"},
+                             {"completedActions", current["completedActions"]},
+                             {"instruction", "继续未完成的步骤，使用简洁完整的JSON，不重复成功行动，不复制大段原文或检索计划。资料不足则明确范围；完成当前需要的保存后结束。"}}.dump()}});
+                });
+                continue;
+            }
             const bool retryable = !providerError || providerError->retryable;
             const int httpStatus = providerError ? providerError->httpStatus : 0;
             std::string field = failureStage == "structure" ? "response" : "";
@@ -925,6 +943,7 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
                 kind == "network_error" ? "无法连接 AI 服务，已有有效步骤已保留。" :
                 kind == "rate_limited" ? "AI 服务暂时限流，已有有效步骤已保留。" :
                 kind == "provider_5xx" ? "AI 服务暂时异常，已有有效步骤已保留。" :
+                kind == "output_limit" ? "AI 回复仍超过长度限制，已有有效步骤已保留，请缩小本次处理范围后重试。" :
                 kind == "structure" || kind == "invalid_response" ? "AI 返回的内容结构不完整，已有有效步骤已保留。" :
                 "“" + toolActivity(failureTool, Json::object(), false).at("title").get<std::string>() + "”未通过数据校验，已有有效步骤已保留。";
             if (detail == "本课已有更新的教学任务，旧输出不应用")

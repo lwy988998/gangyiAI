@@ -71,9 +71,10 @@ inline nlohmann::json agentPromptHistory(const nlohmann::json& messages, const n
             compact(item.value("id", ""), item["result"]);
         }
         // 失败恢复记录保留原始错误和已执行的行动；已读正文用之前的真实工具结果引用。
-        if (content.value("completedActions", Json()).is_object()) for (auto& item : content["completedActions"].items()) {
-            if (item.value().contains("result")) compact(item.key(), item.value()["result"]);
-        }
+        for (const auto* field : {"completedActions", "savedActions"})
+            if (content.value(field, Json()).is_object()) for (auto& item : content[field].items()) {
+                if (item.value().contains("result")) compact(item.key(), item.value()["result"]);
+            }
         message["content"] = content.dump();
     }
     return result;
