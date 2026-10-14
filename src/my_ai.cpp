@@ -135,7 +135,7 @@ Json myAIRead(Database& db,const std::string& section,const Json& query) {
                 item["question"]=snapshot.value("question","");item["text"]=payload.value("response","");item["assessed"]=payload.value("credible",false);
             }
             if (row.kind == "practice") {
-                for (const auto* key : {"diagnosis", "feedback", "reason", "uncertainty", "credible", "score"})
+                for (const auto* key : {"diagnosis", "feedback", "feedbackHelpType", "reason", "uncertainty", "credible", "score"})
                     if (payload.contains(key)) item[key] = payload.at(key);
             }
             if((row.kind=="quiz"||row.kind=="question-evaluation")&&payload.value("results",Json()).is_array()) {

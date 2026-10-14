@@ -20,6 +20,7 @@ class FixtureAI(BaseHTTPRequestHandler):
     fail_next = False
     fail = False
     http_error = 0
+    feedback_help_type = 'none'
 
     def log_message(self, *_):
         pass
@@ -37,6 +38,7 @@ class FixtureAI(BaseHTTPRequestHandler):
             type(self).fail_next = request.get('fail_next', False)
             type(self).fail = request.get('fail', False)
             type(self).http_error = request.get('http_error', 0)
+            type(self).feedback_help_type = request.get('feedback_help_type', 'none')
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b'{}')
@@ -113,7 +115,9 @@ class FixtureAI(BaseHTTPRequestHandler):
             elif event.get('action') == 'skip':
                 message = '这道题已跳过，不把跳过当成可靠作答。'
             else:
-                actions = [dict(id='evaluate', tool='evaluate_answer', args=dict(interactionId=actual['id'], score=80, credible=True, feedback='依据这次实际输入给出反馈，请继续说明判断理由。', reason='引用本次学生输入', uncertainty='只反映这道题',
+                actions = [dict(id='evaluate', tool='evaluate_answer', args=dict(interactionId=actual['id'], score=80, credible=True,
+                    feedback='示范：Fe由0升到+2，失去两个电子。' if self.feedback_help_type=='worked_example' else '依据这次实际输入给出反馈，请继续说明判断理由。',
+                    feedbackHelpType=self.feedback_help_type, reason='引用本次学生输入', uncertainty='只反映这道题',
                     diagnosis=dict(summary='需要补充电子变化的理由', evidence=[actual['payload']['text']], teachingDirection='用电子得失解释化合价变化', needsClarification=False)))]
                 message = '你已经给出了观察，接下来可以补充电子变化的理由。'
             state = 'waiting_student'

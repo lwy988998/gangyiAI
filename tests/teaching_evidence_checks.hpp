@@ -146,7 +146,7 @@ inline void runTeachingEvidenceChecks(const std::filesystem::path& path) {
     gangyi::LearningAgent grader(path.string(), [&](const auto&, const auto& sink) {
         Json actions = Json::array();
         if (++gradeCalls == 1) actions.push_back({{"id", "grade-independent"}, {"tool", "evaluate_answer"}, {"args", {
-            {"interactionId", retriedInput.at("interactionId")}, {"score", 90}, {"credible", true}, {"feedback", "关联新题的计算正确"},
+            {"interactionId", retriedInput.at("interactionId")}, {"score", 90}, {"credible", true}, {"feedback", "关联新题的计算正确"}, {"feedbackHelpType", "none"},
             {"reason", "依据独立复练的真实回答"}, {"uncertainty", "还需继续观察迁移表现"},
             {"diagnosis", {{"summary", "本次新题计算正确"}, {"evidence", {"7/10"}}, {"teachingDirection", "让学生进一步解释通分理由"}, {"needsClarification", false}}}
         }}});

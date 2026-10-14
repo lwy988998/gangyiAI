@@ -323,7 +323,7 @@ void registerAgentLessonTools(LearningAgent& agent) {
             lesson["sourceLearningVersion"] = task.at("learningVersion"); lesson["version"] = lesson.at("version").get<int>() + 1;
             return update(db, task, id, lesson, {{"lesson", link(lesson)}, {"version", lesson.at("version")}});
         }});
-    agent.registerTool("evaluate_answer", {"真实 AI 评价实际学生回答。args 参数 interactionId、score(0..100 或 null)、credible(bool)、feedback、reason、uncertainty；后三项必须是非空文字。新版任务的 args 内还必须有 diagnosis:{summary,evidence:[回答原话],teachingDirection,needsClarification:bool}，不能放在根对象。只能引用真实学生记录；同题多轮保留稳定 questionId，提示经历不丢弃。没有可靠回答或评价不完整时不要给正式分数。", false,
+    agent.registerTool("evaluate_answer", {"真实 AI 评价实际学生回答。args 参数 interactionId、score(0..100 或 null)、credible(bool)、feedback、reason、uncertainty；后三项必须是非空文字。新版 args 内必须有 diagnosis:{summary,evidence:[回答原话],teachingDirection,needsClarification:bool}，不能放在根对象；另须 feedbackHelpType:none|explanation|hint|worked_example|clarification，按公开反馈整体分类（feedback、uncertainty、diagnosis.summary/evidence）：仅指出对错用none，本题方向用hint，给本题答案或完整步骤用worked_example。只能引用真实学生记录；同题多轮保留稳定 questionId，提示经历不丢弃。没有可靠回答或评价不完整时不要给正式分数。", false,
         [](Database& db, const Json& args, const Json& task, const AIResult& source) {
             const auto access = accessFor(task); const auto interactionId = text(args, "interactionId");
             Json answer; std::string courseId;
@@ -351,6 +351,10 @@ void registerAgentLessonTools(LearningAgent& agent) {
                 {"source", "ai"}, {"model", source.model}, {"status", "valid"}, {"at", now()}};
             if (task.value("teachingProtocolVersion", 1) >= 2 && !args.contains("diagnosis"))
                 throw std::invalid_argument("本次评价需要 diagnosis：具体卡点、实际回答原话依据、补讲方向和是否先澄清");
+            const auto feedbackHelp = args.value("feedbackHelpType", "unknown");
+            if (!teachingHelpType(feedbackHelp) || (task.value("teachingProtocolVersion", 1) >= 3 && feedbackHelp == "unknown"))
+                throw std::invalid_argument("feedbackHelpType 必须明确反馈实际帮助程度：none、explanation、hint、worked_example 或 clarification；给出本题答案或完整步骤属于 worked_example");
+            value["feedbackHelpType"] = feedbackHelp;
             value["diagnosis"] = checkedDiagnosis(args, answer.at("text"));
             for (const auto* field : {"lessonId", "sectionId", "view", "helpHistory", "relatedLearning", "helpMode", "rePracticeOf"})
                 if (answer.contains(field)) value[field] = answer.at(field);
@@ -461,6 +465,10 @@ void agentRecordLearnerEvent(Database& db, const AgentAccess& access, const Json
                         {"sectionId", item.at("id")}, {"sectionVersion", item.at("version")}, {"questionId", item.value("targetQuestionId", "")}});
         for (const auto& item : section->value("legacyDialog", Json::array())) if (item.value("role", "") == "assistant")
             remember({{"helpType", "unknown"}, {"text", item.at("text")}, {"questionId", questionId}, {"source", "legacy"}});
+        const auto evaluationExposure = Json::parse(db.profileMeta("agent-evaluation-exposure:" + lesson.at("id").get<std::string>()), nullptr, false);
+        if (evaluationExposure.is_object()) for (const auto& item : evaluationExposure.items())
+            if (item.value().value("questionIdentity", "") == teachingQuestionIdentity(courseId, section->at("question")))
+                remember(item.value());
         for (const auto& row : db.listClassroomActivities(courseId)) if (row.kind == "agent-task") {
             const auto task = Json::parse(row.payload, nullptr, false);
             if (task.is_object() && task.value("scopeId", "") == access.scopeId &&
@@ -596,7 +604,7 @@ Json agentLessonView(Database& db, const AgentAccess& access, const std::string&
             if (!input.is_object() || input.value("scopeId", "") != access.scopeId || input.value("lessonId", "") != lessonId) continue;
             Json evaluation = {{"id", row.id}, {"sectionId", input.value("sectionId", "")},
                 {"interactionId", inputRow.id}, {"requestId", input.value("requestId", "")}};
-            for (const auto* field : {"questionId", "response", "score", "credible", "feedback", "reason", "uncertainty", "assisted", "at", "diagnosis", "helpHistory", "helpMode", "rePracticeOf"})
+            for (const auto* field : {"questionId", "response", "score", "credible", "feedback", "feedbackHelpType", "reason", "uncertainty", "assisted", "at", "diagnosis", "helpHistory", "helpMode", "rePracticeOf"})
                 if (value.contains(field)) evaluation[field] = value.at(field);
             shown["evaluations"].push_back(std::move(evaluation));
         }
@@ -752,9 +760,10 @@ Json agentStartLesson(Database& db, const AgentAccess& access, const Json& body)
         {"text", "请读取本课已经保存的板块和真实学习记录，选择当前讲解段及合适的互动题，分段带我学习。围绕当前段边问边讲；等待我的反馈再决定继续、补讲或举例。已有课件无需重新生成，切换讲解、练习和小结不表示完成。"}});
 }
 Json agentExposeTask(Database& db, const AgentAccess& access, const Json& body) {
-    if (body.contains("lessonId") && body.contains("sections")) {
+    if (body.contains("lessonId") && (body.contains("sections") || body.contains("evaluations"))) {
         const auto id = text(body, "lessonId");
-        if (!body.at("sections").is_array()) throw std::invalid_argument("展示板块列表无效");
+        const auto sections = body.value("sections", Json::array()), evaluations = body.value("evaluations", Json::array());
+        if (!sections.is_array() || !evaluations.is_array()) throw std::invalid_argument("展示板块或评价列表无效");
         Json result;
         db.transaction([&] {
             const auto lesson = lessonFor(db, access, id);
@@ -762,7 +771,7 @@ Json agentExposeTask(Database& db, const AgentAccess& access, const Json& body) 
             const auto key = "agent-section-exposure:" + id;
             const auto previous = Json::parse(db.profileMeta(key), nullptr, false);
             auto exposure = previous.is_object() ? previous : Json::object();
-            for (const auto& entry : body.at("sections")) {
+            for (const auto& entry : sections) {
                 const auto sectionId = text(entry, "id"); bool found = false;
                 for (const auto& section : lesson.at("sections"))
                     if (section.at("id") == sectionId && entry.value("version", Json()).is_number_integer() && entry.at("version") == section.at("version")) found = true;
@@ -770,6 +779,39 @@ Json agentExposeTask(Database& db, const AgentAccess& access, const Json& body) 
                 exposure[sectionId] = entry.at("version");
             }
             db.setProfileMeta(key, exposure.dump()); result = {{"lessonId", id}, {"seenSections", exposure.size()}};
+            if (!evaluations.empty()) {
+                const auto evaluationKey = "agent-evaluation-exposure:" + id;
+                auto saved = Json::parse(db.profileMeta(evaluationKey), nullptr, false);
+                if (!saved.is_object()) saved = Json::object();
+                const auto interactions = db.listInteractions();
+                for (const auto& entry : evaluations) {
+                    const auto evaluationId = text(entry, "id");
+                    if (!entry.value("complete", Json()).is_boolean()) throw std::invalid_argument("评价展示须说明反馈是否已完整展示");
+                    const auto found = std::find_if(interactions.begin(), interactions.end(), [&](const auto& row) {
+                        return row.id == evaluationId && row.kind == "practice" && row.courseId == lesson.at("courseId").get<std::string>();
+                    });
+                    if (found == interactions.end()) throw std::invalid_argument("评价未发布或不属于当前课程");
+                    const auto value = Json::parse(found->payload);
+                    const auto input = std::find_if(interactions.begin(), interactions.end(), [&](const auto& row) {
+                        return row.id == value.value("interactionId", "") && row.kind == "chat-user";
+                    });
+                    if (input == interactions.end()) throw std::invalid_argument("评价缺少真实输入关联");
+                    const auto answer = Json::parse(input->payload);
+                    if (answer.value("scopeId", "") != access.scopeId || answer.value("lessonId", "") != id ||
+                        value.value("source", "") != "ai" || value.value("status", "") != "valid" ||
+                        text(entry, "feedback") != value.value("feedback", "") || !value.value("questionSnapshot", Json()).is_object())
+                        throw std::invalid_argument("评价展示身份或反馈原文不匹配");
+                    const auto declared = value.value("feedbackHelpType", "unknown");
+                    if (!teachingHelpType(declared)) throw std::invalid_argument("评价帮助类型无效");
+                    const bool complete = entry.at("complete").get<bool>() ||
+                        (saved.contains(evaluationId) && !saved.at(evaluationId).value("partial", true));
+                    saved[evaluationId] = {{"evaluationId", evaluationId}, {"source", "evaluation"},
+                        {"questionId", value.at("questionId")}, {"questionIdentity", teachingQuestionIdentity(lesson.at("courseId"), value.at("questionSnapshot"))},
+                        {"declaredHelpType", declared}, {"helpType", !complete && (declared == "hint" || declared == "worked_example") ? "unknown" : declared},
+                        {"partial", !complete}, {"text", evaluationFeedbackText(value)}, {"sectionId", answer.value("sectionId", "")}};
+                }
+                db.setProfileMeta(evaluationKey, saved.dump()); result["seenEvaluations"] = saved.size();
+            }
         });
         return result;
     }

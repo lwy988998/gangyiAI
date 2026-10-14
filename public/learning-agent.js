@@ -17,8 +17,13 @@
   const id = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const exposures = new Map();
   const sectionExposures = new Map();
+  const evaluationExposures = new Map(), evaluationBodies = new Map();
   const shownMessages = new Map(); let exposureTimer;
   const flushExposure = async () => {
+    await Promise.all([...evaluationExposures].map(async ([lessonId, evaluations]) => {
+      await request('/api/learn/exposure', {lessonId, evaluations: [...evaluations.values()]});
+      if (evaluationExposures.get(lessonId) === evaluations) evaluationExposures.delete(lessonId);
+    }));
     await Promise.all([...sectionExposures].map(async ([lessonId, sections]) => {
       await request('/api/learn/exposure', {lessonId, sections: [...sections.values()]});
       if (sectionExposures.get(lessonId) === sections) sectionExposures.delete(lessonId);
@@ -28,6 +33,32 @@
       if (exposures.get(taskId) === value) exposures.delete(taskId);
     }));
   };
+  // 反馈正文实际进入视区才记录；长反馈逐段合并可见范围，未看完整时保留不确定性。
+  function recordEvaluation(lessonId, record, node, viewportNode) {
+    if (document.hidden || !record.feedback || !node?.isConnected || node.closest('details:not([open])') || node.closest('[hidden]')) return;
+    const bounds = node.getBoundingClientRect(), viewport = viewportNode?.getBoundingClientRect() ||
+      {top:0, bottom:innerHeight, left:0, right:innerWidth};
+    if (bounds.height <= 0 || bounds.bottom <= viewport.top || bounds.top >= viewport.bottom || bounds.right <= viewport.left || bounds.left >= viewport.right) return;
+    const key = lessonId + ':' + record.id;
+    let state = evaluationBodies.get(key);
+    if (state?.feedback === record.feedback && state.complete) return;
+    if (!state || state.feedback !== record.feedback || Math.abs(state.height-bounds.height)>1)
+      state = {feedback:record.feedback, height:bounds.height, ranges:[], complete:false, reported:false};
+    state.ranges.push([Math.max(0, viewport.top-bounds.top), Math.min(bounds.height, viewport.bottom-bounds.top)]);
+    state.ranges.sort((a,b)=>a[0]-b[0]);
+    const merged = [];
+    for (const range of state.ranges) {
+      const last=merged.at(-1);
+      if (last && range[0] <= last[1]+1) last[1]=Math.max(last[1],range[1]); else merged.push([...range]);
+    }
+    state.ranges=merged; state.complete=merged.length===1 && merged[0][0]<=1 && merged[0][1]>=bounds.height-1;
+    const fresh=!state.reported || state.complete; state.reported=true; evaluationBodies.set(key,state);
+    if (!fresh) return;
+    const pending = new Map(evaluationExposures.get(lessonId) || []);
+    pending.set(record.id,{id:record.id, feedback:record.feedback, complete:state.complete});
+    evaluationExposures.set(lessonId,pending);
+    flushExposure().catch(()=>{ /* 下次提交或页面离开前保留未确认的可见反馈。 */ });
+  }
   function watch(taskId, handlers = {}) {
     let sequence = handlers.afterSeq || 0, socket, timer, stopped = false;
     const events = new Set();
@@ -74,7 +105,7 @@
     else element.textContent = String(value);
   };
   const failureMessage = task => task?.failure?.message || task?.error || 'AI 请求未完成，输入和已有有效结果已保留，可重试。';
-  window.GangyiAgent = { request, watch, storage, id, richText, flushExposure, failureMessage,
+  window.GangyiAgent = { request, watch, storage, id, richText, flushExposure, failureMessage, recordEvaluation,
     recordMessages(taskId, seq, sequences) {
       const shown = shownMessages.get(taskId) || new Set();
       const fresh = sequences.filter(sequence => !shown.has(sequence));
@@ -98,6 +129,8 @@
     control: value => request('/api/learning-agent/control', value),
   };
   window.addEventListener('pagehide', () => {
+    for (const [lessonId, evaluations] of evaluationExposures) navigator.sendBeacon('/api/learn/exposure',
+      new Blob([JSON.stringify({lessonId, evaluations:[...evaluations.values()]})], {type:'application/json'}));
     for (const [lessonId, sections] of sectionExposures) navigator.sendBeacon('/api/learn/exposure',
       new Blob([JSON.stringify({lessonId, sections: [...sections.values()]})], {type:'application/json'}));
     for (const [taskId, value] of exposures) navigator.sendBeacon('/api/learn/exposure',

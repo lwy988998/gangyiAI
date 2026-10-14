@@ -153,10 +153,14 @@
     const card = element('article', '', 'chat-evaluation'); card.dataset.area = record.view || activeView;
     card.append(element('p', 'AI · 本次作答评价', 'chat-author'), element('h2', record.credible && record.score !== null && record.score !== undefined ?
       '本次作答 · ' + record.score + ' 分' : '本次反馈 · 尚无可靠分数'));
-    const body = element('div'); api.richText(body, record.feedback || ''); card.append(body);
-    if (record.uncertainty) card.append(element('p', record.uncertainty, 'agent-note'));
-    if (record.diagnosis?.summary) card.append(element('p', '卡点：' + record.diagnosis.summary, 'agent-note'));
-    if (record.diagnosis?.evidence?.length) card.append(element('p', '依据：' + record.diagnosis.evidence.join('；'), 'agent-note'));
+    const feedbackContent = element('div'); feedbackContent.dataset.evaluationFeedback = record.id;
+    const body = element('div'); api.richText(body, record.feedback || ''); feedbackContent.append(body); card.append(feedbackContent);
+    if (record.feedbackHelpType && record.feedbackHelpType !== 'none') card.append(element('p', {
+      explanation:'反馈包含相关概念讲解',hint:'反馈包含本题提示',worked_example:'反馈包含本题完整示范',
+      clarification:'反馈用于澄清思路',unknown:'反馈帮助程度未确定'}[record.feedbackHelpType] || '', 'agent-note'));
+    if (record.uncertainty) feedbackContent.append(element('p', record.uncertainty, 'agent-note'));
+    if (record.diagnosis?.summary) feedbackContent.append(element('p', '卡点：' + record.diagnosis.summary, 'agent-note'));
+    if (record.diagnosis?.evidence?.length) feedbackContent.append(element('p', '依据：' + record.diagnosis.evidence.join('；'), 'agent-note'));
     if (record.helpMode) card.append(element('p', {independent:'本题独立作答',after_hint:'本题在提示后作答',after_example:'本题在完整示范后作答',help_unknown:'本题帮助程度未确定'}[record.helpMode] || '', 'agent-note'));
     if (record.rePracticeOf) card.append(element('p', '这是关联原问题的新题复练结果。', 'agent-note'));
     return card;
@@ -269,6 +273,8 @@
     if (fresh.length) { fresh.forEach(section => shownSections.add(section.id + ':' + section.version)); api.recordSections(lessonId, fresh); }
     for (const [key, record] of records) if (record.role === 'assistant' && record.taskId && record.sequences?.length && visible(nodes.get(key)))
       api.recordMessages(record.taskId, Math.max(...record.sequences), record.sequences);
+    for (const [key, record] of records) if (record.type === 'evaluation')
+      api.recordEvaluation(lessonId, record, nodes.get(key)?.querySelector('[data-evaluation-feedback]'), scroll);
   }
   function setDisabled() {
     const locked = !loaded || busy || sending || Boolean(admissionError);

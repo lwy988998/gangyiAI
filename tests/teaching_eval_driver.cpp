@@ -124,6 +124,7 @@ int main(int argc, char** argv) {
                         const bool incorrect = event.at("text").get<std::string>().find("2/5") != std::string::npos;
                         action = {{"id", "grade"}, {"tool", "evaluate_answer"}, {"args", {{"interactionId", actual.at("interactionId")},
                             {"score", incorrect ? 20 : 95}, {"credible", true}, {"feedback", incorrect ? "分母不同，先统一每份大小，再相加。" : "结果与通分过程正确，再用自己的话说明理由。"},
+                            {"feedbackHelpType", incorrect ? "hint" : "none"},
                             {"reason", "依据本题原题和实际回答"}, {"uncertainty", "固定页面演示记录，不代表真实教学验收。"},
                             {"diagnosis", {{"summary", incorrect ? "分子分母分别相加，忽略每份大小不同。" : "本次计算正确，需要结合帮助程度判断独立理解。"},
                                 {"evidence", {event.at("text")}}, {"teachingDirection", "用等分单位解释通分的理由。"}, {"needsClarification", false}}}}}};
@@ -179,7 +180,11 @@ int main(int argc, char** argv) {
             gangyi::agentExposeTask(db, access, {{"taskId", task.at("id")}, {"seq", raw.at("seq")}});
             Json exposed = Json::array(); saved = Json::parse(db.getClassroomActivity(lessonId)->payload);
             for (const auto& section : saved.at("sections")) exposed.push_back({{"id", section.at("id")}, {"version", section.at("version")}});
-            gangyi::agentExposeTask(db, access, {{"lessonId", lessonId}, {"sections", exposed}});
+            Json evaluations = Json::array();
+            const auto shownLesson = gangyi::agentLessonView(db, access, lessonId);
+            for (const auto& evaluation : shownLesson.at("evaluations"))
+                if (!evaluation.value("feedback", "").empty()) evaluations.push_back({{"id", evaluation.at("id")}, {"feedback", evaluation.at("feedback")}, {"complete", true}});
+            gangyi::agentExposeTask(db, access, {{"lessonId", lessonId}, {"sections", exposed}, {"evaluations", evaluations}});
             turns.push_back({{"event", event}, {"task", raw}, {"currentInputs", gangyi::agentContext(db, access, event).at("currentInputs")}});
             if (raw.at("status") == "failed" || raw.at("status") == "superseded") break;
         }

@@ -26,6 +26,7 @@ gangyi::AIResult output(const Json& value, const std::function<bool(const std::s
     return result;
 }
 #include "teaching_evidence_checks.hpp"
+#include "evaluation_feedback_checks.hpp"
 int main() {
     const auto root = std::filesystem::temp_directory_path() /
         ("gangyi-agent-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -471,7 +472,7 @@ int main() {
         gangyi::LearningAgent evaluation(path, [&](const auto&, const auto& sink) {
             return output({{"message", "你指出了化合价升高，可进一步联系失电子。"},
                 {"actions", {{{"id", "evaluate"}, {"tool", "evaluate_answer"}, {"args", {{"interactionId", actualAnswerId},
-                    {"score", 80}, {"credible", true}, {"feedback", "化合价变化判断正确，过程可补充电子关系"},
+                    {"score", 80}, {"credible", true}, {"feedback", "化合价变化判断正确，过程可补充电子关系"}, {"feedbackHelpType", "hint"},
                     {"diagnosis", {{"summary", "尚未说明电子变化"}, {"evidence", {"由0到+2"}},
                         {"teachingDirection", "联系失电子与化合价升高"}, {"needsClarification", false}}},
                     {"reason", "引用学生实际写出的0到+2"}, {"uncertainty", "仅能确认本题判断，不能推断全部知识"}}}}}},
@@ -607,6 +608,7 @@ int main() {
         assert(gangyi::agentView(db, access, shutdownTask["id"])["status"] == "pending");
     }
     runTeachingEvidenceChecks(root / "teaching.db");
+    runEvaluationFeedbackChecks(root / "evaluation-feedback.db");
     std::filesystem::remove_all(root);
     std::cout << "多步 AI 主控、幂等、访问隔离、失败停止与事务回滚测试通过\n";
 }

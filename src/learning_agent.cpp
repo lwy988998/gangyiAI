@@ -323,7 +323,7 @@ Json agentSubmit(Database& db, const AgentAccess& access, const Json& event, Age
         task = {{"id", newId()}, {"scopeId", access.scopeId}, {"courseIds", access.courseIds},
             {"courseId", courseId.empty() && !access.courseIds.empty() ? access.courseIds.front() : courseId},
             {"requestId", event["requestId"]}, {"event", event}, {"status", "pending"}, {"version", 1}, {"seq", 0},
-            {"teachingProtocolVersion", 2},
+            {"teachingProtocolVersion", 3},
             {"events", Json::array()}, {"results", Json::array()}, {"completedActions", Json::object()},
             {"messages", Json::array()}, {"learningVersion", db.learningRevision()}, {"calls", 0},
             {"createdAt", stamp()}, {"navigate", event.value("navigate", false)}, {"manualScheduleReplan", manualSchedule || event.value("type", "") == "assistant_chat"}};
