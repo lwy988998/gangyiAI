@@ -279,7 +279,7 @@ Json agentContext(Database& db, const AgentAccess& access, const Json& event) {
             current = current || value.value("requestId", "") == answer.value("requestId", "");
         if (!current) continue;
         Json item = {{"interactionId", row.id}};
-        for (const auto* field : {"requestId", "lessonId", "sectionId", "questionId", "questionSnapshot", "text", "action", "type", "requestType", "helpHistory", "relatedLearning", "helpMode", "rePracticeOf"})
+        for (const auto* field : {"requestId", "lessonId", "sectionId", "questionId", "questionSnapshot", "text", "action", "type", "requestType", "helpHistory", "relatedLearning", "helpMode", "rePracticeOf", "shownDemonstrations", "demonstrationHistoryIncomplete"})
             if (value.contains(field)) item[field] = value.at(field);
         context["currentInputs"].push_back(std::move(item));
     }
@@ -609,6 +609,8 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
                 options.messages.push_back({"user", promptContext.dump(), ""});
                 for (const auto& message : promptHistory) options.messages.push_back({message.at("role"), message.at("content"), ""});
             }
+            if (!lessonId.empty()) options.messages.front().content +=
+                "\nshownDemonstrations 是本课实际展示过的示范题索引，complete=true 表示至少一次完整展示。它不把其他题的帮助串成本题提示。安排独立复练及判断理解时，按题目含义检查这个索引；只换问法或解释要求，不能把已经示范的同一问题称为新题或独立证据。helpMode 是精确题目匹配的记录标签，不能单独作为掌握结论。";
             options.activity.taskId = taskId;
             options.activity.scopeId = access.scopeId;
             options.activity.purpose = resolvingInput ? "判断本次回答或追问" : taskPurpose(task.at("event").value("type", ""));

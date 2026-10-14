@@ -36,25 +36,39 @@ inline nlohmann::json agentPromptContext(nlohmann::json context, bool assessment
     return context;
 }
 
-// 同一任务内内容完全相同的只读结果仅保留一次，写入凭据与错误原文保留供修正。
+// 相同只读结果和报错时重复附带的凭据只发送一次；动作参数、首次结果和错误原文保留。
 inline nlohmann::json agentPromptHistory(const nlohmann::json& messages, const nlohmann::json& actions,
                                          const std::set<std::string>& readOnlyTools) {
     using Json = nlohmann::json;
     Json result = messages;
     std::map<std::string, std::string> seen;
+    std::map<std::string, Json> receipts;
     for (auto& message : result) {
         if (message.value("role", "") != "user") continue;
         auto content = Json::parse(message.value("content", ""), nullptr, false);
-        if (!content.is_object() || !content.value("toolResults", Json()).is_array()) continue;
-        for (auto& item : content["toolResults"]) {
+        if (!content.is_object()) continue;
+        if (content.value("toolResults", Json()).is_array()) for (auto& item : content["toolResults"]) {
             const auto id = item.value("id", "");
             if (!actions.contains(id)) continue;
+            // 使用实际发送过的结果登记凭据，不能仅因数据库有缓存就删除首次结果。
+            receipts[id] = {{"encoded", actions.at(id).value("encoded", "")}, {"result", item.value("result", Json())}};
             const auto encoded = Json::parse(actions.at(id).value("encoded", ""), nullptr, false);
             if (!encoded.is_object() || !readOnlyTools.count(encoded.value("tool", ""))) continue;
             const auto key = encoded.dump() + ":" + item.value("result", Json()).dump();
             const auto previous = seen.find(key);
             if (previous == seen.end()) seen[key] = id;
             else item["result"] = {{"unchangedFrom", previous->second}};
+        }
+        for (const auto* field : {"completedActions", "savedActions"}) {
+            if (!content.value(field, Json()).is_object()) continue;
+            for (auto& item : content[field].items()) {
+                auto& receipt = item.value();
+                if (!receipt.is_object() || !receipt.contains("encoded") || !receipt.contains("result")) continue;
+                const auto previous = receipts.find(item.key());
+                if (previous != receipts.end() && previous->second == receipt)
+                    receipt["result"] = {{"unchangedFrom", item.key()}};
+                else receipts[item.key()] = receipt;
+            }
         }
         message["content"] = content.dump();
     }

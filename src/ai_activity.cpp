@@ -126,7 +126,7 @@ void saveUsage(const Json& row,const std::string& status,const Json& tokens=null
     value["day"]=row.value("requestDay",stamp(true));value["at"]=row.value("requestAt",stamp());value["status"]=status;
     value["durationMs"]=status=="requesting"?0LL:std::max(0LL,clockMillis()-row.value("requestStartedMs",clockMillis()));value["tokens"]=tokens;
     if(!model.empty())value["model"]=model;
-    const auto key="usage:"+row.at("id").get<std::string>()+":"+std::to_string(row.value("calls",0));
+    const auto key="usage:"+row.value("requestId",row.at("id").get<std::string>()+":"+std::to_string(row.value("calls",0)));
     sqlite3* connection=nullptr;sqlite3_stmt* statement=nullptr;
     const auto close=[&]{sqlite3_finalize(statement);if(connection)sqlite3_close(connection);};
     if(sqlite3_open(usageDatabase.c_str(),&connection)!=SQLITE_OK){close();throw std::runtime_error("无法保存调用统计");}
@@ -207,6 +207,9 @@ bool AIActivity::requestStarted(const std::string& id) {
         for(auto& row:state["tasks"])if(row.value("id","")==id){
             row["status"]="requesting";row["calls"]=row.value("calls",0)+1;row["updatedAt"]=stamp();
             row["requestStartedMs"]=clockMillis();row["requestAt"]=stamp();row["requestDay"]=stamp(true);
+            // 任务计数在恢复或元数据清理后可能从1开始；每笔HTTP请求使用独立标识，防止覆盖历史用量。
+            row["requestId"]="http-"+std::to_string(processId())+"-"+
+                std::to_string(std::chrono::system_clock::now().time_since_epoch().count())+"-"+std::to_string(++sequence);
             state["todayCalls"]=state.value("todayCalls",0)+1;request=row;writeState(state);break;
         }
     }

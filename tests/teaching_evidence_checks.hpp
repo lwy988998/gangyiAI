@@ -42,6 +42,22 @@ inline void runTeachingEvidenceChecks(const std::filesystem::path& path) {
     assert(compactContext.at("personalCenter") == sourceContext.at("personalCenter"));
     assert(compactContext.at("courses").size() == 1 && !compactContext.contains("studyPlan"));
     assert(longContext.at("courses").size() == 2 && longContext.contains("studyPlan"));
+    // 调用状态文件重建后，同一任务仍从第1次计数开始，也必须保留两笔独立用量。
+    gangyi::AIActivity::configureUsage(path.string());
+    gangyi::AIActivityInfo usageInfo; usageInfo.taskId = "usage-recovery-check"; usageInfo.purpose = "免费用量恢复回归";
+    int usageIndex = 0;
+    for (const auto* suffix : {".usage-before.json", ".usage-after.json"}) {
+        gangyi::AIActivity::configure(path.string()+suffix);
+        const auto usageTask = gangyi::AIActivity::begin(usageInfo, "fixture");
+        assert(gangyi::AIActivity::requestStarted(usageTask));
+        gangyi::AIActivity::requestFinished(usageTask, "completed", {{"total_tokens", ++usageIndex*11}}, "fixture");
+        gangyi::AIActivity::update(usageTask, "completed");
+    }
+    const auto recoveredUsage = db.myAIRecords("usage");
+    assert(recoveredUsage.size() == 2 && recoveredUsage[0].id != recoveredUsage[1].id);
+    assert(Json::parse(recoveredUsage[0].payload).at("tokens").at("total_tokens").get<int>()+
+        Json::parse(recoveredUsage[1].payload).at("tokens").at("total_tokens").get<int>() == 33);
+    gangyi::AIActivity::configureUsage(""); gangyi::AIActivity::configure("");
     const Json duplicateRead = {{"sections", {std::string(12000, 'x')}}, {"version", 1}};
     const Json changedRead = {{"sections", {std::string(12000, 'y')}}, {"version", 2}};
     const Json readAction = {{"encoded", Json{{"tool", "read_lesson"}, {"args", {{"lessonId", "lesson-check"}}}}.dump()}};
@@ -55,6 +71,27 @@ inline void runTeachingEvidenceChecks(const std::filesystem::path& path) {
     assert(Json::parse(compactHistory[1].at("content").get<std::string>()).at("toolResults")[0].at("result").at("unchangedFrom") == "read1");
     assert(compactHistory[0] == history[0] && compactHistory[2] == history[2] && compactHistory[3] == history[3] &&
         compactHistory[4] == history[4] && compactHistory[5] == history[5]);
+    // 真实对照发现工具报错会反复携带全量成功结果；只引用已经在历史中发送过的相同凭据。
+    const Json savedWrite = {{"encoded", writeAction.at("encoded")}, {"result", duplicateRead}};
+    const Json newlySaved = {{"encoded", readAction.at("encoded")}, {"result", changedRead}};
+    const Json correction = {{"toolError", "画像引用不存在的可靠原题或实际回答"},
+        {"completedActions", {{"write1", savedWrite}, {"newRead", newlySaved}}}};
+    Json retryHistory = Json::array({history[3], {{"role", "user"}, {"content", correction.dump()}},
+        {{"role", "user"}, {"content", Json{{"toolError", "仍需修正"}, {"savedActions", correction.at("completedActions")}}.dump()}}});
+    const auto compactRetries = gangyi::agentPromptHistory(retryHistory, actionIndex, {"read_lesson"});
+    const auto firstCorrection = Json::parse(compactRetries[1].at("content").get<std::string>());
+    const auto laterCorrection = Json::parse(compactRetries[2].at("content").get<std::string>());
+    assert(firstCorrection.at("toolError") == correction.at("toolError"));
+    assert(firstCorrection.at("completedActions").at("write1").at("encoded") == savedWrite.at("encoded"));
+    assert(firstCorrection.at("completedActions").at("write1").at("result").at("unchangedFrom") == "write1");
+    assert(firstCorrection.at("completedActions").at("newRead") == newlySaved);
+    assert(laterCorrection.at("savedActions").at("newRead").at("result").at("unchangedFrom") == "newRead");
+    assert(retryHistory[1].at("content") == correction.dump());
+    auto changedReceipt = correction;
+    changedReceipt["completedActions"]["write1"]["result"] = changedRead;
+    retryHistory.push_back({{"role", "user"}, {"content", changedReceipt.dump()}});
+    const auto changedRetries = gangyi::agentPromptHistory(retryHistory, actionIndex, {"read_lesson"});
+    assert(Json::parse(changedRetries[3].at("content").get<std::string>()).at("completedActions").at("write1").at("result") == changedRead);
     gangyi::agentControl(db, access, {{"command", "cancel"}, {"taskId", first.at("id")}});
     auto hint = submit("q1", "teaching_request", "给一点提示", "hint");
     assert(inputFor(hint).at("type") == "teaching_request");
