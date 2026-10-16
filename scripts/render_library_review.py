@@ -40,7 +40,7 @@ def render(folder, output):
             details.append(f"<article><h3>{label} · {name}</h3><p class='meta'>{cells[-1]}</p><pre>{escaped(answer)}</pre>{question_html}<p><a href='{relative}'>查看完整原始记录</a></p></article>")
         rows.append(f"<tr><th>{label}</th><td>{cells[0]}</td><td>{cells[1]}</td></tr>")
     extra = []
-    for name, label in [("language-candidate-reviewed", "英语更换全文来源后的补充复核"), ("language-final-retry", "英语最终协议重试"), ("language-current-final", "最新合并版英语讲解与新题"), ("programming-baseline-retry", "编程基线原任务重试（未完成）"), ("timeliness-baseline-retry", "时效基线原任务重试（未完成）"), ("../personalized-teaching-advanced", "进阶编程讲解（有限适配证据）")]:
+    for name, label in [("language-candidate-reviewed", "英语更换全文来源后的补充复核"), ("language-final-retry", "英语最终协议重试"), ("language-current-final", "来源规则修正后的英语讲解与新题"), ("programming-baseline-retry", "编程基线原任务重试（未完成）"), ("timeliness-baseline-retry", "时效基线原任务重试（未完成）"), ("../personalized-teaching-advanced", "进阶编程讲解（有限适配证据）"), ("../library-research-recovery-live", "复杂资料任务收尾（已完成，浅拷贝嵌套依据仍待补查）")]:
         path = folder / name / "result.json"
         if not path.exists():
             continue
@@ -57,7 +57,7 @@ body{margin:0;background:#131719;color:#e8ecea;font:16px/1.65 system-ui,"Microso
 </style><main><p class="meta">2026-10-14 · Windows v5.6.1基线 · 当前模型 deepseek-flash</p>
 <h1>资料与教学整合验收记录</h1><p>这是实际验收记录的阅读页面，包含原始回复与私有标准；不是项目界面的截图或学生档案。</p>
 <div class="notice">五领域均已尝试真实模型对照。两个基线案例未完成，英语来源与协议另行复核；没有据此宣布整体教学效果改善。每例是一次教学请求，不能替代教学专项6/18案例的完整多轮验收。</div>
-<h2>实际请求与用量</h2><table><thead><tr><th>领域</th><th>v5.6.1基线</th><th>资料增强版</th></tr></thead><tbody>""" + "".join(rows) + """</tbody></table><p class="meta">Token只使用服务商回执，未提供的部分不估算。总体20次HTTP请求、133,338已知Token；请求较少不代表总Token降低。</p><h2>实际讲解与题目</h2>""" + "".join(details) + "<h2>补充复核</h2>" + "".join(extra) + "</main></html>"
+<h2>实际请求与用量</h2><table><thead><tr><th>领域</th><th>v5.6.1基线</th><th>资料增强版</th></tr></thead><tbody>""" + "".join(rows) + """</tbody></table><p class="meta">Token只使用服务商回执，未提供的部分不估算。总体20次HTTP请求、133,338已知Token；请求较少不代表总Token降低。</p><h2>实际讲解与题目</h2>""" + "".join(details) + "<h2>补充复核</h2><p class='meta'>后续任务沿用真实原件。资料任务完成不等于最新整合版6/18多轮教学验收通过；重复序列的别名例子不能单独证明浅拷贝嵌套语义。关键词采用及恢复阶段另有10次HTTP：8次提供170,130已知Token、2次未提供；失败及超时原件保留。</p>" + "".join(extra) + "</main></html>"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(page, encoding="utf-8")
 
