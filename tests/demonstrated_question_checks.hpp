@@ -42,7 +42,15 @@ inline void runDemonstratedQuestionChecks(const std::filesystem::path& path) {
     const auto notShown=inspect("q2");assert(notShown.at("helpMode")=="independent"&&notShown.at("shownDemonstrations").empty());
     const auto saved=Json::parse(db.getClassroomActivity("demo-lesson")->payload).at("sections").back();
     assert(saved.at("demonstratedQuestions").dump().find("PRIVATE-")==std::string::npos);
+    // 旧客户端只有板块版本，保留已展示事实，但完整程度不能猜测。
     gangyi::agentExposeTask(db,access,{{"lessonId","demo-lesson"},{"sections",{{{"id",saved.at("id")},{"version",1}}}}});
+    assert(inspect("q2").at("helpMode")=="help_unknown");
+    assert(inspect("q3").at("shownDemonstrations")[0].at("complete")==false);
+    gangyi::agentExposeTask(db,access,{{"lessonId","demo-lesson"},{"sections",{{{"id",saved.at("id")},{"version",1},{"complete",false}}}}});
+    assert(inspect("q2").at("helpMode")=="help_unknown");
+    gangyi::agentExposeTask(db,access,{{"lessonId","demo-lesson"},{"sections",{{{"id",saved.at("id")},{"version",1},{"complete",true}}}}});
+    // 模拟刷新后收到旧的部分展示回执，不能把已完整展示的同版本记录降级。
+    gangyi::agentExposeTask(db,access,{{"lessonId","demo-lesson"},{"sections",{{{"id",saved.at("id")},{"version",1},{"complete",false}}}}});
     assert(inspect("q2").at("helpMode")=="after_example");
     const auto original=inspect("q1");assert(original.at("helpMode")=="independent");
     assert(original.at("relatedLearning")[0].at("demonstratedQuestions")[0].at("question")==q2.at("question"));
@@ -52,6 +60,9 @@ inline void runDemonstratedQuestionChecks(const std::filesystem::path& path) {
     assert(different.at("shownDemonstrations").dump().find("PRIVATE-")==std::string::npos);
     const auto raw=Json::parse(db.getClassroomActivity(teaching.at("id"))->payload);
     gangyi::agentExposeTask(db,access,{{"taskId",teaching.at("id")},{"seq",raw.at("seq")}});
+    assert(inspect("q2").at("helpMode")=="after_example");
+    assert(inspect("q2").at("helpHistory").back().at("helpType")=="unknown");
+    gangyi::agentExposeTask(db,access,{{"taskId",teaching.at("id")},{"seq",raw.at("seq")},{"complete",true}});
     assert(inspect("q2").at("helpHistory").size()==2);
     assert(inspect("q3").at("shownDemonstrations")[0].at("sources").size()==2);
     // 已发布反馈中的另一题示范也使用同一关联机制，部分展示仍不能认定完整示范。

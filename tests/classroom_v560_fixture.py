@@ -21,6 +21,7 @@ class FixtureAI(BaseHTTPRequestHandler):
     fail = False
     http_error = 0
     feedback_help_type = 'none'
+    long_teaching = False
 
     def log_message(self, *_):
         pass
@@ -39,6 +40,7 @@ class FixtureAI(BaseHTTPRequestHandler):
             type(self).fail = request.get('fail', False)
             type(self).http_error = request.get('http_error', 0)
             type(self).feedback_help_type = request.get('feedback_help_type', 'none')
+            type(self).long_teaching = request.get('long_teaching', False)
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b'{}')
@@ -126,6 +128,8 @@ class FixtureAI(BaseHTTPRequestHandler):
                        'worked_example':'示范：Fe 的化合价由 0 升到 +2，对应失去两个电子。',
                        'rephrase':'换一种讲法：先看前后状态，再解释电子变化。'}.get(event.get('requestType'), '我们继续独立复练。')
             state = 'waiting_student'
+            if self.long_teaching:
+                message = '\n\n'.join([message] * 60)
         elif event['type'] == 'lesson_finish_request':
             message = '请结合本节检查点回顾，已有记录会保留，缺少证据的部分继续练习。'
             state = 'waiting_student'

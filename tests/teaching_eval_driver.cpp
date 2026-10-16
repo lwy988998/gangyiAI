@@ -262,14 +262,14 @@ int main(int argc, char** argv) {
             if (!alreadyShown) agent.process(db, task.at("id"));
             const auto row = db.getClassroomActivity(task.at("id")); const auto raw = Json::parse(row->payload);
             if (!alreadyShown) {
-            gangyi::agentExposeTask(db, access, {{"taskId", task.at("id")}, {"seq", raw.at("seq")}});
+            gangyi::agentExposeTask(db, access, {{"taskId", task.at("id")}, {"seq", raw.at("seq")}, {"complete", true}});
             Json exposed = Json::array(); saved = Json::parse(db.getClassroomActivity(lessonId)->payload);
             for (const auto& section : saved.at("sections")) exposed.push_back({{"id", section.at("id")}, {"version", section.at("version")}});
             Json evaluations = Json::array();
             const auto shownLesson = gangyi::agentLessonView(db, access, lessonId);
             for (const auto& evaluation : shownLesson.at("evaluations"))
                 if (!evaluation.value("feedback", "").empty()) evaluations.push_back({{"id", evaluation.at("id")}, {"feedback", evaluation.at("feedback")}, {"complete", true}});
-            gangyi::agentExposeTask(db, access, {{"lessonId", lessonId}, {"sections", exposed}, {"evaluations", evaluations}});
+            gangyi::agentExposeTask(db, access, {{"lessonId", lessonId}, {"sections", exposed}, {"evaluations", evaluations}, {"complete", true}});
             }
             turns.push_back({{"event", event}, {"task", raw}, {"currentInputs", gangyi::agentContext(db, access, event).at("currentInputs")}});
             checkpoint();
