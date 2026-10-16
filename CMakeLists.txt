@@ -369,6 +369,8 @@ if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     find_program(GANGYI_NODE_EXECUTABLE NAMES node)
     if(GANGYI_NODE_EXECUTABLE)
+        add_test(NAME help-display COMMAND ${GANGYI_NODE_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/help_display_smoke.js)
         add_test(NAME legacy-drafts COMMAND ${GANGYI_NODE_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/legacy_draft_tests.cjs)
         add_test(NAME agent-watch COMMAND ${GANGYI_NODE_EXECUTABLE}

@@ -117,6 +117,14 @@ inline void runTeachingEvidenceChecks(const std::filesystem::path& path) {
     helper.process(db, hint.at("id"));
     auto rawHint = Json::parse(db.getClassroomActivity(hint.at("id"))->payload);
     gangyi::agentExposeTask(db, access, {{"taskId", hint.at("id")}, {"seq", rawHint.at("seq")}});
+    const auto partialAnswer = submit("q1", "question_answer", "还没看完整提示");
+    assert(inputFor(partialAnswer).at("helpMode") == "help_unknown");
+    gangyi::agentControl(db, access, {{"command", "cancel"}, {"taskId", partialAnswer.at("id")}});
+    const auto otherAnswer = submit("q2", "question_answer", "没有看本题提示");
+    assert(inputFor(otherAnswer).at("helpMode") == "independent");
+    gangyi::agentControl(db, access, {{"command", "cancel"}, {"taskId", otherAnswer.at("id")}});
+    gangyi::agentExposeTask(db, access, {{"taskId", hint.at("id")}, {"seq", rawHint.at("seq")}, {"complete", true}});
+    gangyi::agentExposeTask(db, access, {{"taskId", hint.at("id")}, {"seq", rawHint.at("seq")}, {"completeSequences", Json::array()}});
     const auto wrongExample = submit("q1", "teaching_request", "看本题示范", "worked_example");
     gangyi::LearningAgent exampleGuard(path.string(), [&](const auto&, const auto& sink) {
         const Json section = {{"kind", "explanation"}, {"title", "另一题示范"}, {"body", "另一题完整步骤不能显示"},
@@ -263,7 +271,7 @@ inline void runTeachingEvidenceChecks(const std::filesystem::path& path) {
     });
     gangyi::registerAgentLessonTools(materialTeacher); materialTeacher.process(db, materialDemo.at("id"));
     const auto rawDemo = Json::parse(db.getClassroomActivity(materialDemo.at("id"))->payload);
-    gangyi::agentExposeTask(db, access, {{"taskId", materialDemo.at("id")}, {"seq", rawDemo.at("seq")}});
+    gangyi::agentExposeTask(db, access, {{"taskId", materialDemo.at("id")}, {"seq", rawDemo.at("seq")}, {"complete", true}});
     const auto independentMaterial = submit(newSection, "question_answer", "珍惜粮食");
     assert(inputFor(independentMaterial).at("helpMode") == "independent");
     gangyi::agentControl(db, access, {{"command", "cancel"}, {"taskId", independentMaterial.at("id")}});

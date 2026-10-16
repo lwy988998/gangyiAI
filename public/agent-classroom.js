@@ -44,7 +44,7 @@
     if (value.table) material(root, value.table);
   }
   const $ = id => document.getElementById(id), root = $('lesson-sections'), scroll = $('lesson-scroll'), input = $('lesson-input');
-  const nodes = new Map(), records = new Map(), shownSections = new Set();
+  const nodes = new Map(), records = new Map();
   let lesson, admissionError = '', selectedQuestion = '', watchingTask = '', watchingView = '', unsubscribe, watchEpoch = 0;
   let busy = false, sending = false, refreshing = false, refreshAgain = false, loaded = false, rendering = false, taskRevision = 0;
   let activeView = document.querySelector('[data-lesson-view]').dataset.lessonView, initialPosition = true;
@@ -223,7 +223,8 @@
       if (activeView === 'summary') { $('lesson-summary').open = true; renderSummary(); }
       paintNextStep(); paintTarget(); setDisabled();
     });
-    if (initialPosition && (focus().sectionId || admissionError || !lesson.teachingTaskId)) {
+    // 直接进入练习/小结时可能没有讲解焦点，也必须完成定位并开始累计滚动展示。
+    if (initialPosition && (activeView !== 'learn' || focus().sectionId || admissionError || !lesson.teachingTaskId)) {
       initialPosition = false; let saved;
       try { saved = JSON.parse(api.storage.get(pageKey('scroll')) || 'null'); } catch (_) { /* 默认定位当前课堂。 */ }
       if (saved) restorePosition(saved); else locate(activeView, false);
@@ -261,18 +262,14 @@
     $('completion-note').textContent = lesson.completed ? 'AI 已根据实际记录确认本节完成，原作答和交流继续保留。' :
       (lesson.evaluations || []).length ? '完成情况由 AI 结合实际作答和评价判断。' : '本节尚无足够的实际作答评价；阅读和追问不表示掌握。';
   }
-  function visible(node) {
-    if (!node?.isConnected || node.closest('details:not([open])') || node.closest('[hidden]')) return false;
-    const bounds = node.getBoundingClientRect(), viewport = scroll.getBoundingClientRect();
-    return bounds.bottom > viewport.top && bounds.top < viewport.bottom && bounds.right > viewport.left && bounds.left < viewport.right && bounds.height > 0;
-  }
   function exposeVisible() {
     if (!lesson || admissionError) return;
-    const sections = [...scroll.querySelectorAll('[data-section-id]')].filter(visible).map(node => ({id:node.dataset.sectionId, version:Number(node.dataset.sectionVersion)}));
-    const fresh = sections.filter(section => !shownSections.has(section.id + ':' + section.version));
-    if (fresh.length) { fresh.forEach(section => shownSections.add(section.id + ':' + section.version)); api.recordSections(lessonId, fresh); }
-    for (const [key, record] of records) if (record.role === 'assistant' && record.taskId && record.sequences?.length && visible(nodes.get(key)))
-      api.recordMessages(record.taskId, Math.max(...record.sequences), record.sequences);
+    for (const node of scroll.querySelectorAll('[data-section-id]')) {
+      const section=sectionFor(node.dataset.sectionId);
+      if (section) api.recordVisibleSection(lessonId,section,isQuestion(section) ? node : node.querySelector('.lesson-body'),scroll);
+    }
+    for (const [key, record] of records) if (record.role === 'assistant')
+      api.recordVisibleMessage(record,nodes.get(key)?.querySelector('.chat-message-body'),scroll);
     for (const [key, record] of records) if (record.type === 'evaluation')
       api.recordEvaluation(lessonId, record, nodes.get(key)?.querySelector('[data-evaluation-feedback]'), scroll);
   }
@@ -431,6 +428,7 @@
   scroll.addEventListener('scroll', () => { if (rendering || !loaded || initialPosition) return; cancelAnimationFrame(scrollFrame);
     scrollFrame = requestAnimationFrame(() => { api.storage.set(pageKey('scroll'), JSON.stringify(readingPosition())); $('lesson-latest').hidden = nearBottom(); exposeVisible(); }); });
   scroll.addEventListener('toggle', () => requestAnimationFrame(exposeVisible), true);
+  scroll.addEventListener('load', () => requestAnimationFrame(exposeVisible), true);
   new ResizeObserver(() => { if (loaded) exposeVisible(); }).observe(scroll);
   new ResizeObserver(() => document.body.style.setProperty('--classroom-composer-height', $('lesson-chat-panel').offsetHeight + 'px')).observe($('lesson-chat-panel'));
   document.addEventListener('gangyi:agent-control', event => { const {command, task, all} = event.detail || {};

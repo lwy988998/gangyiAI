@@ -110,14 +110,22 @@ Json displayedMessages(Database& db, const Json& task) {
     const auto exposure = Json::parse(raw, nullptr, false);
     const int observed = exposure.is_object() ? exposure.value("seq", 0) : 0;
     const auto displayed = exposure.is_object() ? exposure.value("displayedSequences", Json()) : Json();
+    const auto complete = exposure.is_object() ? exposure.value("completeSequences", Json::array()) : Json::array();
     std::map<int, std::string> messages;
+    std::map<int, bool> fullyDisplayed;
     for (const auto& event : task.value("events", Json::array()))
-        if (event.value("type", "") == "delta" && event.value("field", "") == "message" && event.value("seq", 0) <= observed &&
-            (!displayed.is_array() || std::find(displayed.begin(), displayed.end(), event.at("seq")) != displayed.end()))
+        if (event.value("type", "") == "delta" && event.value("field", "") == "message") {
+            const int step = event.value("step", 0);
+            if (!fullyDisplayed.count(step)) fullyDisplayed[step] = true;
+            fullyDisplayed[step] = fullyDisplayed[step] && complete.is_array() &&
+                std::find(complete.begin(), complete.end(), event.at("seq")) != complete.end();
+            if (event.value("seq", 0) <= observed && (!displayed.is_array() || std::find(displayed.begin(), displayed.end(), event.at("seq")) != displayed.end()))
             messages[event.value("step", 0)] += event.value("text", "");
+        }
     Json result = Json::array(); const auto validSteps = task.value("validSteps", Json::array());
     for (const auto& [step, value] : messages) if (!value.empty())
         result.push_back({{"role", "assistant"}, {"text", value}, {"step", step}, {"at", task.at("updatedAt")},
+            {"displayComplete", fullyDisplayed[step]},
             {"partial", std::find(validSteps.begin(), validSteps.end(), step) == validSteps.end()}});
     return result;
 }
@@ -483,18 +491,21 @@ void agentRecordLearnerEvent(Database& db, const AgentAccess& access, const Json
             }
         };
         const auto exposure = Json::parse(db.profileMeta("agent-section-exposure:" + lesson.at("id").get<std::string>()), nullptr, false);
+        const auto displayDetails = Json::parse(db.profileMeta("agent-section-display:" + lesson.at("id").get<std::string>()), nullptr, false);
         if (exposure.is_object()) for (const auto& item : lesson.at("sections"))
             if (item.at("kind") != "question" && exposure.value(item.at("id").get<std::string>(), 0) == item.at("version") && item.value("body", "") != "") {
-                rememberDemonstrations(item, false, {{"kind", "section"}, {"id", item.at("id")}, {"version", item.at("version")}});
+                const auto detail = displayDetails.is_object() ? displayDetails.value(item.at("id").get<std::string>(), Json::object()) : Json::object();
+                const bool complete = detail.value("version", Json()) == item.at("version") && detail.value("complete", false);
+                rememberDemonstrations(item, !complete, {{"kind", "section"}, {"id", item.at("id")}, {"version", item.at("version")}});
                 if (matchesDemonstration(item, courseId, section->at("question"))) {
-                    remember({{"helpType", "worked_example"}, {"text", item.at("body")}, {"questionId", questionId},
+                    remember({{"helpType", complete ? "worked_example" : "unknown"}, {"partial", !complete}, {"text", item.at("body")}, {"questionId", questionId},
                         {"sectionId", item.at("id")}, {"sectionVersion", item.at("version")}, {"source", "demonstrated_question"}});
                 } else if (!item.contains("helpType") && item.value("presentation", "") == "example") {
                     unassignedExample = true;
                     remember({{"helpType", "unknown"}, {"association", "lesson_only"}, {"text", item.at("body")},
                         {"sectionId", item.at("id")}, {"sectionVersion", item.at("version")}, {"source", "legacy"}});
                 } else if (item.value("helpType", "explanation") == "explanation" || item.value("targetQuestionId", "") == questionId)
-                    remember({{"helpType", item.value("helpType", "explanation")}, {"text", item.at("body")},
+                    remember({{"helpType", !complete && (item.value("helpType", "explanation") == "hint" || item.value("helpType", "explanation") == "worked_example") ? "unknown" : item.value("helpType", "explanation")}, {"partial", !complete}, {"text", item.at("body")},
                         {"sectionId", item.at("id")}, {"sectionVersion", item.at("version")}, {"questionId", item.value("targetQuestionId", "")}});
             }
         for (const auto& item : section->value("legacyDialog", Json::array())) if (item.value("role", "") == "assistant")
@@ -513,7 +524,8 @@ void agentRecordLearnerEvent(Database& db, const AgentAccess& access, const Json
                 task.value("event", Json::object()).value("lessonId", "") == lesson.at("id"))
                 for (const auto& item : displayedMessages(db, task)) {
                     const auto metadata = task.value("teachingHelp", Json::object()).value(std::to_string(item.value("step", 0)), Json::object());
-                    rememberDemonstrations(metadata, item.value("partial", false), {{"kind", "message"}, {"taskId", task.at("id")}, {"step", item.at("step")}});
+                    const bool partial = item.value("partial", false) || !item.value("displayComplete", false);
+                    rememberDemonstrations(metadata, partial, {{"kind", "message"}, {"taskId", task.at("id")}, {"step", item.at("step")}});
                     const auto& origin = task.at("event");
                     const bool sameSection = origin.value("sectionId", "") == sectionId &&
                         origin.value("sectionVersion", section->at("version").get<int>()) == section->at("version");
@@ -521,9 +533,10 @@ void agentRecordLearnerEvent(Database& db, const AgentAccess& access, const Json
                     const bool demonstrated = matchesDemonstration(metadata, courseId, section->at("question"));
                     if (!sameSection && !sameQuestion && !demonstrated) continue;
                     if (metadata.contains("questionId") && metadata.at("questionId") != questionId && !sameQuestion && !demonstrated) continue;
-                    remember({{"helpType", item.value("partial", false) ? "unknown" : demonstrated ? "worked_example" : metadata.value("helpType", "unknown")},
+                    const auto declared = demonstrated ? "worked_example" : metadata.value("helpType", "unknown");
+                    remember({{"helpType", partial && declared != "explanation" && declared != "none" && declared != "clarification" ? "unknown" : declared},
                         {"text", item.at("text")}, {"questionId", questionId}, {"taskId", task.at("id")},
-                        {"step", item.at("step")}, {"partial", item.at("partial")}});
+                        {"step", item.at("step")}, {"partial", partial}});
                 }
         }
         value["hintHistory"] = hints; value["assisted"] = !hints.empty();
@@ -812,13 +825,22 @@ Json agentExposeTask(Database& db, const AgentAccess& access, const Json& body) 
             const auto key = "agent-section-exposure:" + id;
             const auto previous = Json::parse(db.profileMeta(key), nullptr, false);
             auto exposure = previous.is_object() ? previous : Json::object();
+            const auto detailKey = "agent-section-display:" + id;
+            auto details = Json::parse(db.profileMeta(detailKey), nullptr, false);
+            if (!details.is_object()) details = Json::object();
             for (const auto& entry : sections) {
                 const auto sectionId = text(entry, "id"); bool found = false;
                 for (const auto& section : lesson.at("sections"))
                     if (section.at("id") == sectionId && entry.value("version", Json()).is_number_integer() && entry.at("version") == section.at("version")) found = true;
                 if (!found) throw std::invalid_argument("展示板块身份或版本已变化");
+                const auto complete = entry.value("complete", body.value("complete", Json()));
+                if (!complete.is_null() && !complete.is_boolean()) throw std::invalid_argument("板块完整展示标记无效");
+                const auto prior = details.value(sectionId, Json::object());
+                details[sectionId] = {{"version", entry.at("version")}, {"complete", complete == true ||
+                    (prior.value("version", Json()) == entry.at("version") && prior.value("complete", false))}};
                 exposure[sectionId] = entry.at("version");
             }
+            db.setProfileMeta(detailKey, details.dump());
             db.setProfileMeta(key, exposure.dump()); result = {{"lessonId", id}, {"seenSections", exposure.size()}};
             if (!evaluations.empty()) {
                 const auto evaluationKey = "agent-evaluation-exposure:" + id;
@@ -872,6 +894,7 @@ Json agentExposeTask(Database& db, const AgentAccess& access, const Json& body) 
         const auto previous = Json::parse(db.profileMeta(key), nullptr, false);
         const int old = previous.is_object() ? previous.value("seq", 0) : 0;
         result = {{"seq", std::max(sequence, old)}, {"taskId", taskId}};
+        if (body.contains("complete") && !body.at("complete").is_boolean()) throw std::invalid_argument("消息完整展示标记无效");
         if (body.contains("displayedSequences") || (previous.is_object() && previous.contains("displayedSequences"))) {
             Json displayed = previous.is_object() ? previous.value("displayedSequences", Json::array()) : Json::array();
             if (!displayed.is_array()) throw std::invalid_argument("已保存的展示序号格式无效");
@@ -893,6 +916,24 @@ Json agentExposeTask(Database& db, const AgentAccess& access, const Json& body) 
             }
             result["displayedSequences"] = displayed;
         }
+        // 新客户端仅将正文完整进入视区的片段列入；旧游标只证明曾展示，不能推断完整。
+        auto complete = previous.is_object() ? previous.value("completeSequences", Json::array()) : Json::array();
+        auto incomingComplete = body.value("completeSequences", Json::array());
+        if (!complete.is_array() || !incomingComplete.is_array()) throw std::invalid_argument("完整展示序号列表无效");
+        if (body.value("complete", false)) for (const auto& item : task.value("events", Json::array()))
+            if (item.value("type", "") == "delta" && item.value("field", "") == "message" && item.value("seq", 0) <= sequence &&
+                (!result.contains("displayedSequences") || std::find(result["displayedSequences"].begin(), result["displayedSequences"].end(), item.at("seq")) != result["displayedSequences"].end()))
+                incomingComplete.push_back(item.at("seq"));
+        for (const auto& value : incomingComplete) {
+            bool valid = false;
+            if (value.is_number_integer() && value.get<int>() > 0 && value.get<int>() <= sequence)
+                for (const auto& item : task.value("events", Json::array()))
+                    if (item.at("seq") == value && item.value("type", "") == "delta" && item.value("field", "") == "message") valid = true;
+            if (!valid || (result.contains("displayedSequences") && std::find(result["displayedSequences"].begin(), result["displayedSequences"].end(), value) == result["displayedSequences"].end()))
+                throw std::invalid_argument("完整展示序号必须属于已展示的教学文字");
+            if (std::find(complete.begin(), complete.end(), value) == complete.end()) complete.push_back(value);
+        }
+        result["completeSequences"] = complete;
         db.setProfileMeta(key, result.dump());
     });
     return result;
