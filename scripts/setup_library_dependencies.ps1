@@ -1,6 +1,7 @@
 # 下载固定版本的正文读取组件，并校验上游摘要。
-param([string]$GhPath = 'D:\OpenClaw\tools\gh\bin\gh.exe')
+param([string]$GhPath = 'gh')
 $ErrorActionPreference = 'Stop'
+if (-not (Get-Command $GhPath -ErrorAction SilentlyContinue)) { throw '缺少 GitHub CLI（gh），请先安装或传入 -GhPath' }
 $libraryRoot = Split-Path -Parent $PSScriptRoot
 $readabilityPath = Join-Path $libraryRoot 'public\vendor\readability'
 New-Item -ItemType Directory -Path $readabilityPath -Force | Out-Null

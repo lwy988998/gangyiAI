@@ -41,6 +41,8 @@ jobs:
           python -m pip install websockets==15.0.1 playwright==1.62.0
           python -m playwright install chromium
       - name: 构建、测试和打包
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: .\scripts\build_windows.ps1
       - name: 验证发布目录的导师和课堂闭环
