@@ -68,8 +68,12 @@ int main() {
         gangyi::AIActivity::configure(controlPath.u8string());gangyi::AIActivity::configureUsage(usagePath.u8string());
         gangyi::AIActivityInfo info;info.taskId="persisted-same-task";info.source="用量恢复夹具";
         auto id=gangyi::AIActivity::begin(info,"fixture-model");assert(gangyi::AIActivity::requestStarted(id));
-        gangyi::AIActivity::requestFinished(id,"completed",{{"total_tokens",17}},"fixture-model");
+        const Json detailedUsage={{"prompt_tokens",12},{"completion_tokens",5},{"total_tokens",17},
+            {"prompt_cache_hit_tokens",8},{"prompt_cache_miss_tokens",4},
+            {"prompt_tokens_details",{{"cached_tokens",8}}},{"completion_tokens_details",{{"reasoning_tokens",2}}}};
+        gangyi::AIActivity::requestFinished(id,"completed",detailedUsage,"fixture-model");
         const auto original=usageDb.myAIRecords("usage");assert(original.size()==1);
+        assert(Json::parse(original[0].payload).at("tokens")==detailedUsage);
         std::filesystem::remove(controlPath);
         gangyi::AIActivity::configure(controlPath.u8string());
         id=gangyi::AIActivity::begin(info,"fixture-model");assert(gangyi::AIActivity::requestStarted(id));

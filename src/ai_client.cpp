@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <exception>
 #include <iostream>
+#include <limits>
 #include <thread>
 #include <utility>
 
@@ -142,8 +143,25 @@ struct BodyState { std::string content, activityId; bool received = false; std::
 json reportedUsage(const json& value) {
     if(!value.is_object())return nullptr;
     json result=json::object();
-    for(const auto* key:{"prompt_tokens","completion_tokens","total_tokens"})
-        if(value.value(key,json()).is_number_integer()&&value[key].get<long long>()>=0)result[key]=value[key];
+    const auto copyCounter = [](const json& source, const char* key, json& output) {
+        const auto item = source.find(key);
+        if (item == source.end() || !item->is_number_integer()) return;
+        if (item->is_number_unsigned()) {
+            if (item->get<unsigned long long>() > static_cast<unsigned long long>(std::numeric_limits<long long>::max())) return;
+        } else if (item->get<long long>() < 0) return;
+        output[key] = *item;
+    };
+    // 明细是输入/输出的组成部分，只保留实际回执，不重复相加或为缺失字段补零。
+    for(const auto* key:{"prompt_tokens","completion_tokens","total_tokens","prompt_cache_hit_tokens","prompt_cache_miss_tokens"})
+        copyCounter(value, key, result);
+    for (const auto& field : {std::pair{"prompt_tokens_details", "cached_tokens"},
+                              std::pair{"completion_tokens_details", "reasoning_tokens"}}) {
+        const auto details = value.find(field.first);
+        if (details == value.end() || !details->is_object()) continue;
+        json saved = json::object();
+        copyCounter(*details, field.second, saved);
+        if (!saved.empty()) result[field.first] = std::move(saved);
+    }
     return result.empty()?json(nullptr):result;
 }
 size_t writeResponse(char* data, size_t size, size_t count, void* user) {

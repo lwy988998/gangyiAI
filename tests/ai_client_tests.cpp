@@ -164,6 +164,29 @@ gangyi::AIClient clientFor(const MockServer& server, const std::string& path = "
                             "test-secret-key", model, 1000, 1});
 }
 
+void expectUsage(const nlohmann::json& reported, const nlohmann::json& expected) {
+    using Json = nlohmann::json;
+    // 同一份真实格式回执分别经过普通响应和SSE解析，不访问外部模型。
+    for (const bool stream : {false, true}) {
+        Json completion = {{"model", "usage-fixture"}, {"usage", reported},
+            {"choices", Json::array({{{stream ? "delta" : "message", {{"content", "教学内容保持完整"}}},
+                                      {"finish_reason", "stop"}}})}};
+        const auto body = stream ? "data: " + completion.dump() + "\n\ndata: [DONE]\n\n" : completion.dump();
+        MockServer server(response(200, body));
+        auto client = clientFor(server);
+        gangyi::ChatOptions options; options.messages = {{"user", "保留原有教学请求"}};
+        const auto result = stream ? client.chatStream(options, [](const std::string&) { return true; }) : client.chat(options);
+        server.wait();
+        expect(result.tokenUsage == expected, "两种响应必须保留有效用量明细，未知或无效字段不得补零");
+        expect(result.content == "教学内容保持完整", "统计明细不得改变教学回复");
+        expect(server.requestCount() == 1, "保存用量明细不得增加模型请求");
+        const auto payload = Json::parse(server.request().substr(server.request().find("\r\n\r\n") + 4));
+        expect(payload.at("messages") == Json::array({{{"role", "user"}, {"content", "保留原有教学请求"}}}) &&
+               !payload.contains("thinking") && !payload.contains("reasoning_effort"),
+               "用量统计不得修改教学输入和现有思考策略");
+    }
+}
+
 void expectError(const char* expectedType, MockServer& server, int timeoutMs = 1000) {
     try {
         clientFor(server).listModels(timeoutMs);
@@ -198,6 +221,24 @@ int main(int argc, char** argv) {
         options.activity.source = "AI 设置"; options.activity.purpose = "测试 API 地址、密钥和模型是否可用";
         const auto result = client.chat(options);
         return result.content == "OK" ? 0 : 1;
+    }
+    {
+        using Json = nlohmann::json;
+        const Json full = {{"prompt_tokens", 10}, {"completion_tokens", 20}, {"total_tokens", 30},
+            {"prompt_cache_hit_tokens", 6}, {"prompt_cache_miss_tokens", 4},
+            {"prompt_tokens_details", {{"cached_tokens", 6}}},
+            {"completion_tokens_details", {{"reasoning_tokens", 15}}}};
+        auto withExtra = full; withExtra["unknown"] = "忽略未经识别的内容";
+        withExtra["completion_tokens_details"]["reasoning_content"] = "不作为统计保存的文本";
+        expectUsage(withExtra, full);
+        expectUsage({{"prompt_tokens", 0}, {"completion_tokens", "20"}, {"total_tokens", -1},
+            {"prompt_cache_hit_tokens", false}, {"prompt_cache_miss_tokens", 3.5},
+            {"prompt_tokens_details", {{"cached_tokens", -1}}},
+            {"completion_tokens_details", {{"reasoning_tokens", "15"}}}}, {{"prompt_tokens", 0}});
+        const Json partial = {{"prompt_tokens_details", {{"cached_tokens", 0}}},
+            {"completion_tokens_details", {{"reasoning_tokens", 0}}}};
+        expectUsage(partial, partial);
+        expectUsage(nullptr, nullptr);
     }
     {
         // 真实模型偶尔漏写嵌套对象的右花括号；补全只能加括号，不能改写已有字段。

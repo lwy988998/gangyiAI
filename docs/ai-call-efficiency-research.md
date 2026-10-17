@@ -118,3 +118,11 @@ D:/python/python.exe D:/gangyiAI-library/scripts/audit_prompt_context.py D:/gang
 ## 工具使用说明
 
 本轮已通过GitHub连接器读取相关源码和许可证，并用Context7核对LangGraph持久化语义。个人“Github Mcp”没有在本次可用工具中暴露独立接口；Code Review当前提供的是PR检查读取能力，本轮没有待审PR，本地调用逻辑由逐项代码审查完成，不声称获得自动PR审查结论。
+
+## 第一项实施：保留真实用量明细
+
+2026-10-17在调研后的源码中完成统计基础改动：普通响应及流式响应共用解析，保留服务商实际返回的`prompt_cache_hit_tokens`、`prompt_cache_miss_tokens`、`prompt_tokens_details.cached_tokens`与`completion_tokens_details.reasoning_tokens`。只接收有效的非负整数；缺失、字符串、负数及未知字段不会变成零。明细保持服务商原有层级，不相互推算，也不重新加入`total_tokens`。
+
+本地模拟服务覆盖两类响应、真实零值、只有部分明细、缺失及无效用量，核对教学回复、请求内容和原有思考设置不变，每次只发送一笔请求。持久化专项核对完整明细保留、旧请求不被重试覆盖、未知请求仍为未知，汇总仍使用服务商总量而不重复累计缓存与思考部分。
+
+`ai-client`与`my-ai`两项CTest通过，耗时3.75秒；测试仅使用本地模拟模型，搜索密钥在测试进程中置空。[回归日志](D:/gangyiAI-library/verification/ai-call-research-20261017/usage-details-regression.log)。这项改动只建立真实对照指标，尚未证明Token或生成耗时下降，也没有启用思考降档、提示压缩或修改已安装试用版。
