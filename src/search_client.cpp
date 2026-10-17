@@ -255,7 +255,12 @@ std::string detectDomain(const std::string& goal) {
 
 struct HttpResult { long status = 0; std::string body; CURLcode error = CURLE_OK; bool directRetry = false; };
 
-HttpResult postJson(const std::string& url, const std::string& key, const json& body, long timeoutMs) {
+int searchProgress(void* user, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
+    const auto* cancelled = static_cast<const std::function<bool()>*>(user);
+    try { return cancelled && *cancelled && (*cancelled)() ? 1 : 0; } catch (...) { return 1; }
+}
+HttpResult postJson(const std::string& url, const std::string& key, const json& body, long timeoutMs,
+                    const std::function<bool()>& cancelled = {}) {
     HttpResult result;
     CURL* curl = curl_easy_init();
     if (!curl) return result;
@@ -277,13 +282,16 @@ HttpResult postJson(const std::string& url, const std::string& key, const json& 
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, searchProgress);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &cancelled);
     result.error = curl_easy_perform(curl);
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &result.status);
     long usedProxy = 0;
 #if LIBCURL_VERSION_NUM >= 0x080700
     curl_easy_getinfo(curl, CURLINFO_USED_PROXY, &usedProxy);
 #endif
-    if (result.error != CURLE_OK && usedProxy && url.rfind("https://api.bocha", 0) == 0) {
+    if (result.error != CURLE_OK && result.error != CURLE_ABORTED_BY_CALLBACK && usedProxy && url.rfind("https://api.bocha", 0) == 0) {
         result.body.clear();
         result.status = 0;
         result.directRetry = true;
@@ -333,6 +341,9 @@ std::vector<SearchResource> parseBocha(const std::string& body) {
         resource.title = item.value("name", item.value("title", ""));
         resource.url = item.value("url", item.value("link", ""));
         resource.description = item.value("summary", item.value("snippet", item.value("content", item.value("description", ""))));
+        resource.source = item.value("siteName", json()).is_string() ? item["siteName"].get<std::string>() : "";
+        resource.publishedAt = item.value("datePublished", json()).is_string() ? item["datePublished"].get<std::string>() : "";
+        resource.updatedAt = item.value("dateModified", json()).is_string() ? item["dateModified"].get<std::string>() : "";
         resource.score = inferScore(item.value("score", 0.0), resource.title, resource.description);
         out.push_back(std::move(resource));
     }
@@ -347,10 +358,9 @@ std::vector<SearchResource> normalizeResources(std::vector<SearchResource> resou
         resource.title = trim(resource.title);
         resource.description = trim(resource.description);
         if (resource.url.empty()) continue;
-        std::string key = lower(resource.url);
-        while (!key.empty() && key.back() == '/') key.pop_back();
+        std::string key = resource.url.substr(0, resource.url.find('#'));
         if (!seen.insert(key).second) continue;
-        resource.source = inferSource(resource.url, resource.title, resource.description);
+        if (resource.source.empty()) resource.source = inferSource(resource.url, resource.title, resource.description);
         resource.type = inferType(resource.source, resource.title, resource.description);
         resource.difficulty = inferDifficulty(resource.title, resource.description);
         resource.language = inferLanguage(resource.title, resource.description);
@@ -363,7 +373,6 @@ std::vector<SearchResource> normalizeResources(std::vector<SearchResource> resou
         if (a.score != b.score) return a.score > b.score;
         return a.title < b.title;
     });
-    if (out.size() > 20) out.resize(20);
     return out;
 }
 
@@ -380,6 +389,8 @@ json serializeCache(const std::vector<SearchResource>& resources) {
                        {"free", resource.free},
                        {"score", resource.score},
                        {"reason", resource.reason}});
+        arr.back()["publishedAt"] = resource.publishedAt;
+        arr.back()["updatedAt"] = resource.updatedAt;
     }
     return { {"createdAt", std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()}, {"resources", arr} };
 }
@@ -411,6 +422,8 @@ std::optional<std::vector<SearchResource>> readCache(const std::string& dir, con
             resource.free = item.value("free", true);
             resource.score = item.value("score", 70.0);
             resource.reason = item.value("reason", "");
+            resource.publishedAt = item.value("publishedAt", "");
+            resource.updatedAt = item.value("updatedAt", "");
             resources.push_back(std::move(resource));
         }
         return resources;
@@ -466,7 +479,7 @@ std::vector<SearchResource> fetchFromProvider(const std::string& provider, const
         if (response.status < 200 || response.status >= 300) continue;
         std::vector<SearchResource> parsed = provider == "bocha" ? parseBocha(response.body) : parseTavily(response.body);
         collected.insert(collected.end(), parsed.begin(), parsed.end());
-        if (!collected.empty()) break;
+        // 各查询覆盖不同角度，不能因第一批有结果而跳过后面的查询。
     }
     return normalizeResources(std::move(collected), domain);
 }
@@ -483,6 +496,8 @@ SearchClient::SearchClient()
     if (!fallbackProvider_.empty() && fallbackProvider_ != "tavily") fallbackProvider_ = "bocha";
     curl_global_init(CURL_GLOBAL_DEFAULT);
 }
+
+std::string resourceDigest(const std::string& input) { return sha256Hex(input); }
 
 bool SearchClient::testBochaKey(const std::string& key, std::string* diagnostic) {
     if (trim(key).empty()) { if (diagnostic) *diagnostic = "missing_key"; return false; }
@@ -549,6 +564,44 @@ std::vector<SearchResource> SearchClient::search(const std::string& goal, size_t
         fallbackUsed_ = false;
         return {};
     }
+}
+
+ResourceQueryResult SearchClient::query(const ResourceQuery& request) const {
+    ResourceQueryResult result;
+    if (request.query.empty() || request.query.size() > 3000 || request.count < 1 || request.count > 50)
+        throw std::invalid_argument("博查查询或结果数量无效");
+    const std::set<std::string> ranges = {"noLimit", "oneYear", "oneMonth", "oneWeek", "oneDay"};
+    const auto dateRange = request.freshness;
+    const bool customDate = (dateRange.size() == 10 || dateRange.size() == 22) &&
+        dateRange.find_first_not_of("0123456789-.") == std::string::npos;
+    if (!ranges.count(dateRange) && !customDate) throw std::invalid_argument("检索日期范围无效");
+    if (request.cancelled && request.cancelled()) throw std::runtime_error("资料检索已中断");
+    const auto cacheKey = sha256Hex("library-v1:bocha:" + request.query + ":" + dateRange + ":" + std::to_string(request.count));
+    const auto ttl = dateRange == "noLimit" ? 86400LL : 3600LL;
+    if (!request.refresh) if (const auto cache = readCache(cacheDir_, cacheKey, ttl)) {
+        result.resources = *cache; result.status = "completed"; result.cached = true; return result;
+    }
+    const auto key = env("BOCHA_API_KEY");
+    if (key.empty()) { result.status = "missing_key"; return result; }
+    auto base = trim(env("BOCHA_BASE_URL", "https://api.bochaai.com"));
+    while (!base.empty() && base.back() == '/') base.pop_back();
+    const auto response = postJson(base + "/v1/web-search", key,
+        {{"query", request.query}, {"freshness", dateRange}, {"count", request.count}, {"summary", true}},
+        std::max(1000LL, env_ll("RESOURCE_SEARCH_TIMEOUT_MS", 15000LL)), request.cancelled);
+    result.attempts = response.directRetry ? 2 : 1;
+    if (response.error == CURLE_ABORTED_BY_CALLBACK) result.status = "cancelled";
+    else if (response.error != CURLE_OK) result.status = "network_error";
+    else if (response.status < 200 || response.status >= 300) result.status = "http_" + std::to_string(response.status);
+    else {
+        const auto parsed = json::parse(response.body, nullptr, false);
+        if (!parsed.is_object() || (parsed.contains("code") && parsed["code"] != 200)) result.status = "invalid_response";
+        else {
+            result.status = "completed";
+            result.resources = normalizeResources(parseBocha(response.body), detectDomain(request.query));
+            writeCache(cacheDir_, cacheKey, result.resources);
+        }
+    }
+    return result;
 }
 
 }  // namespace gangyi

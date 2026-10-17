@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(gangyiAI VERSION 5.6.1 LANGUAGES C CXX)
+project(gangyiAI VERSION 5.6.3 LANGUAGES C CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -201,7 +201,7 @@ endif()
 add_executable(gangyiAI src/my_ai_pages.cpp src/main.cpp src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/json_fix.cpp src/plan_generator.cpp src/page_renderer.cpp
     src/plan_cache.cpp src/plan_adapter.cpp src/search_client.cpp src/quality_gate.cpp src/course_service.cpp
     src/progress_service.cpp src/profile_service.cpp src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/classroom_service.cpp src/image_goal_analyzer.cpp src/home_recommendations.cpp src/learning_flow.cpp src/next_lesson.cpp
-    src/learning_agent.cpp src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/agent_curriculum.cpp src/my_ai.cpp src/my_ai_tools.cpp
+    src/learning_agent.cpp src/learning_library.cpp src/library_io.cpp src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/agent_curriculum.cpp src/my_ai.cpp src/my_ai_tools.cpp
     ${GANGYI_SERVICE_RESOURCE})
 
 target_include_directories(gangyiAI PRIVATE
@@ -240,6 +240,19 @@ if(WIN32)
     )
 endif()
 
+if(WIN32)
+    add_executable(gangyiAI-source-reader src/source_reader.cpp)
+    target_link_libraries(gangyiAI-source-reader PRIVATE webview::core nlohmann_json::nlohmann_json ole32 user32)
+    target_compile_definitions(gangyiAI-source-reader PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    add_custom_command(TARGET gangyiAI-source-reader POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party/pdfium-8100/bin/pdfium.dll $<TARGET_FILE_DIR:gangyiAI-source-reader>
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/public/vendor/readability $<TARGET_FILE_DIR:gangyiAI-source-reader>/public/vendor/readability)
+    if(MINGW)
+        target_link_options(gangyiAI-source-reader PRIVATE -municode -static-libgcc -static-libstdc++)
+    endif()
+endif()
 if(MINGW)
     target_link_options(gangyiAI PRIVATE -static-libgcc -static-libstdc++)
     target_link_options(gangyiAI-launcher PRIVATE -municode -static-libgcc -static-libstdc++)
@@ -271,7 +284,7 @@ if(BUILD_TESTING)
     target_include_directories(agent-stream-tests PRIVATE include)
     target_link_libraries(agent-stream-tests PRIVATE nlohmann_json::nlohmann_json)
     add_test(NAME agent-stream COMMAND agent-stream-tests)
-    add_executable(learning-agent-tests tests/learning_agent_tests.cpp src/learning_agent.cpp
+    add_executable(learning-agent-tests tests/learning_agent_tests.cpp src/learning_agent.cpp src/learning_library.cpp src/library_io.cpp
         src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/agent_curriculum.cpp src/my_ai.cpp src/my_ai_tools.cpp
         src/learning_flow.cpp src/next_lesson.cpp src/classroom_service.cpp src/learning_generator.cpp src/profile_service.cpp
         src/course_service.cpp src/progress_service.cpp src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp)
@@ -281,6 +294,7 @@ if(BUILD_TESTING)
     if(WIN32)
         target_link_libraries(learning-agent-tests PRIVATE ws2_32)
     endif()
+    target_sources(learning-agent-tests PRIVATE tests/library_checks.cpp)
     add_test(NAME learning-agent COMMAND learning-agent-tests)
     add_executable(socket-adaptor-tests tests/socket_adaptor_tests.cpp)
     target_link_libraries(socket-adaptor-tests PRIVATE Crow::Crow Threads::Threads)
@@ -369,6 +383,8 @@ if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     find_program(GANGYI_NODE_EXECUTABLE NAMES node)
     if(GANGYI_NODE_EXECUTABLE)
+        add_test(NAME help-display COMMAND ${GANGYI_NODE_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/help_display_smoke.js)
         add_test(NAME legacy-drafts COMMAND ${GANGYI_NODE_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/legacy_draft_tests.cjs)
         add_test(NAME agent-watch COMMAND ${GANGYI_NODE_EXECUTABLE}
@@ -379,6 +395,12 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/mentor_client_tests.cjs)
     endif()
     if(Python3_Interpreter_FOUND)
+        if(WIN32)
+          add_test(NAME library-reader COMMAND ${Python3_EXECUTABLE}
+              ${CMAKE_CURRENT_SOURCE_DIR}/tests/library_reader_smoke.py $<TARGET_FILE:gangyiAI-source-reader>)
+          add_test(NAME library-api COMMAND ${Python3_EXECUTABLE}
+              ${CMAKE_CURRENT_SOURCE_DIR}/tests/library_api_smoke.py $<TARGET_FILE:gangyiAI>)
+        endif()
         add_test(NAME global-ai-activity COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/global_ai_activity_smoke.py $<TARGET_FILE:gangyiAI> $<TARGET_FILE:ai-client-tests>)
         set_tests_properties(global-ai-activity PROPERTIES TIMEOUT 90)
@@ -431,6 +453,11 @@ foreach(gangyiTarget IN LISTS gangyiTargets)
 endforeach()
 
 option(GANGYI_PREVIEW_BUILD "使用独立的我的AI试用档案" OFF)
+option(GANGYI_TEACHING_PREVIEW "使用独立的教学优化试用档案" OFF)
+if(GANGYI_TEACHING_PREVIEW AND WIN32)
+  target_compile_definitions(gangyiAI-launcher PRIVATE GANGYI_TEACHING_PREVIEW=1)
+  target_compile_definitions(gangyiAI PRIVATE GANGYI_TEACHING_PREVIEW=1)
+endif()
 if(GANGYI_PREVIEW_BUILD AND WIN32)
   target_compile_definitions(gangyiAI-launcher PRIVATE GANGYI_MY_AI_PREVIEW=1)
 endif()

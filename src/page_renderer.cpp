@@ -182,10 +182,10 @@ std::string renderClassroomPage(const std::string& view) {
   <section id="lesson-chat-panel" class="lesson-chat-panel" aria-label="课堂输入">
     <div class="composer-context"><span id="composer-target">和 AI 老师交流</span><button id="composer-chat" type="button" class="secondary" hidden>自由交流</button></div>
     <form id="lesson-chat"><label class="sr-only" for="lesson-input">你的答案、问题或学习反馈</label><textarea id="lesson-input" rows="2" placeholder="输入答案、你的想法，或向 AI 老师追问…"></textarea><button id="lesson-send" type="submit">发送 ↑</button></form>
-    <div class="composer-toolbar"><button id="explain-again" type="button" class="secondary">换一种讲法</button><button id="continue-teaching" type="button" class="secondary">请 AI 继续</button><button id="lesson-stop" type="button" class="secondary" hidden>停止回答</button><button id="lesson-retry" type="button" class="secondary" hidden>重试同次回答</button><span id="lesson-task-status" role="status">正在读取课堂</span></div>
+    <div class="composer-toolbar"><button id="teaching-hint" type="button" class="secondary">给一点提示</button><button id="teaching-example" type="button" class="secondary">看示范</button><button id="teaching-retry" type="button" class="secondary">再试一道</button><button id="explain-again" type="button" class="secondary">换一种讲法</button><button id="continue-teaching" type="button" class="secondary">请 AI 继续</button><button id="lesson-stop" type="button" class="secondary" hidden>停止回答</button><button id="lesson-retry" type="button" class="secondary" hidden>重试同次回答</button><span id="lesson-task-status" role="status">正在读取课堂</span></div>
   </section>
 </main>)HTML";
-    return document(label + " - 钢一定制AI", body, "<script defer src=\"/agent-classroom.js\"></script>", "<link rel=\"stylesheet\" href=\"/agent-classroom.css\">");
+    return document(label + " - 钢一定制AI", body, "<script defer src=\"/agent-classroom.js\"></script>", "<link rel=\"stylesheet\" href=\"/agent-classroom.css\"><link rel=\"stylesheet\" href=\"/library.css\">");
 }
 
 std::string renderLearnPage([[maybe_unused]] const std::string& courseId, [[maybe_unused]] const std::string& goal, [[maybe_unused]] const std::string& mode,
@@ -234,7 +234,7 @@ std::string renderMyCoursesPage(const nlohmann::json& data) {
   <p class="uc-course-goal">)HTML" + htmlEscape(goal) + R"HTML(</p>
   <div class="uc-bar"><i style="width: )HTML" + std::to_string(coursePercent) + R"HTML(%"></i></div>
   <p class="uc-course-meta">完成 )HTML" + std::to_string(courseDone) + R"HTML( / )HTML" + std::to_string(courseTotal) + R"HTML( 节 · )HTML" + std::to_string(coursePercent) + R"HTML( %</p>
-  <div class="uc-course-actions"><a class="uc-primary" href="/plan?courseId=)HTML" + htmlEscape(courseId) + R"HTML(">继续学习</a><button type="button" class="delete-course uc-ghost-danger" data-course-id=")HTML" + htmlEscape(courseId) + R"HTML(">删除</button></div>
+  <div class="uc-course-actions"><a class="uc-primary" href="/plan?courseId=)HTML" + htmlEscape(courseId) + R"HTML(">继续学习</a><a class="uc-ghost" href="/my-ai/library?courseId=)HTML" + htmlEscape(courseId) + R"HTML(">本课资料</a><button type="button" class="delete-course uc-ghost-danger" data-course-id=")HTML" + htmlEscape(courseId) + R"HTML(">删除</button></div>
   )HTML" + (createdAt.empty() ? "" : R"HTML(<p class="uc-course-created">创建于 )HTML" + htmlEscape(createdAt) + "</p>") + R"HTML(
 </article>)HTML";
     }

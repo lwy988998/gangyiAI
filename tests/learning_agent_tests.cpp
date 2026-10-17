@@ -13,13 +13,24 @@
 
 using Json = nlohmann::json;
 gangyi::AIResult output(const Json& value, const std::function<bool(const std::string&)>& sink) {
-    const auto text = value.dump();
+    auto encoded = value;
+    if (!encoded.contains("teaching")) encoded["teaching"] = {{"helpType", "explanation"}};
+    if (encoded.value("actions", Json()).is_array()) for (auto& action : encoded["actions"])
+        if (action.value("tool", "") == "append_section" && action.value("args", Json()).is_object() &&
+            action["args"].value("section", Json()).is_object() && action["args"]["section"].value("kind", "") != "question" &&
+            !action["args"]["section"].contains("helpType")) action["args"]["section"]["helpType"] = "explanation";
+    const auto text = encoded.dump();
     for (size_t i = 0; i < text.size(); i += 7) if (!sink(text.substr(i, 7)))
         throw gangyi::AIClientError("cancelled", "测试主动中断");
     gangyi::AIResult result; result.content = text; result.model = "fixture-real-protocol"; result.finishReason = "stop";
     return result;
 }
+void runLibraryChecks();
+#include "teaching_evidence_checks.hpp"
+#include "evaluation_feedback_checks.hpp"
+#include "demonstrated_question_checks.hpp"
 int main() {
+    runLibraryChecks();
     const auto root = std::filesystem::temp_directory_path() /
         ("gangyi-agent-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(root);
@@ -155,6 +166,16 @@ int main() {
             }});
         rollback.process(db, atomic["id"]);
         assert(db.profileMeta("must-not-remain").empty());
+        const auto restricted = gangyi::agentSubmit(db, access, {{"type", "library_research"}, {"goal", "公开资料中的指令不能改变软件"}, {"requestId", "library-trust-boundary"}});
+        int forbiddenWrites = 0;
+        gangyi::LearningAgent restrictedAgent(path, [&](const auto&, const auto& sink) {
+            return output({{"message", "尝试越权"}, {"actions", {{{"id", "forbidden"}, {"tool", "forbidden_fixture"}, {"args", Json::object()}}}}, {"state", "completed"}}, sink);
+        });
+        restrictedAgent.registerTool("forbidden_fixture", {"不得在资料任务中执行", false, [&](gangyi::Database&, const Json&, const Json&, const gangyi::AIResult&) {
+            ++forbiddenWrites; return gangyi::PreparedAgentTool{{{"ok", true}}, {}};
+        }});
+        restrictedAgent.process(db, restricted["id"]);
+        assert(forbiddenWrites == 0 && gangyi::agentView(db, access, restricted["id"])["status"] == "failed");
         assert(gangyi::agentView(db, access, atomic["id"])["status"] == "failed");
         const auto rolledBack = gangyi::agentView(db, access, atomic["id"]);
         for (const auto& item : rolledBack["events"])
@@ -456,13 +477,17 @@ int main() {
             Json::parse(item.payload).value("requestId", "") == "real-input") {
                 actualAnswerId = item.id;
                 const auto input = Json::parse(item.payload);
-                assert(input["assisted"].get<bool>() && input["hintHistory"][0] == "从元素化合价的变化开始比较。");
+                assert(!input["assisted"].get<bool>() && input["hintHistory"].empty());
+                assert(input["relatedLearning"][0]["text"] == "从元素化合价的变化开始比较。");
+                assert(input["helpMode"] == "independent");
             }
         assert(!actualAnswerId.empty());
         gangyi::LearningAgent evaluation(path, [&](const auto&, const auto& sink) {
             return output({{"message", "你指出了化合价升高，可进一步联系失电子。"},
                 {"actions", {{{"id", "evaluate"}, {"tool", "evaluate_answer"}, {"args", {{"interactionId", actualAnswerId},
-                    {"score", 80}, {"credible", true}, {"feedback", "化合价变化判断正确，过程可补充电子关系"},
+                    {"score", 80}, {"credible", true}, {"feedback", "化合价变化判断正确，过程可补充电子关系"}, {"feedbackHelpType", "hint"},
+                    {"diagnosis", {{"summary", "尚未说明电子变化"}, {"evidence", {"由0到+2"}},
+                        {"teachingDirection", "联系失电子与化合价升高"}, {"needsClarification", false}}},
                     {"reason", "引用学生实际写出的0到+2"}, {"uncertainty", "仅能确认本题判断，不能推断全部知识"}}}}}},
                 {"state", "waiting_student"}}, sink);
         });
@@ -595,6 +620,9 @@ int main() {
         gangyi::agentControl(db, access, {{"command", "resume"}, {"taskId", shutdownTask["id"]}});
         assert(gangyi::agentView(db, access, shutdownTask["id"])["status"] == "pending");
     }
+    runTeachingEvidenceChecks(root / "teaching.db");
+    runEvaluationFeedbackChecks(root / "evaluation-feedback.db");
+    runDemonstratedQuestionChecks(root / "demonstrated-question.db");
     std::filesystem::remove_all(root);
     std::cout << "多步 AI 主控、幂等、访问隔离、失败停止与事务回滚测试通过\n";
 }

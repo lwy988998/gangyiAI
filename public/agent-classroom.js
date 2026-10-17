@@ -44,7 +44,7 @@
     if (value.table) material(root, value.table);
   }
   const $ = id => document.getElementById(id), root = $('lesson-sections'), scroll = $('lesson-scroll'), input = $('lesson-input');
-  const nodes = new Map(), records = new Map(), shownSections = new Set();
+  const nodes = new Map(), records = new Map();
   let lesson, admissionError = '', selectedQuestion = '', watchingTask = '', watchingView = '', unsubscribe, watchEpoch = 0;
   let busy = false, sending = false, refreshing = false, refreshAgain = false, loaded = false, rendering = false, taskRevision = 0;
   let activeView = document.querySelector('[data-lesson-view]').dataset.lessonView, initialPosition = true;
@@ -135,6 +135,11 @@
       section.presentation === 'example' || section.legacyKind === 'example' ? 'AI · 示范例题' : 'AI · 讲解', 'chat-author'), element('h2', section.title));
     if (isQuestion(section)) questionCard(section, card);
     else { const body = element('div', '', 'lesson-body'); api.richText(body, section.body || ''); card.append(body); }
+    if(section.materialOrigin)card.append(element('p',isQuestion(section)?'AI编写或改编的练习':section.materialOrigin==='source_based'?'依据资料讲解':'AI补充讲解','library-origin'));
+    if(section.citations?.length){const details=element('details','','library-citations');details.append(element('summary','查看本段资料依据（'+section.citations.length+'）'));
+      for(const citation of section.citations){const entry=element('p');const link=element('a',citation.title||'查看原文依据');link.href=citation.href;entry.append(link);
+        entry.append(element('span',citation.locator?.page?' · 第'+citation.locator.page+'页':citation.locator?.start!=null?' · '+citation.locator.start+'秒':' · '+citation.segmentId));
+        if(citation.quote)entry.append(element('p',citation.quote));details.append(entry);}card.append(details);}
     return card;
   }
   function makeMessage(record) {
@@ -153,8 +158,16 @@
     const card = element('article', '', 'chat-evaluation'); card.dataset.area = record.view || activeView;
     card.append(element('p', 'AI · 本次作答评价', 'chat-author'), element('h2', record.credible && record.score !== null && record.score !== undefined ?
       '本次作答 · ' + record.score + ' 分' : '本次反馈 · 尚无可靠分数'));
-    const body = element('div'); api.richText(body, record.feedback || ''); card.append(body);
-    if (record.uncertainty) card.append(element('p', record.uncertainty, 'agent-note'));
+    const feedbackContent = element('div'); feedbackContent.dataset.evaluationFeedback = record.id;
+    const body = element('div'); api.richText(body, record.feedback || ''); feedbackContent.append(body); card.append(feedbackContent);
+    if (record.feedbackHelpType && record.feedbackHelpType !== 'none') card.append(element('p', {
+      explanation:'反馈包含相关概念讲解',hint:'反馈包含本题提示',worked_example:'反馈包含本题完整示范',
+      clarification:'反馈用于澄清思路',unknown:'反馈帮助程度未确定'}[record.feedbackHelpType] || '', 'agent-note'));
+    if (record.uncertainty) feedbackContent.append(element('p', record.uncertainty, 'agent-note'));
+    if (record.diagnosis?.summary) feedbackContent.append(element('p', '卡点：' + record.diagnosis.summary, 'agent-note'));
+    if (record.diagnosis?.evidence?.length) feedbackContent.append(element('p', '依据：' + record.diagnosis.evidence.join('；'), 'agent-note'));
+    if (record.helpMode) card.append(element('p', {independent:'本题独立作答',after_hint:'本题在提示后作答',after_example:'本题在完整示范后作答',help_unknown:'本题帮助程度未确定'}[record.helpMode] || '', 'agent-note'));
+    if (record.rePracticeOf) card.append(element('p', '这是关联原问题的新题复练结果。', 'agent-note'));
     return card;
   }
   function putRecord(key, record) {
@@ -215,7 +228,8 @@
       if (activeView === 'summary') { $('lesson-summary').open = true; renderSummary(); }
       paintNextStep(); paintTarget(); setDisabled();
     });
-    if (initialPosition && (focus().sectionId || admissionError || !lesson.teachingTaskId)) {
+    // 直接进入练习/小结时可能没有讲解焦点，也必须完成定位并开始累计滚动展示。
+    if (initialPosition && (activeView !== 'learn' || focus().sectionId || admissionError || !lesson.teachingTaskId)) {
       initialPosition = false; let saved;
       try { saved = JSON.parse(api.storage.get(pageKey('scroll')) || 'null'); } catch (_) { /* 默认定位当前课堂。 */ }
       if (saved) restorePosition(saved); else locate(activeView, false);
@@ -253,25 +267,23 @@
     $('completion-note').textContent = lesson.completed ? 'AI 已根据实际记录确认本节完成，原作答和交流继续保留。' :
       (lesson.evaluations || []).length ? '完成情况由 AI 结合实际作答和评价判断。' : '本节尚无足够的实际作答评价；阅读和追问不表示掌握。';
   }
-  function visible(node) {
-    if (!node?.isConnected || node.closest('details:not([open])') || node.closest('[hidden]')) return false;
-    const bounds = node.getBoundingClientRect(), viewport = scroll.getBoundingClientRect();
-    return bounds.bottom > viewport.top && bounds.top < viewport.bottom && bounds.right > viewport.left && bounds.left < viewport.right && bounds.height > 0;
-  }
   function exposeVisible() {
     if (!lesson || admissionError) return;
-    const sections = [...scroll.querySelectorAll('[data-section-id]')].filter(visible).map(node => ({id:node.dataset.sectionId, version:Number(node.dataset.sectionVersion)}));
-    const fresh = sections.filter(section => !shownSections.has(section.id + ':' + section.version));
-    if (fresh.length) { fresh.forEach(section => shownSections.add(section.id + ':' + section.version)); api.recordSections(lessonId, fresh); }
-    for (const [key, record] of records) if (record.role === 'assistant' && record.taskId && record.sequences?.length && visible(nodes.get(key)))
-      api.recordMessages(record.taskId, Math.max(...record.sequences), record.sequences);
+    for (const node of scroll.querySelectorAll('[data-section-id]')) {
+      const section=sectionFor(node.dataset.sectionId);
+      if (section) api.recordVisibleSection(lessonId,section,isQuestion(section) ? node : node.querySelector('.lesson-body'),scroll);
+    }
+    for (const [key, record] of records) if (record.role === 'assistant')
+      api.recordVisibleMessage(record,nodes.get(key)?.querySelector('.chat-message-body'),scroll);
+    for (const [key, record] of records) if (record.type === 'evaluation')
+      api.recordEvaluation(lessonId, record, nodes.get(key)?.querySelector('[data-evaluation-feedback]'), scroll);
   }
   function setDisabled() {
     const locked = !loaded || busy || sending || Boolean(admissionError);
     // 先恢复课时与草稿再开放输入；AI 处理中仍可继续编辑草稿。
     input.disabled = !loaded;
     for (const control of scroll.querySelectorAll('form button, form input')) control.disabled = locked;
-    for (const id of ['lesson-send', 'explain-again', 'continue-teaching', 'finish-lesson']) $(id).disabled = locked;
+    for (const id of ['lesson-send', 'teaching-hint', 'teaching-example', 'teaching-retry', 'explain-again', 'continue-teaching', 'finish-lesson']) $(id).disabled = locked;
   }
   function paintState(task) {
     busy = !task.paused && ['pending', 'running'].includes(task.status);
@@ -366,6 +378,13 @@
     if (fromComposer && selectedQuestion) { sendAnswer(selectedQuestion, 'answer', true); return; }
     sendEvent({type:'chat', text, ...(focus().sectionId ? {sectionId:focus().sectionId} : {})}, fromComposer ? {key:draftKey(), text:input.value} : null);
   }
+  function requestTeaching(requestType) {
+    saveDraft();
+    const section = sectionFor(selectedQuestion || focus().responseSectionId || focus().practiceSectionId || focus().interactionSectionId);
+    const text = {hint:'请只给一点提示，先提供一个方向，保留让我独立完成的空间。',worked_example:'请示范当前题的完整过程，之后根据我的回答判断是否需要独立复练。',retry_question:'请根据本题卡点安排一道关联的新题，让我独立再试。',rephrase:'请结合我的反馈和教学偏好，围绕当前内容换一种讲法。'}[requestType];
+    if (requestType !== 'rephrase' && !isQuestion(section)) { $('lesson-task-status').textContent = '请先选择要帮助或复练的题目。'; return; }
+    sendEvent({type:'teaching_request',requestType,text,...(isQuestion(section)?{sectionId:section.id,sectionVersion:section.version}:{})});
+  }
   async function load() {
     document.body.classList.add('gy-chat-classroom');
     if (!lessonId) throw new Error('缺少课时标识，请从课程入口进入。');
@@ -378,8 +397,9 @@
     } catch (error) { admissionError = error.message; }
     const context = {courseId:lesson.courseId, lessonId, phaseIndex:lesson.phaseIndex, topicIndex:lesson.topicIndex, topicId:lesson.topicId, teachingTaskId:lesson.teachingTaskId};
     window.GangyiNavigation?.setContext(context); document.dispatchEvent(new CustomEvent('gangyi:lesson-context', {detail:context}));
+    if(!document.getElementById('lesson-library-link')){const link=element('a','本课资料 →','ma-link');link.id='lesson-library-link';link.href='/my-ai/library?'+new URLSearchParams({courseId:lesson.courseId});$('page-status').insertAdjacentElement('afterend',link);}
     api.storage.set('current-lesson', JSON.stringify({lessonId, courseId:lesson.courseId, href:lessonHref('learn')}));
-    const savedTarget = api.storage.get(pageKey('composer')) || (activeView === 'learn' ? api.storage.get('composer:' + lessonId) : '');
+    const savedTarget = query.get('sectionId') || api.storage.get(pageKey('composer')) || (activeView === 'learn' ? api.storage.get('composer:' + lessonId) : '');
     selectedQuestion = savedTarget === 'chat' ? '' : [savedTarget, focus().responseSectionId,
       activeView === 'practice' ? focus().practiceSectionId : focus().interactionSectionId]
       .find(id => isQuestion(sectionFor(id)) && areaFor(sectionFor(id)) === activeView) || '';
@@ -399,7 +419,10 @@
   input.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && !busy && !sending) { event.preventDefault(); sendTeaching(input.value, true); } });
   $('lesson-chat').onsubmit = event => { event.preventDefault(); sendTeaching(input.value, true); };
   $('composer-chat').onclick = () => selectQuestion('', true);
-  $('explain-again').onclick = () => sendTeaching('请围绕当前这一段换一种讲法，结合我已有的反馈解释。');
+  $('explain-again').onclick = () => requestTeaching('rephrase');
+  $('teaching-hint').onclick = () => requestTeaching('hint');
+  $('teaching-example').onclick = () => requestTeaching('worked_example');
+  $('teaching-retry').onclick = () => requestTeaching('retry_question');
   $('continue-teaching').onclick = () => sendTeaching('请结合本节实际反馈判断下一步；如果适合继续，请选择下一个教学焦点。');
   $('lesson-stop').onclick = async () => { try { const task = await api.control({command:'cancel', taskId:watchingTask}); paintState(task); observe(task.id, true); } catch (error) { $('lesson-task-status').textContent = error.message; } };
   $('lesson-retry').onclick = async () => { try { const task = await api.control({command:'retry', taskId:watchingTask}); paintState(task); observe(task.id, true); } catch (error) { $('lesson-task-status').textContent = error.message; } };
@@ -411,6 +434,7 @@
   scroll.addEventListener('scroll', () => { if (rendering || !loaded || initialPosition) return; cancelAnimationFrame(scrollFrame);
     scrollFrame = requestAnimationFrame(() => { api.storage.set(pageKey('scroll'), JSON.stringify(readingPosition())); $('lesson-latest').hidden = nearBottom(); exposeVisible(); }); });
   scroll.addEventListener('toggle', () => requestAnimationFrame(exposeVisible), true);
+  scroll.addEventListener('load', () => requestAnimationFrame(exposeVisible), true);
   new ResizeObserver(() => { if (loaded) exposeVisible(); }).observe(scroll);
   new ResizeObserver(() => document.body.style.setProperty('--classroom-composer-height', $('lesson-chat-panel').offsetHeight + 'px')).observe($('lesson-chat-panel'));
   document.addEventListener('gangyi:agent-control', event => { const {command, task, all} = event.detail || {};

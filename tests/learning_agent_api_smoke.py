@@ -87,13 +87,15 @@ class ProtocolAI(BaseHTTPRequestHandler):
             for index, item in enumerate(inputs):
                 if item.get('action') in ('hint', 'skip', 'omitted'):
                     continue
-                actual = next(value for value in context['feedback'] if value['payload'].get('requestId') == item['requestId'])
+                actual_input = next(value for value in context['currentInputs'] if value['requestId'] == item['requestId'])
+                actual = {'id': actual_input['interactionId'], 'payload': actual_input}
                 if item.get('text') == '为什么这样判断？':
                     actions.append(dict(id='classify-' + str(index), tool='classify_input', args=dict(
                         interactionId=actual['id'], isAnswer=False, reason='这是对已给出反馈的追问')))
                 else:
                     actions.append(dict(id='evaluate-' + str(index), tool='evaluate_answer', args=dict(interactionId=actual['id'],
-                        score=70, credible=True, feedback='依据实际作答给出评价', reason='学生指出化合价升高', uncertainty='仅反映本题表现')))
+                        score=70, credible=True, feedback='依据实际作答给出评价', feedbackHelpType='none', reason='学生指出化合价升高', uncertainty='仅反映本题表现',
+                        diagnosis=dict(summary='需要补充电子变化的联系', evidence=[actual['payload']['text']], teachingDirection='联系失电子与化合价升高', needsClarification=False))))
             message = '先评价实际输入，再解释电子变化。'
             state = 'waiting_student'
         elif event['type'] == 'acceptance_tool':
@@ -102,7 +104,12 @@ class ProtocolAI(BaseHTTPRequestHandler):
             self.send_response(503)
             self.end_headers()
             return
-        value = json.dumps(dict(message=message, actions=actions, state=state), ensure_ascii=False)
+        for action in actions:
+            section = action.get('args', {}).get('section')
+            if action.get('tool') == 'append_section' and isinstance(section, dict) and section.get('kind') != 'question':
+                section.setdefault('helpType', 'explanation')
+        value = json.dumps(dict(teaching=dict(helpType='hint' if event.get('action') == 'hint' else 'explanation'),
+                                message=message, actions=actions, state=state), ensure_ascii=False)
         self.send_response(200)
         self.send_header('Content-Type', 'text/event-stream')
         self.end_headers()
@@ -224,13 +231,15 @@ def main(executable):
                 assert db.execute("SELECT count(*) FROM LearningInteraction WHERE kind='practice'").fetchone()[0] == question_count, '讲解中断不能提交暂存评价'
             api('/api/learn/exposure', dict(taskId=interrupted['id'], seq=interrupted['seq']))
             partial = api('/api/learning-agent/lesson?lessonId=' + lesson)
-            assert any(item.get('partial') for item in partial['sections'][0]['dialog']), '实际看过的中断讲解应恢复'
+            assert not any(item.get('taskId') == interrupted['id'] for item in partial['sections'][0]['dialog']), '未通过完整校验的中断回复不能登记为学生看过的讲解'
+            assert interrupted['activity']['phase'] in ('receiving', 'failed'), '保留真实接收或失败进度，不公开未验证文字'
             ProtocolAI.repaired.add('interrupted-answer')
             api('/api/learning-agent/control', dict(command='retry', taskId=interrupted['id']))
             wait(interrupted['id'], 'waiting_student')
             with closing(sqlite3.connect(database)) as db:
                 new_grades = [json.loads(row[0]) | {'id': row[1]} for row in db.execute("SELECT payload,id FROM LearningInteraction WHERE kind='practice'")]
-                assert len(new_grades) == question_count + 1 and any(item.get('assisted') for item in new_grades)
+                assert len(new_grades) == question_count + 1
+                assert all(not item.get('assisted') for item in new_grades), '普通概念讲解不能作为本题提示'
             grade = grades[0]
             rating = dict(score=71, sufficient=True, evidenceIds=[grade['id']], rationale='引用一道适用的真实回答', recommendation='继续概念辨析', uncertainty='仅反映化合价本题')
             tool('update_profiles', dict(subjects=[dict(rating, subject='化学')], abilities=[dict(rating, id='understanding')]))

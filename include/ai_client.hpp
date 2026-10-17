@@ -40,7 +40,7 @@ struct AIResult {
     std::string finishReason;
     std::string searchStatus = "not_requested";
     std::vector<std::string> sources;
-    // 服务商未返回用量时保持空值，不按文字长度估算。
+    // 保留服务商实际返回的用量及缓存/思考明细；缺失保持空值，不按文字长度估算。
     nlohmann::json tokenUsage = nullptr;
 };
 

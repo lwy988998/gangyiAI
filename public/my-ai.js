@@ -2,6 +2,7 @@
 (() => {
   'use strict';
   const page=document.body.dataset.myAiPage,root=document.getElementById('my-ai-content'),notice=document.getElementById('my-ai-status');
+  if(page==='library')return;
   const escape=value=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const status=(text,error=false)=>{notice.textContent=text;notice.classList.toggle('error',error);};
   async function api(section,body,query={}) {
@@ -53,6 +54,27 @@
     root.querySelectorAll('[data-delete-memory]').forEach(b=>b.onclick=action(async()=>{const m=data.items[Number(b.dataset.deleteMemory)];await api('memories',{id:m.id,version:m.version,deleted:true});await memories();status('记忆已删除，旧来源不会再次自动建立它。');}));status('你可以决定AI记住什么。');
   }
   function chart(host,series,type='line') {if(!host||!window.echarts)return;const view=window.echarts.init(host,null,{renderer:'svg'});view.setOption({backgroundColor:'transparent',textStyle:{color:'#a6b8c9'},tooltip:{trigger:'axis'},legend:{textStyle:{color:'#a6b8c9'}},grid:{left:45,right:20,bottom:35,top:40},xAxis:{type:'category',data:series.dates,axisLine:{lineStyle:{color:'#334858'}}},yAxis:{type:'value',splitLine:{lineStyle:{color:'#22313e'}}},series:series.values.map(item=>({name:item.name,type,data:item.data,connectNulls:false,smooth:false}))});window.addEventListener('resize',()=>view.resize());}
+  function teachingEvidenceRow(e) {
+    const request = e.inputKind === 'teaching_request' || Boolean(e.requestType), followup = e.inputKind === 'followup';
+    const mode = request ? '教学请求 · '+({hint:'给一点提示',worked_example:'看示范',rephrase:'换一种讲法',retry_question:'再试一道'}[e.requestType] || '帮助') :
+      followup ? '追问，未作为作答评分' : {independent:'独立作答',after_hint:'提示后作答',after_example:'示范后作答',help_unknown:'帮助程度未确定'}[e.helpMode] || '';
+    let body = (e.question?'<h3>'+escape(e.question)+'</h3>':'')+'<p>'+escape(e.text||'已保存的真实学习互动')+'</p>';
+    body += '<p class="ma-note">'+escape(time(e.at))+(mode?' · '+mode:'')+(e.rePracticeOf?' · 关联新题复练':'')+'</p>';
+    if(e.kind==='practice' && e.feedback && e.feedbackHelpType!=='none')body+='<p class="ma-note">'+escape({
+      explanation:'反馈包含相关概念讲解',hint:'反馈包含本题提示',worked_example:'反馈包含本题完整示范',
+      clarification:'反馈用于澄清思路'}[e.feedbackHelpType]||'反馈帮助程度未确定')+'</p>';
+    body += '<div'+(e.kind==='practice' && e.lessonId?' data-report-feedback="'+escape(e.id)+'"':'')+'>';
+    if (e.diagnosis?.summary) body += '<p>卡点：'+escape(e.diagnosis.summary)+'</p>';
+    if (e.diagnosis?.evidence?.length) body += '<p class="ma-note">回答依据：'+escape(e.diagnosis.evidence.join('；'))+'</p>';
+    if (e.feedback) body += '<p>'+escape(e.feedback)+'</p>';
+    if (e.uncertainty) body += '<p class="ma-note">'+escape(e.uncertainty)+'</p>';
+    body += '</div>';
+    for (const h of request || followup ? [] : e.helpHistory || []) body += '<details><summary>'+escape({hint:'实际获得的提示',worked_example:'实际看到的完整示范',unknown:'程度未确定的帮助'}[h.helpType]||'教学帮助')+'</summary><p>'+escape(h.text)+'</p></details>';
+    if (e.relatedLearning?.length) body += '<p class="ma-note">曾学过 '+e.relatedLearning.length+' 段相关讲解。</p>';
+    if (e.lessonId) body += '<div class="ma-actions"><a class="ma-link" href="/learn?lessonId='+encodeURIComponent(e.lessonId)+'">查看对应课时 →</a>'+(e.sectionId?'<a class="ma-link" href="/'+(e.view==='learn'?'learn':'practice')+'?lessonId='+encodeURIComponent(e.lessonId)+'&sectionId='+encodeURIComponent(e.sectionId)+'">继续巩固 →</a>':'')+'</div>';
+    else if (e.courseId) body += '<a class="ma-link" href="/plan?courseId='+encodeURIComponent(e.courseId)+'">查看对应课程 →</a>';
+    return '<div class="ma-row" id="'+escape('evidence-'+e.id)+'">'+body+'</div>';
+  }
   async function reports() {
     const all=await api('overview');const query={};for(const key of ['from','to','subject','courseId'])if(params.get(key))query[key]=params.get(key);
     const data=await api('reports',null,query);
@@ -64,8 +86,23 @@
       card('知识点掌握度',data.topics.length?data.topics.map(t=>'<div class="ma-row"><h3>'+escape(t.topic)+' · '+score(t.score)+'</h3><p>'+escape(t.rationale)+'</p><p class="ma-note">依据 '+t.evidenceCount+' 条记录</p><p>'+escape(t.recommendation)+'</p><a class="ma-link" href="/my-ai/reports?courseId='+encodeURIComponent(t.courseId)+(t.evidenceIds?.[0]?'&evidenceId='+encodeURIComponent(t.evidenceIds[0]):'')+'#evidence">查看对应记录 →</a></div>').join(''):empty('当前范围的数据不足。'))+
       card('变化趋势','<p class="ma-note">'+escape(data.historyNote)+'</p>'+(data.history.some(h=>Object.values(h.scores).some(v=>typeof v==='number'))?'<div id="profile-chart" class="ma-chart"></div>':empty('完成有效学习并更新画像后，这里会展示变化趋势。')))+
       card('有效学习时间',(data.time.length?'<div id="time-chart" class="ma-chart"></div>':empty('尚无升级后的有效学习时间记录。'))+'<p class="ma-note">只累计学习页面在前台、且最近五分钟有交互的时间。多窗口不会重复累计。</p>')+
-      '<article class="ma-card" id="evidence"><h2>学习记录与依据</h2>'+(data.evidence.length?(params.get('evidenceId')?data.evidence.filter(e=>e.id===params.get('evidenceId')):data.evidence.slice(-100)).reverse().map(e=>'<div class="ma-row" id="'+escape('evidence-'+e.id)+'">'+(e.question?'<h3>'+escape(e.question)+'</h3>':'')+'<p>'+escape(e.text||'已保存的真实学习互动')+'</p><p class="ma-note">'+escape(time(e.at))+'</p>'+(e.lessonId?'<a class="ma-link" href="/learn?lessonId='+encodeURIComponent(e.lessonId)+'">查看对应课时 →</a>':e.courseId?'<a class="ma-link" href="/plan?courseId='+encodeURIComponent(e.courseId)+'">查看对应课程 →</a>':'')+'</div>').join(''):empty('当前范围没有可展示的记录。'))+'</article>';
+      '<article class="ma-card" id="evidence"><h2>学习记录与依据</h2>'+(data.evidence.length?(params.get('evidenceId')?data.evidence.filter(e=>e.id===params.get('evidenceId')):data.evidence.slice(-100)).reverse().map(teachingEvidenceRow).join(''):empty('当前范围没有可展示的记录。'))+'</article>';
     document.getElementById('report-filter').onsubmit=event=>{event.preventDefault();const query=new URLSearchParams(new FormData(event.currentTarget));location.href='/my-ai/reports?'+query;};
+    // 报告里看到的本题反馈也属于实际帮助；继续巩固前先保存展示，不触发模型。
+    const evidenceById=new Map(data.evidence.map(record=>[record.id,record])); let exposureFrame;
+    const recordFeedback=()=>{for(const node of root.querySelectorAll('[data-report-feedback]')) {
+      const record=evidenceById.get(node.dataset.reportFeedback);
+      if(record)window.GangyiAgent?.recordEvaluation(record.lessonId,record,node);
+    }};
+    const scheduleFeedback=()=>{cancelAnimationFrame(exposureFrame);exposureFrame=requestAnimationFrame(recordFeedback);};
+    document.addEventListener('scroll',scheduleFeedback,true);window.addEventListener('resize',scheduleFeedback);
+    document.addEventListener('visibilitychange',scheduleFeedback);root.addEventListener('toggle',scheduleFeedback,true);
+    root.addEventListener('click',event=>{const link=event.target.closest('a');
+      if(!link||event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||!/^\/(learn|practice)\?/.test(link.getAttribute('href')||''))return;
+      event.preventDefault();recordFeedback();
+      (window.GangyiAgent?.flushExposure()||Promise.resolve()).then(()=>{location.href=link.href;}).catch(error=>status(error.message,true));
+    });
+    scheduleFeedback();
     if(window.GangyiProfileRadar)window.GangyiProfileRadar.mount(document.getElementById('my-ai-radar'));
     const history=[...data.history].reverse(),subjects=[...new Set(history.flatMap(h=>Object.keys(h.scores)))];chart(document.getElementById('profile-chart'),{dates:history.map(h=>time(h.updatedAt)),values:subjects.map(name=>({name,data:history.map(h=>h.scores[name]??null)}))});
     const daily={};for(const t of data.time)daily[t.day]=(daily[t.day]||0)+t.seconds/60;const days=Object.keys(daily).sort();chart(document.getElementById('time-chart'),{dates:days,values:[{name:'学习分钟',data:days.map(day=>Math.round(daily[day]))}]},'bar');status('课程进度为当前状态；时间和记录按筛选范围显示。画像依据跨课程的真实作答。');
@@ -83,7 +120,19 @@
     root.querySelectorAll('[data-task]').forEach(b=>b.onclick=action(async()=>{await existing('/api/learning-agent/control',{taskId:rows[Number(b.dataset.task)].id,command:b.dataset.command});await tasks();}));status('任务与实际模型请求分别记录，可在使用情况页查看调用明细。');
   }
   async function usage() {
-    const data=await api('usage');root.innerHTML='<div class="ma-metrics">'+metric(data.calls,'实际模型请求')+metric(data.tasks,'关联学习任务')+metric(data.success,'成功请求')+metric(data.tokens??'未提供','已知Token合计')+'</div>'+card('调用明细','<p class="ma-note">'+escape(data.note)+'</p><div class="ma-table-wrap"><table class="ma-table"><thead><tr><th>时间</th><th>来源与用途</th><th>模型</th><th>状态</th><th>耗时</th><th>Token</th></tr></thead><tbody>'+data.items.map(r=>'<tr><td>'+escape(time(r.at))+'</td><td>'+escape(r.source)+'<br><small>'+escape(r.purpose)+'</small></td><td>'+escape(r.model)+'</td><td>'+escape(taskLabels[r.status]||r.status)+'</td><td>'+(r.durationMs/1000).toFixed(1)+'秒</td><td>'+escape(r.tokens?.total_tokens??'未提供')+'</td></tr>').join('')+'</tbody></table></div>'+(data.items.length?'':empty('还没有升级后的实际模型请求。')));status('Token仅使用服务商返回值；已知合计可能只覆盖部分请求。');
+    const data=await api('usage');
+    const fields=[['input','输入'],['output','输出'],['cachedInput','缓存命中（输入的一部分）'],['uncachedInput','缓存未命中'],['reasoning','思考（输出的一部分）']];
+    const breakdown=fields.map(([key,label])=>{const item=data.tokenBreakdown?.[key];return '<div class="ma-row"><strong>'+escape(label)+'：'+escape(item?.tokens??'未提供')+'</strong><p class="ma-note">'+escape(item?.knownCalls??0)+' / '+escape(data.calls)+' 次请求提供'+(item?.overflow?'；合计超出统计范围':'')+'</p></div>';}).join('');
+    const details=tokens=>'<details><summary>展开明细</summary>'+[
+      ['输入',tokens?.prompt_tokens],['输出',tokens?.completion_tokens],
+      ['缓存命中',tokens?.prompt_cache_hit_tokens??tokens?.prompt_tokens_details?.cached_tokens],
+      ['缓存未命中',tokens?.prompt_cache_miss_tokens],['思考',tokens?.completion_tokens_details?.reasoning_tokens]
+    ].map(([label,value])=>'<p class="ma-note">'+escape(label)+'：'+escape(value??'未提供')+'</p>').join('')+'</details>';
+    root.innerHTML='<div class="ma-metrics">'+metric(data.calls,'实际模型请求')+metric(data.tasks,'关联学习任务')+metric(data.success,'成功请求')+metric(data.tokens??'未提供','已知Token合计')+'</div>'+card('Token构成','<p class="ma-note">总量由 '+escape(data.knownTokenCalls)+' / '+escape(data.calls)+' 次请求提供。各项独立统计，不能相互相加推算。</p><div class="ma-grid">'+breakdown+'</div>')+card('调用明细','<p class="ma-note">'+escape(data.note)+'</p><div class="ma-table-wrap"><table class="ma-table"><thead><tr><th>时间</th><th>来源与用途</th><th>模型</th><th>状态</th><th>耗时</th><th>Token</th></tr></thead><tbody>'+data.items.map(r=>'<tr><td>'+escape(time(r.at))+'</td><td>'+escape(r.source)+'<br><small>'+escape(r.purpose)+'</small></td><td>'+escape(r.model)+'</td><td>'+escape(taskLabels[r.status]||r.status)+'</td><td>'+(r.durationMs/1000).toFixed(1)+'秒</td><td>'+escape(r.tokens?.total_tokens??'未提供')+details(r.tokens)+'</td></tr>').join('')+'</tbody></table></div>'+(data.items.length?'':empty('还没有升级后的实际模型请求。')));status('Token仅使用服务商返回值；缓存与思考不重复计入总量。');
+  }
+  async function libraryUsageView() {
+    const data=await existing('/api/my-ai/library/usage');
+    root.insertAdjacentHTML('afterbegin',card('联网资料使用情况','<div class="ma-metrics">'+metric(data.searchRequests,'博查实际请求')+metric(data.fetchRequests,'正文获取请求')+metric(data.cacheHits,'缓存命中')+metric(data.failures,'失败记录')+'</div><p class="ma-note">检索与正文读取单独统计，Token仅显示模型服务商实际返回值。</p>'));
   }
   async function settings() {
     root.innerHTML=card('AI服务与模型','<p>使用桌面设置配置服务商、接口地址、模型和密钥，并测试连接。</p><p class="ma-note">密钥保存在Windows凭据管理器。调整配置后按桌面设置提示应用到服务。</p>'+button('打开AI设置','open-settings'))+card('桌面设置','<p class="ma-note">开机启动及现有桌面选项在同一设置窗口管理。</p>');
@@ -128,5 +177,5 @@
     window.addEventListener('pagehide',()=>{if(!state)return;localStorage.setItem('my-ai-draft:'+chatId,input.value);fetch('/api/my-ai/chat',{method:'POST',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify({id:chatId,version:state.version,draft:input.value,scroll:scroll.scrollTop})}).catch(()=>{});});status('多个聊天共享个人偏好和长期记忆，各自保留对话与草稿。');
   }
   const handlers={overview,profile,preferences,memories,reports,plan,tasks,usage,settings,data:dataPage,chat};
-  (handlers[page]||overview)().catch(error=>status(error.message,true));
+  (handlers[page]||overview)().then(()=>page==='usage'?libraryUsageView():null).catch(error=>status(error.message,true));
 })();

@@ -315,7 +315,7 @@ def main(executable):
         with closing(sqlite3.connect(info['database'])) as database:
             values=[json.loads(row[0]) for row in database.execute("SELECT payload FROM LearningInteraction WHERE kind='practice'")]
             assert len(values)==1 and values[0]['response'].startswith('我选1') and values[0]['response'].endswith('我认为从0升高到+2。'), values
-            assert values[0]['assisted'] and values[0]['model']=='fixture-v560'
+            assert not values[0]['assisted'] and values[0]['model']=='fixture-v560'
         print('聊天课堂、固定输入、内容定位、卡片作答、分题草稿、全局暂停恢复、评价顺序、历史回看与窄屏回归通过（隔离协议夹具）')
 
 

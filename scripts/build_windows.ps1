@@ -1,6 +1,7 @@
 ﻿param(
     [switch]$SkipDependencies,
     [switch]$Preview,
+    [switch]$TeachingPreview,
     [switch]$SkipInstaller,
     [string]$BuildDir = '',
     [string]$Generator = 'MinGW Makefiles'
@@ -95,8 +96,10 @@ if (-not $SkipDependencies) {
 $cmakeArgs = @('-S', $repoRoot, '-B', $buildDir, '-G', $Generator, '-DCMAKE_BUILD_TYPE=Release')
 $curlCa = Get-ChildItem -LiteralPath (Join-Path $thirdParty 'curl') -Filter 'curl-ca-bundle.crt' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($curlCa) { $cmakeArgs += "-DCMAKE_TLS_CAINFO=$($curlCa.FullName.Replace('\', '/'))" }
+if (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'third_party\pdfium-8100\bin\pdfium.dll'))) { & (Join-Path $PSScriptRoot 'setup_library_dependencies.ps1') }
 $myAIPreviewMode = if ($Preview) { "ON" } else { "OFF" }
 $cmakeArgs += "-DGANGYI_PREVIEW_BUILD=$myAIPreviewMode"
+$cmakeArgs += "-DGANGYI_TEACHING_PREVIEW=$(if ($TeachingPreview) { 'ON' } else { 'OFF' })"
 cmake @cmakeArgs
 if ($LASTEXITCODE -ne 0) { throw 'CMake 配置失败' }
 cmake --build $buildDir --parallel 4
@@ -121,7 +124,12 @@ if (Test-Path -LiteralPath $distDir) {
     Remove-Item -LiteralPath $distDir -Recurse -Force
 }
 New-Item -ItemType Directory -Force -Path $distDir | Out-Null
-Copy-Item -LiteralPath $server, $launcher -Destination $distDir
+Copy-Item -LiteralPath $server, $launcher, (Join-Path $buildDir 'gangyiAI-source-reader.exe') -Destination $distDir
+Copy-Item -LiteralPath (Join-Path $repoRoot 'third_party\pdfium-8100\bin\pdfium.dll') -Destination $distDir
+$licenseDist = Join-Path $distDir 'licenses\pdfium'
+New-Item -ItemType Directory -Force -Path $licenseDist | Out-Null
+Copy-Item -LiteralPath (Join-Path $repoRoot 'third_party\pdfium-8100\LICENSE') -Destination $licenseDist
+Copy-Item -LiteralPath (Join-Path $repoRoot 'third_party\pdfium-8100\licenses') -Destination $licenseDist -Recurse
 Copy-Item -LiteralPath (Join-Path $buildDir 'libcurl-x64.dll') -Destination $distDir
 $compiler = (Get-Command 'g++').Source
 foreach ($runtime in @('libwinpthread-1.dll', 'libgcc_s_seh-1.dll', 'libstdc++-6.dll')) {
@@ -135,13 +143,13 @@ $caBundle = Join-Path $buildDir 'curl-ca-bundle.crt'
 if (Test-Path -LiteralPath $caBundle) { Copy-Item -LiteralPath $caBundle -Destination $distDir }
 $publicDist = Join-Path $distDir 'public'
 New-Item -ItemType Directory -Force -Path $publicDist | Out-Null
-foreach ($asset in @('my-ai.css', 'my-ai.js', 'my-ai-study.js', 'styles.css', 'plan.css', 'dark.css', 'dark.js', 'app-layout.css', 'app-layout.js', 'profile-radar.js', 'profile-radar.css', 'startup.css', 'startup.js', 'ask.js', 'classroom.js', 'classroom.css', 'learning-flow.js', 'learning-flow.css', 'learning-agent.js', 'agent-shell.js', 'agent-classroom.html', 'agent-classroom.js', 'agent-classroom.css', 'agent-prepare.html', 'agent-prepare.js', 'chat-render.js', 'user-center.js', 'school-logo.png', 'campus-background.jpg')) {
+foreach ($asset in @('library.css', 'library.js', 'my-ai.css', 'my-ai.js', 'my-ai-study.js', 'styles.css', 'plan.css', 'dark.css', 'dark.js', 'app-layout.css', 'app-layout.js', 'profile-radar.js', 'profile-radar.css', 'startup.css', 'startup.js', 'ask.js', 'classroom.js', 'classroom.css', 'learning-flow.js', 'learning-flow.css', 'learning-agent.js', 'agent-shell.js', 'agent-classroom.html', 'agent-classroom.js', 'agent-classroom.css', 'agent-prepare.html', 'agent-prepare.js', 'chat-render.js', 'user-center.js', 'school-logo.png', 'campus-background.jpg')) {
     Copy-Item -LiteralPath (Join-Path $repoRoot "public\$asset") -Destination $publicDist
 }
 # 公式渲染引擎随包发布：断网也能显示数学公式。
 Copy-Item -LiteralPath (Join-Path $repoRoot 'public\vendor') -Destination $publicDist -Recurse -Force
 $requiredFiles = @(
-    'gangyiAI.exe', 'gangyiAI-launcher.exe', 'libcurl-x64.dll',
+    'gangyiAI.exe', 'gangyiAI-launcher.exe', 'gangyiAI-source-reader.exe', 'pdfium.dll', 'public\library.js', 'public\library.css', 'libcurl-x64.dll',
     'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll',
     'public\my-ai.css', 'public\my-ai.js', 'public\my-ai-study.js', 'public\vendor\echarts\echarts.min.js', 'public\styles.css', 'public\dark.css', 'public\dark.js', 'public\startup.css', 'public\startup.js', 'public\ask.js',
     'public\app-layout.js', 'public\app-layout.css', 'public\profile-radar.js', 'public\profile-radar.css', 'public\classroom.js', 'public\classroom.css', 'public\learning-flow.js', 'public\learning-flow.css', 'public\learning-agent.js', 'public\agent-shell.js', 'public\agent-classroom.html', 'public\agent-classroom.js', 'public\agent-classroom.css', 'public\agent-prepare.html', 'public\agent-prepare.js', 'public\chat-render.js', 'public\user-center.js',
@@ -164,7 +172,7 @@ foreach ($executable in @(
     }
 }
 
-$profileDirectoryName = if ($Preview) { "GangyiAI-MyAI-Preview" } else { "GangyiAI" }
+$profileDirectoryName = if ($TeachingPreview) { "GangyiAI-Teaching-Preview" } elseif ($Preview) { "GangyiAI-Library-Preview" } else { "GangyiAI" }
 $portableGuide = @"
 钢一定制AI v$version 免安装版
 
@@ -176,7 +184,7 @@ $portableGuide = @"
 6. 当前程序尚未签名，Windows SmartScreen 可能提示未知发布者。
 "@
 Set-Content -LiteralPath (Join-Path $distDir '免安装版使用说明.txt') -Value $portableGuide -Encoding utf8
-$portableName = "gangyiAI-portable-v$version-x64.zip"
+$portableName = if ($TeachingPreview) { "gangyiAI-teaching-preview1-v$version-x64.zip" } elseif ($Preview) { "gangyiAI-learning-preview1-v$version-x64.zip" } else { "gangyiAI-portable-v$version-x64.zip" }
 $portablePath = Join-Path $repoRoot "dist\installer\$portableName"
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $portablePath) | Out-Null
 if (Test-Path -LiteralPath $portablePath) { Remove-Item -LiteralPath $portablePath -Force }
@@ -203,18 +211,19 @@ if (-not $SkipInstaller) {
     }
     if (-not $iscc) { throw '缺少 Inno Setup 6（ISCC.exe）' }
     $isccPath = if ($iscc -is [System.Management.Automation.CommandInfo]) { $iscc.Source } else { $iscc.FullName }
-    if ($Preview) { & $isccPath "/DMyAIPreview=1" "/DMyAppVersion=$version" (Join-Path $repoRoot 'installer\gangyiAI.iss') }
+    if ($TeachingPreview) { & $isccPath "/DTeachingPreview=1" "/DMyAppVersion=$version" (Join-Path $repoRoot 'installer\gangyiAI.iss') }
+    elseif ($Preview) { & $isccPath "/DMyAIPreview=1" "/DMyAppVersion=$version" (Join-Path $repoRoot 'installer\gangyiAI.iss') }
     else { & $isccPath "/DMyAppVersion=$version" (Join-Path $repoRoot 'installer\gangyiAI.iss') }
     if ($LASTEXITCODE -ne 0) { throw 'Inno Setup 打包失败' }
 
-    $installerName = "gangyiAI-setup-v$version-x64.exe"
+    $installerName = if ($TeachingPreview) { "gangyiAI-teaching-preview1-v$version-x64.exe" } elseif ($Preview) { "gangyiAI-learning-preview1-v$version-x64.exe" } else { "gangyiAI-setup-v$version-x64.exe" }
     $installerPath = Join-Path $repoRoot "dist\installer\$installerName"
     if (-not (Test-Path -LiteralPath $installerPath)) { throw "安装包未生成：$installerPath" }
 }
 
 $checksums = @()
 if (-not $SkipInstaller) {
-    $installerName = "gangyiAI-setup-v$version-x64.exe"
+    $installerName = if ($TeachingPreview) { "gangyiAI-teaching-preview1-v$version-x64.exe" } elseif ($Preview) { "gangyiAI-learning-preview1-v$version-x64.exe" } else { "gangyiAI-setup-v$version-x64.exe" }
     $installerPath = Join-Path $repoRoot "dist\installer\$installerName"
     $installerHash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $checksums += "$installerHash *$installerName"

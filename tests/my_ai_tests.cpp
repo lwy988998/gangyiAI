@@ -3,9 +3,12 @@
 #endif
 #include "my_ai.hpp"
 #include "my_ai_context.hpp"
+#include "ai_activity.hpp"
+#include <algorithm>
 #include <cassert>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <sqlite3.h>
 #include <chrono>
 using Json = nlohmann::json;
@@ -40,6 +43,7 @@ int main() {
     auto done = gangyi::myAIConfirm(db,second["id"],{{"decision","confirm"},{"version",second["version"]}});
     assert(!db.getCourse("course")); assert(gangyi::myAIConfirm(db,second["id"],{{"decision","confirm"},{"version",second["version"]}}) == done);
     auto usage = gangyi::myAIRead(db,"usage"); assert(usage["calls"] == 0 && usage["tokens"].is_null());
+    assert(usage["tokenBreakdown"]["input"]["tokens"].is_null() && usage["tokenBreakdown"]["input"]["knownCalls"] == 0);
     assert(db.upsert(gangyi::SubjectMastery{"数学","真实零分","[]","练习概念","fixture","ready","2026-10-12",0,1}));
     auto report=gangyi::myAIRead(db,"reports");assert(report["subjects"][0]["score"]==0);
     db.insert(gangyi::Course{"time-course",{}, {},"函数","deep","函数课程",{},"ai","active","2026-10-12","2026-10-12"});
@@ -57,5 +61,51 @@ int main() {
     {gangyi::Database next;next.open(upgrade.string());next.migrate();assert(next.profileMeta("kept")=="原有档案");assert(next.myAIRecords("chat").empty());}
     sqlite3* upgraded=nullptr;sqlite3_stmt* version=nullptr;sqlite3_open(upgrade.string().c_str(),&upgraded);sqlite3_prepare_v2(upgraded,"PRAGMA user_version",-1,&version,nullptr);assert(sqlite3_step(version)==SQLITE_ROW&&sqlite3_column_int(version,0)==7);sqlite3_finalize(version);sqlite3_close(upgraded);
     assert(std::filesystem::exists(upgrade.string()+".pre-v7.db"));std::filesystem::remove(upgrade);std::filesystem::remove(upgrade.string()+".pre-v7.db");
-    std::cout << "个人中心版本、聊天、记忆和确认操作通过\n";
+    // 同一任务在控制记录丢失后重新发起请求，两条实际请求的用量必须分别保留。
+    const auto usageFolder=std::filesystem::temp_directory_path()/("gangyi-usage-retry-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(usageFolder);
+    {
+        const auto usagePath=usageFolder/"usage.db",controlPath=usageFolder/"control.json";
+        gangyi::Database usageDb;usageDb.open(usagePath.u8string());usageDb.migrate();
+        gangyi::AIActivity::configure(controlPath.u8string());gangyi::AIActivity::configureUsage(usagePath.u8string());
+        gangyi::AIActivityInfo info;info.taskId="persisted-same-task";info.source="用量恢复夹具";
+        auto id=gangyi::AIActivity::begin(info,"fixture-model");assert(gangyi::AIActivity::requestStarted(id));
+        const Json detailedUsage={{"prompt_tokens",12},{"completion_tokens",5},{"total_tokens",17},
+            {"prompt_cache_hit_tokens",8},{"prompt_cache_miss_tokens",4},
+            {"prompt_tokens_details",{{"cached_tokens",8}}},{"completion_tokens_details",{{"reasoning_tokens",2}}}};
+        gangyi::AIActivity::requestFinished(id,"completed",detailedUsage,"fixture-model");
+        const auto original=usageDb.myAIRecords("usage");assert(original.size()==1);
+        assert(Json::parse(original[0].payload).at("tokens")==detailedUsage);
+        std::filesystem::remove(controlPath);
+        gangyi::AIActivity::configure(controlPath.u8string());
+        id=gangyi::AIActivity::begin(info,"fixture-model");assert(gangyi::AIActivity::requestStarted(id));
+        gangyi::AIActivity::requestFinished(id,"failed",nullptr,"fixture-model");
+        // 重复完成回执更新当前请求，不另算一次请求。
+        gangyi::AIActivity::requestFinished(id,"failed",nullptr,"fixture-model");
+        const auto recorded=usageDb.myAIRecords("usage");assert(recorded.size()==2);
+        assert(usageDb.myAIRecord(original[0].id)->payload==original[0].payload);
+        const auto statistics=gangyi::myAIRead(usageDb,"usage");
+        assert(statistics["calls"]==2&&statistics["tokens"]==17);
+        assert(statistics["tokenBreakdown"]["cachedInput"]["tokens"]==8 && statistics["tokenBreakdown"]["cachedInput"]["knownCalls"]==1);
+        assert(statistics["tokenBreakdown"]["reasoning"]["tokens"]==2 && statistics["knownTokenCalls"]==1);
+        // 旧格式、真实零值、无效值和筛选后的覆盖率均保持真实，双协议缓存不相加。
+        const auto addUsage = [&](const char* key, const Json& tokens, const char* model) {
+            assert(usageDb.saveMyAIRecord({key,"usage",Json{{"tokens",tokens},{"model",model},{"day","2026-10-17"}}.dump(),"2026-10-17",0},0));
+        };
+        addUsage("partial",{{"prompt_tokens",0},{"prompt_tokens_details",{{"cached_tokens",0}}},{"completion_tokens_details",{{"reasoning_tokens",0}}}},"partial");
+        const auto partial=gangyi::myAIRead(usageDb,"usage",{{"model","partial"},{"from","2026-10-17"},{"to","2026-10-17"}});
+        assert(partial["tokens"].is_null() && partial["tokenBreakdown"]["cachedInput"]["tokens"]==0 && partial["tokenBreakdown"]["cachedInput"]["knownCalls"]==1);
+        addUsage("invalid",{{"total_tokens",-1},{"prompt_tokens",true},{"completion_tokens","7"},{"prompt_cache_hit_tokens",1.5},{"completion_tokens_details",{{"reasoning_tokens",-2}}}},"invalid");
+        const auto invalid=gangyi::myAIRead(usageDb,"usage",{{"model","invalid"}});
+        assert(invalid["tokens"].is_null() && invalid["knownTokenCalls"]==0 && invalid["tokenBreakdown"]["input"]["tokens"].is_null());
+        addUsage("huge-a",{{"total_tokens",std::numeric_limits<long long>::max()}},"huge");
+        addUsage("huge-b",{{"total_tokens",1}},"huge");
+        const auto huge=gangyi::myAIRead(usageDb,"usage",{{"model","huge"}});
+        assert(huge["tokens"].is_null() && huge["knownTokenCalls"]==2);
+        assert(gangyi::myAIRead(usageDb,"usage")["tokenBreakdown"]["cachedInput"]["tokens"]==8);
+        assert(std::any_of(recorded.begin(),recorded.end(),[](const auto& row){const auto item=Json::parse(row.payload);return item["status"]=="failed"&&item["tokens"].is_null();}));
+        gangyi::AIActivity::configureUsage("");gangyi::AIActivity::configure("");
+    }
+    std::filesystem::remove_all(usageFolder);
+    std::cout << "个人中心版本、聊天、记忆、用量恢复和确认操作通过\n";
 }
