@@ -143,7 +143,7 @@ LibraryDocument libraryFetch(const std::string& input, const LibraryCancel& canc
         curl_easy_setopt(curl.get(), CURLOPT_NOPROGRESS, 0L);
         curl_easy_setopt(curl.get(), CURLOPT_XFERINFOFUNCTION, progress);
         curl_easy_setopt(curl.get(), CURLOPT_XFERINFODATA, &transfer);
-        curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, "GangyiAI/5.6.1 learning-source-reader");
+        curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, "GangyiAI/5.6.3 learning-source-reader");
         curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT_MS, 8000L);
         curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, 25000L);
         curl_easy_setopt(curl.get(), CURLOPT_ACCEPT_ENCODING, "");

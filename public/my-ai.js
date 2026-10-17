@@ -120,7 +120,15 @@
     root.querySelectorAll('[data-task]').forEach(b=>b.onclick=action(async()=>{await existing('/api/learning-agent/control',{taskId:rows[Number(b.dataset.task)].id,command:b.dataset.command});await tasks();}));status('任务与实际模型请求分别记录，可在使用情况页查看调用明细。');
   }
   async function usage() {
-    const data=await api('usage');root.innerHTML='<div class="ma-metrics">'+metric(data.calls,'实际模型请求')+metric(data.tasks,'关联学习任务')+metric(data.success,'成功请求')+metric(data.tokens??'未提供','已知Token合计')+'</div>'+card('调用明细','<p class="ma-note">'+escape(data.note)+'</p><div class="ma-table-wrap"><table class="ma-table"><thead><tr><th>时间</th><th>来源与用途</th><th>模型</th><th>状态</th><th>耗时</th><th>Token</th></tr></thead><tbody>'+data.items.map(r=>'<tr><td>'+escape(time(r.at))+'</td><td>'+escape(r.source)+'<br><small>'+escape(r.purpose)+'</small></td><td>'+escape(r.model)+'</td><td>'+escape(taskLabels[r.status]||r.status)+'</td><td>'+(r.durationMs/1000).toFixed(1)+'秒</td><td>'+escape(r.tokens?.total_tokens??'未提供')+'</td></tr>').join('')+'</tbody></table></div>'+(data.items.length?'':empty('还没有升级后的实际模型请求。')));status('Token仅使用服务商返回值；已知合计可能只覆盖部分请求。');
+    const data=await api('usage');
+    const fields=[['input','输入'],['output','输出'],['cachedInput','缓存命中（输入的一部分）'],['uncachedInput','缓存未命中'],['reasoning','思考（输出的一部分）']];
+    const breakdown=fields.map(([key,label])=>{const item=data.tokenBreakdown?.[key];return '<div class="ma-row"><strong>'+escape(label)+'：'+escape(item?.tokens??'未提供')+'</strong><p class="ma-note">'+escape(item?.knownCalls??0)+' / '+escape(data.calls)+' 次请求提供'+(item?.overflow?'；合计超出统计范围':'')+'</p></div>';}).join('');
+    const details=tokens=>'<details><summary>展开明细</summary>'+[
+      ['输入',tokens?.prompt_tokens],['输出',tokens?.completion_tokens],
+      ['缓存命中',tokens?.prompt_cache_hit_tokens??tokens?.prompt_tokens_details?.cached_tokens],
+      ['缓存未命中',tokens?.prompt_cache_miss_tokens],['思考',tokens?.completion_tokens_details?.reasoning_tokens]
+    ].map(([label,value])=>'<p class="ma-note">'+escape(label)+'：'+escape(value??'未提供')+'</p>').join('')+'</details>';
+    root.innerHTML='<div class="ma-metrics">'+metric(data.calls,'实际模型请求')+metric(data.tasks,'关联学习任务')+metric(data.success,'成功请求')+metric(data.tokens??'未提供','已知Token合计')+'</div>'+card('Token构成','<p class="ma-note">总量由 '+escape(data.knownTokenCalls)+' / '+escape(data.calls)+' 次请求提供。各项独立统计，不能相互相加推算。</p><div class="ma-grid">'+breakdown+'</div>')+card('调用明细','<p class="ma-note">'+escape(data.note)+'</p><div class="ma-table-wrap"><table class="ma-table"><thead><tr><th>时间</th><th>来源与用途</th><th>模型</th><th>状态</th><th>耗时</th><th>Token</th></tr></thead><tbody>'+data.items.map(r=>'<tr><td>'+escape(time(r.at))+'</td><td>'+escape(r.source)+'<br><small>'+escape(r.purpose)+'</small></td><td>'+escape(r.model)+'</td><td>'+escape(taskLabels[r.status]||r.status)+'</td><td>'+(r.durationMs/1000).toFixed(1)+'秒</td><td>'+escape(r.tokens?.total_tokens??'未提供')+details(r.tokens)+'</td></tr>').join('')+'</tbody></table></div>'+(data.items.length?'':empty('还没有升级后的实际模型请求。')));status('Token仅使用服务商返回值；缓存与思考不重复计入总量。');
   }
   async function libraryUsageView() {
     const data=await existing('/api/my-ai/library/usage');

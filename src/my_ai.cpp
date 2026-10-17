@@ -7,6 +7,7 @@
 #include <ctime>
 #include <cstdlib>
 #include <iomanip>
+#include <limits>
 #include <random>
 #include <set>
 #include <sstream>
@@ -61,6 +62,23 @@ Json messages(Database& db,const std::string& chatId) {
         auto value=parse(item.payload);value["id"]=item.id;value["at"]=item.createdAt;value["role"]=item.kind=="my-ai-user"?"user":"assistant";result.push_back(value);
     }return result;
 }
+// 各项独立统计覆盖率；缓存与思考属于输入、输出的明细，不能再加进总量。
+struct ReportTokenCounter {
+    long long total = 0;
+    int known = 0;
+    bool overflow = false;
+    bool add(const Json& value) {
+        if (!value.is_number_integer() || (value.is_number_unsigned() &&
+            value.get<unsigned long long>() > static_cast<unsigned long long>(std::numeric_limits<long long>::max()))) return false;
+        const auto count = value.get<long long>();
+        if (count < 0) return false;
+        ++known;
+        if (count > std::numeric_limits<long long>::max() - total) overflow = true;
+        else if (!overflow) total += count;
+        return true;
+    }
+    Json result() const { return {{"tokens", known && !overflow ? Json(total) : Json()}, {"knownCalls", known}, {"overflow", overflow}}; }
+};
 }
 
 Json myAIRead(Database& db,const std::string& section,const Json& query) {
@@ -79,15 +97,27 @@ Json myAIRead(Database& db,const std::string& section,const Json& query) {
     if(section=="changes") {Json items=Json::array();for(const auto& row:db.myAIRecords("undo")){auto change=read(db,row.id);change.erase("before");items.push_back(change);}return {{"items",items}};}
     if(section=="chat") {auto value=required(db,query.at("id"),"chat");if(value.value("deleted",false))throw std::invalid_argument("聊天已删除");value["messages"]=messages(db,query.at("id"));value.erase("requests");return value;}
     if(section=="usage") {
-        Json rows=Json::array();long long tokens=0,duration=0;int known=0,success=0;std::set<std::string> tasks;
+        Json rows=Json::array();long long duration=0;int success=0;std::set<std::string> tasks;
+        ReportTokenCounter total, input, output, cached, missed, reasoning;
         for(const auto& row:db.myAIRecords("usage")) {auto value=read(db,row.id);const auto day=value.value("day",row.updatedAt.substr(0,10));
             if(day<query.value("from","")||(!query.value("to","").empty()&&day>query.value("to","")))continue;
             if(!query.value("model","").empty()&&value.value("model","")!=query.value("model",""))continue;
-            if(value.value("tokens",Json()).is_object()&&value["tokens"].value("total_tokens",Json()).is_number_integer()){tokens+=value["tokens"]["total_tokens"].get<long long>();++known;}
+            const auto usage = value.value("tokens", Json());
+            if (usage.is_object()) {
+                total.add(usage.value("total_tokens", Json())); input.add(usage.value("prompt_tokens", Json()));
+                output.add(usage.value("completion_tokens", Json())); missed.add(usage.value("prompt_cache_miss_tokens", Json()));
+                const auto prompt = usage.value("prompt_tokens_details", Json());
+                const auto completion = usage.value("completion_tokens_details", Json());
+                // 两种服务商协议同时提供时只记一次，保留每次请求的原始回执供核对。
+                if (!cached.add(usage.value("prompt_cache_hit_tokens", Json())) && prompt.is_object()) cached.add(prompt.value("cached_tokens", Json()));
+                if (completion.is_object()) reasoning.add(completion.value("reasoning_tokens", Json()));
+            }
             duration+=value.value("durationMs",0LL);success+=value.value("status","")=="completed";
             if(!value.value("taskId","").empty())tasks.insert(value["taskId"]);
             rows.push_back(value);
-        }return {{"items",rows},{"calls",rows.size()},{"tasks",tasks.size()},{"success",success},{"durationMs",duration},{"tokens",known?Json(tokens):Json()},{"knownTokenCalls",known},{"version",rows.size()},{"note","用量仅来自实际请求；未提供的 Token 不计入已知合计。统计从升级后开始。"}};
+        }return {{"items",rows},{"calls",rows.size()},{"tasks",tasks.size()},{"success",success},{"durationMs",duration},{"tokens",total.result()["tokens"]},{"knownTokenCalls",total.known},
+            {"tokenBreakdown",{{"input",input.result()},{"output",output.result()},{"cachedInput",cached.result()},{"uncachedInput",missed.result()},{"reasoning",reasoning.result()}}},
+            {"version",rows.size()},{"note","用量仅来自实际请求；各项覆盖的请求可能不同，缺失不补零，超出统计范围显示未提供。缓存属于输入，思考属于输出，均不重复计入总量。"}};
     }
     if(section=="reports"||section=="overview") {
         Json courses=Json::array(),topics=Json::array(),evidence=Json::array(),history=Json::array(),time=Json::array();int completed=0;long long seconds=0;

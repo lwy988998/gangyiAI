@@ -8,6 +8,7 @@
 #include <cassert>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <sqlite3.h>
 #include <chrono>
 using Json = nlohmann::json;
@@ -42,6 +43,7 @@ int main() {
     auto done = gangyi::myAIConfirm(db,second["id"],{{"decision","confirm"},{"version",second["version"]}});
     assert(!db.getCourse("course")); assert(gangyi::myAIConfirm(db,second["id"],{{"decision","confirm"},{"version",second["version"]}}) == done);
     auto usage = gangyi::myAIRead(db,"usage"); assert(usage["calls"] == 0 && usage["tokens"].is_null());
+    assert(usage["tokenBreakdown"]["input"]["tokens"].is_null() && usage["tokenBreakdown"]["input"]["knownCalls"] == 0);
     assert(db.upsert(gangyi::SubjectMastery{"数学","真实零分","[]","练习概念","fixture","ready","2026-10-12",0,1}));
     auto report=gangyi::myAIRead(db,"reports");assert(report["subjects"][0]["score"]==0);
     db.insert(gangyi::Course{"time-course",{}, {},"函数","deep","函数课程",{},"ai","active","2026-10-12","2026-10-12"});
@@ -84,6 +86,23 @@ int main() {
         assert(usageDb.myAIRecord(original[0].id)->payload==original[0].payload);
         const auto statistics=gangyi::myAIRead(usageDb,"usage");
         assert(statistics["calls"]==2&&statistics["tokens"]==17);
+        assert(statistics["tokenBreakdown"]["cachedInput"]["tokens"]==8 && statistics["tokenBreakdown"]["cachedInput"]["knownCalls"]==1);
+        assert(statistics["tokenBreakdown"]["reasoning"]["tokens"]==2 && statistics["knownTokenCalls"]==1);
+        // 旧格式、真实零值、无效值和筛选后的覆盖率均保持真实，双协议缓存不相加。
+        const auto addUsage = [&](const char* key, const Json& tokens, const char* model) {
+            assert(usageDb.saveMyAIRecord({key,"usage",Json{{"tokens",tokens},{"model",model},{"day","2026-10-17"}}.dump(),"2026-10-17",0},0));
+        };
+        addUsage("partial",{{"prompt_tokens",0},{"prompt_tokens_details",{{"cached_tokens",0}}},{"completion_tokens_details",{{"reasoning_tokens",0}}}},"partial");
+        const auto partial=gangyi::myAIRead(usageDb,"usage",{{"model","partial"},{"from","2026-10-17"},{"to","2026-10-17"}});
+        assert(partial["tokens"].is_null() && partial["tokenBreakdown"]["cachedInput"]["tokens"]==0 && partial["tokenBreakdown"]["cachedInput"]["knownCalls"]==1);
+        addUsage("invalid",{{"total_tokens",-1},{"prompt_tokens",true},{"completion_tokens","7"},{"prompt_cache_hit_tokens",1.5},{"completion_tokens_details",{{"reasoning_tokens",-2}}}},"invalid");
+        const auto invalid=gangyi::myAIRead(usageDb,"usage",{{"model","invalid"}});
+        assert(invalid["tokens"].is_null() && invalid["knownTokenCalls"]==0 && invalid["tokenBreakdown"]["input"]["tokens"].is_null());
+        addUsage("huge-a",{{"total_tokens",std::numeric_limits<long long>::max()}},"huge");
+        addUsage("huge-b",{{"total_tokens",1}},"huge");
+        const auto huge=gangyi::myAIRead(usageDb,"usage",{{"model","huge"}});
+        assert(huge["tokens"].is_null() && huge["knownTokenCalls"]==2);
+        assert(gangyi::myAIRead(usageDb,"usage")["tokenBreakdown"]["cachedInput"]["tokens"]==8);
         assert(std::any_of(recorded.begin(),recorded.end(),[](const auto& row){const auto item=Json::parse(row.payload);return item["status"]=="failed"&&item["tokens"].is_null();}));
         gangyi::AIActivity::configureUsage("");gangyi::AIActivity::configure("");
     }
