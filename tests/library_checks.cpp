@@ -93,6 +93,43 @@ void runLibraryChecks() {
     assert(noSourceRejected["status"]=="failed"&&noSourceRejected.dump().find("UNVERIFIED-CITATION-MUST-NOT-APPEAR")==std::string::npos);
     detail=gangyi::libraryRead(db,{{"id",id}});
     gangyi::libraryWrite(db,{{"id",id},{"version",detail["version"]},{"excluded",false}});
+    // 省略offset与显式offset=0都经过实际缓存读取；只精简给模型的副本，不改原快照和凭据。
+    const auto duplicateTask=gangyi::agentSubmit(db,access,{{"type","library_research"},{"goal","核验相同回执去重"},{"requestId","library-identical-results"}});
+    const auto snapshotBefore=db.myAIRecord("snap-first")->payload;
+    int duplicateCalls=0;std::size_t receiptBytesBefore=0,receiptBytesAfter=0;
+    gangyi::LearningAgent duplicateGuard(":memory:",[&](const auto& options,const auto& sink){
+        const bool firstCall=++duplicateCalls==1;
+        if(!firstCall) {
+            const auto persisted=Json::parse(db.getClassroomActivity(duplicateTask.at("id"))->payload);
+            const auto& saved=persisted.at("completedActions");
+            assert(saved.at("default-offset").at("result")==saved.at("explicit-offset").at("result"));
+            assert(saved.at("default-offset").at("encoded")!=saved.at("explicit-offset").at("encoded"));
+            bool checked=false;
+            for(const auto& message:options.messages)if(message.role=="user") {
+                const auto content=Json::parse(message.content,nullptr,false);
+                if(!content.is_object()||!content.contains("toolResults"))continue;
+                const auto& results=content.at("toolResults");assert(results.size()==2);
+                assert(results[0].at("result")==saved.at("default-offset").at("result"));
+                assert(results[1].at("result")==Json({{"unchangedFrom","default-offset"}}));
+                auto restored=content;restored["toolResults"][1]["result"]=results[0].at("result");
+                const auto original=Json::parse(persisted.at("messages").back().at("content").get<std::string>());
+                assert(restored==original);
+                receiptBytesBefore=original.dump().size();receiptBytesAfter=content.dump().size();
+                assert(receiptBytesAfter<receiptBytesBefore);checked=true;
+            }
+            assert(checked);
+        }
+        Json decision={{"message",""},{"actions",firstCall?Json::array({
+            {{"id","default-offset"},{"tool","read_resource"},{"args",{{"sourceId",id}}}},
+            {{"id","explicit-offset"},{"tool","read_resource"},{"args",{{"sourceId",id},{"offset",0}}}}
+        }):Json::array()},{"state",firstCall?"continue":"completed"}};
+        gangyi::AIResult result;result.model="同回执去重夹具";result.finishReason="stop";result.content=decision.dump();sink(result.content);return result;
+    });
+    duplicateGuard.process(db,duplicateTask.at("id"));
+    assert(gangyi::agentView(db,access,duplicateTask.at("id"))["status"]=="ready"&&duplicateCalls==2);
+    assert(db.myAIRecord("snap-first")->payload==snapshotBefore&&db.listMastery().empty());
+    std::cout<<"[prompt-dedup] "<<Json{{"receiptBytesBefore",receiptBytesBefore},{"receiptBytesAfter",receiptBytesAfter},
+        {"roundTripPreserved",true},{"rawReceiptsPreserved",true},{"paidRequests",0}}.dump()<<'\n';
     const auto pausedTask=gangyi::agentSubmit(db,access,{{"type","library_research"},{"goal","验证已读步骤暂停恢复"},{"requestId","library-resume"}});
     int resumeCalls=0;
     gangyi::LearningAgent resumeGuard(":memory:",[&](const auto&,const auto& sink){

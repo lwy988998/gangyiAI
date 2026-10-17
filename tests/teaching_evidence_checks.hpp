@@ -71,6 +71,23 @@ inline void runTeachingEvidenceChecks(const std::filesystem::path& path) {
     assert(Json::parse(compactHistory[1].at("content").get<std::string>()).at("toolResults")[0].at("result").at("unchangedFrom") == "read1");
     assert(compactHistory[0] == history[0] && compactHistory[2] == history[2] && compactHistory[3] == history[3] &&
         compactHistory[4] == history[4] && compactHistory[5] == history[5]);
+    // 短结果和长行动标识不应因引用变大；普通结果及恢复凭据都适用。
+    for (const auto& tiny : Json::array({nullptr, true, 7, "OK", Json::array(), Json::object()})) {
+        const Json tinyReceipt={{"encoded",readAction.at("encoded")},{"result",tiny}};
+        const Json tinyActions={{"one",tinyReceipt},{"two",tinyReceipt}};
+        const Json tinyHistory=Json::array({
+            {{"role","user"},{"content",Json{{"toolResults",{{{"id","one"},{"result",tiny}},{{"id","two"},{"result",tiny}}}}}.dump()}},
+            {{"role","user"},{"content",Json{{"completedActions",{{"one",tinyReceipt}}}}.dump()}}
+        });
+        assert(gangyi::agentPromptHistory(tinyHistory,tinyActions,{"read_lesson"})==tinyHistory);
+    }
+    const std::string longActionId(512,'a');
+    const Json shortResult={{"text",std::string(128,'x')}};
+    const Json longIdActions={{longActionId,readAction},{"short",readAction}};
+    const Json longIdHistory=Json::array({{{"role","user"},{"content",Json{{"toolResults",{
+        {{"id",longActionId},{"result",shortResult}},{{"id","short"},{"result",shortResult}}
+    }}}.dump()}}});
+    assert(gangyi::agentPromptHistory(longIdHistory,longIdActions,{"read_lesson"})==longIdHistory);
     // 真实对照发现工具报错会反复携带全量成功结果；只引用已经在历史中发送过的相同凭据。
     const Json savedWrite = {{"encoded", writeAction.at("encoded")}, {"result", duplicateRead}};
     const Json newlySaved = {{"encoded", readAction.at("encoded")}, {"result", changedRead}};

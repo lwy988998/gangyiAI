@@ -55,6 +55,10 @@ inline nlohmann::json agentPromptHistory(const nlohmann::json& messages, const n
     Json result = messages;
     std::map<std::string, std::string> seen;
     std::map<std::string, Json> receipts;
+    const auto referenceIfSmaller = [](const std::string& id, Json& value) {
+        Json reference = {{"unchangedFrom", id}};
+        if (reference.dump().size() < value.dump().size()) value = std::move(reference);
+    };
     for (auto& message : result) {
         if (message.value("role", "") != "user") continue;
         auto content = Json::parse(message.value("content", ""), nullptr, false);
@@ -63,10 +67,11 @@ inline nlohmann::json agentPromptHistory(const nlohmann::json& messages, const n
             if (!actions.contains(id)) return;
             const auto encoded = Json::parse(actions.at(id).value("encoded", ""), nullptr, false);
             if (!encoded.is_object() || !readOnlyTools.count(encoded.value("tool", ""))) return;
-            const auto key = encoded.dump() + ":" + value.dump();
+            // 默认参数显式写出时，仍可引用同一工具已经发送过的完全相同回执；原行动参数保留。
+            const auto key = encoded.at("tool").dump() + ":" + value.dump();
             const auto previous = seen.find(key);
             if (previous == seen.end()) seen[key] = id;
-            else value = {{"unchangedFrom", previous->second}};
+            else referenceIfSmaller(previous->second, value);
         };
         if (content.value("toolResults", Json()).is_array()) for (auto& item : content["toolResults"]) {
             const auto id = item.value("id", "");
@@ -81,7 +86,7 @@ inline nlohmann::json agentPromptHistory(const nlohmann::json& messages, const n
                 if (!receipt.is_object() || !receipt.contains("encoded") || !receipt.contains("result")) continue;
                 const auto previous = receipts.find(item.key());
                 if (previous != receipts.end() && previous->second == receipt)
-                    receipt["result"] = {{"unchangedFrom", item.key()}};
+                    referenceIfSmaller(item.key(), receipt["result"]);
                 else {
                     receipts[item.key()] = receipt;
                     compact(item.key(), receipt["result"]);
