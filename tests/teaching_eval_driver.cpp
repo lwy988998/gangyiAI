@@ -259,6 +259,9 @@ int main(int argc, char** argv) {
             }
             if (task.is_null()) task = gangyi::agentSubmit(db, access, event);
             const bool alreadyShown = task.value("status", "") == "waiting_student" || task.value("status", "") == "completed" || task.value("status", "") == "ready";
+            // 恢复失败/暂停轮必须走原生控制；process不会自行重启终态任务。
+            if (resumeExisting && (task.value("status", "") == "failed" || task.value("status", "") == "paused"))
+                gangyi::agentControl(db, access, {{"command", task.at("status") == "paused" ? "resume" : "retry"}, {"taskId", task.at("id")}});
             if (!alreadyShown) agent.process(db, task.at("id"));
             const auto row = db.getClassroomActivity(task.at("id")); const auto raw = Json::parse(row->payload);
             if (!alreadyShown) {

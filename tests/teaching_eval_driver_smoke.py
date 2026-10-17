@@ -67,8 +67,26 @@ def main(driver):
             denied=json.loads((root/'budget-stopped.json').read_text(encoding='utf-8'))
             assert denied['turns'][0]['task']['failure']['kind']=='eval_budget'
             assert UsageCompatibilityFixture.posts==calls_before
+            # 零调用预检必须真的进入失败轮恢复，不能返回原来的失败记录而漏采提示。
+            recovery_env=dict(env,GANGYI_EVAL_RESUME='1',GANGYI_EVAL_MAX_CALLS='0')
+            preview=subprocess.run([str(Path(driver).resolve()),str(root/'case.json'),str(root/'budget-stopped.db'),str(root/'recovery-preview.json')],
+                env=recovery_env,cwd=repo,capture_output=True,timeout=30,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+            assert preview.returncode==0,preview.stderr.decode('utf-8',errors='replace')
+            captured=json.loads((root/'recovery-preview.json').read_text(encoding='utf-8'))
+            assert captured['promptAudit'] and captured['turns'][0]['task']['failure']['kind']=='eval_call_limit'
+            assert UsageCompatibilityFixture.posts==calls_before
+            budget_file.write_text(json.dumps({'limitTokens':1000000,'usedTokens':0,'reservedTokens':0}),encoding='utf-8')
+            recovery_env.pop('GANGYI_EVAL_MAX_CALLS')
+            recovered=subprocess.run([str(Path(driver).resolve()),str(root/'case.json'),str(root/'budget-stopped.db'),str(root/'recovered.json')],
+                env=recovery_env,cwd=repo,capture_output=True,timeout=90,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+            assert recovered.returncode==0,recovered.stderr.decode('utf-8',errors='replace')
+            resumed=json.loads((root/'recovered.json').read_text(encoding='utf-8'))
+            assert resumed['turns'][0]['task']['id']==denied['turns'][0]['task']['id']
+            assert resumed['turns'][0]['task']['status']=='waiting_student'
+            assert sum(item['kind']=='chat-user' for item in resumed['interactions'])==1
             print(json.dumps({'passed':True,'logicalCalls':len(result['usage']),'httpRequests':result['httpRequestCount'],
                 'compatibilityRetries':UsageCompatibilityFixture.rejected_usage,'unknownUsagePreserved':True,'budgetStopsBeforeRequest':True,
+                'failedTaskResumeVerified':True,'zeroCallRecoveryCapturesPrompt':True,
                 'paidRequests':0},ensure_ascii=False))
         finally:
             server.shutdown();server.server_close()
