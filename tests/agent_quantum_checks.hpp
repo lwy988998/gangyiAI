@@ -85,6 +85,43 @@ inline void runAgentQuantumChecks(const std::filesystem::path& path) {
     assert(backgroundCalls == 2 && foregroundCalls == 2 && order.size() == 4);
     assert(order.front() == background.at("id") && order.back() == background.at("id") && order[1] != order[2]);
 
+    // 使用真实工具推进学习版本，验证同轮第二动作、历史以及让出/完成均不被旧请求版本阻断。
+    for (const auto* state : {"continue", "completed"}) {
+        const auto revisionPath = path.string() + ".revision." + state;
+        Database revisionDb; revisionDb.open(revisionPath); revisionDb.migrate();
+        const AgentAccess revisionAccess{"revision-fixture", {"first-course", "second-course"}};
+        for (const auto& courseId : revisionAccess.courseIds)
+            assert(revisionDb.insert(Course{courseId, "fixture", {}, "原目标", "deep", "课程",
+                {}, "ai", "active", "2026-10-04", "2026-10-04"}));
+        const auto revisionTask = agentSubmit(revisionDb, revisionAccess, {{"type", "adjust"}, {"requestId", "two-real-actions"}});
+        int revisionCalls = 0;
+        LearningAgent advancing(revisionPath, [&](const auto&, const auto& sink) {
+            ++revisionCalls;
+            return output({{"message", "两个课程目标均已调整。"}, {"actions", revisionCalls == 1 ? Json::array({
+                {{"id", "first"}, {"tool", "adjust_goal"}, {"args", {{"courseId", "first-course"}, {"goal", "新目标一"}, {"reason", "按学习反馈调整第一门课程"}}}},
+                {{"id", "second"}, {"tool", "adjust_goal"}, {"args", {{"courseId", "second-course"}, {"goal", "新目标二"}, {"reason", "按学习反馈调整第二门课程"}}}}
+            }) : Json::array()}, {"state", revisionCalls == 1 ? state : "completed"}}, sink);
+        });
+        registerAgentPreferenceTools(advancing);
+        const auto beforeRevision = revisionDb.learningRevision();
+        advancing.processQuantum(revisionDb, revisionTask.at("id"));
+        const auto saved = Json::parse(revisionDb.getClassroomActivity(revisionTask.at("id"))->payload);
+        assert(revisionCalls == 1 && revisionDb.learningRevision() >= beforeRevision + 2);
+        assert(revisionDb.getCourse("first-course")->goal == "新目标一" && revisionDb.getCourse("second-course")->goal == "新目标二");
+        assert(saved.at("learningVersion") == revisionDb.learningRevision());
+        assert(saved.at("status") == (std::string(state) == "continue" ? "pending" : "ready"));
+        assert(saved.at("completedActions").size() == 2 && saved.at("changes").size() == 2);
+        assert(saved.at("results").size() == 1 && saved.at("results")[0].size() == 2);
+        assert(Json::parse(saved.at("messages").back().at("content").get<std::string>()).at("toolResults").size() == 2);
+        int actionEvents = 0;
+        for (const auto& event : saved.at("events")) if (event.value("type", "") == "action") ++actionEvents;
+        assert(actionEvents == 2 && agentChanges(revisionDb, revisionAccess).size() == 2);
+        advancing.processQuantum(revisionDb, revisionTask.at("id"));
+        const auto completed = agentView(revisionDb, revisionAccess, revisionTask.at("id"));
+        assert(completed.at("status") == "ready" && completed.contains("completionMs"));
+        assert(revisionCalls == (std::string(state) == "continue" ? 2 : 1));
+        assert(agentChanges(revisionDb, revisionAccess).size() == 2);
+    }
     for (const auto* command : {"pause", "cancel"}) for (const auto* state : {"continue", "waiting_student"}) {
         const auto controlPath = path.string() + "." + command + "." + state;
         Database controlledDb; controlledDb.open(controlPath); controlledDb.migrate();

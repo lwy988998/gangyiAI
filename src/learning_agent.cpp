@@ -841,7 +841,14 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
             Json results = Json::array();
             std::set<std::string> stepIds;
             for (const auto& action : decision["actions"]) {
-                if (task.value("status", "") != "running" || options.cancelled()) return;
+                // 动作提交会合法推进学习版本；此阶段以最新执行快照核对，不能复用请求开始时的取消谓词。
+                if (stopped_) return;
+                if (AIActivity::stopping()) throw AIClientError("cancelled", "AI 请求已停止");
+                if (AIActivity::paused()) throw AIClientError("paused", "全软件 AI 已暂停");
+                const auto currentTask = taskFor(db, access, taskId);
+                if (currentTask.value("status", "") != "running" || currentTask != task ||
+                    db.learningRevision() != task.value("learningVersion", 0))
+                    throw std::runtime_error("学习情况或任务状态已变化");
                 if (!action.is_object()) throw std::runtime_error("AI 行动的每一项都必须是对象");
                 const auto id = action.value("id", ""), name = action.value("tool", "");
                 if (id.empty() || !stepIds.insert(id).second || !allowedTools.count(name) || !action.value("args", Json()).is_object())
