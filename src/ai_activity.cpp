@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iomanip>
 #include <mutex>
+#include <map>
 #include <sstream>
 #include <stdexcept>
 #ifdef _WIN32
@@ -31,6 +32,14 @@ std::string usageDatabase;
 Json memoryState;
 std::atomic<unsigned long long> sequence{0};
 std::atomic_bool closing{false};
+struct TaskClock { std::chrono::steady_clock::time_point queued; Json metrics = Json::object(); };
+std::map<std::string, TaskClock> taskClocks;
+void markTaskTime(const std::string& id, const char* field) {
+    const auto found = taskClocks.find(id);
+    if (found == taskClocks.end() || found->second.metrics.contains(field)) return;
+    found->second.metrics[field] = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - found->second.queued).count();
+}
 Json emptyState() { return {{"paused", false}, {"pauseEpoch", 0}, {"todayCalls", 0}, {"tasks", Json::array()}}; }
 std::string stamp(bool day = false) {
     const auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
@@ -125,6 +134,8 @@ void saveUsage(const Json& row,const std::string& status,const Json& tokens=null
     Json value;for(const auto* key:{"taskId","source","purpose","courseId","model"})value[key]=row.value(key,"");
     value["day"]=row.value("requestDay",stamp(true));value["at"]=row.value("requestAt",stamp());value["status"]=status;
     value["durationMs"]=status=="requesting"?0LL:std::max(0LL,clockMillis()-row.value("requestStartedMs",clockMillis()));value["tokens"]=tokens;
+    for (const auto* field : {"queueMs", "firstContentMs", "completionMs"})
+        if (row.contains(field)) value[field] = row[field];
     if(!model.empty())value["model"]=model;
     // 请求标识随开始/完成状态一起持久化，控制文件丢失或任务重试也不能覆盖旧用量。
     const auto key=row.value("requestUsageId", "usage:"+row.at("id").get<std::string>()+":"+std::to_string(row.value("calls",0)));
@@ -141,11 +152,12 @@ void saveUsage(const Json& row,const std::string& status,const Json& tokens=null
 }
 
 void AIActivity::configureUsage(const std::string& path) { std::lock_guard<std::mutex> lock(stateMutex);usageDatabase=path; }
-void AIActivity::requestFinished(const std::string& id,const std::string& status,const Json& tokens,const std::string& model) {
+void AIActivity::requestFinished(const std::string& id,const std::string& status,const Json& tokens,const std::string& model,const std::string& receipt) {
     Json request;
     {
         std::lock_guard<std::mutex> lock(stateMutex);FileLock file(statePath);const auto state=readState();
-        for(const auto& row:state["tasks"])if(row.value("id","")==id&&row.contains("requestStartedMs")){request=row;break;}
+        for(const auto& row:state["tasks"])if(row.value("id","")==id&&row.contains("requestStartedMs")&&
+            (receipt.empty() || row.value("requestUsageId", "") == receipt)){request=row;break;}
     }
     // 状态文件锁必须先释放；页面在数据库快照中读取暂停状态，不能形成互相等待。
     if(request.is_object())saveUsage(request,status,tokens,model);
@@ -193,13 +205,16 @@ std::string AIActivity::begin(const AIActivityInfo& info, const std::string& mod
         }
         rows.push_back({{"id", id}, {"calls", 0}, {"legacyCalls", info.legacyCalls}, {"createdAt", stamp()}}); row = &rows.back();
     }
+    for (const auto* field : {"queueMs", "firstContentMs", "completionMs"}) row->erase(field);
+    const auto timing = taskClocks.find(id);
+    if (timing != taskClocks.end()) for (const auto& metric : timing->second.metrics.items()) (*row)[metric.key()] = metric.value();
     (*row)["taskId"] = info.taskId; (*row)["source"] = info.source; (*row)["purpose"] = info.purpose;
     (*row)["scopeId"] = info.scopeId; (*row)["courseId"] = info.courseId; (*row)["lessonId"] = info.lessonId;
     (*row)["model"] = model; (*row)["processId"] = processId(); (*row)["updatedAt"] = stamp();
     (*row)["status"] = state.value("paused", false) ? "paused" : "queued";
     writeState(state); return id;
 }
-bool AIActivity::requestStarted(const std::string& id) {
+bool AIActivity::requestStarted(const std::string& id, std::string* receipt) {
     Json request;
     {
         std::lock_guard<std::mutex> lock(stateMutex);FileLock file(statePath);auto state=readState();
@@ -214,6 +229,7 @@ bool AIActivity::requestStarted(const std::string& id) {
         }
     }
     if(!request.is_object())throw std::runtime_error("AI请求缺少调用记录");
+    if (receipt) *receipt = request.at("requestUsageId").get<std::string>();
     saveUsage(request,"requesting");return true;
 }
 
@@ -227,4 +243,23 @@ void AIActivity::update(const std::string& id, const std::string& status, const 
 }
 void AIActivity::shutdown() { closing = true; }
 bool AIActivity::stopping() { return closing.load(); }
+void AIActivity::taskQueued(const std::string& id) {
+    std::lock_guard<std::mutex> lock(stateMutex);
+    taskClocks.try_emplace(id, TaskClock{std::chrono::steady_clock::now(), Json::object()});
+}
+void AIActivity::taskRunning(const std::string& id) {
+    std::lock_guard<std::mutex> lock(stateMutex); markTaskTime(id, "queueMs");
+    const auto found = taskClocks.find(id); if (found != taskClocks.end()) found->second.metrics.erase("completionMs");
+}
+void AIActivity::taskContent(const std::string& id) {
+    std::lock_guard<std::mutex> lock(stateMutex); markTaskTime(id, "firstContentMs");
+}
+void AIActivity::taskFinished(const std::string& id) {
+    std::lock_guard<std::mutex> lock(stateMutex); markTaskTime(id, "completionMs");
+}
+Json AIActivity::taskTiming(const std::string& id) {
+    std::lock_guard<std::mutex> lock(stateMutex);
+    const auto found = taskClocks.find(id);
+    return found == taskClocks.end() ? Json::object() : found->second.metrics;
+}
 }

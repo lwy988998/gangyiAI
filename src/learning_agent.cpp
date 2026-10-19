@@ -66,7 +66,11 @@ Json taskFor(Database& db, const AgentAccess& access, const std::string& id) {
     }
     return value;
 }
+bool terminal(const std::string& status);
 void saveTask(Database& db, Json& task) {
+    const auto id = task.at("id").get<std::string>();
+    const auto timing = AIActivity::taskTiming(id);
+    for (const auto& metric : timing.items()) task[metric.key()] = metric.value();
     task["updatedAt"] = stamp();
     if (!db.upsert(ClassroomActivity{task.at("id"), task.value("courseId", ""), "agent-task",
         task.dump(), task["updatedAt"], 0, 0})) throw std::runtime_error("AI 任务保存失败");
@@ -76,6 +80,8 @@ bool terminal(const std::string& status) {
            status == "cancelled" || status == "superseded";
 }
 void recordEvent(Json& task, Json event) {
+    if (event.value("type", "") == "delta" && event.value("text", "").find_first_not_of(" \t\r\n") != std::string::npos)
+        task["_timingContentPending"] = true;
     event["seq"] = task.value("seq", 0) + 1; event["at"] = stamp();
     task["seq"] = event["seq"]; task["events"].push_back(std::move(event));
 }
@@ -146,18 +152,36 @@ void recordActivity(Json& task, Json activity) {
     activity["at"] = stamp(); activity["call"] = task.value("calls", 0); task["activity"] = activity;
     recordEvent(task, {{"type", "activity"}, {"activity", std::move(activity)}});
 }
+// 只在公开事件/动作事务真正提交后计时，再单独合并白名单；不能被回滚内容抢先标记。
+void persistTaskTiming(Database& db, Json& task, bool visible = false) {
+    const auto id = task.at("id").get<std::string>();
+    if (visible) AIActivity::taskContent(id);
+    if (terminal(task.value("status", ""))) AIActivity::taskFinished(id);
+    const auto timing = AIActivity::taskTiming(id);
+    bool changed = false;
+    for (const auto& field : timing.items()) if (!task.contains(field.key()) || task[field.key()] != field.value()) changed = true;
+    if (!changed) return;
+    db.transaction([&] {
+        auto current = taskFor(db, accessFor(task), id);
+        for (const auto& field : timing.items()) current[field.key()] = field.value();
+        saveTask(db, current); task = std::move(current);
+    });
+}
 void ownedUpdate(Database& db, Json& task, const std::function<void(Json&)>& action) {
     const auto expected = task.dump();
+    bool visible = false;
     db.transaction([&] {
         auto current = taskFor(db, accessFor(task), task.at("id"));
         if (current.dump() != expected) throw std::runtime_error("AI 任务状态已经变化");
-        action(task); saveTask(db, task);
+        action(task); visible = task.value("_timingContentPending", false); task.erase("_timingContentPending");
+        saveTask(db, task);
     });
+    persistTaskTiming(db, task, visible);
 }
 Json publicTask(const Json& task) {
     Json output;
     for (const auto* field : {"id", "requestId", "status", "version", "seq", "events", "message", "updatedAt", "createdAt",
-            "model", "calls", "error", "failure", "pauseReason", "lesson", "course", "navigate", "replacementTaskId", "changes", "teachingFocus", "activity"})
+            "model", "calls", "error", "failure", "pauseReason", "lesson", "course", "navigate", "replacementTaskId", "changes", "teachingFocus", "activity", "queueMs", "firstContentMs", "completionMs"})
         if (task.contains(field)) output[field] = task[field];
     output["purpose"] = taskPurpose(task.at("event").value("type", ""));
     const auto event = task.at("event");
@@ -335,6 +359,7 @@ Json agentSubmit(Database& db, const AgentAccess& access, const Json& event, Age
             {"events", Json::array()}, {"results", Json::array()}, {"completedActions", Json::object()},
             {"messages", Json::array()}, {"learningVersion", db.learningRevision()}, {"calls", 0},
             {"createdAt", stamp()}, {"navigate", event.value("navigate", false)}, {"manualScheduleReplan", manualSchedule || event.value("type", "") == "assistant_chat"}};
+        AIActivity::taskQueued(task.at("id"));
         saveTask(db, task); index.push_back(task["id"]);
         agentAttachLessonTask(db, access, event, task.at("id"));
         db.setProfileMeta("agent-index", Json(index).dump());
@@ -363,7 +388,7 @@ Json agentView(Database& db, const AgentAccess& access, const std::string& taskI
     Json result;
     if (compact) {
         result = {{"id", id}, {"status", task.at("status")}, {"purpose", taskPurpose(task.at("event").value("type", ""))}};
-        for (const auto* key : {"calls", "model", "activity", "failure", "createdAt", "updatedAt", "lesson", "course"})
+        for (const auto* key : {"calls", "model", "activity", "failure", "createdAt", "updatedAt", "lesson", "course", "queueMs", "firstContentMs", "completionMs"})
             if (task.contains(key)) result[key] = task[key];
     } else { result = publicTask(task); result["changeHistory"] = agentChanges(db, access); }
     result["scopePaused"] = scope.value("paused", false);
@@ -415,6 +440,7 @@ Json agentActivityView(Database& db, const AgentAccess& access) {
             if (task["status"] == "running" && (request["status"] == "requesting" || request["status"] == "receiving")) row["status"] = request["status"];
             break;
         }
+        for (const auto* field : {"queueMs", "firstContentMs", "completionMs"}) if (task.contains(field)) row[field] = task[field];
         row["tracked"] = tracked;
         if (task.value("failure", Json()).is_object()) row["failure"] = task.at("failure");
         if (task.value("paused", false) && (row["status"] == "pending" || row["status"] == "running" || row["status"] == "requesting" || row["status"] == "receiving")) row["status"] = "paused";
@@ -480,6 +506,7 @@ Json agentControl(Database& db, const AgentAccess& access, const Json& body) {
             command == "cancel" ? "任务已取消。" : "AI 将从已保存的步骤继续。"}});
         saveTask(db, task); db.setProfileMeta(scopeKey(access), scope.dump());
     });
+    persistTaskTiming(db, task);
     return publicTask(task);
 }
 
@@ -541,12 +568,20 @@ void LearningAgent::registerTool(const std::string& name, AgentTool tool) {
 void LearningAgent::start() { if (!worker_.joinable()) { stopped_ = false; worker_ = std::thread([this] { run(); }); } }
 void LearningAgent::stop() { stopped_ = true; if (worker_.joinable()) worker_.join(); }
 
-void LearningAgent::process(Database& db, const std::string& taskId) {
+void LearningAgent::process(Database& db, const std::string& taskId) { processImpl(db, taskId, false); }
+void LearningAgent::processQuantum(Database& db, const std::string& taskId) { processImpl(db, taskId, true); }
+void LearningAgent::processImpl(Database& db, const std::string& taskId, bool quantum) {
     const auto row = db.getClassroomActivity(taskId);
     if (!row) return;
     Json task = parsed(row->payload); auto access = accessFor(task);
     if (terminal(task.value("status", "")) || task["status"] == "paused") return;
-    ownedUpdate(db, task, [](Json& current) { current["status"] = "running"; });
+    AIActivity::taskRunning(taskId);
+    ownedUpdate(db, task, [](Json& current) { current.erase("completionMs"); current["status"] = "running"; });
+    const auto yield = [&] {
+        if (!quantum) return false;
+        ownedUpdate(db, task, [](Json& current) { current["status"] = "pending"; });
+        return true;
+    };
     AgentContextReuse contextReuse;
     const auto readContext = [&] {
         return contextReuse.read(db, access, task.at("event"), [&] { return agentContext(db, access, task.at("event")); });
@@ -853,6 +888,7 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
                     recordEvent(task, {{"type", "action"}, {"actionId", id}, {"activity", task["activity"]}, {"message", resolvingInput || holdPublicContent ? Json("") : decision["message"]}});
                     writeScopeFingerprint(db, access); saveTask(db, task);
                 });
+                if (name == "append_section") persistTaskTiming(db, task, true);
                 if(prepared.afterCommit) { prepared.afterCommit(db); contextReuse.clear(); }
                 results.push_back({{"id", id}, {"result", prepared.result}});
             }
@@ -884,6 +920,7 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
                 current.erase("failure"); current.erase("error");
                 current["results"].push_back(results);
                 if (holdPublicContent) current["message"] = decision["message"];
+                if (decision.at("message").get<std::string>().find_first_not_of(" \t\r\n") != std::string::npos) current["_timingContentPending"] = true;
                 // 教学请求在类型、题目关联与全部动作校验通过后展示，拒绝内容不能流到页面。
                 for (const auto& delta : pendingHelp)
                     recordEvent(current, {{"type", "delta"}, {"field", delta.field}, {"actionIndex", delta.actionIndex},
@@ -920,6 +957,7 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
             });
             errors = 0;
             if (state != "continue") return;
+            if (yield()) return;
         } catch (const std::exception& error) {
             task = taskFor(db, access, taskId);
             if (task.value("status", "") != "running" || stopped_) return;
@@ -955,6 +993,7 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
                              {"completedActions", current["completedActions"]},
                              {"instruction", "继续未完成的步骤，使用简洁完整的JSON，不重复成功行动，不复制大段原文或检索计划。资料不足则明确范围；完成当前需要的保存后结束。"}}.dump()}});
                 });
+                if (yield()) return;
                 continue;
             }
             const bool retryable = !providerError || providerError->retryable;
@@ -1001,7 +1040,9 @@ void LearningAgent::process(Database& db, const std::string& taskId) {
                 }
             });
             if (!retryable || errors >= 3) return;
-            for (int tick = 0; tick < errors * 2 && !stopped_; ++tick)
+            if (yield()) return;
+            // 网络退避由客户端共享协调；仅本地校验失败沿用原短暂间隔。
+            for (int tick = 0; !providerError && tick < errors * 2 && !stopped_; ++tick)
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
@@ -1039,12 +1080,25 @@ void LearningAgent::run() {
                 }
             }
             bool worked = false;
-            for (const auto& id : ids(db)) {
+            auto candidates = ids(db);
+            if (agentEfficiencyEnabled("GANGYI_AGENT_QUANTUM")) {
+                // 稳定排序保持相同优先级的真实事件顺序，只有完整轮次结束才重新选择。
+                const auto background = [&](const std::string& id) {
+                    const auto row = db.getClassroomActivity(id);
+                    const auto type = row ? parsed(row->payload).value("event", Json::object()).value("type", "") : "";
+                    return type == "prepare_next" || type == "startup" || type == "learning_updated" ||
+                        type == "profile_refresh" || type == "schedule_changed" || type == "library_research";
+                };
+                std::stable_sort(candidates.begin(), candidates.end(), [&](const auto& a, const auto& b) { return background(a) < background(b); });
+            }
+            for (const auto& id : candidates) {
                 const auto row = db.getClassroomActivity(id); if (!row) continue;
                 const auto task = parsed(row->payload);
                 const auto scope = parsed(db.profileMeta(scopeKey(accessFor(task))));
                 if (task.value("status", "") == "pending" && !scope.value("paused", false)) {
-                    process(db, id); worked = true; break;
+                    if (agentEfficiencyEnabled("GANGYI_AGENT_QUANTUM")) processQuantum(db, id);
+                    else process(db, id);
+                    worked = true; break;
                 }
             }
             if (!worked) std::this_thread::sleep_for(std::chrono::milliseconds(200));

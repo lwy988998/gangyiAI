@@ -102,6 +102,12 @@ Json myAIRead(Database& db,const std::string& section,const Json& query) {
         for(const auto& row:db.myAIRecords("usage")) {auto value=read(db,row.id);const auto day=value.value("day",row.updatedAt.substr(0,10));
             if(day<query.value("from","")||(!query.value("to","").empty()&&day>query.value("to","")))continue;
             if(!query.value("model","").empty()&&value.value("model","")!=query.value("model",""))continue;
+            const auto taskRow = db.getClassroomActivity(value.value("taskId", ""));
+            if (taskRow && taskRow->kind == "agent-task") {
+                const auto task = Json::parse(taskRow->payload, nullptr, false);
+                if (task.is_object()) for (const auto* field : {"queueMs", "firstContentMs", "completionMs"})
+                    if (task.contains(field)) value[field] = task[field];
+            }
             const auto usage = value.value("tokens", Json());
             if (usage.is_object()) {
                 total.add(usage.value("total_tokens", Json())); input.add(usage.value("prompt_tokens", Json()));
