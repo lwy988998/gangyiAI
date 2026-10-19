@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(gangyiAI VERSION 5.6.3 LANGUAGES C CXX)
+project(gangyiAI VERSION 5.6.4 LANGUAGES C CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -397,6 +397,8 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/library_course_tests.cjs)
     endif()
     if(Python3_Interpreter_FOUND)
+        add_test(NAME evaluation-entry COMMAND ${Python3_EXECUTABLE} -X utf8
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/evaluation_entry_tests.py -v)
         if(WIN32)
           add_test(NAME library-reader COMMAND ${Python3_EXECUTABLE}
               ${CMAKE_CURRENT_SOURCE_DIR}/tests/library_reader_smoke.py $<TARGET_FILE:gangyiAI-source-reader>)
@@ -455,6 +457,13 @@ foreach(gangyiTarget IN LISTS gangyiTargets)
 endforeach()
 
 option(GANGYI_PREVIEW_BUILD "使用独立的我的AI试用档案" OFF)
+option(GANGYI_OFFLINE_CANDIDATE "显示离线候选版本说明" OFF)
+if(GANGYI_OFFLINE_CANDIDATE)
+  target_compile_definitions(gangyiAI PRIVATE GANGYI_OFFLINE_CANDIDATE=1)
+  if(WIN32)
+    target_compile_definitions(gangyiAI-launcher PRIVATE GANGYI_OFFLINE_CANDIDATE=1)
+  endif()
+endif()
 option(GANGYI_TEACHING_PREVIEW "使用独立的教学优化试用档案" OFF)
 if(GANGYI_TEACHING_PREVIEW AND WIN32)
   target_compile_definitions(gangyiAI-launcher PRIVATE GANGYI_TEACHING_PREVIEW=1)

@@ -165,6 +165,8 @@ def call_api(prompt, options, context):
         finally:
             # 即使启动、超时或结果处理异常，也先独立确认预算；失败时禁止下一例。
             budget_status = read_budget(env['GANGYI_EVAL_BUDGET_FILE'])
+        if process.returncode == 73:
+            raise BudgetStateError('原生驱动预算保存失败；旧预算不是新结算，停止后续请求。')
         if process.returncode and not output_file.exists():
             raise RuntimeError('实际主控验收进程失败，退出码：'+str(process.returncode))
         result = json.loads(output_file.read_text(encoding='utf-8'))

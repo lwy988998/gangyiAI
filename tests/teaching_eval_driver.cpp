@@ -30,10 +30,31 @@ bool localEvaluationEndpoint(const std::string& url) {
 }
 // 仅开发验收使用：请求前预留输入字节上界、输出及全部SDK故障/兼容重试，未知用量不退款。
 class EvaluationBudget {
+    inline static bool storageFailed_ = false;
     std::filesystem::path file_; std::size_t reservation_ = 0, requestUpper_ = 0;
     std::map<std::string, std::string> previous_;
     Json read() const { std::ifstream input(file_); Json value; input >> value; return value; }
-    void write(const Json& value) const { std::ofstream output(file_); output << value.dump(2); }
+    void write(const Json& value) const {
+        // 锁覆盖临时写入和原子提交；任何失败均保留旧文件，并使整个驱动拒绝后续请求。
+        auto temporary = file_; temporary += ".tmp";
+        try {
+            std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+            if (!output) throw std::runtime_error("预算临时文件无法打开");
+            output << value.dump(2); output.flush();
+            if (!output) throw std::runtime_error("预算临时文件写入失败");
+            output.close();
+            if (!output) throw std::runtime_error("预算临时文件关闭失败");
+#ifdef _WIN32
+            if (!MoveFileExW(temporary.c_str(), file_.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+                throw std::runtime_error("预算原子提交失败");
+#else
+            std::filesystem::rename(temporary, file_);
+#endif
+        } catch (...) {
+            storageFailed_ = true;
+            throw gangyi::AIClientError("eval_budget_storage", "预算保存失败，停止全部后续请求");
+        }
+    }
     struct Lock {
 #ifdef _WIN32
         HANDLE handle = INVALID_HANDLE_VALUE;
@@ -52,7 +73,9 @@ class EvaluationBudget {
 #endif
     };
 public:
+    static bool storageFailed() { return storageFailed_; }
     EvaluationBudget(gangyi::Database& db, const gangyi::ChatOptions& options) {
+        if (storageFailed_) throw gangyi::AIClientError("eval_budget_storage", "预算保存已失败，禁止继续请求");
         const auto path=std::getenv("GANGYI_EVAL_BUDGET_FILE"); if(!path||!*path)return;
         file_=std::filesystem::u8path(path);
         requestUpper_=static_cast<std::size_t>(options.maxTokens)+1024;
@@ -287,6 +310,8 @@ int main(int argc, char** argv) {
                 gangyi::agentControl(db, access, {{"command", task.at("status") == "paused" ? "resume" : "retry"}, {"taskId", task.at("id")}});
             const auto processStarted = std::chrono::steady_clock::now();
             if (!alreadyShown) agent.process(db, task.at("id"));
+            // 主控会将回调异常保存为任务失败；另用专用退出码阻止Python把旧预算当作新结算。
+            if (EvaluationBudget::storageFailed()) throw std::runtime_error("预算保存失败，不能继续验收");
             const auto externalProcessMs = alreadyShown ? Json() : Json(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-processStarted).count());
             const auto row = db.getClassroomActivity(task.at("id")); const auto raw = Json::parse(row->payload);
             if (!alreadyShown) {
@@ -307,5 +332,5 @@ int main(int argc, char** argv) {
         checkpoint();
         std::cout << test.at("id") << "：完成 " << turns.size() << " 轮，实际调用 " << usage.size() << " 次\n";
         return 0;
-    } catch (const std::exception& error) { std::cerr << "验收主控错误：" << error.what() << '\n'; return 1; }
+    } catch (const std::exception& error) { std::cerr << "验收主控错误：" << error.what() << '\n'; return EvaluationBudget::storageFailed() ? 73 : 1; }
 }

@@ -1,6 +1,8 @@
 # 钢一定制AI
 
-钢一定制AI 是面向柳州市钢一中学的 Windows 本机 AI 学习平台，当前版本为 **v5.6.3**，整合资料与知识库、教学证据修复和 AI 调用减重。使用 C++17、Crow、SQLite、WebView2 和原生 HTML/CSS/JavaScript，课程与学习记录保存在本机，无需在线账号。
+钢一定制AI 是面向柳州市钢一中学的 Windows 本机 AI 学习平台，当前开发版本为 **v5.6.4 离线候选**，最近正式发布版本为 **v5.6.3**。使用 C++17、Crow、SQLite、WebView2 和原生 HTML/CSS/JavaScript，课程与学习记录保存在本机，无需在线账号。
+
+候选范围及尚未完成的真实验收见 [v5.6.4 离线候选说明](docs/releases/v5.6.4-candidate.md)。本轮只生成可审阅产物与草稿PR；不安装到现用电脑，不扩大原累计100万Token预算，不创建正式标签或Release。
 
 ## 学习与 AI
 

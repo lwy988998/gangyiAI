@@ -1,5 +1,6 @@
 """Linux 发布服务的静态资源、隔离档案、输入边界与优雅关闭验收。"""
 import http.client
+import argparse
 import json
 import os
 from pathlib import Path
@@ -10,8 +11,8 @@ import tempfile
 import time
 
 
-def main(executable):
-    repo = Path(__file__).resolve().parents[1]
+def main(executable, working_directory=None):
+    repo = Path(working_directory).resolve() if working_directory else Path(__file__).resolve().parents[1]
     with tempfile.TemporaryDirectory(prefix='gangyi-linux-runtime-') as directory:
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0)); port = sock.getsockname()[1]
@@ -66,9 +67,13 @@ def main(executable):
                 log.flush(); assert token not in log_path.read_text('utf-8', errors='replace')
             finally:
                 if process.poll() is None: process.terminate(); process.wait(timeout=15)
-    print('Linux 运行时资源、参数边界、未配置鉴权立即停止、无模板回退与优雅退出通过')
+    print('运行时资源、参数边界、未配置鉴权立即停止、无模板回退与优雅退出通过；工作目录：'+str(repo))
 
 
 if __name__ == '__main__':
     if hasattr(sys.stdout, 'reconfigure'): sys.stdout.reconfigure(encoding='utf-8')
-    main(sys.argv[1])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('executable')
+    parser.add_argument('--working-directory', help='候选包目录；从此目录读取包内public，避免误用仓库资源')
+    arguments = parser.parse_args()
+    main(arguments.executable, arguments.working_directory)

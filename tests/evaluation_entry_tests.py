@@ -25,6 +25,16 @@ class EntryTests(unittest.TestCase):
         self.budget = self.root/'original-budget.json'
         self.budget.write_text(json.dumps({'limitTokens': 1000000, 'usedTokens': 839528, 'reservedTokens': 72075}), encoding='utf-8')
         self.original = self.budget.read_bytes()
+        # CI使用公开合成决定，不依赖忽略目录内的真实预算决定或私有教学材料。
+        protected = self.root/'protected-ledger'/'budget.json'
+        approved = {'limitTokens': 1000000, 'knownUsedTokens': 839528, 'unknownReservedTokens': 72075,
+                    'newPaidCallsAllowedThisRound': False, 'originalBudgetPath': str(protected)}
+        self.decision_patch = patch.object(guard, 'decision', return_value=approved)
+        self.decision_patch.start()
+        self.addCleanup(self.decision_patch.stop)
+        self.criteria_patch = patch.object(provider, 'reviewed_criteria', return_value={'status': '公开合成材料'})
+        self.criteria_patch.start()
+        self.addCleanup(self.criteria_patch.stop)
         self.case = {'id': 'synthetic', 'title': '公开合成材料', 'concept': '比较前后状态', 'questions': [],
                      'preferences': {'style': '先举例'}, 'turns': [{'type': 'teaching_request', 'requestType': 'hint', 'text': '提示'}]}
         self.config = {'variant': 'baseline', 'mode': 'preflight', 'profileName': 'GangyiAI-Library-Preview',
@@ -246,6 +256,18 @@ class EntryTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         report = json.loads((output/'summary.json').read_text(encoding='utf-8'))
         self.assertIn('BudgetStateError', report['results'][0]['error'])
+
+    def test_native_budget_save_failure_rejects_old_valid_budget_and_stops(self):
+        arguments, output = self.compare_arguments('native-save-failure')
+        def execute(command, **kwargs):
+            self.fake_run(command, **kwargs)
+            return subprocess.CompletedProcess(command, 73)
+        with patch.object(sys, 'argv', arguments), patch.object(provider.subprocess, 'run', side_effect=execute):
+            self.assertEqual(compare.main(), 1)
+        self.assertEqual(len(self.launches), 1)
+        report = json.loads((output/'summary.json').read_text(encoding='utf-8'))
+        self.assertIn('BudgetStateError', report['results'][0]['error'])
+        self.assertEqual(guard.read_budget(output/'budget-current.json')['reservedTokens'], 72075)
 
     def test_result_and_error_report_write_failures_keep_budget_receipt(self):
         write = Path.write_text

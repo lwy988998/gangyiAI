@@ -37,8 +37,17 @@ void createDatabase(const std::filesystem::path& path) {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
     using namespace gangyi::launcher;
+    // 仅测试工具提供备份恢复入口，CI升级验证复用产品真实SQLite机制；不进入安装包。
+    if (argc >= 2) {
+        std::wstring error;
+        if (argc == 4 && std::string(argv[1]) == "--backup")
+            return backupDatabase(std::filesystem::u8path(argv[2]), std::filesystem::u8path(argv[3]), error) ? 0 : 1;
+        if (argc == 5 && std::string(argv[1]) == "--restore")
+            return restoreDatabase(std::filesystem::u8path(argv[2]), std::filesystem::u8path(argv[3]), std::filesystem::u8path(argv[4]), error) ? 0 : 1;
+        return 2;
+    }
     expect(inferProvider(L"https://api.deepseek.com/v1") == AIProvider::DeepSeek, "识别 DeepSeek");
     expect(inferProvider(L"https://api.openai.com/v1") == AIProvider::OpenAI, "识别 OpenAI");
     expect(inferProvider(L"https://example.com/v1") == AIProvider::Custom, "识别自定义服务商");

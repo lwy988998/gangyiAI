@@ -65,3 +65,8 @@ v5.6.3支持原生`teaching_request`，默认不转换。`entryProtocol: legacy-
 - 每教学轮写原生检查点，每完整产品步骤及失败退出保存`result.json`；总入口逐例更新`summary.json`，中断后可检查已落盘结果。教学超时保留已有检查点，并标为未完整完成。失败记录保留诊断，不能复用为通过。
 
 未来真实入口的非密冻结配置格式为`{ "profileName": "GangyiAI-Library-Preview", "baseUrl": "服务地址", "model": "模型名" }`，两版共用同一文件；凭据目标为该profile的`/APIKey`，不打印密钥。当前授权门禁和驱动门禁均关闭真实请求。私有评分材料、配置和运行结果均不得提交或打包。
+## Task5 离线候选接入补充
+
+入口回归已接入 CTest 的 `evaluation-entry`（含原17项与原生预算保存失败停止后续版本的新测试），CI 使用公开合成决定，不需要私有 verification 文件。Windows CI另构建开发驱动并执行本机模拟 smoke，覆盖预留写入失败HTTP0、原子替换失败保留旧文件、结算失败保留预留与专用退出码73；Python遇73立即抛BudgetStateError，不把旧有效文件当作新结算。
+
+候选构建命令为 `pwsh -NoProfile -File scripts/build_windows.ps1 -Preview -Candidate`。本机不得执行共享安装标识的installer；安装、5.6.3试用版升级和虚构档案备份恢复仅由临时CI runner运行 `scripts/test_windows_release.ps1 -LibraryPreview` 与 `scripts/test_windows_upgrade.ps1`。这些脚本的实际CI结果单独记录，不能用编译或本机离线测试替代。
