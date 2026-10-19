@@ -12,6 +12,34 @@ SCHEMA = 'same-protocol-v564-r1'
 TASK_METRICS = ('queueMs', 'firstContentMs', 'completionMs')
 
 
+class BudgetStateError(RuntimeError):
+    """无法确认或持久化预算时，整个运行必须停止后续发送。"""
+
+
+def read_budget(path):
+    """独立读取已结算/预留的预算，不依赖模型结果是否可解析。"""
+    try:
+        value = json.loads(Path(path).read_text(encoding='utf-8-sig'))
+        for name in ('limitTokens', 'usedTokens', 'reservedTokens'):
+            if type(value.get(name)) is not int or value[name] < 0:
+                raise ValueError('预算字段必须是非负整数')
+        return value
+    except (OSError, ValueError, TypeError, AttributeError) as error:
+        raise BudgetStateError('预算状态无法读取或校验；停止后续请求。') from error
+
+
+def persist_budget(path, value):
+    """先原子保存累计账本，再允许解析结果或启动下一例。"""
+    try:
+        path = Path(path)
+        temporary = path.with_suffix('.tmp')
+        temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding='utf-8')
+        read_budget(temporary)
+        temporary.replace(path)
+    except (OSError, ValueError, TypeError) as error:
+        raise BudgetStateError('累计预算无法保存；停止后续请求。') from error
+
+
 def digest(value):
     """使用稳定JSON生成复用指纹，不包含真实凭据。"""
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True,

@@ -9,7 +9,8 @@ import time
 import uuid
 import hashlib
 from evaluation_guard import (SCHEMA, budget_copy, digest, file_hash, isolated_output,
-                              local_fixture_url, require_live_authorization, summarize, successful)
+                              local_fixture_url, require_live_authorization, summarize, successful,
+                              BudgetStateError, read_budget)
 
 
 def reviewed_criteria(case):
@@ -144,53 +145,66 @@ def call_api(prompt, options, context):
                     output_file = root/'result.json'
                     (root/'case.json').write_text(json.dumps(actual,ensure_ascii=False),encoding='utf-8')
                     output_file.write_text(json.dumps(value,ensure_ascii=False,indent=2),encoding='utf-8')
-                    return {'output':json.dumps(value,ensure_ascii=False),'metadata':{'baselineReused':True,'originalRecordPath':str(old_result)}}
+                    return {'output':json.dumps(value,ensure_ascii=False),
+                            'budgetStatus':read_budget(env['GANGYI_EVAL_BUDGET_FILE']),
+                            'metadata':{'baselineReused':True,'originalRecordPath':str(old_result)}}
     case_file, output_file = root / 'case.json', root / 'result.json'
     case_file.write_text(json.dumps(actual, ensure_ascii=False), encoding='utf-8')
     started = time.monotonic()
     if mode == 'live':
         require_live_authorization()
     timed_out = False
+    budget_status = None
     try:
-        process = subprocess.run([config['driver'], str(case_file), str(root / 'isolated.db'), str(output_file)],
-                                 env=env, capture_output=True, timeout=1800)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        process = subprocess.CompletedProcess([], -1)
-    if process.returncode and not output_file.exists():
-        # 不回传子进程原始日志，避免第三方错误文本回显凭据。
-        failed = {'error': '实际主控验收进程失败，退出码：'+str(process.returncode),
-                  'complete': False, 'timedOut': timed_out,
-                  'budgetStatus': json.loads(Path(env['GANGYI_EVAL_BUDGET_FILE']).read_text(encoding='utf-8')),
-                  'metadata': {'recordPath': str(root)}}
-        (root/'run-error.json').write_text(json.dumps(failed, ensure_ascii=False, indent=2), encoding='utf-8')
+        try:
+            process = subprocess.run([config['driver'], str(case_file), str(root / 'isolated.db'), str(output_file)],
+                                     env=env, capture_output=True, timeout=1800)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            process = subprocess.CompletedProcess([], -1)
+        finally:
+            # 即使启动、超时或结果处理异常，也先独立确认预算；失败时禁止下一例。
+            budget_status = read_budget(env['GANGYI_EVAL_BUDGET_FILE'])
+        if process.returncode and not output_file.exists():
+            raise RuntimeError('实际主控验收进程失败，退出码：'+str(process.returncode))
+        result = json.loads(output_file.read_text(encoding='utf-8'))
+        result['variant'] = variant
+        result['model'] = env['AI_MODEL']
+        result['durationSeconds'] = round(time.monotonic()-started, 3)
+        result['recordPath'] = str(output_file)
+        result['harnessSha256'] = harness_hash
+        result['driverSha256'] = driver_hash
+        result['entryProtocol'] = protocol
+        result['mode'] = mode
+        result['reuseKey'] = reuse_key
+        result['reuseIdentity'] = identity
+        result['fixtureOnly'] = mode != 'live'
+        result['processExitCode'] = process.returncode
+        result['timedOut'] = timed_out
+        result['complete'] = process.returncode == 0 and successful(result, len(actual['turns']))
+        result['summary'] = summarize(result)
+        result['caseSha256'] = hashlib.sha256(json.dumps(actual,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
+        result['criteriaStatus'] = criteria['status']
+        result['criteriaReview'] = criteria
+        result['budgetStatus'] = budget_status
+        output_file.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
+        rows, key = (result['httpRequests'], 'tokens') if 'httpRequests' in result else (result['usage'], 'tokenUsage')
+        known = [u[key] for u in rows if isinstance(u.get(key), dict) and isinstance(u[key].get('total_tokens'), int)]
+        total = sum(u.get('total_tokens', 0) for u in known)
+        response = {'output': json.dumps(result, ensure_ascii=False), 'budgetStatus': budget_status,
+                    'metadata': {'recordPath': str(output_file)}}
+        if known and result['summary']['unknownUsageRequests'] == 0:
+            response['tokenUsage'] = {'total': total, 'prompt': sum(u.get('prompt_tokens', 0) for u in known),
+                                      'completion': sum(u.get('completion_tokens', 0) for u in known)}
+        return response
+    except BudgetStateError:
+        raise
+    except Exception as error:
+        # 错误原文可能含第三方凭据，只回传类型；预算回执不依赖结果JSON或报告能否保存。
+        failed = {'error': '验收进程或结果处理失败：'+type(error).__name__, 'complete': False,
+                  'timedOut': timed_out, 'budgetStatus': budget_status, 'metadata': {'recordPath': str(root)}}
+        try:
+            (root/'run-error.json').write_text(json.dumps(failed, ensure_ascii=False, indent=2), encoding='utf-8')
+        except OSError:
+            failed['reportWriteFailed'] = True
         return failed
-    result = json.loads(output_file.read_text(encoding='utf-8'))
-    result['variant'] = variant
-    result['model'] = env['AI_MODEL']
-    result['durationSeconds'] = round(time.monotonic()-started, 3)
-    result['recordPath'] = str(output_file)
-    result['harnessSha256'] = harness_hash
-    result['driverSha256'] = driver_hash
-    result['entryProtocol'] = protocol
-    result['mode'] = mode
-    result['reuseKey'] = reuse_key
-    result['reuseIdentity'] = identity
-    result['fixtureOnly'] = mode != 'live'
-    result['processExitCode'] = process.returncode
-    result['timedOut'] = timed_out
-    result['complete'] = process.returncode == 0 and successful(result, len(actual['turns']))
-    result['summary'] = summarize(result)
-    result['caseSha256'] = hashlib.sha256(json.dumps(actual,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
-    result['criteriaStatus'] = criteria['status']
-    result['criteriaReview'] = criteria
-    result['budgetStatus'] = json.loads(Path(env['GANGYI_EVAL_BUDGET_FILE']).read_text(encoding='utf-8'))
-    output_file.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
-    rows, key = (result['httpRequests'], 'tokens') if 'httpRequests' in result else (result['usage'], 'tokenUsage')
-    known = [u[key] for u in rows if isinstance(u.get(key), dict) and isinstance(u[key].get('total_tokens'), int)]
-    total = sum(u.get('total_tokens', 0) for u in known)
-    response = {'output': json.dumps(result, ensure_ascii=False), 'metadata': {'recordPath': str(output_file)}}
-    if known and result['summary']['unknownUsageRequests'] == 0:
-        response['tokenUsage'] = {'total': total, 'prompt': sum(u.get('prompt_tokens', 0) for u in known),
-                                  'completion': sum(u.get('completion_tokens', 0) for u in known)}
-    return response

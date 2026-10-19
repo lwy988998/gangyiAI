@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -150,7 +151,7 @@ class EntryTests(unittest.TestCase):
             starting.append(value['usedTokens'])
             value['usedTokens'] += 100
             value['reservedTokens'] += 50
-            return {'output': json.dumps({'budgetStatus': value, 'complete': False})}
+            return {'output': json.dumps({'budgetStatus': value, 'complete': False}), 'budgetStatus': value}
         with patch.object(sys, 'argv', ['evaluation_compare.py', str(manifest_file), '--output', str(self.root/'pair')]), \
                 patch.object(compare, 'call_api', side_effect=fake_call):
             self.assertEqual(compare.main(), 0)
@@ -185,6 +186,149 @@ class EntryTests(unittest.TestCase):
         self.assertNotEqual(first['reuseKey'], model['reuseKey'])
         self.assertNotEqual(first['reuseKey'], changed['reuseKey'])
         self.assertEqual(len(self.launches), 3)
+
+    def compare_arguments(self, name, case=None):
+        """两版共用公开合成用例与隔离预算，允许测试直接经过真实provider收尾。"""
+        cases_file, manifest_file = self.root/(name+'-cases.json'), self.root/(name+'-manifest.json')
+        cases_file.write_text(json.dumps([case or self.case]), encoding='utf-8')
+        shared = {key: value for key, value in self.config.items()
+                  if key in ('profileName', 'driver', 'sourceCommit', 'budgetFile')}
+        manifest_file.write_text(json.dumps({'mode': 'preflight', 'casesFile': str(cases_file),
+            'shared': shared, 'entries': [{'variant': 'baseline'}, {'variant': 'candidate'}]}), encoding='utf-8')
+        output = self.root/name
+        return ['evaluation_compare.py', str(manifest_file), '--output', str(output)], output
+
+    def test_corrupt_result_keeps_reservation_for_next_variant(self):
+        arguments, output = self.compare_arguments('corrupt-result')
+        starting = []
+        def execute(command, **kwargs):
+            path = Path(kwargs['env']['GANGYI_EVAL_BUDGET_FILE'])
+            budget = guard.read_budget(path)
+            starting.append(budget['reservedTokens'])
+            budget['reservedTokens'] += 20000
+            path.write_text(json.dumps(budget), encoding='utf-8')
+            if len(starting) == 1:
+                Path(command[3]).write_text('{broken-json', encoding='utf-8')
+                return subprocess.CompletedProcess(command, 0)
+            return self.fake_run(command, **kwargs)
+        with patch.object(sys, 'argv', arguments), patch.object(provider.subprocess, 'run', side_effect=execute):
+            self.assertEqual(compare.main(), 1)
+        self.assertEqual(starting, [72075, 92075])
+        self.assertEqual(guard.read_budget(output/'budget-current.json')['reservedTokens'], 112075)
+        report = json.loads((output/'summary.json').read_text(encoding='utf-8'))
+        self.assertIn('JSONDecodeError', report['results'][0]['result']['error'])
+
+    def test_summary_failure_returns_budget_outside_result(self):
+        def execute(command, **kwargs):
+            self.fake_run(command, **kwargs)
+            path = Path(kwargs['env']['GANGYI_EVAL_BUDGET_FILE'])
+            budget = guard.read_budget(path)
+            budget['reservedTokens'] += 20000
+            path.write_text(json.dumps(budget), encoding='utf-8')
+            return subprocess.CompletedProcess(command, 0)
+        with patch.object(provider.subprocess, 'run', side_effect=execute), \
+                patch.object(provider, 'summarize', side_effect=ValueError('PRIVATE-CREDENTIAL')):
+            result = self.invoke()
+        self.assertEqual(result['budgetStatus']['reservedTokens'], 92075)
+        self.assertFalse(result['complete'])
+        self.assertNotIn('PRIVATE-CREDENTIAL', json.dumps(result))
+
+    def test_unreadable_budget_stops_before_next_variant(self):
+        arguments, output = self.compare_arguments('unreadable-budget')
+        calls = []
+        def execute(command, **kwargs):
+            calls.append(command)
+            path = Path(kwargs['env']['GANGYI_EVAL_BUDGET_FILE'])
+            path.write_text('{budget-state-lost', encoding='utf-8')
+            return self.fake_run(command, **kwargs)
+        with patch.object(sys, 'argv', arguments), patch.object(provider.subprocess, 'run', side_effect=execute):
+            self.assertEqual(compare.main(), 1)
+        self.assertEqual(len(calls), 1)
+        report = json.loads((output/'summary.json').read_text(encoding='utf-8'))
+        self.assertIn('BudgetStateError', report['results'][0]['error'])
+
+    def test_result_and_error_report_write_failures_keep_budget_receipt(self):
+        write = Path.write_text
+        output_writes = []
+        def write_file(path, text, *args, **kwargs):
+            if path.name == 'result.json':
+                output_writes.append(path)
+                if len(output_writes) > 1:
+                    raise PermissionError('模拟结果后处理不可写')
+            if path.name == 'run-error.json':
+                raise PermissionError('模拟错误报告不可写')
+            return write(path, text, *args, **kwargs)
+        def execute(command, **kwargs):
+            self.fake_run(command, **kwargs)
+            path = Path(kwargs['env']['GANGYI_EVAL_BUDGET_FILE'])
+            budget = guard.read_budget(path)
+            budget['reservedTokens'] += 20000
+            path.write_text(json.dumps(budget), encoding='utf-8')
+            return subprocess.CompletedProcess(command, 0)
+        with patch.object(provider.subprocess, 'run', side_effect=execute), patch.object(Path, 'write_text', new=write_file):
+            result = self.invoke()
+        self.assertEqual(result['budgetStatus']['reservedTokens'], 92075)
+        self.assertTrue(result['reportWriteFailed'])
+        self.assertFalse(result['complete'])
+
+    def test_cumulative_budget_save_failure_stops_before_next_variant(self):
+        arguments, output = self.compare_arguments('unwritable-budget')
+        replace = Path.replace
+        def replace_file(path, target):
+            if Path(target) == output/'budget-current.json':
+                raise PermissionError('模拟累计预算不可写')
+            return replace(path, target)
+        with patch.object(sys, 'argv', arguments), patch.object(provider.subprocess, 'run', side_effect=self.fake_run), \
+                patch.object(Path, 'replace', new=replace_file):
+            self.assertEqual(compare.main(), 1)
+        self.assertEqual(len(self.launches), 1)
+        report = json.loads((output/'summary.json').read_text(encoding='utf-8'))
+        self.assertIn('BudgetStateError', report['results'][0]['error'])
+
+    def test_new_committed_wal_stops_next_variant_without_main_db_change(self):
+        source = self.root/'wal-source.db'
+        with sqlite3.connect(source) as db:
+            db.execute('PRAGMA journal_mode=WAL')
+            db.execute('CREATE TABLE Source(text TEXT)')
+            db.commit()
+        db.close()
+        self.assertFalse(Path(str(source)+'-wal').exists())
+        before = guard.file_hash(source)
+        arguments, output = self.compare_arguments('new-wal', dict(self.case, libraryDatabase=str(source)))
+        connections = []
+        def execute(command, **kwargs):
+            db = sqlite3.connect(source)
+            connections.append(db)
+            db.execute("INSERT INTO Source VALUES('运行中提交的新原文')")
+            db.commit()
+            self.assertEqual(guard.file_hash(source), before)
+            self.assertTrue(Path(str(source)+'-wal').exists())
+            return self.fake_run(command, **kwargs)
+        try:
+            with patch.object(sys, 'argv', arguments), patch.object(provider.subprocess, 'run', side_effect=execute):
+                self.assertEqual(compare.main(), 1)
+            self.assertEqual(len(self.launches), 1)
+            report = json.loads((output/'summary.json').read_text(encoding='utf-8'))
+            self.assertIsNone(report['sourceMaterialHashes'][str(Path(str(source)+'-wal').resolve())])
+            self.assertIn('资料快照', report['results'][-1]['error'])
+        finally:
+            for connection in connections:
+                connection.close()
+
+    def test_removed_wal_stops_next_variant(self):
+        source = self.root/'removed-wal-source.db'
+        source.write_bytes(b'unchanged-main-db')
+        wal = Path(str(source)+'-wal')
+        wal.write_bytes(b'initial-sidecar')
+        arguments, output = self.compare_arguments('removed-wal', dict(self.case, libraryDatabase=str(source)))
+        def execute(command, **kwargs):
+            wal.unlink()
+            return self.fake_run(command, **kwargs)
+        with patch.object(sys, 'argv', arguments), patch.object(provider.subprocess, 'run', side_effect=execute):
+            self.assertEqual(compare.main(), 1)
+        self.assertEqual(len(self.launches), 1)
+        report = json.loads((output/'summary.json').read_text(encoding='utf-8'))
+        self.assertIn('资料快照', report['results'][-1]['error'])
 
 
 if __name__ == '__main__':

@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 import sys
 
-from evaluation_guard import budget_copy, file_hash, isolated_output, require_live_authorization
+from evaluation_guard import (BudgetStateError, budget_copy, file_hash, isolated_output,
+                              persist_budget, require_live_authorization)
 from teaching_eval_provider import call_api
 from evaluation_core_fixture import run as run_core
 
@@ -41,8 +42,7 @@ def main():
         if case.get('libraryDatabase'):
             source = Path(case['libraryDatabase'])
             for path in (source, Path(str(source)+'-wal')):
-                if path.exists():
-                    material_hashes[str(path.resolve())] = file_hash(path)
+                material_hashes[str(path.resolve())] = file_hash(path) if path.exists() else None
     results = []
     def save():
         value = {'manifestSha256': file_hash(args.manifest), 'mode': mode, 'results': results,
@@ -63,17 +63,21 @@ def main():
         config = dict(entry, **shared, mode=mode, outputDir=str(output))
         for case in cases:
             try:
-                if any(file_hash(path) != value for path, value in material_hashes.items()):
+                if any((file_hash(path) if Path(path).exists() else None) != value for path, value in material_hashes.items()):
                     raise ValueError('资料快照在对照过程中发生变化，停止比较。')
                 value = call_api('', {'config': config}, {'vars': {'case': case}})
+                # 预算先于任何结果解析保存；缺回执时不能沿用上一例的旧预算继续发送。
+                budget_status = value.get('budgetStatus')
+                if not isinstance(budget_status, dict):
+                    raise BudgetStateError('入口没有返回可确认的预算回执；停止后续请求。')
+                persist_budget(cumulative_budget, budget_status)
                 result = json.loads(value['output']) if 'output' in value else value
-                if isinstance(result.get('budgetStatus'), dict) and not result.get('baselineReused'):
-                    temporary_budget = cumulative_budget.with_suffix('.tmp')
-                    temporary_budget.write_text(json.dumps(result['budgetStatus'], ensure_ascii=False, indent=2), encoding='utf-8')
-                    temporary_budget.replace(cumulative_budget)
                 results.append({'caseId': case['id'], 'variant': entry['variant'], 'result': result})
             except Exception as error:
                 results.append({'caseId': case['id'], 'variant': entry['variant'], 'error': type(error).__name__+': '+str(error)})
+                # 无法证明安全收尾的异常一律停止，禁止下一案例或下一版本发送。
+                save()
+                return 1
             save()
         if entry.get('productExecutable'):
             if mode != 'fixture':
