@@ -17,7 +17,7 @@
   const button=(text,key)=>'<button type="button" class="ma-button secondary" data-operation="'+key+'">'+text+'</button>';
   const taskKey='gy:library-task',draftKey='gy:library-goal';
   let currentTask=localStorage.getItem(taskKey),polling=false,finishedTask='';
-  function courseId(){return document.getElementById('library-course')?.value||params.get('courseId')||'';}
+  function courseId(){const control=document.getElementById('library-course');return control?control.value:params.get('courseId')||'';}
   async function research(body) {
     const task=await request('/api/my-ai/library/research',{...body,courseId:courseId(),requestId:crypto.randomUUID()});
     currentTask=task.id;localStorage.setItem(taskKey,currentTask);await pollTask();note('资料任务已启动，已完成的检索和正文会保存。');
