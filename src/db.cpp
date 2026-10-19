@@ -48,6 +48,13 @@ bool Database::saveMyAIRecord(const MyAIRecord& row, int expected) {
     Stmt s(db_, "UPDATE MyAIRecord SET payload=?,updatedAt=?,version=version+1 WHERE id=? AND kind=? AND version=?");
     text(s,1,row.payload);text(s,2,row.updatedAt);text(s,3,row.id);text(s,4,row.kind);integer(s,5,expected);return done(s);
 }
+std::string Database::myAIContextVersions(const std::string& chatId) const {
+    Stmt s(db_, "SELECT id,kind,version FROM MyAIRecord WHERE kind IN ('profile','preferences','memory') OR (kind='chat' AND id=?) ORDER BY kind,id");
+    text(s, 1, chatId);
+    auto versions = nlohmann::json::array();
+    while (sqlite3_step(s.p) == SQLITE_ROW) versions.push_back({str(s.p, 0), str(s.p, 1), sqlite3_column_int(s.p, 2)});
+    return versions.dump();
+}
 void Database::readSnapshot(const std::function<void()>& action) {
     exec(db_, "BEGIN");
     try { action(); exec(db_, "COMMIT"); }

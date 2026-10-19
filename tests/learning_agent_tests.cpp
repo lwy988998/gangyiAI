@@ -29,6 +29,7 @@ void runLibraryChecks();
 #include "teaching_evidence_checks.hpp"
 #include "evaluation_feedback_checks.hpp"
 #include "demonstrated_question_checks.hpp"
+#include "agent_efficiency_checks.hpp"
 int main() {
     runLibraryChecks();
     const auto root = std::filesystem::temp_directory_path() /
@@ -623,6 +624,7 @@ int main() {
     runTeachingEvidenceChecks(root / "teaching.db");
     runEvaluationFeedbackChecks(root / "evaluation-feedback.db");
     runDemonstratedQuestionChecks(root / "demonstrated-question.db");
+    runAgentEfficiencyChecks(root / "efficiency.db");
     std::filesystem::remove_all(root);
     std::cout << "多步 AI 主控、幂等、访问隔离、失败停止与事务回滚测试通过\n";
 }

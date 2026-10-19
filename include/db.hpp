@@ -123,6 +123,8 @@ public:
     void setProfileMeta(const std::string& key, const std::string& value);
     std::optional<MyAIRecord> myAIRecord(const std::string& id) const;
     std::vector<MyAIRecord> myAIRecords(const std::string& kind) const;
+    // 上下文失效签名只读取版本列，不装载记忆或对话正文。
+    std::string myAIContextVersions(const std::string& chatId = {}) const;
     bool saveMyAIRecord(const MyAIRecord& record, int expectedVersion);
     bool setProfileMetaAtRevision(const std::string& key, const std::string& value, int revision);
     bool replaceMasteryAtRevision(const std::vector<SubjectMastery>& values, int revision);

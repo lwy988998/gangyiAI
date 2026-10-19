@@ -172,6 +172,20 @@ void runLibraryChecks() {
     assert(db.myAIRecord("long-snapshot")->payload==originalLong&&gangyi::libraryUsage(db)["fetchRequests"]==1);
     const auto selectedContext=gangyi::libraryContext(db);
     assert(std::any_of(selectedContext["sources"].begin(),selectedContext["sources"].end(),[&](const auto& source){return source["id"]==longId&&source["totalSegments"]==40&&source["excerpted"]==true;}));
+    // 原文更新后仍按快照ID补读旧引用；回查不联网，也不绕过排除状态。
+    auto refreshed = Json::parse(db.myAIRecord(longId)->payload);
+    assert(db.saveMyAIRecord({"new-snapshot","library-snapshot",Json{{"sourceId",longId},{"segments",{{{"id","new"},{"text","新版原文"}}}}}.dump(),"now",0},0));
+    refreshed["snapshotId"]="new-snapshot";
+    assert(db.saveMyAIRecord({longId,"library-source",refreshed.dump(),"now",0},db.myAIRecord(longId)->version));
+    db.setProfileMeta("library-revision","100");
+    const auto oldRead=queryRead("old-snapshot-read",{{"snapshotId","long-snapshot"},{"query","COPY"}});
+    assert(oldRead.at("completedActions").at("keyword-read").at("result").at("snapshot").at("segments")[0].at("id")=="s35");
+    assert(queryRead("old-snapshot-refresh-conflict",{{"snapshotId","long-snapshot"},{"refresh",true}}).at("status")=="failed");
+    assert(queryRead("wrong-source-snapshot",{{"snapshotId","snap-first"}}).at("status")=="failed");
+    refreshed["excluded"]=true;
+    assert(db.saveMyAIRecord({longId,"library-source",refreshed.dump(),"now",0},db.myAIRecord(longId)->version));
+    assert(queryRead("excluded-old-snapshot",{{"snapshotId","long-snapshot"}}).at("status")=="failed");
+    assert(db.myAIRecord("long-snapshot")->payload==originalLong&&gangyi::libraryUsage(db)["fetchRequests"]==1);
     {
         // 两份都选用时保留AI顺序；改变顺序后同步影响页面和课堂，手动选择仍优先。
         gangyi::Database orderedDb;orderedDb.open(":memory:");orderedDb.migrate();

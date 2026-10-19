@@ -3,12 +3,15 @@
 #include <map>
 #include <set>
 #include <string>
+#include "agent_efficiency.hpp"
 
 namespace gangyi {
 // 只精简发送给模型的副本，完整学习记录及按需读取接口保持原样。
 inline nlohmann::json agentPromptContext(nlohmann::json context, bool assessment) {
     using Json = nlohmann::json;
+    if (!agentEfficiencyEnabled("GANGYI_AGENT_CONTEXT_PROJECTION")) return context;
     const auto event = context.value("event", Json::object());
+    const bool research = event.value("type", "") == "library_research";
     if (event.value("type", "") == "library_research") {
         // 检索过程的原文已在工具结果中按段返回，避免每轮再携带整批候选的正文。
         auto& library = context["savedLibrary"];
@@ -21,29 +24,60 @@ inline nlohmann::json agentPromptContext(nlohmann::json context, bool assessment
             source = std::move(brief);
         }
     }
-    if (event.value("lessonId", "").empty()) return context;
     const auto courseId = event.value("courseId", "");
-    Json courses = Json::array();
-    for (const auto& item : context.value("courses", Json::array())) if (item.value("id", "") == courseId) {
-        auto course = item; course.erase("outline"); courses.push_back(std::move(course));
+    const bool scheduling = event.value("type", "") == "schedule_replan" || event.value("type", "") == "assistant_chat";
+    Json omittedCourses = Json::array(), omittedRecords = Json::array(), omittedMemories = Json::array();
+    if (!scheduling) {
+        Json courses = Json::array();
+        for (auto course : context.value("courses", Json::array())) {
+            if (!courseId.empty() && course.value("id", "") != courseId) {
+                omittedCourses.push_back(course.value("id", "")); continue;
+            }
+            if (event.value("type", "") != "prepare_next" && event.value("type", "") != "plan_course") course.erase("outline");
+            courses.push_back(std::move(course));
+        }
+        context["courses"] = std::move(courses);
     }
-    context["courses"] = courses;
-    Json feedback = Json::array(); std::size_t omitted = 0;
+    Json feedback = Json::array();
     const std::size_t recentLimit = assessment ? 3 : 8;
     for (const auto& item : context.value("feedback", Json::array())) {
         const auto payload = item.value("payload", Json::object());
-        if (item.value("courseId", "") != courseId || payload.value("requestId", "") == event.value("requestId", "") ||
-            feedback.size() >= recentLimit) { ++omitted; continue; }
-        Json saved = Json::object();
+        const bool current = !event.value("requestId", "").empty() && payload.value("requestId", "") == event.value("requestId", "");
+        if ((!courseId.empty() && item.value("courseId", "") != courseId) || current || feedback.size() >= recentLimit) {
+            omittedRecords.push_back(item.value("id", "")); continue;
+        }
+        // 历史沿用既有精确字段投影；当前原题、回答和实际帮助由 currentInputs 完整直送。
+        Json brief = Json::object();
         for (const auto* key : {"text", "type", "response", "questionId", "questionSnapshot", "score", "credible", "feedback", "reason",
-                               "diagnosis", "helpMode", "rePracticeOf", "status", "results", "action"})
-            if (payload.contains(key)) saved[key] = payload.at(key);
-        auto record = item; record["payload"] = std::move(saved); feedback.push_back(std::move(record));
+                               "diagnosis", "helpMode", "rePracticeOf", "status", "results", "action", "citations", "materialOrigin"})
+            if (payload.contains(key)) brief[key] = payload.at(key);
+        auto record = item; record["payload"] = std::move(brief);
+        record["originalRecord"] = research ? Json{{"tool", "read_context"}, {"recordId", item.value("id", "")}}
+            : Json{{"tool", "read_history"}, {"ids", {item.value("id", "")}}};
+        feedback.push_back(std::move(record));
     }
-    context["feedback"] = feedback;
-    context.erase("studyPlan"); context.erase("adjustments"); context.erase("reviews");
-    context["contextAvailability"] = {{"omittedFeedback", omitted}, {"historyTool", "read_history"},
-        {"fullContextTool", "read_context"}, {"outlineTool", "read_outline"}};
+    context["feedback"] = std::move(feedback);
+    if (!courseId.empty() && context.value("personalCenter", Json::object()).value("memories", Json()).is_array()) {
+        Json memories = Json::array();
+        for (const auto& memory : context["personalCenter"]["memories"]) {
+            // 旧记录没有明确课程归属时保留，不能靠关键词猜测删除偏好。
+            const auto owner = memory.value("courseId", "");
+            if (!owner.empty() && owner != courseId && memory.value("source", "") != "manual")
+                omittedMemories.push_back(memory.value("id", ""));
+            else memories.push_back(memory);
+        }
+        context["personalCenter"]["memories"] = std::move(memories);
+    }
+    if (!scheduling && !event.value("lessonId", "").empty()) {
+        context.erase("studyPlan"); context.erase("adjustments"); context.erase("reviews");
+    }
+    context["contextAvailability"] = {{"omittedFeedback", omittedRecords.size()}, {"recordIds", omittedRecords},
+        {"courseIds", omittedCourses}, {"memoryIds", omittedMemories}, {"historyTool", research ? "read_context" : "read_history"},
+        {"fullContextTool", "read_context"}, {"outlineTool", "read_outline"}, {"resourceTool", "read_resource"},
+        {"instruction", research
+            ? "历史是字段投影；资料任务用read_context补读完整载荷并按记录ID定位。read_resource用sourceId/snapshotId回查原文，未载入不等于不存在。"
+            : assessment ? "currentInputs完整直送本次原题、回答和实际帮助。本轮仅诊断；历史字段投影的原件可在后续教学阶段用read_history({ids})补读，不据未载入字段断言不存在。"
+            : "历史是字段投影，需要完整帮助或相关讲解时用read_history({ids})补读。currentInputs保留本次完整主证据；read_context可传courseId补读授权课程，read_resource用sourceId/snapshotId回查原文。未载入不等于不存在。"}};
     if (assessment) { context.erase("abilities"); context.erase("savedLibrary"); }
     return context;
 }
@@ -52,6 +86,7 @@ inline nlohmann::json agentPromptContext(nlohmann::json context, bool assessment
 inline nlohmann::json agentPromptHistory(const nlohmann::json& messages, const nlohmann::json& actions,
                                          const std::set<std::string>& readOnlyTools) {
     using Json = nlohmann::json;
+    if (!agentEfficiencyEnabled("GANGYI_AGENT_RECEIPT_DEDUP")) return messages;
     Json result = messages;
     std::map<std::string, std::string> seen;
     std::map<std::string, Json> receipts;
