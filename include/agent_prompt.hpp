@@ -73,7 +73,7 @@ inline nlohmann::json agentPromptContext(nlohmann::json context, bool assessment
     }
     context["contextAvailability"] = {{"omittedFeedback", omittedRecords.size()}, {"recordIds", omittedRecords},
         {"courseIds", omittedCourses}, {"memoryIds", omittedMemories}, {"historyTool", research ? "read_context" : "read_history"},
-        {"fullContextTool", "read_context"}, {"outlineTool", "read_outline"}, {"resourceTool", "read_resource"},
+        {"fullContextTool", "read_context"}, {"outlineTool", research ? "read_context" : "read_outline"}, {"resourceTool", "read_resource"},
         {"instruction", research
             ? "历史是字段投影；资料任务用read_context补读完整载荷并按记录ID定位。read_resource用sourceId/snapshotId回查原文，未载入不等于不存在。"
             : assessment ? "currentInputs完整直送本次原题、回答和实际帮助。本轮仅诊断；历史字段投影的原件可在后续教学阶段用read_history({ids})补读，不据未载入字段断言不存在。"

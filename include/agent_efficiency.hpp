@@ -68,8 +68,14 @@ public:
                    const std::function<AgentJson()>& build) {
         if (!agentEfficiencyEnabled("GANGYI_AGENT_CONTEXT_REUSE")) return build();
         const auto signature = [&] {
+            // 画像重评可在相同 revision 写正文；仅核对上下文实际使用的画像，不重建学习历史。
+            AgentJson subjects = AgentJson::array();
+            for (const auto& item : db.listMastery())
+                subjects.push_back({{"subject", item.subject}, {"score", item.score ? AgentJson(*item.score) : AgentJson()},
+                    {"rationale", item.rationale}, {"recommendation", item.recommendation}});
             return AgentJson{{"scope", access.scopeId}, {"courses", access.courseIds}, {"event", event},
                 {"learning", db.learningRevision()}, {"profile", db.profileRevision()}, {"assessedProfile", db.profileAssessedRevision()},
+                {"abilities", db.profileMeta("ability-profile")}, {"subjects", subjects},
                 {"library", db.profileMeta("library-revision")}, {"personal", db.myAIContextVersions(event.value("chatId", ""))}}.dump();
         };
         const auto key = signature();

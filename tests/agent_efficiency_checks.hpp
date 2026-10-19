@@ -52,7 +52,18 @@ inline void runAgentEfficiencyChecks(const std::filesystem::path& path) {
     assert(agentPromptContext(full, false) == full);
     efficiencySwitch("GANGYI_AGENT_CONTEXT_PROJECTION", "");
 
-    // 版本查询不读取正文；分别证明学习、资料、偏好、记忆、访问范围和数据库变更失效。
+    // 资料任务的每个补读索引均须落在原授权范围内，不能靠新增权限使入口可达。
+    auto researchContext = full; researchContext["event"]["type"] = "library_research";
+    const auto researchProjection = agentPromptContext(researchContext, false);
+    const Json researchTask = {{"event", researchContext.at("event")}};
+    assert(!agentToolAuthorized("read_outline", researchTask));
+    assert(researchProjection.at("contextAvailability").at("outlineTool") == "read_context");
+    for (const auto* field : {"historyTool", "fullContextTool", "outlineTool", "resourceTool"})
+        assert(agentToolAuthorized(researchProjection.at("contextAvailability").at(field).get<std::string>(), researchTask));
+    for (const auto& record : researchProjection.at("feedback"))
+        assert(agentToolAuthorized(record.at("originalRecord").at("tool").get<std::string>(), researchTask));
+
+    // 个人中心版本查询不读取正文；分别证明学习、资料、偏好、记忆、访问范围和数据库变更失效。
     AgentContextReuse reuse; int builds = 0;
     const auto read = [&](const AgentAccess& who) { return reuse.read(db, who, event, [&] { ++builds; return agentContext(db, who, event); }); };
     assert(read(access) == read(access) && builds == 1);
@@ -69,6 +80,28 @@ inline void runAgentEfficiencyChecks(const std::filesystem::path& path) {
     efficiencySwitch("GANGYI_AGENT_CONTEXT_REUSE", "0"); read(access); read(access); assert(builds == 10);
     efficiencySwitch("GANGYI_AGENT_CONTEXT_REUSE", "");
     db.setProfileAssessed(777); read(access); assert(builds == 11);
+
+    // 另一连接在相同版本写入真实画像正文，不能依赖本 process 的 commit 清缓存。
+    Database profileWriter; profileWriter.open(path.string());
+    const int profileRevision = db.profileRevision(), assessedRevision = db.profileAssessedRevision(), learningRevision = db.learningRevision();
+    profileWriter.setProfileMeta("ability-profile", Json{{"version", profileRevision}, {"rationale", "原能力依据"}}.dump());
+    AgentContextReuse profileReuse; int profileBuilds = 0;
+    const auto readProfile = [&] { return profileReuse.read(db, access, event, [&] { ++profileBuilds; return agentContext(db, access, event); }); };
+    assert(readProfile().at("abilities").at("rationale") == "原能力依据" && profileBuilds == 1);
+    profileWriter.setProfileMeta("ability-profile", Json{{"version", profileRevision}, {"rationale", "同版本的新能力依据"}}.dump());
+    profileWriter.setProfileAssessed(assessedRevision);
+    assert(readProfile().at("abilities").at("rationale") == "同版本的新能力依据" && profileBuilds == 2);
+    readProfile(); assert(profileBuilds == 2);
+    SubjectMastery subject; subject.subject = "math"; subject.score = 40; subject.rationale = "原学科依据"; subject.recommendation = "原建议";
+    assert(profileWriter.upsert(subject));
+    assert(readProfile().at("subjects")[0].at("score") == 40 && profileBuilds == 3);
+    subject.score = 60; subject.rationale = "同版本的新学科依据"; subject.recommendation = "同版本的新建议";
+    assert(profileWriter.upsert(subject));
+    const auto updatedSubjects = readProfile().at("subjects");
+    assert(updatedSubjects[0].at("score") == 60 && updatedSubjects[0].at("rationale") == subject.rationale &&
+        updatedSubjects[0].at("recommendation") == subject.recommendation && profileBuilds == 4);
+    readProfile(); assert(profileBuilds == 4);
+    assert(db.profileRevision() == profileRevision && db.profileAssessedRevision() == assessedRevision && db.learningRevision() == learningRevision);
 
     // 真实主控：未加载详细说明的工具可发现、补读、调用；完整原件按ID和跨课程回查。
     const std::string completeDescription = "读取特殊证据。参数 evidenceId 必须逐字使用原件ID；返回原始帮助与引用。";
