@@ -49,6 +49,7 @@ def main(driver):
                 env=env,cwd=repo,capture_output=True,timeout=90,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
             assert process.returncode == 0,process.stderr.decode('utf-8',errors='replace')
             result = json.loads((root/'result.json').read_text(encoding='utf-8'))
+            initial_compatibility_retries = UsageCompatibilityFixture.rejected_usage
             assert result['turns'][0]['task']['status']=='waiting_student',result['turns'][0]['task'].get('failure')
             assert UsageCompatibilityFixture.rejected_usage>0
             assert result['httpRequestCount']==UsageCompatibilityFixture.posts
@@ -84,8 +85,20 @@ def main(driver):
             assert resumed['turns'][0]['task']['id']==denied['turns'][0]['task']['id']
             assert resumed['turns'][0]['task']['status']=='waiting_student'
             assert sum(item['kind']=='chat-user' for item in resumed['interactions'])==1
+            assert all(isinstance(turn['externalProcessMs'], int) for turn in resumed['turns'])
+            assert isinstance(resumed['externalElapsedMs'], int)
+            # 直接执行驱动也不得凭外部地址启动本轮付费请求；防止URL用户信息伪装本机地址。
+            calls_before = UsageCompatibilityFixture.posts
+            remote_env = dict(env, AI_BASE_URL='http://127.0.0.1:9@example.invalid/v1')
+            rejected = subprocess.run([str(Path(driver).resolve()), str(root/'case.json'), str(root/'remote-blocked.db'), str(root/'remote-blocked.json')],
+                env=remote_env,cwd=repo,capture_output=True,timeout=30,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+            assert rejected.returncode == 0, rejected.stderr.decode('utf-8',errors='replace')
+            blocked = json.loads((root/'remote-blocked.json').read_text(encoding='utf-8'))
+            assert blocked['turns'][0]['task']['failure']['kind'] == 'eval_authorization'
+            assert blocked['httpRequestCount'] == 0 and UsageCompatibilityFixture.posts == calls_before
             print(json.dumps({'passed':True,'logicalCalls':len(result['usage']),'httpRequests':result['httpRequestCount'],
-                'compatibilityRetries':UsageCompatibilityFixture.rejected_usage,'unknownUsagePreserved':True,'budgetStopsBeforeRequest':True,
+                'compatibilityRetries':initial_compatibility_retries,'totalCompatibilityRetries':UsageCompatibilityFixture.rejected_usage,
+                'unknownUsagePreserved':True,'budgetStopsBeforeRequest':True,'directExternalHttpDenied':True,
                 'failedTaskResumeVerified':True,'zeroCallRecoveryCapturesPrompt':True,
                 'paidRequests':0},ensure_ascii=False))
         finally:
