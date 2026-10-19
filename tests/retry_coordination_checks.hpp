@@ -16,6 +16,28 @@ static void runRetryCoordinationChecks() {
         catch (const AIClientError& error) { expect(error.errorType == kind, "公共退避错误分类应保持"); }
     };
     ChatOptions options; options.messages = {{"user", "本机冷却夹具"}}; options.maxAttempts = 1;
+    for (const auto* kind : {"network_error", "invalid_response"}) {
+        struct LocalCallbackError : AIClientError {
+            explicit LocalCallbackError(const std::string& kind) : AIClientError(kind, "回调原始异常", 599) {}
+            int marker = 77;
+        };
+        MockServer server(std::vector<std::string>{stream, normal});
+        auto retry = options; retry.maxAttempts = 3; retry.activity.taskId = std::string("callback-origin-") + kind;
+        int chunks = 0; const auto calls = AIActivity::snapshot().at("todayCalls").get<int>();
+        try {
+            clientFor(server).chatStream(retry, [&](const auto&) -> bool { ++chunks; throw LocalCallbackError(kind); });
+            expect(false, "回调异常应传播给调用方");
+        } catch (const LocalCallbackError& error) {
+            expect(error.marker == 77 && error.errorType == kind && error.httpStatus == 599 && std::string(error.what()) == "回调原始异常",
+                "回调异常的动态类型和原字段必须完整保留");
+        }
+        expect(chunks == 1 && server.requestCount() == 1 && AIActivity::snapshot().at("todayCalls") == calls + 1,
+            "可重试类型的回调异常也只能一次HTTP和一次交付");
+        const auto begin = Clock::now();
+        expect(clientFor(server).chat(options).content == "OK" && Clock::now() - begin < std::chrono::milliseconds(650),
+            "回调异常不得污染同配置的服务商冷却");
+        expect(server.requestCount() == 2 && AIActivity::snapshot().at("todayCalls") == calls + 2, "回调失败和后续成功仍各结算一次HTTP");
+    }
     {
         MockServer server(std::vector<std::string>{limited("1"), normal, stream});
         auto client = clientFor(server); failOnce(client, options, "rate_limited");

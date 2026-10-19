@@ -119,5 +119,24 @@ int main() {
         gangyi::AIActivity::configureUsage("");gangyi::AIActivity::configure("");
     }
     std::filesystem::remove_all(usageFolder);
+    // 仅创建内存时钟，不创建模型请求：1024项边界优先淘汰终态，再淘汰最旧起点。
+    constexpr int clockCapacity = 1024;
+    for (int i = 0; i < clockCapacity; ++i) {
+        const auto id = "clock-bound-fixture-" + std::to_string(i);
+        gangyi::AIActivity::taskQueued(id); gangyi::AIActivity::taskRunning(id);
+    }
+    const auto firstClock = gangyi::AIActivity::taskTiming("clock-bound-fixture-0");
+    assert(firstClock.contains("queueMs"));
+    assert(db.upsert(gangyi::ClassroomActivity{"clock-bound-fixture-0", "", "agent-task", firstClock.dump(), "now", 0, 0}));
+    gangyi::AIActivity::taskFinished("clock-bound-fixture-1023");
+    gangyi::AIActivity::taskQueued("clock-bound-extra-one");
+    assert(gangyi::AIActivity::taskTiming("clock-bound-fixture-1023").empty());
+    assert(gangyi::AIActivity::taskTiming("clock-bound-fixture-0") == firstClock);
+    gangyi::AIActivity::taskQueued("clock-bound-extra-two");
+    gangyi::AIActivity::taskRunning("clock-bound-fixture-0");
+    gangyi::AIActivity::taskContent("clock-bound-fixture-0");
+    gangyi::AIActivity::taskFinished("clock-bound-fixture-0");
+    assert(gangyi::AIActivity::taskTiming("clock-bound-fixture-0").empty());
+    assert(db.getClassroomActivity("clock-bound-fixture-0")->payload == firstClock.dump());
     std::cout << "个人中心版本、聊天、记忆、用量恢复和确认操作通过\n";
 }

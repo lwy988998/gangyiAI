@@ -22,6 +22,13 @@ namespace gangyi {
 namespace {
 
 using json = nlohmann::json;
+// 本地回调错误不属于服务商失败；先越过重试层，再在公共调用边界还原原异常。
+struct CallbackFailure { std::exception_ptr error; };
+[[noreturn]] void throwCallbackFailure(std::exception_ptr error) {
+    try { std::rethrow_exception(error); }
+    catch (const CallbackFailure&) { throw; }
+    catch (...) { throw CallbackFailure{error}; }
+}
 
 std::string env(const char* name, const std::string& fallback = {}) {
     const char* value = std::getenv(name);
@@ -168,7 +175,10 @@ CURLcode perform(CURL* curl, const std::function<bool()>& cancelled) {
 template<class Call>
 AIResult monitoredCall(const ChatOptions& options, const std::string& model, Call call, const bool* delivered = nullptr) {
     const auto id = AIActivity::begin(options.activity, options.model.empty() ? model : options.model);
-    const auto wasCancelled = [&] { return AIActivity::stopping() || (options.cancelled && options.cancelled()); };
+    const auto wasCancelled = [&] {
+        try { return AIActivity::stopping() || (options.cancelled && options.cancelled()); }
+        catch (...) { throwCallbackFailure(std::current_exception()); }
+    };
     try {
         for (;;) {
             while (AIActivity::paused()) {
@@ -195,6 +205,8 @@ AIResult monitoredCall(const ChatOptions& options, const std::string& model, Cal
                 throw;
             }
         }
+    } catch (const CallbackFailure& error) {
+        AIActivity::update(id, "failed"); std::rethrow_exception(error.error);
     } catch (const AIClientError& error) {
         AIActivity::update(id, error.errorType == "paused" ? "paused" : error.errorType == "cancelled" ? "cancelled" : "failed"); throw;
     } catch (...) { AIActivity::update(id, "failed"); throw; }
@@ -292,7 +304,7 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
     curl_slist_free_all(headers);
     if (started) AIActivity::requestFinished(activityId,code==CURLE_ABORTED_BY_CALLBACK?"cancelled":"failed",nullptr,{},receipt);
     if (transferError) std::rethrow_exception(transferError);
-    if (response.error) std::rethrow_exception(response.error);
+    if (response.error) throwCallbackFailure(response.error);
     if (code == CURLE_ABORTED_BY_CALLBACK) throw AIClientError("cancelled", "AI 请求已停止");
     if (code != CURLE_OK || status < 200 || status >= 300) {
         if (std::getenv("AI_DEBUG")) {
@@ -439,7 +451,7 @@ AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int
     curl_slist_free_all(headers);
     if (started) AIActivity::requestFinished(activityId,code==CURLE_ABORTED_BY_CALLBACK?"cancelled":"failed",state.usage,state.model,receipt);
     if (transferError) std::rethrow_exception(transferError);
-    if (state.callbackError) std::rethrow_exception(state.callbackError);
+    if (state.callbackError) throwCallbackFailure(state.callbackError);
     const auto streamError = [&](AIClientError error) { error.contentDelivered = !state.content.empty(); return error; };
     if (state.cancelled || code == CURLE_ABORTED_BY_CALLBACK) throw streamError(AIClientError("cancelled", "stream cancelled"));
     if(status==400&&options.requestTokenUsage&&((state.errorBody+state.pending).find("stream_options")!=std::string::npos||(state.errorBody+state.pending).find("include_usage")!=std::string::npos))throw streamError(AIClientError("unsupported_stream_usage","接口不支持流式用量选项",400));

@@ -84,4 +84,48 @@ inline void runAgentQuantumChecks(const std::filesystem::path& path) {
     worker.stop();
     assert(backgroundCalls == 2 && foregroundCalls == 2 && order.size() == 4);
     assert(order.front() == background.at("id") && order.back() == background.at("id") && order[1] != order[2]);
+
+    for (const auto* command : {"pause", "cancel"}) for (const auto* state : {"continue", "waiting_student"}) {
+        const auto controlPath = path.string() + "." + command + "." + state;
+        Database controlledDb; controlledDb.open(controlPath); controlledDb.migrate();
+        const auto controlled = agentSubmit(controlledDb, access, {{"type", "chat"}, {"text", "确定性并发控制"}, {"requestId", "control"}});
+        int firstWrites = 0, laterWrites = 0, laterPrepares = 0;
+        std::string controlledPayload;
+        LearningAgent guarded(controlPath, [&](const auto&, const auto& sink) {
+            return output({{"message", ""}, {"actions", {
+                {{"id", "first"}, {"tool", "append_section"}, {"args", {{"section", {{"kind", "explanation"}, {"body", "已提交的有效板块"}}}}}},
+                {{"id", "later"}, {"tool", "save_remaining"}, {"args", Json::object()}}}}, {"state", state}}, sink);
+        });
+        guarded.registerTool("append_section", {"保存首个有效板块。", false, [&](Database&, const Json&, const Json&, const AIResult&) {
+            PreparedAgentTool prepared;
+            prepared.commit = [&](Database& saved) { ++firstWrites; saved.setProfileMeta("first-section", "committed"); };
+            prepared.afterCommit = [&](Database&) {
+                // 此门闩位于首动作已提交、独立计时事务尚未开始的确定性窗口。
+                std::exception_ptr failure;
+                std::thread controller([&] {
+                    try {
+                        Database incoming; incoming.open(controlPath);
+                        const auto before = Json::parse(incoming.getClassroomActivity(controlled.at("id"))->payload);
+                        assert(incoming.profileMeta("first-section") == "committed" && before.at("completedActions").contains("first"));
+                        assert(!before.contains("firstContentMs"));
+                        agentControl(incoming, access, {{"command", command}, {"taskId", controlled.at("id")}});
+                        controlledPayload = incoming.getClassroomActivity(controlled.at("id"))->payload;
+                    } catch (...) { failure = std::current_exception(); }
+                });
+                controller.join(); if (failure) std::rethrow_exception(failure);
+            };
+            return prepared;
+        }});
+        guarded.registerTool("save_remaining", {"不应在控制操作后继续准备或保存。", false, [&](Database&, const Json&, const Json&, const AIResult&) {
+            ++laterPrepares; PreparedAgentTool prepared;
+            prepared.commit = [&](Database&) { ++laterWrites; }; return prepared;
+        }});
+        guarded.processQuantum(controlledDb, controlled.at("id"));
+        const auto stopped = agentView(controlledDb, access, controlled.at("id"));
+        assert(firstWrites == 1 && laterWrites == 0 && laterPrepares == 0);
+        assert(stopped.at("status") == (std::string(command) == "pause" ? "paused" : "cancelled"));
+        assert(controlledDb.getClassroomActivity(controlled.at("id"))->payload == controlledPayload);
+        guarded.processQuantum(controlledDb, controlled.at("id"));
+        assert(controlledDb.getClassroomActivity(controlled.at("id"))->payload == controlledPayload);
+    }
 }

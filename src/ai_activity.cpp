@@ -32,7 +32,9 @@ std::string usageDatabase;
 Json memoryState;
 std::atomic<unsigned long long> sequence{0};
 std::atomic_bool closing{false};
-struct TaskClock { std::chrono::steady_clock::time_point queued; Json metrics = Json::object(); };
+// 有界保留终态起点供同进程重试沿用；容量不足时终态优先淘汰。
+constexpr std::size_t kMaxTaskClocks = 1024;
+struct TaskClock { std::chrono::steady_clock::time_point queued; Json metrics = Json::object(); bool finished = false; };
 std::map<std::string, TaskClock> taskClocks;
 void markTaskTime(const std::string& id, const char* field) {
     const auto found = taskClocks.find(id);
@@ -245,17 +247,28 @@ void AIActivity::shutdown() { closing = true; }
 bool AIActivity::stopping() { return closing.load(); }
 void AIActivity::taskQueued(const std::string& id) {
     std::lock_guard<std::mutex> lock(stateMutex);
+    if (taskClocks.count(id)) return;
+    if (taskClocks.size() >= kMaxTaskClocks) {
+        const auto oldest = std::min_element(taskClocks.begin(), taskClocks.end(), [](const auto& a, const auto& b) {
+            if (a.second.finished != b.second.finished) return a.second.finished;
+            return a.second.queued < b.second.queued;
+        });
+        // 优先释放终态；删除/长期搁置任务也受总量上限约束。起点淘汰后不重建，后续指标未知。
+        taskClocks.erase(oldest);
+    }
     taskClocks.try_emplace(id, TaskClock{std::chrono::steady_clock::now(), Json::object()});
 }
 void AIActivity::taskRunning(const std::string& id) {
     std::lock_guard<std::mutex> lock(stateMutex); markTaskTime(id, "queueMs");
-    const auto found = taskClocks.find(id); if (found != taskClocks.end()) found->second.metrics.erase("completionMs");
+    const auto found = taskClocks.find(id);
+    if (found != taskClocks.end()) { found->second.metrics.erase("completionMs"); found->second.finished = false; }
 }
 void AIActivity::taskContent(const std::string& id) {
     std::lock_guard<std::mutex> lock(stateMutex); markTaskTime(id, "firstContentMs");
 }
 void AIActivity::taskFinished(const std::string& id) {
     std::lock_guard<std::mutex> lock(stateMutex); markTaskTime(id, "completionMs");
+    const auto found = taskClocks.find(id); if (found != taskClocks.end()) found->second.finished = true;
 }
 Json AIActivity::taskTiming(const std::string& id) {
     std::lock_guard<std::mutex> lock(stateMutex);

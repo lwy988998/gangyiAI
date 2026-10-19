@@ -161,11 +161,20 @@ void persistTaskTiming(Database& db, Json& task, bool visible = false) {
     bool changed = false;
     for (const auto& field : timing.items()) if (!task.contains(field.key()) || task[field.key()] != field.value()) changed = true;
     if (!changed) return;
+    const auto withoutTiming = [](Json value) {
+        for (const auto* field : {"queueMs", "firstContentMs", "completionMs"}) value.erase(field);
+        return value;
+    };
+    const auto expected = withoutTiming(task);
     db.transaction([&] {
         auto current = taskFor(db, accessFor(task), id);
+        if (withoutTiming(current) != expected) throw std::runtime_error("AI 任务状态已经变化");
         for (const auto& field : timing.items()) current[field.key()] = field.value();
-        saveTask(db, current); task = std::move(current);
+        // 计时不修改版本、状态或updatedAt，也不能吸收并发控制操作作为新的执行凭证。
+        if (!db.upsert(ClassroomActivity{id, current.value("courseId", ""), "agent-task",
+            current.dump(), current.at("updatedAt"), 0, 0})) throw std::runtime_error("AI 任务耗时保存失败");
     });
+    for (const auto& field : timing.items()) task[field.key()] = field.value();
 }
 void ownedUpdate(Database& db, Json& task, const std::function<void(Json&)>& action) {
     const auto expected = task.dump();
@@ -579,7 +588,10 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
     ownedUpdate(db, task, [](Json& current) { current.erase("completionMs"); current["status"] = "running"; });
     const auto yield = [&] {
         if (!quantum) return false;
-        ownedUpdate(db, task, [](Json& current) { current["status"] = "pending"; });
+        ownedUpdate(db, task, [](Json& current) {
+            if (current.value("status", "") != "running") throw std::runtime_error("AI 任务已停止执行");
+            current["status"] = "pending";
+        });
         return true;
     };
     AgentContextReuse contextReuse;
@@ -829,6 +841,7 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
             Json results = Json::array();
             std::set<std::string> stepIds;
             for (const auto& action : decision["actions"]) {
+                if (task.value("status", "") != "running" || options.cancelled()) return;
                 if (!action.is_object()) throw std::runtime_error("AI 行动的每一项都必须是对象");
                 const auto id = action.value("id", ""), name = action.value("tool", "");
                 if (id.empty() || !stepIds.insert(id).second || !allowedTools.count(name) || !action.value("args", Json()).is_object())
@@ -851,7 +864,7 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
                     throw std::invalid_argument("tool." + name + ".result 必须为对象，不能把数组当成工具返回对象");
                 db.transaction([&] {
                     const auto current = taskFor(db, access, taskId);
-                    if (current.dump() != task.dump() || db.learningRevision() != task.value("learningVersion", 0))
+                    if (current.value("status", "") != "running" || current.dump() != task.dump() || db.learningRevision() != task.value("learningVersion", 0))
                         throw std::runtime_error("学习情况或任务状态已变化");
                     if (prepared.commit) prepared.commit(db);
                     if (prepared.commit || !tools_.at(name).readOnly) contextReuse.clear();
@@ -888,8 +901,9 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
                     recordEvent(task, {{"type", "action"}, {"actionId", id}, {"activity", task["activity"]}, {"message", resolvingInput || holdPublicContent ? Json("") : decision["message"]}});
                     writeScopeFingerprint(db, access); saveTask(db, task);
                 });
-                if (name == "append_section") persistTaskTiming(db, task, true);
+                if (name == "append_section") AIActivity::taskContent(taskId);
                 if(prepared.afterCommit) { prepared.afterCommit(db); contextReuse.clear(); }
+                if (name == "append_section") persistTaskTiming(db, task);
                 results.push_back({{"id", id}, {"result", prepared.result}});
             }
             failureStage = "structure"; failureTool.clear();
