@@ -53,6 +53,20 @@ inline void runStartupReuseChecks(const std::filesystem::path& path) {
     invalidated([&] { assert(db.saveMyAIRecord({"memory", "memory", Json{{"deleted", true}}.dump(), "now", 0}, 1)); });
     invalidated([&] { db.setProfileMeta("library-revision", "1"); });
     invalidated([&] { db.setProfileMeta("ability-profile", Json{{"reason", "同版本画像正文已重评"}}.dump()); });
+    TopicMastery topic; topic.courseId = "startup-math"; topic.topic = "通分"; topic.score = 80; topic.status = "ready";
+    topic.version = db.profileRevision(); topic.nextReviewAt = "2099-01-01";
+    invalidated([&] { assert(db.upsert(topic)); });
+    const auto learningRevision = db.learningRevision(), profileRevision = db.profileRevision();
+    invalidated([&] {
+        Database other; other.open(path.string());
+        topic.score.reset(); topic.status = "insufficient"; topic.weakPoints = "[\"分数单位\"]";
+        assert(other.upsert(topic));
+        assert(db.learningRevision() == learningRevision && db.profileRevision() == profileRevision);
+    });
+    invalidated([&] { topic.nextReviewAt = "2000-01-01"; assert(db.upsert(topic)); });
+    SubjectMastery subject; subject.subject = "数学"; subject.score = 80; subject.status = "ready";
+    invalidated([&] { assert(db.upsert(subject)); });
+    invalidated([&] { subject.weakPoints = "[\"单位理解\"]"; assert(db.upsert(subject)); });
     const auto originalModel = std::getenv("AI_MODEL");
     const std::string savedModel = originalModel ? originalModel : "";
     invalidated([&] { efficiencySwitch("AI_MODEL", "different-fixture-model"); });

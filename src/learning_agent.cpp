@@ -346,7 +346,19 @@ std::string startupFingerprint(Database& db, const AgentAccess& access, Json eve
     event.erase("requestId"); event.erase("refresh");
     auto context = agentContext(db, access, event);
     context["savedLibrary"].erase("contextReadAt");
-    Json records = Json::array(), preparation = Json::array();
+    Json records = Json::array(), preparation = Json::array(), topics = Json::array(), subjects = Json::array();
+    // 同一证据版本仍可重新评估，画像正文及复习到期变化必须使旧推荐失效。
+    for (const auto& item : db.listTopicMastery()) if (allowed(access, item.courseId))
+        topics.push_back({{"courseId", item.courseId}, {"phaseIndex", item.phaseIndex}, {"topic", item.topic},
+            {"score", item.score ? Json(*item.score) : Json()}, {"status", item.status}, {"rationale", item.rationale},
+            {"weakPoints", item.weakPoints}, {"recommendation", item.recommendation}, {"evidenceIds", item.evidenceIds},
+            {"evidenceCount", item.evidenceCount}, {"version", item.version}, {"model", item.model}, {"updatedAt", item.updatedAt},
+            {"nextReviewAt", item.nextReviewAt}, {"dueNow", !item.nextReviewAt.empty() && item.nextReviewAt <= stamp()}});
+    for (const auto& item : db.listMastery())
+        subjects.push_back({{"subject", item.subject}, {"score", item.score ? Json(*item.score) : Json()},
+            {"status", item.status}, {"rationale", item.rationale}, {"weakPoints", item.weakPoints},
+            {"recommendation", item.recommendation}, {"evidenceCount", item.evidenceCount},
+            {"model", item.model}, {"updatedAt", item.updatedAt}});
     for (const auto& course : access.courseIds) for (const auto& row : db.listClassroomActivities(course)) {
         if (row.kind != "agent-lesson" && row.kind != "review") continue;
         auto value = parsed(row.payload);
@@ -378,6 +390,7 @@ std::string startupFingerprint(Database& db, const AgentAccess& access, Json eve
     configuration["credentialIdentity"] = resourceDigest(credential ? credential : "");
     return resourceDigest(Json{{"protocol", "startup-reuse-v1"}, {"version", kVersion}, {"scope", access.scopeId},
         {"courses", access.courseIds}, {"context", context}, {"records", records}, {"preparation", preparation},
+        {"topics", topics}, {"subjects", subjects},
         {"date", date.str()}, {"configuration", configuration}, {"personal", db.myAIContextVersions()},
         {"library", db.profileMeta("library-revision")}, {"profileRevision", db.profileRevision()},
         {"assessedRevision", db.profileAssessedRevision()}, {"profileEvidence", db.profileMeta("agent-profile-evidence")}}.dump());

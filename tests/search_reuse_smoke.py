@@ -35,7 +35,11 @@ def main():
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 pass
 
-    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    class FixtureServer(ThreadingHTTPServer):
+        # Python 3.12 默认队列仅五个连接，不能承接关闭共享时的八路并发。
+        request_queue_size = 64
+
+    server = FixtureServer(('127.0.0.1', 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         with tempfile.TemporaryDirectory(prefix='search-reuse-') as folder:
