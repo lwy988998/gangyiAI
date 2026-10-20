@@ -79,6 +79,9 @@ def run_comparison(manifest, output_dir, manifest_path):
                 persist_budget(cumulative_budget, budget_status)
                 result = json.loads(value['output']) if 'output' in value else value
                 results.append({'caseId': case['id'], 'variant': entry['variant'], 'result': result})
+                if mode != 'preflight' and result.get('complete') is not True:
+                    save()
+                    return 1
             except Exception as error:
                 results.append({'caseId': case['id'], 'variant': entry['variant'], 'error': type(error).__name__+': '+str(error)})
                 # 无法证明安全收尾的异常一律停止，禁止下一案例或下一版本发送。

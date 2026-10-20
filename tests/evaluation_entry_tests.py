@@ -125,6 +125,19 @@ class EntryTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             provider.configured_environment()
 
+    def test_incomplete_baseline_stops_before_candidate(self):
+        cases = self.root/'cases.json'
+        cases.write_text(json.dumps([self.case]), encoding='utf-8')
+        manifest = self.root/'manifest.json'
+        manifest.write_text(json.dumps({'mode': 'fixture', 'casesFile': str(cases),
+            'entries': [{'variant': 'baseline'}, {'variant': 'candidate'}]}), encoding='utf-8')
+        incomplete = {'output': json.dumps({'complete': False, 'turns': [], 'usage': []}),
+            'budgetStatus': {'limitTokens': 1000000, 'usedTokens': 839528, 'reservedTokens': 72075}}
+        with patch.object(compare, 'call_api', return_value=incomplete) as request, \
+                patch.object(sys, 'argv', ['evaluation_compare.py', str(manifest), '--output', str(self.root/'incomplete')]):
+            self.assertEqual(compare.main(), 1)
+            self.assertEqual(request.call_count, 1)
+
     def test_native_protocol_zero_limit_and_no_credentials(self):
         with patch.object(provider, 'configured_environment', side_effect=AssertionError('离线不得读取凭据')), \
                 patch.object(provider.subprocess, 'run', side_effect=self.fake_run):
