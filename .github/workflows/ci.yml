@@ -168,8 +168,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" release-artifacts/* \
-            --repo "${{ github.repository }}" --verify-tag \
-            --title "钢一定制AI ${{ github.ref_name }}" \
-            --latest \
-            --notes-file "docs/releases/${{ github.ref_name }}.md"
+          if gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release edit "${{ github.ref_name }}" \
+              --repo "${{ github.repository }}" \
+              --title "钢一定制AI ${{ github.ref_name }}" \
+              --latest \
+              --notes-file "docs/releases/${{ github.ref_name }}.md"
+          else
+            gh release create "${{ github.ref_name }}" release-artifacts/* \
+              --repo "${{ github.repository }}" --verify-tag \
+              --title "钢一定制AI ${{ github.ref_name }}" \
+              --latest \
+              --notes-file "docs/releases/${{ github.ref_name }}.md"
+          fi
