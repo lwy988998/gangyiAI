@@ -39,9 +39,15 @@ def main():
                 payload = {'code': 200, 'data': {'webPages': {'value': [
                     {'name': '共同教学资料', 'url': 'https://example.org/study#reference', 'summary': '同一网页资料'},
                     {'name': '博查补充资料', 'url': 'https://example.org/extra', 'summary': '第二个原始来源'}]}}}
-            data = json.dumps(payload, ensure_ascii=False).encode()
+            streaming = self.path.endswith('/chat/completions') and body.get('stream')
+            if streaming:
+                delta = {'model': 'offline-fixture', 'choices': [{'delta': {'content': json.dumps(decision, ensure_ascii=False)}, 'finish_reason': None}]}
+                finish = {'choices': [{'delta': {}, 'finish_reason': 'stop'}]}
+                data = ('data: ' + json.dumps(delta, ensure_ascii=False) + '\n\ndata: ' + json.dumps(finish) + '\n\ndata: [DONE]\n\n').encode()
+            else:
+                data = json.dumps(payload, ensure_ascii=False).encode()
             self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Type', 'text/event-stream' if streaming else 'application/json')
             self.send_header('Content-Length', str(len(data)))
             self.end_headers()
             self.wfile.write(data)

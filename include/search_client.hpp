@@ -37,7 +37,7 @@ public:
     // 主控指定查询角度和时效；一家失败仍返回另一家的有效资料。
     ResourceQueryResult query(const ResourceQuery& request) const;
 
-    // 最近一次搜索实际使用的 provider 与是否用了 fallback。
+    // 兼容旧调用者：返回双引擎标识，以及是否出现单家失败或缺配置。
     bool lastFallbackUsed() const { return fallbackUsed_; }
     std::string lastProvider() const { return lastProvider_; }
 
