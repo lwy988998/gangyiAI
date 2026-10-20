@@ -60,6 +60,18 @@ class LiveAuthorizationTests(unittest.TestCase):
             with self.assertRaises(PermissionError):
                 guard.require_live_authorization()
 
+    def test_budget_increase_requires_explicit_matching_authorization(self):
+        self.write_decision()
+        self.active.write_text(json.dumps(dict(self.state, limitTokens=1200000)), encoding='utf-8')
+        with guard.using_decision(self.path):
+            with self.assertRaises(PermissionError):
+                guard.require_live_authorization()
+            self.approval['limitTokens'] = 1200000
+            self.write_decision()
+            self.assertEqual(guard.require_live_authorization()['limitTokens'], 1200000)
+            self.assertEqual(guard.read_budget(self.active)['usedTokens'], self.state['usedTokens'])
+            self.assertEqual(guard.read_budget(self.active)['reservedTokens'], self.state['reservedTokens'])
+
     def test_frozen_model_mismatch_precedes_credentials(self):
         self.write_decision()
         frozen = self.root/'configuration.json'

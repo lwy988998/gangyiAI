@@ -70,7 +70,8 @@ void validateEvaluationAuthorization(const std::string& endpoint) {
     const auto frozen = Json::parse(read(original));
     for (const auto* field : {"limitTokens", "usedTokens", "reservedTokens"})
         if (!budget.at(field).is_number_integer() || budget.at(field).get<long long>() < 0) denied();
-    if (approved.at("limitTokens") != 1000000 || budget.at("limitTokens") != approved.at("limitTokens") ||
+    if (!approved.at("limitTokens").is_number_integer() || approved.at("limitTokens").get<long long>() <= 0 ||
+        budget.at("limitTokens") != approved.at("limitTokens") ||
         approved.at("knownUsedTokens") != frozen.at("usedTokens") || approved.at("unknownReservedTokens") != frozen.at("reservedTokens") ||
         budget.at("usedTokens").get<long long>() < frozen.at("usedTokens").get<long long>() ||
         budget.at("reservedTokens").get<long long>() < frozen.at("reservedTokens").get<long long>()) denied();

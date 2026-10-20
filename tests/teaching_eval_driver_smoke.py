@@ -61,6 +61,14 @@ def authorization_checks(driver):
         check(False, AI_BASE_URL='https://different.example.invalid/v1')
         check(False, GANGYI_EVAL_DECISION_FILE='')
         check(False, GANGYI_EVAL_MODE='')
+        # 追加额度必须写入明确授权，单独抬高账本不能放行，历史用量也不能归零。
+        active.write_text(json.dumps(dict(state, limitTokens=1200000)), encoding='utf-8')
+        check(False)
+        decision['limitTokens'] = 1200000
+        approval.write_text(json.dumps(decision), encoding='utf-8')
+        check(True)
+        decision['limitTokens'] = 1000000
+        approval.write_text(json.dumps(decision), encoding='utf-8')
         for field in ('usedTokens', 'reservedTokens'):
             active.write_text(json.dumps(dict(state, **{field: 0})), encoding='utf-8')
             check(False)
