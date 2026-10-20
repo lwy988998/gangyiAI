@@ -16,7 +16,12 @@ inline void runAgentQuantumChecks(const std::filesystem::path& path) {
             {"actions", calls == 1 ? Json::array({{{"id", "saved"}, {"tool", "save_fixture"}, {"args", Json::object()}}}) : Json::array()},
             {"state", calls == 1 ? "continue" : "waiting_student"}};
         auto encoded = decision.dump(); assert(sink(encoded.substr(1)));
-        return AIResult{encoded, "fixture", 200, "stop"};
+        AIResult result;
+        result.content = encoded;
+        result.model = "fixture";
+        result.status = 200;
+        result.finishReason = "stop";
+        return result;
     });
     agent.registerTool("save_fixture", {"保存检查点夹具。", false, [&](Database&, const Json&, const Json&, const AIResult&) {
         PreparedAgentTool prepared; prepared.commit = [&](Database& saved) {
