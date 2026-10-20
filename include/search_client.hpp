@@ -22,27 +22,26 @@ struct ResourceQueryResult {
     std::string status;
     int attempts = 0;
     bool cached = false;
+    nlohmann::json providers = nlohmann::json::array();
 };
 
-// 联网资源搜索：领域检测 → 查询构造 → provider（主 bocha、备 tavily）→ 归一化 → 去重排序 → 7 天缓存。
-// 对齐校园版 lib/search/ 的行为（searchResources.ts / searchProvider.ts / normalizeResource.ts / resourceCache.ts）。
+// 所有联网场景统一并行搜索 DeepSeek 与博查，分别缓存、合并去重并保留状态。
 class SearchClient {
 public:
     SearchClient();
     static bool testBochaKey(const std::string& key, std::string* diagnostic = nullptr);
 
     // 搜索 goal 相关资源，失败返回空 vector（不抛异常），最多 limit 条。
-    std::vector<SearchResource> search(const std::string& goal, size_t limit = 20) const;
-    // 主控逐次指定搜索角度和时效；只使用当前博查服务。
+    std::vector<SearchResource> search(const std::string& goal, size_t limit = 20,
+        const std::function<bool()>& cancelled = {}) const;
+    // 主控指定查询角度和时效；一家失败仍返回另一家的有效资料。
     ResourceQueryResult query(const ResourceQuery& request) const;
 
-    // 最近一次搜索实际使用的 provider 与是否用了 fallback。
+    // 兼容旧调用者：返回双引擎标识，以及是否出现单家失败或缺配置。
     bool lastFallbackUsed() const { return fallbackUsed_; }
     std::string lastProvider() const { return lastProvider_; }
 
 private:
-    std::string provider_;          // SEARCH_PROVIDER，默认 bocha
-    std::string fallbackProvider_;  // SEARCH_FALLBACK_PROVIDER，默认 tavily
     std::string cacheDir_;          // data/resource-search-cache
     mutable std::string lastProvider_;
     mutable bool fallbackUsed_ = false;

@@ -58,6 +58,8 @@ public:
     std::string errorType;
     int httpStatus = 0;
     bool retryable = false;
+    long long retryAfterMs = 0;
+    bool contentDelivered = false;
 };
 
 class AIClient {
@@ -76,8 +78,6 @@ private:
     std::string model_;
     int timeoutMs_;
     int retryAttempts_;
-    mutable int consecutiveFailures_ = 0;
-    mutable long long circuitOpenedAtMs_ = 0;
 };
 
 }

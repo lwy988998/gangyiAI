@@ -103,6 +103,8 @@ private:
         for (const auto& responseText : responses_) {
             sockaddr_in clientAddress{};
             SocketLength length = sizeof(clientAddress);
+            fd_set ready; FD_ZERO(&ready); FD_SET(server_, &ready); timeval timeout{5, 0};
+            if (select(static_cast<int>(server_) + 1, &ready, nullptr, nullptr, &timeout) <= 0) return;
             Socket client = accept(server_, reinterpret_cast<sockaddr*>(&clientAddress), &length);
             if (client == kInvalidSocket) return;
             ++requestCount_;
@@ -199,6 +201,8 @@ void expectError(const char* expectedType, MockServer& server, int timeoutMs = 1
 }
 
 }  // namespace
+
+#include "retry_coordination_checks.hpp"
 
 int main(int argc, char** argv) {
 #ifdef _WIN32
@@ -503,6 +507,7 @@ int main(int argc, char** argv) {
         for (const auto& task : view.at("tasks")) if (task.at("id") == "stream-pause-test")
             expect(task.at("calls") == 2 && task.at("status") == "completed", "流式请求的中断及恢复应准确累计");
     }
+    runRetryCoordinationChecks();
     if (std::getenv("LIVE_BOCHA_PROBE")) {
         std::string diagnostic;
         const bool valid = gangyi::SearchClient::testBochaKey("invalid-diagnostic-key", &diagnostic);

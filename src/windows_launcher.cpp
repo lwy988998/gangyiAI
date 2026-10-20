@@ -1453,7 +1453,7 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         createLabel(window, L"AI API 地址", 24, 72, 120);
         createLabel(window, L"API Key", 24, 126, 120);
         createLabel(window, L"模型名称", 24, 180, 120);
-        createLabel(window, L"博查 Key（联网检索）", 24, 238, 200);
+        createLabel(window, L"博查 Key（与 DeepSeek 并行搜索）", 24, 238, 400);
         g.providerCombo = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST,
             24, 41, 456, 160, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kProviderCombo)), nullptr, nullptr);
         SendMessageW(g.providerCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"DeepSeek"));

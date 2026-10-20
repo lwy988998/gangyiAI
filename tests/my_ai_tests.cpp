@@ -69,7 +69,8 @@ int main() {
         gangyi::Database usageDb;usageDb.open(usagePath.u8string());usageDb.migrate();
         gangyi::AIActivity::configure(controlPath.u8string());gangyi::AIActivity::configureUsage(usagePath.u8string());
         gangyi::AIActivityInfo info;info.taskId="persisted-same-task";info.source="用量恢复夹具";
-        auto id=gangyi::AIActivity::begin(info,"fixture-model");assert(gangyi::AIActivity::requestStarted(id));
+        std::string firstReceipt;
+        auto id=gangyi::AIActivity::begin(info,"fixture-model");assert(gangyi::AIActivity::requestStarted(id, &firstReceipt));
         const Json detailedUsage={{"prompt_tokens",12},{"completion_tokens",5},{"total_tokens",17},
             {"prompt_cache_hit_tokens",8},{"prompt_cache_miss_tokens",4},
             {"prompt_tokens_details",{{"cached_tokens",8}}},{"completion_tokens_details",{{"reasoning_tokens",2}}}};
@@ -82,12 +83,23 @@ int main() {
         gangyi::AIActivity::requestFinished(id,"failed",nullptr,"fixture-model");
         // 重复完成回执更新当前请求，不另算一次请求。
         gangyi::AIActivity::requestFinished(id,"failed",nullptr,"fixture-model");
+        const auto beforeStale=usageDb.myAIRecords("usage");
+        gangyi::AIActivity::requestFinished(id,"completed",detailedUsage,"fixture-model",firstReceipt);
         const auto recorded=usageDb.myAIRecords("usage");assert(recorded.size()==2);
+        assert(recorded[0].payload==beforeStale[0].payload && recorded[1].payload==beforeStale[1].payload);
         assert(usageDb.myAIRecord(original[0].id)->payload==original[0].payload);
         const auto statistics=gangyi::myAIRead(usageDb,"usage");
         assert(statistics["calls"]==2&&statistics["tokens"]==17);
+        for (const auto& item : statistics["items"]) assert(!item.contains("queueMs") && !item.contains("firstContentMs") && !item.contains("completionMs"));
         assert(statistics["tokenBreakdown"]["cachedInput"]["tokens"]==8 && statistics["tokenBreakdown"]["cachedInput"]["knownCalls"]==1);
         assert(statistics["tokenBreakdown"]["reasoning"]["tokens"]==2 && statistics["knownTokenCalls"]==1);
+        const Json timedTask = {{"queueMs", 11}, {"firstContentMs", 42}, {"completionMs", 67}, {"privateTimingOrigin", "不得输出"}};
+        assert(usageDb.upsert(gangyi::ClassroomActivity{info.taskId, "", "agent-task", timedTask.dump(), "now", 0, 0}));
+        const auto timed = gangyi::myAIRead(usageDb, "usage");
+        for (const auto& item : timed["items"]) {
+            assert(item.at("queueMs") == 11 && item.at("firstContentMs") == 42 && item.at("completionMs") == 67);
+            assert(!item.contains("privateTimingOrigin"));
+        }
         // 旧格式、真实零值、无效值和筛选后的覆盖率均保持真实，双协议缓存不相加。
         const auto addUsage = [&](const char* key, const Json& tokens, const char* model) {
             assert(usageDb.saveMyAIRecord({key,"usage",Json{{"tokens",tokens},{"model",model},{"day","2026-10-17"}}.dump(),"2026-10-17",0},0));
@@ -107,5 +119,24 @@ int main() {
         gangyi::AIActivity::configureUsage("");gangyi::AIActivity::configure("");
     }
     std::filesystem::remove_all(usageFolder);
+    // 仅创建内存时钟，不创建模型请求：1024项边界优先淘汰终态，再淘汰最旧起点。
+    constexpr int clockCapacity = 1024;
+    for (int i = 0; i < clockCapacity; ++i) {
+        const auto id = "clock-bound-fixture-" + std::to_string(i);
+        gangyi::AIActivity::taskQueued(id); gangyi::AIActivity::taskRunning(id);
+    }
+    const auto firstClock = gangyi::AIActivity::taskTiming("clock-bound-fixture-0");
+    assert(firstClock.contains("queueMs"));
+    assert(db.upsert(gangyi::ClassroomActivity{"clock-bound-fixture-0", "", "agent-task", firstClock.dump(), "now", 0, 0}));
+    gangyi::AIActivity::taskFinished("clock-bound-fixture-1023");
+    gangyi::AIActivity::taskQueued("clock-bound-extra-one");
+    assert(gangyi::AIActivity::taskTiming("clock-bound-fixture-1023").empty());
+    assert(gangyi::AIActivity::taskTiming("clock-bound-fixture-0") == firstClock);
+    gangyi::AIActivity::taskQueued("clock-bound-extra-two");
+    gangyi::AIActivity::taskRunning("clock-bound-fixture-0");
+    gangyi::AIActivity::taskContent("clock-bound-fixture-0");
+    gangyi::AIActivity::taskFinished("clock-bound-fixture-0");
+    assert(gangyi::AIActivity::taskTiming("clock-bound-fixture-0").empty());
+    assert(db.getClassroomActivity("clock-bound-fixture-0")->payload == firstClock.dump());
     std::cout << "个人中心版本、聊天、记忆、用量恢复和确认操作通过\n";
 }

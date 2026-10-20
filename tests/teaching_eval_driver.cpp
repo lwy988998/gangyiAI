@@ -18,12 +18,43 @@
 #endif
 
 using Json = nlohmann::json;
-// 仅开发验收使用：请求前预留输入字节上界、输出和一次SDK兼容重试，未知用量不退款。
+bool localEvaluationEndpoint(const std::string& url) {
+    for (const auto* prefix : {"http://127.0.0.1:", "http://localhost:", "http://[::1]:"}) {
+        const std::string host(prefix);
+        if (url.rfind(host, 0) != 0) continue;
+        auto index = host.size(); const auto start = index;
+        while (index < url.size() && url[index] >= '0' && url[index] <= '9') ++index;
+        return index > start && (index == url.size() || url[index] == '/');
+    }
+    return false;
+}
+// 仅开发验收使用：请求前预留输入字节上界、输出及全部SDK故障/兼容重试，未知用量不退款。
 class EvaluationBudget {
+    inline static bool storageFailed_ = false;
     std::filesystem::path file_; std::size_t reservation_ = 0, requestUpper_ = 0;
     std::map<std::string, std::string> previous_;
     Json read() const { std::ifstream input(file_); Json value; input >> value; return value; }
-    void write(const Json& value) const { std::ofstream output(file_); output << value.dump(2); }
+    void write(const Json& value) const {
+        // 锁覆盖临时写入和原子提交；任何失败均保留旧文件，并使整个驱动拒绝后续请求。
+        auto temporary = file_; temporary += ".tmp";
+        try {
+            std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+            if (!output) throw std::runtime_error("预算临时文件无法打开");
+            output << value.dump(2); output.flush();
+            if (!output) throw std::runtime_error("预算临时文件写入失败");
+            output.close();
+            if (!output) throw std::runtime_error("预算临时文件关闭失败");
+#ifdef _WIN32
+            if (!MoveFileExW(temporary.c_str(), file_.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+                throw std::runtime_error("预算原子提交失败");
+#else
+            std::filesystem::rename(temporary, file_);
+#endif
+        } catch (...) {
+            storageFailed_ = true;
+            throw gangyi::AIClientError("eval_budget_storage", "预算保存失败，停止全部后续请求");
+        }
+    }
     struct Lock {
 #ifdef _WIN32
         HANDLE handle = INVALID_HANDLE_VALUE;
@@ -42,12 +73,20 @@ class EvaluationBudget {
 #endif
     };
 public:
+    static bool storageFailed() { return storageFailed_; }
     EvaluationBudget(gangyi::Database& db, const gangyi::ChatOptions& options) {
+        if (storageFailed_) throw gangyi::AIClientError("eval_budget_storage", "预算保存已失败，禁止继续请求");
         const auto path=std::getenv("GANGYI_EVAL_BUDGET_FILE"); if(!path||!*path)return;
         file_=std::filesystem::u8path(path);
         requestUpper_=static_cast<std::size_t>(options.maxTokens)+1024;
         for(const auto& message:options.messages)requestUpper_+=message.content.size()+64;
-        reservation_=requestUpper_*2;
+        int attempts = options.maxAttempts;
+        if (attempts <= 0) {
+            attempts = 2;
+            try { if (const auto setting = std::getenv("AI_RETRY_ATTEMPTS")) attempts = std::stoi(setting); } catch (...) {}
+        }
+        if (attempts < 1 || attempts > 100) throw gangyi::AIClientError("eval_budget", "SDK重试次数不在验收预算支持范围，未调用模型");
+        reservation_=requestUpper_*static_cast<std::size_t>(attempts+1);
         Lock lock(file_); auto value=read();
         if(value.value("usedTokens",0ULL)+value.value("reservedTokens",0ULL)+reservation_>value.at("limitTokens").get<std::size_t>())
             throw gangyi::AIClientError("eval_budget","验收Token预算不足以预留下一次请求，未调用模型");
@@ -115,7 +154,7 @@ int main(int argc, char** argv) {
         if (!resumeExisting) {
         db.insert(gangyi::Course{courseId, access.scopeId, {}, test.at("title"), "deep", test.at("title"),
             {}, "ai", "active", "2026-10-13", "2026-10-13"});
-        // 联网资料对照从实际读取的隔离档案复制固定原文；基线不注入此新能力。
+        // 两版从同一已保存来源复制固定原文，避免资料变化影响同协议对照。
         if (test.value("libraryDatabase", Json()).is_string()) {
             gangyi::Database sources; sources.open(test.at("libraryDatabase").get<std::string>());
             const auto ids = test.at("librarySourceIds").get<std::vector<std::string>>();
@@ -146,6 +185,7 @@ int main(int argc, char** argv) {
         db.upsert(gangyi::ClassroomActivity{lessonId, courseId, "agent-lesson", lesson.dump(), "2026-10-13", 0, 0});
         gangyi::agentExposeTask(db, access, {{"lessonId", lessonId}, {"sections", {{{"id", "concept"}, {"version", 1}}}}});
         }
+        const auto runStarted = std::chrono::steady_clock::now();
         Json usage = Json::array(), promptAudit = Json::array();
         if (resumeExisting) for (const auto& row : db.myAIRecords("usage")) {
             const auto saved = Json::parse(row.payload);
@@ -206,6 +246,10 @@ int main(int argc, char** argv) {
             auto requestOptions=options;
             if (const auto limit=std::getenv("GANGYI_EVAL_MAX_OUTPUT_TOKENS"))
                 requestOptions.maxTokens=std::min(options.maxTokens,std::stoi(limit));
+            // 本轮驱动仅允许本机模拟服务；直接执行驱动也不能绕过Python授权门禁。
+            const std::string endpoint = std::getenv("AI_BASE_URL") ? std::getenv("AI_BASE_URL") : "";
+            if (!localEvaluationEndpoint(endpoint))
+                throw gangyi::AIClientError("eval_authorization","本轮禁止新增付费请求；驱动仅允许本机模拟服务");
             gangyi::AIClient client; gangyi::AIResult response;
             EvaluationBudget budget(db,requestOptions);
             try { response = client.chatStream(requestOptions, sink); }
@@ -227,6 +271,8 @@ int main(int argc, char** argv) {
             }
             const Json result = {{"caseId", test.at("id")}, {"turns", turns}, {"interactions", interactions}, {"usage", usage},
                 {"httpRequests", httpRequests}, {"httpRequestCount", httpRequests.size()}, {"promptAudit", promptAudit},
+                {"externalElapsedMs", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-runStarted).count()},
+                {"externalTimingBoundary", "单调时钟：初始化隔离材料后至检查点前，含process与动作保存，不含人类等待；并非产品内任务指标"},
                 {"resumedExisting", resumeExisting}, {"lesson", Json::parse(db.getClassroomActivity(lessonId)->payload)},
                 {"profileEvidence", gangyi::agentProfileEvidence(db, access)}};
             const auto outputPath = std::filesystem::u8path(argv[3]); auto temporaryPath = outputPath; temporaryPath += ".tmp";
@@ -262,7 +308,11 @@ int main(int argc, char** argv) {
             // 恢复失败/暂停轮必须走原生控制；process不会自行重启终态任务。
             if (resumeExisting && (task.value("status", "") == "failed" || task.value("status", "") == "paused"))
                 gangyi::agentControl(db, access, {{"command", task.at("status") == "paused" ? "resume" : "retry"}, {"taskId", task.at("id")}});
+            const auto processStarted = std::chrono::steady_clock::now();
             if (!alreadyShown) agent.process(db, task.at("id"));
+            // 主控会将回调异常保存为任务失败；另用专用退出码阻止Python把旧预算当作新结算。
+            if (EvaluationBudget::storageFailed()) throw std::runtime_error("预算保存失败，不能继续验收");
+            const auto externalProcessMs = alreadyShown ? Json() : Json(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-processStarted).count());
             const auto row = db.getClassroomActivity(task.at("id")); const auto raw = Json::parse(row->payload);
             if (!alreadyShown) {
             gangyi::agentExposeTask(db, access, {{"taskId", task.at("id")}, {"seq", raw.at("seq")}, {"complete", true}});
@@ -274,12 +324,13 @@ int main(int argc, char** argv) {
                 if (!evaluation.value("feedback", "").empty()) evaluations.push_back({{"id", evaluation.at("id")}, {"feedback", evaluation.at("feedback")}, {"complete", true}});
             gangyi::agentExposeTask(db, access, {{"lessonId", lessonId}, {"sections", exposed}, {"evaluations", evaluations}, {"complete", true}});
             }
-            turns.push_back({{"event", event}, {"task", raw}, {"currentInputs", gangyi::agentContext(db, access, event).at("currentInputs")}});
+            turns.push_back({{"event", event}, {"task", raw}, {"externalProcessMs", externalProcessMs},
+                {"currentInputs", gangyi::agentContext(db, access, event).at("currentInputs")}});
             checkpoint();
             if (raw.at("status") == "failed" || raw.at("status") == "superseded") break;
         }
         checkpoint();
         std::cout << test.at("id") << "：完成 " << turns.size() << " 轮，实际调用 " << usage.size() << " 次\n";
         return 0;
-    } catch (const std::exception& error) { std::cerr << "验收主控错误：" << error.what() << '\n'; return 1; }
+    } catch (const std::exception& error) { std::cerr << "验收主控错误：" << error.what() << '\n'; return EvaluationBudget::storageFailed() ? 73 : 1; }
 }

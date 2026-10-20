@@ -10,7 +10,7 @@ $cmakeText = Get-Content -Raw -LiteralPath (Join-Path $RepoRoot 'CMakeLists.txt'
 if ($cmakeText -notmatch 'project\(gangyiAI VERSION ([0-9.]+)') { throw '无法读取版本号' }
 $version = $Matches[1]
 if ($TeachingPreview -and $LibraryPreview) { throw '一次只验收一种试用安装标识' }
-if ($env:GITHUB_ACTIONS -ne 'true' -and -not $AllowLocalUserData -and -not $TeachingPreview -and -not $LibraryPreview) {
+if ($env:GITHUB_ACTIONS -ne 'true' -and -not $AllowLocalUserData) {
     throw '发布验收会安装和卸载程序，并清理当前用户配置。仅可在 GitHub Actions 中运行；确需在隔离账户运行时请显式传入 -AllowLocalUserData。'
 }
 $installerName = if ($TeachingPreview) { "gangyiAI-teaching-preview1-v$version-x64.exe" } elseif ($LibraryPreview) { "gangyiAI-learning-preview1-v$version-x64.exe" } else { "gangyiAI-setup-v$version-x64.exe" }

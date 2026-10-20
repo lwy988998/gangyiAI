@@ -10,6 +10,11 @@
 #include <exception>
 #include <iostream>
 #include <limits>
+#include <mutex>
+#include <map>
+#include <random>
+#include <cctype>
+#include <ctime>
 #include <thread>
 #include <utility>
 
@@ -17,6 +22,13 @@ namespace gangyi {
 namespace {
 
 using json = nlohmann::json;
+// 本地回调错误不属于服务商失败；先越过重试层，再在公共调用边界还原原异常。
+struct CallbackFailure { std::exception_ptr error; };
+[[noreturn]] void throwCallbackFailure(std::exception_ptr error) {
+    try { std::rethrow_exception(error); }
+    catch (const CallbackFailure&) { throw; }
+    catch (...) { throw CallbackFailure{error}; }
+}
 
 std::string env(const char* name, const std::string& fallback = {}) {
     const char* value = std::getenv(name);
@@ -59,6 +71,62 @@ std::string chatEndpoint(const std::string& baseUrl) {
         url += "/chat/completions";
     }
     return url;
+}
+
+// 协调表仅保存进程内盐化身份及单调截止点；锁内不等待、不执行网络或统计回调。
+std::mutex cooldownMutex;
+struct Cooldown { long long deadline = 0; int failures = 0; };
+std::map<std::string, Cooldown> cooldowns;
+bool sharedBackoff() { return env("GANGYI_AI_SHARED_BACKOFF") != "0"; }
+std::string cooldownKey(const Endpoint& endpoint, const ChatOptions& options) {
+    static const std::string salt = [] { std::random_device random; return std::to_string(random()) + std::to_string(random()); }();
+    return resourceDigest(json::array({chatEndpoint(endpoint.url), options.model.empty() ? endpoint.model : options.model,
+        resourceDigest(salt + endpoint.key)}).dump());
+}
+void waitUntil(const ChatOptions& options, const std::string& key, long long localDeadline = 0) {
+    for (;;) {
+        if (options.cancelled && options.cancelled()) throw AIClientError("cancelled", "AI 请求已停止");
+        long long deadline = localDeadline;
+        if (sharedBackoff()) {
+            std::lock_guard<std::mutex> lock(cooldownMutex);
+            const auto found = cooldowns.find(key);
+            if (found != cooldowns.end()) {
+                if (found->second.deadline <= nowMs() && found->second.failures >= 3) found->second.failures = 0;
+                deadline = std::max(deadline, found->second.deadline);
+            }
+        }
+        const auto remaining = deadline - nowMs();
+        if (remaining <= 0) return;
+        std::this_thread::sleep_for(std::chrono::milliseconds(std::min(100LL, remaining)));
+    }
+}
+struct RetryHeader { long long milliseconds = 0; };
+size_t readRetryHeader(char* data, size_t size, size_t count, void* user) {
+    auto& result = *static_cast<RetryHeader*>(user);
+    try {
+        std::string line(data, size * count);
+        if (line.rfind("HTTP/", 0) == 0) { result.milliseconds = 0; return size * count; }
+        const auto colon = line.find(':');
+        if (colon == std::string::npos) return size * count;
+        auto name = line.substr(0, colon);
+        std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (name != "retry-after") return size * count;
+        auto value = line.substr(colon + 1);
+        const auto begin = value.find_first_not_of(" \t\r\n"), end = value.find_last_not_of(" \t\r\n");
+        if (begin == std::string::npos) return size * count;
+        value = value.substr(begin, end - begin + 1);
+        long long seconds = 0;
+        if (std::all_of(value.begin(), value.end(), [](unsigned char c) { return std::isdigit(c); })) seconds = std::stoll(value);
+        else {
+            if (value.front() == '-') return size * count;
+            const auto date = curl_getdate(value.c_str(), nullptr);
+            if (date < 0) return size * count;
+            seconds = static_cast<long long>(date) - static_cast<long long>(std::time(nullptr));
+        }
+        if (seconds >= 0 && seconds <= (std::numeric_limits<long long>::max() - nowMs()) / 1000)
+            result.milliseconds = seconds * 1000;
+    } catch (...) { /* 无效或溢出的响应头不影响请求。 */ }
+    return size * count;
 }
 
 std::string modelsEndpoint(const std::string& baseUrl) {
@@ -105,9 +173,12 @@ CURLcode perform(CURL* curl, const std::function<bool()>& cancelled) {
 }
 
 template<class Call>
-AIResult monitoredCall(const ChatOptions& options, const std::string& model, Call call) {
+AIResult monitoredCall(const ChatOptions& options, const std::string& model, Call call, const bool* delivered = nullptr) {
     const auto id = AIActivity::begin(options.activity, options.model.empty() ? model : options.model);
-    const auto wasCancelled = [&] { return AIActivity::stopping() || (options.cancelled && options.cancelled()); };
+    const auto wasCancelled = [&] {
+        try { return AIActivity::stopping() || (options.cancelled && options.cancelled()); }
+        catch (...) { throwCallbackFailure(std::current_exception()); }
+    };
     try {
         for (;;) {
             while (AIActivity::paused()) {
@@ -124,16 +195,18 @@ AIResult monitoredCall(const ChatOptions& options, const std::string& model, Cal
                 auto result = call(tracked, id);
                 if (tracked.cancelled()) throw AIClientError("cancelled", "AI 请求已停止");
                 AIActivity::update(id, "completed", result.model); return result;
-            } catch (const AIClientError&) {
+            } catch (const AIClientError& error) {
                 if (!wasCancelled() && (AIActivity::paused() || AIActivity::pauseEpoch() != epoch)) {
                     AIActivity::update(id, "paused");
-                    if (!options.activity.taskId.empty()) throw AIClientError("paused", "全软件 AI 已暂停");
+                    if (!options.activity.taskId.empty() || error.contentDelivered || (delivered && *delivered)) throw AIClientError("paused", "全软件 AI 已暂停");
                     // 独立调用只在内存保留输入，恢复后重新请求未完成部分。
                     continue;
                 }
                 throw;
             }
         }
+    } catch (const CallbackFailure& error) {
+        AIActivity::update(id, "failed"); std::rethrow_exception(error.error);
     } catch (const AIClientError& error) {
         AIActivity::update(id, error.errorType == "paused" ? "paused" : error.errorType == "cancelled" ? "cancelled" : "failed"); throw;
     } catch (...) { AIActivity::update(id, "failed"); throw; }
@@ -214,25 +287,32 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeoutMs));
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    RetryHeader retryHeader;
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, readRetryHeader);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &retryHeader);
+    bool started = false;
+    std::string receipt;
     CURLcode code = CURLE_ABORTED_BY_CALLBACK;
     std::exception_ptr transferError;
     try {
-        if (!(options.cancelled && options.cancelled()) && AIActivity::requestStarted(activityId)) code = perform(curl, options.cancelled);
+        waitUntil(options, cooldownKey(endpoint, options));
+        if (!(options.cancelled && options.cancelled()) && (started = AIActivity::requestStarted(activityId, &receipt))) code = perform(curl, options.cancelled);
     } catch (...) { transferError = std::current_exception(); }
     long status = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
     curl_easy_cleanup(curl);
     curl_slist_free_all(headers);
-    AIActivity::requestFinished(activityId,code==CURLE_ABORTED_BY_CALLBACK?"cancelled":"failed");
+    if (started) AIActivity::requestFinished(activityId,code==CURLE_ABORTED_BY_CALLBACK?"cancelled":"failed",nullptr,{},receipt);
     if (transferError) std::rethrow_exception(transferError);
-    if (response.error) std::rethrow_exception(response.error);
+    if (response.error) throwCallbackFailure(response.error);
     if (code == CURLE_ABORTED_BY_CALLBACK) throw AIClientError("cancelled", "AI 请求已停止");
     if (code != CURLE_OK || status < 200 || status >= 300) {
         if (std::getenv("AI_DEBUG")) {
             std::cerr << "[ai-debug] response status=" << status
                       << " body omitted" << std::endl;
         }
-        throw errorFor(code, status, code == CURLE_OK ? "AI provider returned HTTP " + std::to_string(status) : curl_easy_strerror(code));
+        auto error = errorFor(code, status, code == CURLE_OK ? "AI provider returned HTTP " + std::to_string(status) : curl_easy_strerror(code));
+        error.retryAfterMs = retryHeader.milliseconds; throw error;
     }
     try {
         const json parsed = json::parse(response.content);
@@ -247,10 +327,10 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
         result.finishReason = choice.value("finish_reason", "");
         result.tokenUsage=reportedUsage(parsed.value("usage",json()));
         if (result.finishReason == "length") {
-            AIActivity::requestFinished(activityId,"failed",result.tokenUsage,result.model);
+            AIActivity::requestFinished(activityId,"failed",result.tokenUsage,result.model,receipt);
             throw AIClientError("output_limit", "AI 回复达到长度限制，未接收完整内容");
         }
-        AIActivity::requestFinished(activityId,"completed",result.tokenUsage,result.model);
+        AIActivity::requestFinished(activityId,"completed",result.tokenUsage,result.model,receipt);
         return result;
     } catch (const AIClientError&) {
         throw;
@@ -354,26 +434,35 @@ AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, streamProgress);
     curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &state);
+    RetryHeader retryHeader;
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, readRetryHeader);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &retryHeader);
+    bool started = false;
+    std::string receipt;
     CURLcode code = CURLE_ABORTED_BY_CALLBACK;
     std::exception_ptr transferError;
     try {
-        if (!(options.cancelled && options.cancelled()) && AIActivity::requestStarted(activityId)) code = perform(curl, options.cancelled);
+        waitUntil(options, cooldownKey(endpoint, options));
+        if (!(options.cancelled && options.cancelled()) && (started = AIActivity::requestStarted(activityId, &receipt))) code = perform(curl, options.cancelled);
     } catch (...) { transferError = std::current_exception(); }
     long status = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
     curl_easy_cleanup(curl);
     curl_slist_free_all(headers);
-    AIActivity::requestFinished(activityId,code==CURLE_ABORTED_BY_CALLBACK?"cancelled":"failed",state.usage,state.model);
+    if (started) AIActivity::requestFinished(activityId,code==CURLE_ABORTED_BY_CALLBACK?"cancelled":"failed",state.usage,state.model,receipt);
     if (transferError) std::rethrow_exception(transferError);
-    if (state.callbackError) std::rethrow_exception(state.callbackError);
-    if (state.cancelled || code == CURLE_ABORTED_BY_CALLBACK) throw AIClientError("cancelled", "stream cancelled");
-    if(status==400&&options.requestTokenUsage&&((state.errorBody+state.pending).find("stream_options")!=std::string::npos||(state.errorBody+state.pending).find("include_usage")!=std::string::npos))throw AIClientError("unsupported_stream_usage","接口不支持流式用量选项",400);
-    if (code != CURLE_OK || status < 200 || status >= 300)
-        throw errorFor(code, status, code == CURLE_OK ? "AI provider returned HTTP " + std::to_string(status) : curl_easy_strerror(code));
+    if (state.callbackError) throwCallbackFailure(state.callbackError);
+    const auto streamError = [&](AIClientError error) { error.contentDelivered = !state.content.empty(); return error; };
+    if (state.cancelled || code == CURLE_ABORTED_BY_CALLBACK) throw streamError(AIClientError("cancelled", "stream cancelled"));
+    if(status==400&&options.requestTokenUsage&&((state.errorBody+state.pending).find("stream_options")!=std::string::npos||(state.errorBody+state.pending).find("include_usage")!=std::string::npos))throw streamError(AIClientError("unsupported_stream_usage","接口不支持流式用量选项",400));
+    if (code != CURLE_OK || status < 200 || status >= 300) {
+        auto error = errorFor(code, status, code == CURLE_OK ? "AI provider returned HTTP " + std::to_string(status) : curl_easy_strerror(code));
+        error.retryAfterMs = retryHeader.milliseconds; throw streamError(error);
+    }
     if (state.finishReason == "length") throw AIClientError("output_limit", "AI 回复达到长度限制，未接收完整内容");
-    if (state.content.empty() || !state.completed) throw AIClientError("invalid_response", "AI stream is incomplete");
+    if (state.content.empty() || !state.completed) throw streamError(AIClientError("invalid_response", "AI stream is incomplete"));
     AIResult result{state.content,state.model,static_cast<int>(status),"stop","not_requested",{}};
-    result.tokenUsage=state.usage;AIActivity::requestFinished(activityId,"completed",result.tokenUsage,result.model);return result;
+    result.tokenUsage=state.usage;AIActivity::requestFinished(activityId,"completed",result.tokenUsage,result.model,receipt);return result;
 }
 
 ChatOptions prepareSearch(const ChatOptions& options, std::string& searchStatus, std::vector<std::string>& sources) {
@@ -381,11 +470,15 @@ ChatOptions prepareSearch(const ChatOptions& options, std::string& searchStatus,
     if (!options.searchQuery.empty()) {
         try {
             SearchClient search;
-            const auto resources = search.search(options.searchQuery, 5);
-            searchStatus = resources.empty() ? "unavailable" : search.lastProvider();
+            const auto resources = search.search(options.searchQuery, 5, [&] {
+                return AIActivity::paused() || (options.cancelled && options.cancelled());
+            });
+            searchStatus = resources.empty() ? "unavailable" : (search.lastFallbackUsed() ? "partial:" : "") + search.lastProvider();
             std::string context = u8"联网检索只用于知识内容出处，不得用它判断学生掌握度。";
             for (const auto& resource : resources) {
                 context += "\n- " + resource.title + " | " + resource.url + " | " + resource.description;
+                context += u8" | 检索引擎：";
+                for (const auto& provider : resource.searchProviders) context += provider + " ";
                 sources.push_back(resource.url);
             }
             if (resources.empty()) context += u8"未获得联网依据；不要虚构来源。";
@@ -399,23 +492,47 @@ ChatOptions prepareSearch(const ChatOptions& options, std::string& searchStatus,
     return prepared;
 }
 
-AIResult attempt(const Endpoint& endpoint, const ChatOptions& options, int timeoutMs, int attempts, const std::string& activityId) {
-    AIClientError last("unknown", "AI request failed");
-    for (int i = 0; i < attempts; ++i) {
-        try { return request(endpoint, options, timeoutMs, activityId); }
-        catch (const AIClientError& error) {
-            last = error;
-            const bool retryable = error.errorType == "timeout" || error.errorType == "network_error" ||
-                error.errorType == "rate_limited" || error.errorType == "provider_5xx" ||
-                error.errorType == "invalid_response";
-            if (!retryable || i + 1 == attempts) throw;
-            for (int tick = 0; tick < 8 * (1 << std::min(i, 5)); ++tick) {
-                if (options.cancelled && options.cancelled()) throw AIClientError("cancelled", "AI 请求已停止");
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+template<class Call>
+AIResult attempt(const Endpoint& endpoint, ChatOptions options, int attempts, Call call) {
+    if (endpoint.key.empty()) throw AIClientError("missing_config", "AI_API_KEY is not configured");
+    if (attempts < 1) throw AIClientError("unknown", "maxAttempts must be positive");
+    const auto key = cooldownKey(endpoint, options);
+    long long localDeadline = 0;
+    for (int i = 0; ; ++i) {
+        waitUntil(options, key, localDeadline);
+        try {
+            auto result = call(options);
+            if (sharedBackoff()) {
+                std::lock_guard<std::mutex> lock(cooldownMutex);
+                const auto found = cooldowns.find(key); if (found != cooldowns.end()) found->second.failures = 0;
             }
+            return result;
+        }
+        catch (const AIClientError& error) {
+            // 选项兼容重发另计 HTTP，但不消耗故障重试次数，也不重新带回已拒绝的选项。
+            if (error.errorType == "unsupported_stream_usage" && options.requestTokenUsage && !error.contentDelivered) {
+                options.requestTokenUsage = false; --i; continue;
+            }
+            const bool providerFailure = error.errorType == "timeout" || error.errorType == "network_error" ||
+                error.errorType == "rate_limited" || error.errorType == "provider_5xx";
+            if (providerFailure || error.errorType == "invalid_response") {
+                const auto delay = std::max(800LL * (1LL << std::min(i, 5)), error.retryAfterMs);
+                const auto current = nowMs();
+                localDeadline = current + std::min(delay, std::numeric_limits<long long>::max() - current);
+                // 最后一次失败同样通知下一位调用者；格式错误仅在本次调用内退避。
+                if (providerFailure && sharedBackoff()) {
+                    std::lock_guard<std::mutex> lock(cooldownMutex);
+                    auto& state = cooldowns[key];
+                    state.deadline = std::max(state.deadline, localDeadline);
+                    // 原三次最终失败的60秒保护迁入同一共享截止点，不再叠加实例熔断。
+                    if ((error.contentDelivered || i + 1 >= attempts) && ++state.failures >= 3) {
+                        state.failures = 3; state.deadline = std::max(state.deadline, current + 60000);
+                    }
+                }
+            }
+            if (!error.retryable || error.contentDelivered || i + 1 >= attempts) throw;
         }
     }
-    throw last;
 }
 }
 
@@ -483,47 +600,43 @@ AIClient::~AIClient() {
 
 AIResult AIClient::chat(const ChatOptions& options) const {
     return monitoredCall(options, model_, [&](const ChatOptions& tracked, const std::string& activityId) {
+    if (apiKey_.empty() || baseUrl_.empty() || (tracked.model.empty() && model_.empty()))
+        throw AIClientError("missing_config", "AI 服务地址、模型或密钥未配置");
     std::string searchStatus = "not_requested";
     std::vector<std::string> sources;
     const auto prepared = prepareSearch(tracked, searchStatus, sources);
     const int timeout = options.timeoutMs > 0 ? options.timeoutMs : timeoutMs_;
     const int attempts = options.maxAttempts > 0 ? options.maxAttempts : retryAttempts_;
     if (attempts < 1) throw AIClientError("unknown", "maxAttempts must be positive");
-    if (circuitOpenedAtMs_ && nowMs() - circuitOpenedAtMs_ < 60000)
-        throw AIClientError("network_error", "AI provider circuit is open");
-    if (circuitOpenedAtMs_) { circuitOpenedAtMs_ = 0; consecutiveFailures_ = 0; }
-
     const Endpoint primary{baseUrl_, apiKey_, model_};
-    try {
-        AIResult result = attempt(primary, prepared, timeout, attempts, activityId);
-        result.searchStatus = searchStatus;
-        result.sources = std::move(sources);
-        consecutiveFailures_ = 0;
-        return result;
-    } catch (const AIClientError& primaryError) {
-        if (primaryError.errorType != "cancelled" && ++consecutiveFailures_ >= 3) circuitOpenedAtMs_ = nowMs();
-        throw primaryError;
-    }
+    AIResult result = attempt(primary, prepared, attempts, [&](const ChatOptions& retry) {
+        return request(primary, retry, timeout, activityId);
+    });
+    result.searchStatus = searchStatus;
+    result.sources = std::move(sources);
+    return result;
     });
 }
 
 AIResult AIClient::chatStream(const ChatOptions& options,
                               const std::function<bool(const std::string&)>& onChunk) const {
+    bool delivered = false;
+    const auto receiver = [&](const std::string& chunk) { if (!chunk.empty()) delivered = true; return onChunk(chunk); };
     return monitoredCall(options, model_, [&](const ChatOptions& tracked, const std::string& activityId) {
+    if (apiKey_.empty() || baseUrl_.empty() || (tracked.model.empty() && model_.empty()))
+        throw AIClientError("missing_config", "AI 服务地址、模型或密钥未配置");
     std::string searchStatus = "not_requested";
     std::vector<std::string> sources;
     const auto prepared = prepareSearch(tracked, searchStatus, sources);
-    AIResult result;
-    try {result = streamRequest({baseUrl_, apiKey_, model_}, prepared,options.timeoutMs > 0 ? options.timeoutMs : timeoutMs_,onChunk,activityId);}
-    catch(const AIClientError& error){
-        if(error.errorType!="unsupported_stream_usage")throw;
-        auto compatible=prepared;compatible.requestTokenUsage=false;
-        result=streamRequest({baseUrl_,apiKey_,model_},compatible,options.timeoutMs>0?options.timeoutMs:timeoutMs_,onChunk,activityId);
-    }
+    const Endpoint endpoint{baseUrl_, apiKey_, model_};
+    auto result = attempt(endpoint, prepared, options.maxAttempts > 0 ? options.maxAttempts : retryAttempts_,
+        [&](const ChatOptions& retry) {
+            return streamRequest(endpoint, retry, options.timeoutMs > 0 ? options.timeoutMs : timeoutMs_, receiver, activityId);
+        });
     result.searchStatus = searchStatus;
     result.sources = std::move(sources);
     return result;
-    });
+    }, &delivered);
 }
 
 std::vector<std::string> AIClient::listModels(int timeoutMs) const {

@@ -47,7 +47,9 @@ public:
     void start();
     void stop();
     void process(Database& db, const std::string& taskId);
+    void processQuantum(Database& db, const std::string& taskId);
 private:
+    void processImpl(Database& db, const std::string& taskId, bool quantum);
     void run();
     std::string databasePath_;
     ModelCall model_;

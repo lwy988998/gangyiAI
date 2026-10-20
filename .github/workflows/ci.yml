@@ -46,7 +46,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
-        run: .\scripts\build_windows.ps1
+        run: |
+          .\scripts\build_windows.ps1 -Preview
+      - name: 验证原生开发驱动预算失败保护（本机模拟）
+        shell: pwsh
+        run: |
+          .\scripts\build_teaching_eval.ps1 -BuildDir build-windows
+          python -X utf8 tests/teaching_eval_driver_smoke.py build-windows/teaching-eval-driver.exe
+          if ($LASTEXITCODE -ne 0) { throw '原生驱动预算与HTTP回归失败' }
       - name: 验证发布目录的导师和课堂闭环
         env:
           GANGYI_SERVICE_EXE: dist/windows/gangyiAI.exe
@@ -66,16 +73,24 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw '启动动画与首页过渡验收失败' }
       - name: 验收安装包和免安装版
         shell: pwsh
-        run: .\scripts\test_windows_release.ps1
+        run: |
+          .\scripts\test_windows_release.ps1 -LibraryPreview
+      - name: 验证5.6.3试用版升级及虚构档案备份恢复
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: .\scripts\test_windows_upgrade.ps1
       - name: 保存 Windows 产物
-        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: gangyiAI-windows-${{ github.run_id }}
           path: |
             dist/installer/gangyiAI-setup-*-x64.exe
             dist/installer/gangyiAI-portable-*-x64.zip
+            dist/installer/gangyiAI-learning-preview1-*-x64.exe
+            dist/installer/gangyiAI-learning-preview1-*-x64.zip
             dist/installer/SHA256SUMS.txt
+            dist/installer/离线候选说明.md
           if-no-files-found: error
 
   linux:
@@ -144,8 +159,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" release-artifacts/* \
-            --repo "${{ github.repository }}" --verify-tag \
-            --title "钢一定制AI ${{ github.ref_name }}" \
-            --latest \
-            --notes-file "docs/releases/${{ github.ref_name }}.md"
+          if gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release edit "${{ github.ref_name }}" \
+              --repo "${{ github.repository }}" \
+              --title "钢一定制AI ${{ github.ref_name }}" \
+              --latest \
+              --notes-file "docs/releases/${{ github.ref_name }}.md"
+          else
+            gh release create "${{ github.ref_name }}" release-artifacts/* \
+              --repo "${{ github.repository }}" --verify-tag \
+              --title "钢一定制AI ${{ github.ref_name }}" \
+              --latest \
+              --notes-file "docs/releases/${{ github.ref_name }}.md"
+          fi

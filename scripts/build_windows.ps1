@@ -2,12 +2,15 @@
     [switch]$SkipDependencies,
     [switch]$Preview,
     [switch]$TeachingPreview,
+    [switch]$Candidate,
     [switch]$SkipInstaller,
     [string]$BuildDir = '',
     [string]$Generator = 'MinGW Makefiles'
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Candidate -and -not $Preview) { throw '离线候选必须使用学习增强试用版标识：-Candidate -Preview' }
+if ($Preview -and $TeachingPreview) { throw '一次只能选择一种试用版安装标识' }
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $thirdParty = Join-Path $repoRoot 'third_party'
@@ -99,6 +102,7 @@ if ($curlCa) { $cmakeArgs += "-DCMAKE_TLS_CAINFO=$($curlCa.FullName.Replace('\',
 if (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'third_party\pdfium-8100\bin\pdfium.dll'))) { & (Join-Path $PSScriptRoot 'setup_library_dependencies.ps1') }
 $myAIPreviewMode = if ($Preview) { "ON" } else { "OFF" }
 $cmakeArgs += "-DGANGYI_PREVIEW_BUILD=$myAIPreviewMode"
+$cmakeArgs += "-DGANGYI_OFFLINE_CANDIDATE=$(if ($Candidate) { 'ON' } else { 'OFF' })"
 $cmakeArgs += "-DGANGYI_TEACHING_PREVIEW=$(if ($TeachingPreview) { 'ON' } else { 'OFF' })"
 cmake @cmakeArgs
 if ($LASTEXITCODE -ne 0) { throw 'CMake 配置失败' }
@@ -184,9 +188,34 @@ $portableGuide = @"
 6. 当前程序尚未签名，Windows SmartScreen 可能提示未知发布者。
 "@
 Set-Content -LiteralPath (Join-Path $distDir '免安装版使用说明.txt') -Value $portableGuide -Encoding utf8
+if ($Candidate) {
+    $candidateGuide = @"
+钢一定制AI v$version 离线候选（非正式发布）
+
+本包使用现有学习增强试用版标识 GangyiAI-Library-Preview。
+升级前请备份程序目录和 %LOCALAPPDATA%\GangyiAI-Library-Preview 中的学习档案与设置，并确认凭据目标仍存在。
+2026-10-20 的当前交付已在本机备份后原位升级；核对结果为服务与启动器版本 5.6.4、启动器自检通过、学习数据库哈希未变、设置和桌面入口保留。
+自动化安装、5.6.3升级、卸载及备份恢复在临时 GitHub Windows runner 使用虚构数据及凭据；脚本存在本身不代表验证通过。
+六教学案例真实配对、真实 Token/速度/教学质量验收尚未完成；不宣称实际节省或正式交付。
+本轮不读取密钥正文、不调用付费模型、不扩大累计100万Token预算、不创建正式标签或Release。
+"@
+    Set-Content -LiteralPath (Join-Path $distDir '离线候选说明.txt') -Value $candidateGuide -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $distDir '免安装版使用说明.txt') -Value $candidateGuide -Encoding utf8
+    @{ version=$version; channel='offline-candidate'; profileName='GangyiAI-Library-Preview'; realModelEvaluationComplete=$false; paidModelRequests=0 } |
+        ConvertTo-Json | Set-Content -LiteralPath (Join-Path $distDir 'candidate-metadata.json') -Encoding utf8
+}
+# 打包前只检查本次新建的发布目录，拒绝数据库、开发入口、验证证据与私有配置。
+$privateFiles = Get-ChildItem -LiteralPath $distDir -Recurse -File | Where-Object {
+    $_.Name -match '\.(db|sqlite|sqlite3)(-(wal|shm))?$|\.log$|^\.env|^settings\.json$|^home-recommendations\.json' -or
+    $_.FullName -match '[\\/](verification|\.superpowers|preview-data|backups|tests|scripts)[\\/]'
+}
+if ($privateFiles) { throw '候选目录含禁止打包的数据或开发材料' }
 $portableName = if ($TeachingPreview) { "gangyiAI-teaching-preview1-v$version-x64.zip" } elseif ($Preview) { "gangyiAI-learning-preview1-v$version-x64.zip" } else { "gangyiAI-portable-v$version-x64.zip" }
 $portablePath = Join-Path $repoRoot "dist\installer\$portableName"
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $portablePath) | Out-Null
+if ($Candidate) {
+    Copy-Item -LiteralPath (Join-Path $repoRoot "docs/releases/v$version-candidate.md") -Destination (Join-Path $repoRoot 'dist/installer/离线候选说明.md') -Force
+}
 if (Test-Path -LiteralPath $portablePath) { Remove-Item -LiteralPath $portablePath -Force }
 Compress-Archive -Path (Join-Path $distDir '*') -DestinationPath $portablePath -CompressionLevel Optimal
 

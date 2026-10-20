@@ -20,15 +20,22 @@ public:
     static void configure(const std::string& path);
     static void configureUsage(const std::string& databasePath);
     static void requestFinished(const std::string& id, const std::string& status,
-                                const nlohmann::json& tokens = nullptr, const std::string& model = {});
+                                const nlohmann::json& tokens = nullptr, const std::string& model = {},
+                                const std::string& receipt = {});
     static nlohmann::json snapshot();
     static void setPaused(bool paused);
     static bool paused();
     static std::uint64_t pauseEpoch();
     static std::string begin(const AIActivityInfo& info, const std::string& model);
-    static bool requestStarted(const std::string& id);
+    static bool requestStarted(const std::string& id, std::string* receipt = nullptr);
     static void update(const std::string& id, const std::string& status, const std::string& model = {});
     static void shutdown();
     static bool stopping();
+    // 任务耗时使用进程内单调时钟；跨进程恢复没有起点时保持未知。
+    static void taskQueued(const std::string& id);
+    static void taskRunning(const std::string& id);
+    static void taskContent(const std::string& id);
+    static void taskFinished(const std::string& id);
+    static nlohmann::json taskTiming(const std::string& id);
 };
 }

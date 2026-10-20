@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "5.6.3"
+  #define MyAppVersion "5.6.5"
 #endif
 
 #ifdef TeachingPreview
@@ -66,6 +66,11 @@ Source: "..\dist\installer\MicrosoftEdgeWebView2Setup.exe"; Flags: dontcopy
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+
+[InstallDelete]
+; 只清理旧程序包中的候选标识，档案与设置不在此目录。
+Type: files; Name: "{app}\candidate-metadata.json"
+Type: files; Name: "{app}\离线候选说明.txt"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "启动 {#MyAppName}"; Flags: nowait postinstall skipifsilent
