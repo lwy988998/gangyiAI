@@ -10,12 +10,16 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iomanip>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <sstream>
 #include <string>
+#include <ctime>
 #include <vector>
 
 namespace gangyi {
@@ -73,10 +77,6 @@ int countChineseChars(const std::string& text) {
         }
     }
     return count;
-}
-
-std::string envToLower(const char* name, const std::string& fallback) {
-    return lower(trim(env(name, fallback)));
 }
 
 std::string sha256Hex(const std::string& input) {
@@ -263,7 +263,7 @@ HttpResult postJson(const std::string& url, const std::string& key, const json& 
                     const std::function<bool()>& cancelled = {}) {
     HttpResult result;
     CURL* curl = curl_easy_init();
-    if (!curl) return result;
+    if (!curl) { result.error = CURLE_FAILED_INIT; return result; }
     struct curl_slist* headers = nullptr;
     headers = curl_slist_append(headers, "Content-Type: application/json");
     if (!key.empty()) {
@@ -302,22 +302,6 @@ HttpResult postJson(const std::string& url, const std::string& key, const json& 
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
     return result;
-}
-
-std::vector<SearchResource> parseTavily(const std::string& body) {
-    std::vector<SearchResource> out;
-    json parsed = json::parse(body, nullptr, false);
-    if (!parsed.is_object() || !parsed.contains("results") || !parsed["results"].is_array()) return out;
-    for (const auto& item : parsed["results"]) {
-        if (!item.is_object()) continue;
-        SearchResource resource;
-        resource.title = item.value("title", "");
-        resource.url = item.value("url", "");
-        resource.description = item.value("content", item.value("description", ""));
-        resource.score = inferScore(item.value("score", 0.0), resource.title, resource.description);
-        out.push_back(std::move(resource));
-    }
-    return out;
 }
 
 std::vector<SearchResource> parseBocha(const std::string& body) {
@@ -359,7 +343,12 @@ std::vector<SearchResource> normalizeResources(std::vector<SearchResource> resou
         resource.description = trim(resource.description);
         if (resource.url.empty()) continue;
         std::string key = resource.url.substr(0, resource.url.find('#'));
-        if (!seen.insert(key).second) continue;
+        if (!seen.insert(key).second) {
+            auto& saved = *std::find_if(out.begin(), out.end(), [&](const auto& item) { return item.url.substr(0, item.url.find('#')) == key; });
+            for (const auto& provider : resource.searchProviders)
+                if (std::find(saved.searchProviders.begin(), saved.searchProviders.end(), provider) == saved.searchProviders.end()) saved.searchProviders.push_back(provider);
+            continue;
+        }
         if (resource.source.empty()) resource.source = inferSource(resource.url, resource.title, resource.description);
         resource.type = inferType(resource.source, resource.title, resource.description);
         resource.difficulty = inferDifficulty(resource.title, resource.description);
@@ -391,6 +380,7 @@ json serializeCache(const std::vector<SearchResource>& resources) {
                        {"reason", resource.reason}});
         arr.back()["publishedAt"] = resource.publishedAt;
         arr.back()["updatedAt"] = resource.updatedAt;
+        arr.back()["searchProviders"] = resource.searchProviders;
     }
     return { {"createdAt", std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()}, {"resources", arr} };
 }
@@ -424,6 +414,7 @@ std::optional<std::vector<SearchResource>> readCache(const std::string& dir, con
             resource.reason = item.value("reason", "");
             resource.publishedAt = item.value("publishedAt", "");
             resource.updatedAt = item.value("updatedAt", "");
+            resource.searchProviders = item.value("searchProviders", std::vector<std::string>{});
             resources.push_back(std::move(resource));
         }
         return resources;
@@ -459,42 +450,140 @@ std::vector<std::string> detectQueries(const std::string& domain, const std::str
     return domainQueries(domain, goal);
 }
 
-std::vector<SearchResource> fetchFromProvider(const std::string& provider, const std::string& key, const std::string& baseUrl,
-                                              const std::vector<std::string>& queries, const std::string& domain) {
-    std::vector<SearchResource> collected;
-    const std::string url = provider == "bocha" ? (trim(baseUrl).empty() ? "https://api.bochaai.com" : trim(baseUrl)) + "/v1/web-search"
-                                                : "https://api.tavily.com/search";
-    for (const auto& query : queries) {
-        if (query.empty()) continue;
-        json body;
-        if (provider == "bocha") {
-            body = {{"query", query}, {"count", 5}, {"summary", true}, {"freshness", "noLimit"}};
-        } else {
-            body = {{"query", query}, {"search_depth", "basic"}, {"max_results", 5},
-                    {"include_answer", false}, {"include_raw_content", false}};
+// 搜索结果使用规范链接去重；原网站与搜索引擎来源分别保留。
+std::string searchURL(std::string url) {
+    url = trim(url.substr(0, url.find('#')));
+    const auto scheme = url.find("://");
+    if (scheme == std::string::npos) return {};
+    const auto protocol = lower(url.substr(0, scheme));
+    if (protocol != "http" && protocol != "https") return {};
+    const auto hostEnd = url.find_first_of("/?", scheme + 3);
+    const auto authority = url.substr(scheme + 3, hostEnd == std::string::npos ? std::string::npos : hostEnd - scheme - 3);
+    if (authority.empty() || authority.find('@') != std::string::npos) return {};
+    std::string host = lower(authority);
+    const auto defaultPort = protocol == "https" ? ":443" : ":80";
+    if (host.size() > std::char_traits<char>::length(defaultPort) &&
+        host.compare(host.size() - std::char_traits<char>::length(defaultPort), std::string::npos, defaultPort) == 0)
+        host.resize(host.size() - std::char_traits<char>::length(defaultPort));
+    auto suffix = hostEnd == std::string::npos ? std::string() : url.substr(hostEnd);
+    const auto queryStart = suffix.find('?');
+    auto path = suffix.substr(0, queryStart);
+    if (path.empty()) path = "/";
+    std::vector<std::string> args;
+    if (queryStart != std::string::npos) {
+        std::istringstream query(suffix.substr(queryStart + 1));
+        std::string item;
+        while (std::getline(query, item, '&')) {
+            const auto name = lower(item.substr(0, item.find('=')));
+            if (name.rfind("utm_", 0) != 0 && name != "gclid" && name != "fbclid" && !item.empty()) args.push_back(item);
         }
-        // 与校园版一致：资源搜索超时后静默降级，不能拖慢课程或阶段内容生成。
-        const long timeoutMs = static_cast<long>(env_ll("RESOURCE_SEARCH_TIMEOUT_MS", 8000LL));
-        const HttpResult response = postJson(url, key, body, std::max(1000L, timeoutMs));
-        if (response.status < 200 || response.status >= 300) continue;
-        std::vector<SearchResource> parsed = provider == "bocha" ? parseBocha(response.body) : parseTavily(response.body);
-        collected.insert(collected.end(), parsed.begin(), parsed.end());
-        // 各查询覆盖不同角度，不能因第一批有结果而跳过后面的查询。
     }
-    return normalizeResources(std::move(collected), domain);
+    std::string result = protocol + "://" + host + path;
+    for (std::size_t i = 0; i < args.size(); ++i) result += (i ? "&" : "?") + args[i];
+    return result;
+}
+
+std::string utcDate(std::chrono::system_clock::time_point value) {
+    const auto raw = std::chrono::system_clock::to_time_t(value);
+    std::tm parts{};
+#ifdef _WIN32
+    gmtime_s(&parts, &raw);
+#else
+    gmtime_r(&raw, &parts);
+#endif
+    std::ostringstream output;
+    output << std::put_time(&parts, "%Y-%m-%d");
+    return output.str();
+}
+
+std::string deepseekQuery(const ResourceQuery& request) {
+    auto query = trim(request.query);
+    if (request.freshness != "noLimit") {
+        const std::map<std::string, int> days{{"oneDay", 1}, {"oneWeek", 7}, {"oneMonth", 30}, {"oneYear", 365}};
+        const auto found = days.find(request.freshness);
+        if (found != days.end()) query += " after:" + utcDate(std::chrono::system_clock::now() - std::chrono::hours(24 * found->second));
+        else {
+            query += " after:" + request.freshness.substr(0, 10);
+            if (request.freshness.size() == 22) query += " before:" + request.freshness.substr(12, 10);
+        }
+    }
+    // API 以 Unicode 字符计数，不按 UTF-8 字节截断或改写用户搜索词。
+    std::size_t characters = 0;
+    for (const unsigned char byte : query) if ((byte & 0xc0) != 0x80) ++characters;
+    return characters <= 128 ? query : std::string();
+}
+
+ResourceQueryResult providerQuery(const std::string& provider, const ResourceQuery& request, const std::string& cacheDir) {
+    ResourceQueryResult result;
+    result.status = "missing_key";
+    const bool deepseek = provider == "deepseek";
+    auto base = trim(env(deepseek ? "DEEPSEEK_SEARCH_BASE_URL" : "BOCHA_BASE_URL",
+                         deepseek ? "https://api.deepseek.com" : "https://api.bochaai.com"));
+    while (!base.empty() && base.back() == '/') base.pop_back();
+    if (deepseek && base.size() >= 3 && base.compare(base.size() - 3, 3, "/v1") == 0) base.resize(base.size() - 3);
+    auto key = trim(env(deepseek ? "DEEPSEEK_SEARCH_API_KEY" : "BOCHA_API_KEY"));
+    if (deepseek && key.empty()) key = trim(env("DEEPSEEK_API_KEY"));
+    // 只复用官方 DeepSeek 的模型凭据，其他模型服务商的密钥不会发给 DeepSeek。
+    if (deepseek && key.empty() && hostFromUrl(env("AI_BASE_URL", "https://api.deepseek.com")) == "api.deepseek.com")
+        key = trim(env("AI_API_KEY"));
+    if (key.empty()) return result;
+    if (request.cancelled && request.cancelled()) { result.status = "cancelled"; return result; }
+    const auto query = deepseek ? deepseekQuery(request) : request.query;
+    if (query.empty()) { result.status = "query_too_long"; return result; }
+    const auto cacheKey = sha256Hex("dual-v1:" + provider + ":" + base + ":" + sha256Hex(key) + ":" + query + ":" + request.freshness + ":" + std::to_string(request.count));
+    if (!request.refresh) if (const auto cached = readCache(cacheDir, cacheKey, request.freshness == "noLimit" ? 86400LL : 3600LL)) {
+        result.resources = *cached; result.status = "completed"; result.cached = true; return result;
+    }
+    json body = deepseek ? json{{"query", query}, {"count", request.count}, {"need_content", false}} :
+        json{{"query", query}, {"freshness", request.freshness}, {"count", request.count}, {"summary", true}};
+    const auto response = postJson(base + (deepseek ? "/v1/tools/search" : "/v1/web-search"), key, body,
+        static_cast<long>(std::clamp(env_ll("RESOURCE_SEARCH_TIMEOUT_MS", 15000LL), 1000LL, 60000LL)), request.cancelled);
+    result.attempts = response.error == CURLE_FAILED_INIT ? 0 : response.directRetry ? 2 : 1;
+    if (response.error == CURLE_ABORTED_BY_CALLBACK) result.status = "cancelled";
+    else if (response.error != CURLE_OK) result.status = "network_error";
+    else if (response.status < 200 || response.status >= 300) result.status = "http_" + std::to_string(response.status);
+    else {
+        try {
+            const auto parsed = json::parse(response.body);
+            if (!parsed.is_object()) throw std::runtime_error("搜索响应不是对象");
+            if (deepseek) {
+                if (!parsed.contains("results") || !parsed["results"].is_array()) throw std::runtime_error("缺少搜索结果数组");
+                for (const auto& item : parsed["results"]) {
+                    if (!item.is_object() || !item.value("url", json()).is_string() || !item.value("title", json()).is_string())
+                        throw std::runtime_error("搜索条目结构无效");
+                    SearchResource resource;
+                    resource.title = item.at("title").get<std::string>(); resource.url = searchURL(item.at("url").get<std::string>());
+                    resource.description = item.value("summary", json()).is_string() ? item["summary"].get<std::string>() : item.value("snippet", "");
+                    resource.source = item.value("site_name", json()).is_string() ? item["site_name"].get<std::string>() : "";
+                    resource.publishedAt = item.value("date", json()).is_string() ? item["date"].get<std::string>() : "";
+                    resource.score = item.value("rerank_score", json()).is_number() ? std::clamp(item["rerank_score"].get<double>() / 3.0 * 100.0, 0.0, 100.0) : 0.0;
+                    result.resources.push_back(std::move(resource));
+                }
+            } else {
+                if (parsed.contains("code") && parsed["code"] != 200) throw std::runtime_error("博查返回错误");
+                const bool valid = (parsed.value("data", json()).is_object() &&
+                    ((parsed["data"].value("webPages", json()).is_object() && parsed["data"]["webPages"].value("value", json()).is_array()) ||
+                     parsed["data"].value("results", json()).is_array())) || parsed.value("results", json()).is_array();
+                if (!valid) throw std::runtime_error("缺少博查结果数组");
+                result.resources = parseBocha(response.body);
+                for (auto& resource : result.resources) resource.url = searchURL(resource.url);
+            }
+            result.resources = normalizeResources(std::move(result.resources), detectDomain(request.query));
+            for (auto& resource : result.resources) resource.searchProviders = {provider};
+            result.status = "completed";
+            writeCache(cacheDir, cacheKey, result.resources);
+        } catch (...) { result.resources.clear(); result.status = "invalid_response"; }
+    }
+    return result;
 }
 
 }  // namespace
 
 SearchClient::SearchClient()
-    // 微课程需要中文真实资料，默认优先使用 Bocha；仍支持通过环境变量切换。
-    : provider_(envToLower("SEARCH_PROVIDER", "bocha")),
-      fallbackProvider_(envToLower("SEARCH_FALLBACK_PROVIDER", "tavily")),
-      cacheDir_(env("RESOURCE_SEARCH_CACHE_DIR", env("LOCALAPPDATA").empty()
+    : cacheDir_(env("RESOURCE_SEARCH_CACHE_DIR", env("LOCALAPPDATA").empty()
           ? "data/resource-search-cache" : (fs::path(env("LOCALAPPDATA")) / "GangyiAI" / "resource-search-cache").string())) {
-    if (provider_ != "bocha") provider_ = "tavily";
-    if (!fallbackProvider_.empty() && fallbackProvider_ != "tavily") fallbackProvider_ = "bocha";
-    curl_global_init(CURL_GLOBAL_DEFAULT);
+    static const int initialized = curl_global_init(CURL_GLOBAL_DEFAULT);
+    (void)initialized;
 }
 
 std::string resourceDigest(const std::string& input) { return sha256Hex(input); }
@@ -521,86 +610,73 @@ bool SearchClient::testBochaKey(const std::string& key, std::string* diagnostic)
     return valid;
 }
 
-std::vector<SearchResource> SearchClient::search(const std::string& goal, size_t limit) const {
+std::vector<SearchResource> SearchClient::search(const std::string& goal, size_t limit,
+                                               const std::function<bool()>& cancelled) const {
+    std::vector<SearchResource> collected;
+    lastProvider_ = "deepseek+bocha"; fallbackUsed_ = false;
+    if (limit == 0) return collected;
     try {
-        const std::string domain = detectDomain(goal);
-        const std::string cacheKey = sha256Hex(provider_ + ":" + fallbackProvider_ + ":" + domain + ":" + lower(trim(goal)));
-        if (const auto cached = readCache(cacheDir_, cacheKey, env_ll("RESOURCE_SEARCH_CACHE_TTL_SECONDS", 604800LL))) {
-            lastProvider_ = "cache";
-            fallbackUsed_ = false;
-            std::vector<SearchResource> value = *cached;
-            if (value.size() > limit) value.resize(limit);
-            return value;
+        for (const auto& queryText : detectQueries(detectDomain(goal), goal)) {
+            if (cancelled && cancelled()) break;
+            ResourceQuery request; request.query = queryText; request.count = 5; request.cancelled = cancelled;
+            const auto result = query(request);
+            fallbackUsed_ = fallbackUsed_ || result.status != "completed";
+            collected.insert(collected.end(), result.resources.begin(), result.resources.end());
         }
-
-        const std::vector<std::string> queries = detectQueries(domain, goal);
-        std::string liveProvider = provider_;
-        const std::string primaryKey = env(provider_ == "bocha" ? "BOCHA_API_KEY" : "TAVILY_API_KEY");
-        std::vector<SearchResource> result = primaryKey.empty() ? std::vector<SearchResource>{} :
-            fetchFromProvider(provider_, primaryKey,
-                provider_ == "bocha" ? env("BOCHA_BASE_URL", "https://api.bochaai.com") : std::string{},
-                queries, domain);
-        bool usedFallback = false;
-        if (result.empty()) {
-            const std::string fallbackKey = env(fallbackProvider_ == "bocha" ? "BOCHA_API_KEY" : "TAVILY_API_KEY");
-            if (!fallbackProvider_.empty() && !fallbackKey.empty()) {
-                std::vector<SearchResource> fallback = fetchFromProvider(fallbackProvider_, fallbackKey,
-                                                                         fallbackProvider_ == "bocha" ? env("BOCHA_BASE_URL", "https://api.bochaai.com") : std::string{},
-                                                                         queries, domain);
-                if (!fallback.empty()) {
-                    result = std::move(fallback);
-                    liveProvider = fallbackProvider_;
-                    usedFallback = true;
-                }
-            }
-        }
-        lastProvider_ = liveProvider;
-        fallbackUsed_ = usedFallback;
-        if (!result.empty()) writeCache(cacheDir_, cacheKey, result);
-        if (result.size() > limit) result.resize(limit);
-        return result;
-    } catch (...) {
-        lastProvider_ = provider_;
-        fallbackUsed_ = false;
-        return {};
-    }
+        collected = normalizeResources(std::move(collected), detectDomain(goal));
+        if (collected.size() > limit) collected.resize(limit);
+    } catch (...) { fallbackUsed_ = true; }
+    return collected;
 }
 
 ResourceQueryResult SearchClient::query(const ResourceQuery& request) const {
+    if (trim(request.query).empty() || request.query.size() > 3000 || request.count < 1 || request.count > 50)
+        throw std::invalid_argument("搜索词或结果数量无效");
+    const std::set<std::string> ranges{"noLimit", "oneYear", "oneMonth", "oneWeek", "oneDay"};
+    const bool customDate = (request.freshness.size() == 10 || request.freshness.size() == 22) &&
+        request.freshness.find_first_not_of("0123456789-.") == std::string::npos;
+    if (!ranges.count(request.freshness) && !customDate) throw std::invalid_argument("检索日期范围无效");
+    // 两个网络线程共享取消回调时串行读取档案，避免并发操作同一 SQLite 连接。
+    auto guarded = request;
+    const auto mutex = std::make_shared<std::mutex>();
+    guarded.cancelled = [mutex, callback = request.cancelled] {
+        std::lock_guard<std::mutex> lock(*mutex);
+        try { return callback && callback(); } catch (...) { return true; }
+    };
+    if (guarded.cancelled()) throw std::runtime_error("资料检索已中断");
+    auto deepseek = std::async(std::launch::async, [&] { return providerQuery("deepseek", guarded, cacheDir_); });
+    auto bocha = std::async(std::launch::async, [&] { return providerQuery("bocha", guarded, cacheDir_); });
     ResourceQueryResult result;
-    if (request.query.empty() || request.query.size() > 3000 || request.count < 1 || request.count > 50)
-        throw std::invalid_argument("博查查询或结果数量无效");
-    const std::set<std::string> ranges = {"noLimit", "oneYear", "oneMonth", "oneWeek", "oneDay"};
-    const auto dateRange = request.freshness;
-    const bool customDate = (dateRange.size() == 10 || dateRange.size() == 22) &&
-        dateRange.find_first_not_of("0123456789-.") == std::string::npos;
-    if (!ranges.count(dateRange) && !customDate) throw std::invalid_argument("检索日期范围无效");
-    if (request.cancelled && request.cancelled()) throw std::runtime_error("资料检索已中断");
-    const auto cacheKey = sha256Hex("library-v1:bocha:" + request.query + ":" + dateRange + ":" + std::to_string(request.count));
-    const auto ttl = dateRange == "noLimit" ? 86400LL : 3600LL;
-    if (!request.refresh) if (const auto cache = readCache(cacheDir_, cacheKey, ttl)) {
-        result.resources = *cache; result.status = "completed"; result.cached = true; return result;
-    }
-    const auto key = env("BOCHA_API_KEY");
-    if (key.empty()) { result.status = "missing_key"; return result; }
-    auto base = trim(env("BOCHA_BASE_URL", "https://api.bochaai.com"));
-    while (!base.empty() && base.back() == '/') base.pop_back();
-    const auto response = postJson(base + "/v1/web-search", key,
-        {{"query", request.query}, {"freshness", dateRange}, {"count", request.count}, {"summary", true}},
-        std::max(1000LL, env_ll("RESOURCE_SEARCH_TIMEOUT_MS", 15000LL)), request.cancelled);
-    result.attempts = response.directRetry ? 2 : 1;
-    if (response.error == CURLE_ABORTED_BY_CALLBACK) result.status = "cancelled";
-    else if (response.error != CURLE_OK) result.status = "network_error";
-    else if (response.status < 200 || response.status >= 300) result.status = "http_" + std::to_string(response.status);
-    else {
-        const auto parsed = json::parse(response.body, nullptr, false);
-        if (!parsed.is_object() || (parsed.contains("code") && parsed["code"] != 200)) result.status = "invalid_response";
-        else {
-            result.status = "completed";
-            result.resources = normalizeResources(parseBocha(response.body), detectDomain(request.query));
-            writeCache(cacheDir_, cacheKey, result.resources);
+    std::map<std::string, SearchResource> merged;
+    std::map<std::string, double> ranks;
+    int completed = 0;
+    for (const auto& provider : {std::string("deepseek"), std::string("bocha")}) {
+        ResourceQueryResult part;
+        try { part = provider == "deepseek" ? deepseek.get() : bocha.get(); }
+        catch (...) { part.status = "internal_error"; }
+        result.attempts += part.attempts;
+        if (part.status == "completed") ++completed;
+        result.providers.push_back({{"provider", provider}, {"status", part.status}, {"attempts", part.attempts},
+            {"cached", part.cached}, {"results", part.resources.size()}});
+        std::size_t rank = 0;
+        for (auto& resource : part.resources) {
+            const auto key = resource.url;
+            // 采用名次融合，不直接比较两家不同量纲的原始分数。
+            ranks[key] += 1.0 / (60.0 + static_cast<double>(++rank));
+            if (!merged.count(key)) merged[key] = resource;
+            auto& saved = merged[key];
+            if (std::find(saved.searchProviders.begin(), saved.searchProviders.end(), provider) == saved.searchProviders.end()) saved.searchProviders.push_back(provider);
+            if (saved.description.size() < resource.description.size()) saved.description = resource.description;
+            if (saved.publishedAt.empty()) saved.publishedAt = resource.publishedAt;
         }
     }
+    result.status = guarded.cancelled() ? "cancelled" : completed == 2 ? "completed" : completed == 1 ? "partial" : "failed";
+    result.cached = std::all_of(result.providers.begin(), result.providers.end(), [](const auto& item) { return item.at("cached") == true; });
+    if (result.status != "cancelled") for (auto& [key, resource] : merged) {
+        resource.score = ranks[key] * 3050.0;
+        result.resources.push_back(std::move(resource));
+    }
+    result.resources = normalizeResources(std::move(result.resources), detectDomain(request.query));
     return result;
 }
 

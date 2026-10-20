@@ -470,11 +470,15 @@ ChatOptions prepareSearch(const ChatOptions& options, std::string& searchStatus,
     if (!options.searchQuery.empty()) {
         try {
             SearchClient search;
-            const auto resources = search.search(options.searchQuery, 5);
-            searchStatus = resources.empty() ? "unavailable" : search.lastProvider();
+            const auto resources = search.search(options.searchQuery, 5, [&] {
+                return AIActivity::paused() || (options.cancelled && options.cancelled());
+            });
+            searchStatus = resources.empty() ? "unavailable" : (search.lastFallbackUsed() ? "partial:" : "") + search.lastProvider();
             std::string context = u8"联网检索只用于知识内容出处，不得用它判断学生掌握度。";
             for (const auto& resource : resources) {
                 context += "\n- " + resource.title + " | " + resource.url + " | " + resource.description;
+                context += u8" | 检索引擎：";
+                for (const auto& provider : resource.searchProviders) context += provider + " ";
                 sources.push_back(resource.url);
             }
             if (resources.empty()) context += u8"未获得联网依据；不要虚构来源。";

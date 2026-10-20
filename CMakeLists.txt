@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(gangyiAI VERSION 5.6.4 LANGUAGES C CXX)
+project(gangyiAI VERSION 5.6.5 LANGUAGES C CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -397,6 +397,15 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/library_course_tests.cjs)
     endif()
     if(Python3_Interpreter_FOUND)
+        add_executable(dual-search-driver tests/dual_search_driver.cpp src/search_client.cpp)
+        target_include_directories(dual-search-driver PRIVATE include ${GANGYI_CURL_INCLUDE})
+        target_link_libraries(dual-search-driver PRIVATE nlohmann_json::nlohmann_json ${GANGYI_CURL_LINK} Threads::Threads)
+        add_test(NAME dual-search COMMAND ${Python3_EXECUTABLE} -X utf8
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/dual_search_smoke.py $<TARGET_FILE:dual-search-driver>)
+        set_tests_properties(dual-search PROPERTIES TIMEOUT 50)
+        add_test(NAME dual-search-library COMMAND ${Python3_EXECUTABLE} -X utf8
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/dual_search_library_smoke.py $<TARGET_FILE:gangyiAI>)
+        set_tests_properties(dual-search-library PROPERTIES TIMEOUT 60)
         add_test(NAME evaluation-entry COMMAND ${Python3_EXECUTABLE} -X utf8
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/evaluation_entry_tests.py -v)
         if(WIN32)

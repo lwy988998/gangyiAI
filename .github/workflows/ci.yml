@@ -47,11 +47,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          if ('${{ startsWith(github.ref, 'refs/tags/v') }}' -eq 'true') {
-            .\scripts\build_windows.ps1
-          } else {
-            .\scripts\build_windows.ps1 -Preview -Candidate
-          }
+          .\scripts\build_windows.ps1 -Preview
       - name: 验证原生开发驱动预算失败保护（本机模拟）
         shell: pwsh
         run: |
@@ -78,13 +74,8 @@ jobs:
       - name: 验收安装包和免安装版
         shell: pwsh
         run: |
-          if ('${{ startsWith(github.ref, 'refs/tags/v') }}' -eq 'true') {
-            .\scripts\test_windows_release.ps1
-          } else {
-            .\scripts\test_windows_release.ps1 -LibraryPreview
-          }
+          .\scripts\test_windows_release.ps1 -LibraryPreview
       - name: 验证5.6.3试用版升级及虚构档案备份恢复
-        if: "!startsWith(github.ref, 'refs/tags/v')"
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh

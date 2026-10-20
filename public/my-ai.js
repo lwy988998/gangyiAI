@@ -132,7 +132,7 @@
   }
   async function libraryUsageView() {
     const data=await existing('/api/my-ai/library/usage');
-    root.insertAdjacentHTML('afterbegin',card('联网资料使用情况','<div class="ma-metrics">'+metric(data.searchRequests,'博查实际请求')+metric(data.fetchRequests,'正文获取请求')+metric(data.cacheHits,'缓存命中')+metric(data.failures,'失败记录')+'</div><p class="ma-note">检索与正文读取单独统计，Token仅显示模型服务商实际返回值。</p>'));
+    root.insertAdjacentHTML('afterbegin',card('联网资料使用情况','<div class="ma-metrics">'+metric(data.searchRequests,'两家搜索实际请求')+metric(data.providers?.deepseek?.requests??0,'DeepSeek 搜索请求')+metric(data.providers?.bocha?.requests??0,'博查搜索请求')+metric(data.fetchRequests,'正文获取请求')+metric(data.cacheHits,'缓存命中')+metric(data.failures,'失败记录')+'</div><p class="ma-note">检索与正文读取单独统计，Token仅显示模型服务商实际返回值。</p>'));
   }
   async function settings() {
     root.innerHTML=card('AI服务与模型','<p>使用桌面设置配置服务商、接口地址、模型和密钥，并测试连接。</p><p class="ma-note">密钥保存在Windows凭据管理器。调整配置后按桌面设置提示应用到服务。</p>'+button('打开AI设置','open-settings'))+card('桌面设置','<p class="ma-note">开机启动及现有桌面选项在同一设置窗口管理。</p>');
