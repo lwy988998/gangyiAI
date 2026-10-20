@@ -193,11 +193,11 @@ if ($Candidate) {
 钢一定制AI v$version 离线候选（非正式发布）
 
 本包使用现有学习增强试用版标识 GangyiAI-Library-Preview。
-本轮仅提供审阅产物；不得在现用电脑安装、升级或直接启动免安装启动器，以免触及现有档案。
-本机检查只允许独立 DATABASE_PATH 的服务、包内 public 静态资源和启动器 --self-test。
-完整安装、5.6.3升级、卸载及备份恢复安排在临时 GitHub Windows runner，使用虚构数据及凭据。
+升级前请备份程序目录和 %LOCALAPPDATA%\GangyiAI-Library-Preview 中的学习档案与设置，并确认凭据目标仍存在。
+2026-10-20 的当前交付已在本机备份后原位升级；核对结果为服务与启动器版本 5.6.4、启动器自检通过、学习数据库哈希未变、设置和桌面入口保留。
+自动化安装、5.6.3升级、卸载及备份恢复在临时 GitHub Windows runner 使用虚构数据及凭据；脚本存在本身不代表验证通过。
 六教学案例真实配对、真实 Token/速度/教学质量验收尚未完成；不宣称实际节省或正式交付。
-本轮不读取真实密钥、不调用付费模型、不扩大累计100万Token预算、不创建正式标签或Release。
+本轮不读取密钥正文、不调用付费模型、不扩大累计100万Token预算、不创建正式标签或Release。
 "@
     Set-Content -LiteralPath (Join-Path $distDir '离线候选说明.txt') -Value $candidateGuide -Encoding utf8
     Set-Content -LiteralPath (Join-Path $distDir '免安装版使用说明.txt') -Value $candidateGuide -Encoding utf8
