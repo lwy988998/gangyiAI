@@ -295,17 +295,21 @@ class EntryTests(unittest.TestCase):
 
     def test_cumulative_budget_save_failure_stops_before_next_variant(self):
         arguments, output = self.compare_arguments('unwritable-budget')
-        replace = Path.replace
-        def replace_file(path, target):
-            if Path(target) == output/'budget-current.json':
-                raise PermissionError('模拟累计预算不可写')
-            return replace(path, target)
+        def fail_persist(path, value):
+            raise guard.BudgetStateError('模拟累计预算不可写')
         with patch.object(sys, 'argv', arguments), patch.object(provider.subprocess, 'run', side_effect=self.fake_run), \
-                patch.object(Path, 'replace', new=replace_file):
+                patch.object(compare, 'persist_budget', side_effect=fail_persist):
             self.assertEqual(compare.main(), 1)
         self.assertEqual(len(self.launches), 1)
         report = json.loads((output/'summary.json').read_text(encoding='utf-8'))
         self.assertIn('BudgetStateError', report['results'][0]['error'])
+
+    def test_persist_budget_rejects_directory_target(self):
+        target = self.root/'budget-directory'
+        target.mkdir()
+        (target/'occupied').write_text('不能被文件替换', encoding='utf-8')
+        with self.assertRaises(guard.BudgetStateError):
+            guard.persist_budget(target, {'limitTokens': 1000000, 'usedTokens': 0, 'reservedTokens': 0})
 
     def test_new_committed_wal_stops_next_variant_without_main_db_change(self):
         source = self.root/'wal-source.db'
