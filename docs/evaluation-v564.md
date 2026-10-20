@@ -69,4 +69,4 @@ v5.6.3支持原生`teaching_request`，默认不转换。`entryProtocol: legacy-
 
 入口回归已接入 CTest 的 `evaluation-entry`（含原17项与原生预算保存失败停止后续版本的新测试），CI 使用公开合成决定，不需要私有 verification 文件。Windows CI另构建开发驱动并执行本机模拟 smoke，覆盖预留写入失败HTTP0、原子替换失败保留旧文件、结算失败保留预留与专用退出码73；Python遇73立即抛BudgetStateError，不把旧有效文件当作新结算。
 
-候选构建命令为 `pwsh -NoProfile -File scripts/build_windows.ps1 -Preview -Candidate`。本机不得执行共享安装标识的installer；安装、5.6.3试用版升级和虚构档案备份恢复仅由临时CI runner运行 `scripts/test_windows_release.ps1 -LibraryPreview` 与 `scripts/test_windows_upgrade.ps1`。这些脚本的实际CI结果单独记录，不能用编译或本机离线测试替代。
+候选构建命令为 `pwsh -NoProfile -File scripts/build_windows.ps1 -Preview -Candidate`。自动化安装、5.6.3试用版升级和虚构档案备份恢复仅由临时CI runner运行 `scripts/test_windows_release.ps1 -LibraryPreview` 与 `scripts/test_windows_upgrade.ps1`。2026-10-20 按用户明确要求执行了本机原位升级；升级前已复制程序与档案目录、导出设置并记录凭据目标，不读取密钥正文。升级后服务与启动器版本均为 5.6.4、自检通过、数据库哈希未变且桌面入口保留。脚本的自动化CI结果仍单独记录，不能用编译或本机离线测试替代。
