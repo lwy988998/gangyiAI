@@ -117,6 +117,9 @@ def main():
                       AI_BASE_URL='https://api.other-provider.invalid', AI_API_KEY='never-send-this-key')[0]
             assert row['status'] == 'partial' and row['providers'][0]['status'] == 'missing_key'
             assert not any(auth == 'Bearer never-send-this-key' for _, _, auth in received)
+            row = run({'query': '复用官方凭据'}, DEEPSEEK_SEARCH_API_KEY='', DEEPSEEK_API_KEY='',
+                      AI_BASE_URL='https://api.deepseek.com/v1', AI_API_KEY='reuse-deepseek')[0]
+            assert row['status'] == 'completed' and any(auth == 'Bearer reuse-deepseek' for _, _, auth in received)
             # 旧建课入口的每个搜索角度也会进入同一双引擎实现。
             before = len(received)
             row = run({'query': 'Python', 'legacy': True})[0]

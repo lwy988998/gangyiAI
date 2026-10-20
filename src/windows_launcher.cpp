@@ -923,7 +923,6 @@ bool startService(bool openWhenReady, bool resetRestart = true) {
         {L"PORT", std::to_wstring(g.port)},
         {L"AI_BASE_URL", g.settings.baseUrl},
         {L"AI_API_KEY", apiKey},
-        {L"DEEPSEEK_SEARCH_API_KEY", g.settings.provider == gangyi::launcher::AIProvider::DeepSeek ? apiKey : std::wstring{}},
         {L"AI_MODEL", g.settings.model},
         {L"BOCHA_API_KEY", bochaKey},
         {L"RESOURCE_SEARCH_CACHE_DIR", (std::filesystem::path(g.dataDir)/L"resource-search-cache").wstring()},
@@ -936,7 +935,7 @@ bool startService(bool openWhenReady, bool resetRestart = true) {
     auto environment = childEnvironment(overrides);
     SecureZeroMemory(apiKey.data(), apiKey.size() * sizeof(wchar_t));
     SecureZeroMemory(bochaKey.data(), bochaKey.size() * sizeof(wchar_t));
-    for (auto& [name, value] : overrides) if (name == L"AI_API_KEY" || name == L"DEEPSEEK_SEARCH_API_KEY" || name == L"BOCHA_API_KEY")
+    for (auto& [name, value] : overrides) if (name == L"AI_API_KEY" || name == L"BOCHA_API_KEY")
         SecureZeroMemory(value.data(), value.size() * sizeof(wchar_t));
 
     SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
