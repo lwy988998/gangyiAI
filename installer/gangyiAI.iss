@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "5.6.5"
+  #define MyAppVersion "5.6.6"
 #endif
 
 #ifdef TeachingPreview

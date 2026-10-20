@@ -16,6 +16,72 @@ import evaluation_guard as guard
 import evaluation_compare as compare
 
 
+class LiveAuthorizationTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix='evaluation-authorization-')
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.original = self.root/'original.json'
+        self.active = self.root/'active.json'
+        self.state = {'limitTokens': 1000000, 'usedTokens': 839528, 'reservedTokens': 72075}
+        self.original.write_text(json.dumps(self.state), encoding='utf-8')
+        self.active.write_text(json.dumps(self.state), encoding='utf-8')
+        self.approval = {'newPaidCallsAllowedThisRound': True, 'limitTokens': 1000000,
+            'knownUsedTokens': 839528, 'unknownReservedTokens': 72075,
+            'originalBudgetPath': str(self.original), 'originalBudgetSha256': guard.file_hash(self.original),
+            'activeBudgetPath': str(self.active), 'baseUrl': 'https://frozen.example/v1', 'model': 'frozen-model'}
+        self.path = self.root/'decision.json'
+
+    def write_decision(self):
+        self.path.write_text(json.dumps(self.approval), encoding='utf-8')
+
+    def test_explicit_decision_restores_previous_context(self):
+        self.write_decision()
+        denied = self.root/'denied.json'
+        denied.write_text('{"newPaidCallsAllowedThisRound":false}', encoding='utf-8')
+        with guard.using_decision(denied):
+            with self.assertRaises(PermissionError):
+                guard.require_live_authorization()
+            with guard.using_decision(self.path):
+                self.assertEqual(guard.require_live_authorization()['activeBudgetPath'], str(self.active))
+            with self.assertRaises(PermissionError):
+                guard.require_live_authorization()
+
+    def test_reset_budget_and_original_mutation_are_rejected(self):
+        self.write_decision()
+        with guard.using_decision(self.path):
+            for field in ('usedTokens', 'reservedTokens'):
+                reduced = dict(self.state, **{field: 0})
+                self.active.write_text(json.dumps(reduced), encoding='utf-8')
+                with self.assertRaises(PermissionError):
+                    guard.require_live_authorization()
+            self.active.write_text(json.dumps(self.state), encoding='utf-8')
+            self.original.write_text('{}', encoding='utf-8')
+            with self.assertRaises(PermissionError):
+                guard.require_live_authorization()
+
+    def test_budget_increase_requires_explicit_matching_authorization(self):
+        self.write_decision()
+        self.active.write_text(json.dumps(dict(self.state, limitTokens=1200000)), encoding='utf-8')
+        with guard.using_decision(self.path):
+            with self.assertRaises(PermissionError):
+                guard.require_live_authorization()
+            self.approval['limitTokens'] = 1200000
+            self.write_decision()
+            self.assertEqual(guard.require_live_authorization()['limitTokens'], 1200000)
+            self.assertEqual(guard.read_budget(self.active)['usedTokens'], self.state['usedTokens'])
+            self.assertEqual(guard.read_budget(self.active)['reservedTokens'], self.state['reservedTokens'])
+
+    def test_frozen_model_mismatch_precedes_credentials(self):
+        self.write_decision()
+        frozen = self.root/'configuration.json'
+        frozen.write_text(json.dumps({'profileName': 'fixture', 'baseUrl': self.approval['baseUrl'], 'model': 'different'}), encoding='utf-8')
+        with guard.using_decision(self.path), patch.object(provider.ctypes, 'WinDLL', create=True) as credential:
+            with self.assertRaises(PermissionError):
+                provider.configured_environment({'profileName': 'fixture', 'frozenConfiguration': str(frozen)})
+            credential.assert_not_called()
+
+
 class EntryTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix='evaluation-entry-')
@@ -70,6 +136,19 @@ class EntryTests(unittest.TestCase):
         self.assertFalse((self.root/'records').exists())
         with self.assertRaises(PermissionError):
             provider.configured_environment()
+
+    def test_incomplete_baseline_stops_before_candidate(self):
+        cases = self.root/'cases.json'
+        cases.write_text(json.dumps([self.case]), encoding='utf-8')
+        manifest = self.root/'manifest.json'
+        manifest.write_text(json.dumps({'mode': 'fixture', 'casesFile': str(cases),
+            'entries': [{'variant': 'baseline'}, {'variant': 'candidate'}]}), encoding='utf-8')
+        incomplete = {'output': json.dumps({'complete': False, 'turns': [], 'usage': []}),
+            'budgetStatus': {'limitTokens': 1000000, 'usedTokens': 839528, 'reservedTokens': 72075}}
+        with patch.object(compare, 'call_api', return_value=incomplete) as request, \
+                patch.object(sys, 'argv', ['evaluation_compare.py', str(manifest), '--output', str(self.root/'incomplete')]):
+            self.assertEqual(compare.main(), 1)
+            self.assertEqual(request.call_count, 1)
 
     def test_native_protocol_zero_limit_and_no_credentials(self):
         with patch.object(provider, 'configured_environment', side_effect=AssertionError('离线不得读取凭据')), \

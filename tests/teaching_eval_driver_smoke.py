@@ -1,5 +1,6 @@
 """用隔离HTTP夹具验证验收入口真实请求统计，含用量选项兼容重试。"""
 import io
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -32,7 +33,52 @@ class UsageCompatibilityFixture(FixtureAI):
         super().do_POST()
 
 
+def authorization_checks(driver):
+    """只调用原生校验入口，合法与拒绝路径均不建立 HTTP 连接。"""
+    with tempfile.TemporaryDirectory(prefix='native-authorization-') as folder:
+        root = Path(folder)
+        state = {'limitTokens': 1000000, 'usedTokens': 839528, 'reservedTokens': 72075}
+        original, active, approval = root/'original.json', root/'active.json', root/'decision.json'
+        original.write_text(json.dumps(state), encoding='utf-8')
+        active.write_text(json.dumps(state), encoding='utf-8')
+        decision = {'newPaidCallsAllowedThisRound': True, 'limitTokens': 1000000,
+            'knownUsedTokens': 839528, 'unknownReservedTokens': 72075, 'originalBudgetPath': str(original),
+            'originalBudgetSha256': hashlib.sha256(original.read_bytes()).hexdigest(),
+            'activeBudgetPath': str(active), 'baseUrl': 'https://frozen.example.invalid/v1', 'model': 'fixture-model'}
+        approval.write_text(json.dumps(decision), encoding='utf-8')
+        env = dict(os.environ, GANGYI_EVAL_MODE='live', GANGYI_EVAL_DECISION_FILE=str(approval),
+                   GANGYI_EVAL_BUDGET_FILE=str(active), AI_BASE_URL=decision['baseUrl'], AI_MODEL=decision['model'])
+
+        def check(expected, **overrides):
+            process = subprocess.run([str(Path(driver).resolve()), '--check-live-authorization'],
+                env=dict(env, **overrides), capture_output=True, timeout=10)
+            assert (process.returncode == 0) == expected, process.stderr.decode('utf-8', errors='replace')
+
+        check(True)
+        blocked = subprocess.run([str(Path(driver).resolve()), '--check-live-search-block'], env=env, capture_output=True, timeout=10)
+        assert blocked.returncode == 0, blocked.stderr.decode('utf-8', errors='replace')
+        check(False, AI_MODEL='different')
+        check(False, AI_BASE_URL='https://different.example.invalid/v1')
+        check(False, GANGYI_EVAL_DECISION_FILE='')
+        check(False, GANGYI_EVAL_MODE='')
+        # 追加额度必须写入明确授权，单独抬高账本不能放行，历史用量也不能归零。
+        active.write_text(json.dumps(dict(state, limitTokens=1200000)), encoding='utf-8')
+        check(False)
+        decision['limitTokens'] = 1200000
+        approval.write_text(json.dumps(decision), encoding='utf-8')
+        check(True)
+        decision['limitTokens'] = 1000000
+        approval.write_text(json.dumps(decision), encoding='utf-8')
+        for field in ('usedTokens', 'reservedTokens'):
+            active.write_text(json.dumps(dict(state, **{field: 0})), encoding='utf-8')
+            check(False)
+        active.write_text(json.dumps(state), encoding='utf-8')
+        original.write_text('{}', encoding='utf-8')
+        check(False)
+
+
 def main(driver):
+    authorization_checks(driver)
     repo = Path(__file__).parents[1]
     with tempfile.TemporaryDirectory(prefix='gangyi-eval-usage-') as directory:
         root = Path(directory)

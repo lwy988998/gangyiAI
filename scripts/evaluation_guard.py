@@ -2,6 +2,8 @@
 import hashlib
 import ipaddress
 import json
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -10,6 +12,17 @@ DECISION = REPO / 'verification/v564-budget-decision.json'
 FROZEN = REPO / 'verification/v564-baseline'
 SCHEMA = 'same-protocol-v564-r1'
 TASK_METRICS = ('queueMs', 'firstContentMs', 'completionMs')
+_decision_file = ContextVar('evaluation_decision_file', default=None)
+
+
+@contextmanager
+def using_decision(path):
+    """显式选择本轮决定；退出后恢复，避免不同验收互相污染。"""
+    token = _decision_file.set(path)
+    try:
+        yield
+    finally:
+        _decision_file.reset(token)
 
 
 class BudgetStateError(RuntimeError):
@@ -51,7 +64,7 @@ def file_hash(path):
 
 
 def decision():
-    return json.loads(DECISION.read_text(encoding='utf-8-sig'))
+    return json.loads(Path(_decision_file.get() or DECISION).read_text(encoding='utf-8-sig'))
 
 
 def require_live_authorization():
@@ -61,6 +74,13 @@ def require_live_authorization():
         raise PermissionError('本轮授权禁止新增付费模型调用；未读取凭据、未启动真实HTTP。')
     if file_hash(value['originalBudgetPath']) != value['originalBudgetSha256']:
         raise PermissionError('原预算账本校验值变化，停止真实验收。')
+    active = value.get('activeBudgetPath')
+    if active:
+        state = read_budget(active)
+        if (state['limitTokens'] > value['limitTokens'] or state['usedTokens'] < value['knownUsedTokens'] or
+                state['reservedTokens'] < value['unknownReservedTokens'] or
+                Path(active).resolve() == Path(value['originalBudgetPath']).resolve()):
+            raise PermissionError('累计预算不符合本轮授权，停止真实验收。')
     return value
 
 

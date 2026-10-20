@@ -194,14 +194,14 @@ if ($Candidate) {
 
 本包使用现有学习增强试用版标识 GangyiAI-Library-Preview。
 升级前请备份程序目录和 %LOCALAPPDATA%\GangyiAI-Library-Preview 中的学习档案与设置，并确认凭据目标仍存在。
-2026-10-20 的当前交付已在本机备份后原位升级；核对结果为服务与启动器版本 5.6.4、启动器自检通过、学习数据库哈希未变、设置和桌面入口保留。
-自动化安装、5.6.3升级、卸载及备份恢复在临时 GitHub Windows runner 使用虚构数据及凭据；脚本存在本身不代表验证通过。
-六教学案例真实配对、真实 Token/速度/教学质量验收尚未完成；不宣称实际节省或正式交付。
-本轮不读取密钥正文、不调用付费模型、不扩大累计100万Token预算、不创建正式标签或Release。
+本包不会自动安装；本机是否升级、真实验收用量与结果，以同目录版本验收说明为准。
+自动化安装、升级、卸载及备份恢复使用临时 Windows runner 的虚构数据；以该版本实际 CI 结果为准。
+必要真实教学配对尚未全部通过，不宣称教学质量已验收或整体节省比例。
+开发验收驱动、凭据、预算账本和学习数据不随包分发。使用 AI 功能仍按原设置发起正常请求。
 "@
     Set-Content -LiteralPath (Join-Path $distDir '离线候选说明.txt') -Value $candidateGuide -Encoding utf8
     Set-Content -LiteralPath (Join-Path $distDir '免安装版使用说明.txt') -Value $candidateGuide -Encoding utf8
-    @{ version=$version; channel='offline-candidate'; profileName='GangyiAI-Library-Preview'; realModelEvaluationComplete=$false; paidModelRequests=0 } |
+    @{ version=$version; channel='offline-candidate'; profileName='GangyiAI-Library-Preview'; realModelEvaluationComplete=$false; acceptanceReport="v$version-candidate.md" } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $distDir 'candidate-metadata.json') -Encoding utf8
 }
 # 打包前只检查本次新建的发布目录，拒绝数据库、开发入口、验证证据与私有配置。
@@ -214,6 +214,7 @@ $portableName = if ($TeachingPreview) { "gangyiAI-teaching-preview1-v$version-x6
 $portablePath = Join-Path $repoRoot "dist\installer\$portableName"
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $portablePath) | Out-Null
 if ($Candidate) {
+    Copy-Item -LiteralPath (Join-Path $repoRoot "docs/releases/v$version-candidate.md") -Destination (Join-Path $distDir "v$version-candidate.md") -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot "docs/releases/v$version-candidate.md") -Destination (Join-Path $repoRoot 'dist/installer/离线候选说明.md') -Force
 }
 if (Test-Path -LiteralPath $portablePath) { Remove-Item -LiteralPath $portablePath -Force }

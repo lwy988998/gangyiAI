@@ -16,12 +16,14 @@ struct ResourceQuery {
     int count = 10;
     bool refresh = false;
     std::function<bool()> cancelled;
+    std::string scopeId;
 };
 struct ResourceQueryResult {
     std::vector<SearchResource> resources;
     std::string status;
     int attempts = 0;
     bool cached = false;
+    bool shared = false;
     nlohmann::json providers = nlohmann::json::array();
 };
 

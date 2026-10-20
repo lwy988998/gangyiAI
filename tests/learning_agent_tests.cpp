@@ -31,7 +31,16 @@ void runLibraryChecks();
 #include "demonstrated_question_checks.hpp"
 #include "agent_efficiency_checks.hpp"
 #include "agent_quantum_checks.hpp"
-int main() {
+#include "startup_reuse_checks.hpp"
+int main(int argc, char** argv) {
+    if (argc == 2 && std::string(argv[1]) == "--startup-reuse-only") {
+        const auto isolated = std::filesystem::temp_directory_path() /
+            ("gangyi-startup-reuse-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        std::filesystem::create_directories(isolated);
+        runStartupReuseChecks(isolated / "fixture.db");
+        std::filesystem::remove_all(isolated);
+        std::cout << "启动复用、跨连接恢复、状态失效和开关检查通过；付费请求0。\n"; return 0;
+    }
     runLibraryChecks();
     const auto root = std::filesystem::temp_directory_path() /
         ("gangyi-agent-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
