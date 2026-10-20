@@ -25,7 +25,7 @@ if (-not $objects) { throw '请先完成 learning-agent-tests 构建。' }
 $curl = Get-ChildItem -LiteralPath (Join-Path $repo 'third_party\curl') -Directory | Select-Object -First 1
 $argsList = @('-std=c++17','-O2','-D_GLIBCXX_ATOMIC_WORD_BUILTINS=1','-I', $headers,'-I',(Join-Path $repo 'third_party\json-3.11.3\include'),'-I',(Join-Path $curl.FullName 'include'), (Join-Path $repo 'tests\teaching_eval_driver.cpp'))
 $argsList += $objects.FullName
-$argsList += @($sqlite,(Join-Path $curl.FullName 'lib\libcurl.dll.a'),'-lws2_32','-o',(Join-Path $BuildDir $OutputName))
+$argsList += @($sqlite,(Join-Path $curl.FullName 'lib\libcurl.dll.a'),'-lws2_32','-Wl,--wrap=curl_easy_perform','-o',(Join-Path $BuildDir $OutputName))
 & g++ @argsList
 if ($LASTEXITCODE -ne 0) { throw '教学验收入口编译失败。' }
 $receipt = @{ harnessSha256=(Get-FileHash -LiteralPath (Join-Path $repo 'tests\teaching_eval_driver.cpp') -Algorithm SHA256).Hash.ToLowerInvariant(); headers=$headers; headerHashes=@(Get-ChildItem -LiteralPath $headers -File | ForEach-Object { @{ name=$_.Name; sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() } }); sqliteSha256=(Get-FileHash -LiteralPath $sqlite -Algorithm SHA256).Hash.ToLowerInvariant(); frozenBaseline=[bool]$BaselineRoot; objects=@($objects | ForEach-Object { @{ name=$_.Name; sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() } }) }

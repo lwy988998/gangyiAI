@@ -9,6 +9,8 @@
 #include "agent_stream.hpp"
 #include "teaching_evidence.hpp"
 #include "agent_prompt.hpp"
+#include "search_client.hpp"
+#include "version.hpp"
 #include <algorithm>
 #include <chrono>
 #include <ctime>
@@ -190,7 +192,7 @@ void ownedUpdate(Database& db, Json& task, const std::function<void(Json&)>& act
 Json publicTask(const Json& task) {
     Json output;
     for (const auto* field : {"id", "requestId", "status", "version", "seq", "events", "message", "updatedAt", "createdAt",
-            "model", "calls", "error", "failure", "pauseReason", "lesson", "course", "navigate", "replacementTaskId", "changes", "teachingFocus", "activity", "queueMs", "firstContentMs", "completionMs"})
+            "model", "calls", "error", "failure", "pauseReason", "lesson", "course", "navigate", "replacementTaskId", "changes", "teachingFocus", "activity", "queueMs", "firstContentMs", "completionMs", "reusedFromTaskId", "reuseReason", "reuseCount"})
         if (task.contains(field)) output[field] = task[field];
     output["purpose"] = taskPurpose(task.at("event").value("type", ""));
     const auto event = task.at("event");
@@ -337,6 +339,64 @@ Json agentContext(Database& db, const AgentAccess& access, const Json& event) {
     return context;
 }
 
+namespace {
+// 覆盖完整启动职责；课时、复习和个人设置不能只靠学习版本判断。
+std::string startupFingerprint(Database& db, const AgentAccess& access, Json event) {
+    try {
+    event.erase("requestId"); event.erase("refresh");
+    auto context = agentContext(db, access, event);
+    context["savedLibrary"].erase("contextReadAt");
+    Json records = Json::array(), preparation = Json::array();
+    for (const auto& course : access.courseIds) for (const auto& row : db.listClassroomActivities(course)) {
+        if (row.kind != "agent-lesson" && row.kind != "review") continue;
+        auto value = parsed(row.payload);
+        if (value.contains("scopeId") && value.value("scopeId", "") != access.scopeId) continue;
+        records.push_back({{"id", row.id}, {"kind", row.kind}, {"payload", value},
+            {"dueNow", value.value("due", "") <= stamp()}});
+    }
+    for (const auto& id : ids(db)) {
+        const auto row = db.getClassroomActivity(id); if (!row) continue;
+        const auto task = parsed(row->payload);
+        if (task.value("scopeId", "") == access.scopeId && task.value("event", Json::object()).value("type", "") == "prepare_next")
+            preparation.push_back({{"id", id}, {"event", task.at("event")}, {"status", task.value("status", "")},
+                {"version", task.value("version", 0)}, {"lesson", task.value("lesson", Json())}});
+    }
+    const auto clock = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    std::tm calendar{};
+#ifdef _WIN32
+    localtime_s(&calendar, &clock);
+#else
+    localtime_r(&clock, &calendar);
+#endif
+    std::ostringstream date; date << std::put_time(&calendar, "%Y-%m-%d");
+    Json configuration = Json::object();
+    for (const auto* name : {"AI_BASE_URL", "AI_MODEL", "AI_TIMEOUT_MS", "AI_RETRY_ATTEMPTS", "GANGYI_AGENT_STAGE_TOOLS",
+            "GANGYI_AGENT_CONTEXT_PROJECTION", "GANGYI_AGENT_RECEIPT_DEDUP"}) {
+        const auto value = std::getenv(name); configuration[name] = value ? Json(value) : Json();
+    }
+    const auto credential = std::getenv("AI_API_KEY");
+    configuration["credentialIdentity"] = resourceDigest(credential ? credential : "");
+    return resourceDigest(Json{{"protocol", "startup-reuse-v1"}, {"version", kVersion}, {"scope", access.scopeId},
+        {"courses", access.courseIds}, {"context", context}, {"records", records}, {"preparation", preparation},
+        {"date", date.str()}, {"configuration", configuration}, {"personal", db.myAIContextVersions()},
+        {"library", db.profileMeta("library-revision")}, {"profileRevision", db.profileRevision()},
+        {"assessedRevision", db.profileAssessedRevision()}, {"profileEvidence", db.profileMeta("agent-profile-evidence")}}.dump());
+    } catch (...) { return {}; }
+}
+
+bool validRecommendations(const Json& value) {
+    if (!value.is_object() || value.value("status", Json()) != "ready" || !value.value("items", Json()).is_object()) return false;
+    for (const auto* mode : {"lite", "deep"}) {
+        const auto items = value.value("items", Json::object()).value(mode, Json());
+        if (!items.is_array() || items.empty()) return false;
+        std::set<std::string> seen;
+        for (const auto& item : items)
+            if (!item.is_string() || item.get<std::string>().empty() || !seen.insert(item.get<std::string>()).second) return false;
+    }
+    return true;
+}
+}
+
 Json agentSubmit(Database& db, const AgentAccess& access, const Json& event, AgentSubmissionOrigin origin) {
     if (access.scopeId.empty() || access.scopeId.size() > 200 || !event.is_object() ||
         !event.value("requestId", Json()).is_string() || event["requestId"].get<std::string>().empty() ||
@@ -353,11 +413,36 @@ Json agentSubmit(Database& db, const AgentAccess& access, const Json& event, Age
         for (const auto& id : index) {
             const auto row = db.getClassroomActivity(id); if (!row) continue;
             const auto old = parsed(row->payload);
-            if (old.value("scopeId", "") == access.scopeId && old.value("requestId", "") == event["requestId"]) {
-                if (old.at("event") != event) throw std::invalid_argument("重复请求的内容不一致");
+            const auto aliases = old.value("requestAliases", Json::object());
+            const auto requestId = event.at("requestId").get<std::string>();
+            if (old.value("scopeId", "") == access.scopeId &&
+                (old.value("requestId", "") == requestId || (aliases.is_object() && aliases.contains(requestId)))) {
+                const auto previous = old.value("requestId", "") == requestId ? old.at("event") : aliases.at(requestId);
+                if (previous != event) throw std::invalid_argument("重复请求的内容不一致");
                 if (old.value("manualScheduleReplan", false) != manualSchedule)
                     throw std::invalid_argument("重复请求的排课授权不一致");
                 task = old; return;
+            }
+        }
+        if (event.at("type") == "startup" && !event.value("refresh", false) && agentEfficiencyEnabled("GANGYI_AGENT_STARTUP_REUSE")) {
+            auto scope = parsed(db.profileMeta(scopeKey(access)));
+            const auto reuse = scope.value("startupReuse", Json::object());
+            const auto recommendations = agentRecommendationView(db, access);
+            const auto signature = startupFingerprint(db, access, event);
+            if (reuse.is_object() && !signature.empty() && validRecommendations(recommendations) && recommendations.value("taskId", "") == reuse.value("taskId", "") && reuse.value("signature", "") == signature &&
+                reuse.value("recommendations", "") == resourceDigest(recommendations.dump())) {
+                const auto row = db.getClassroomActivity(reuse.value("taskId", ""));
+                if (row && row->kind == "agent-task") {
+                    Json old = Json::object();
+                    try { old = taskFor(db, access, row->id); } catch (...) {}
+                    if (old.value("status", "") == "ready" && old.value("event", Json::object()).value("type", "") == "startup") {
+                        old["reusedFromTaskId"] = old.at("id"); old["reuseReason"] = "unchanged_startup_state";
+                        old["requestAliases"][event.at("requestId").get<std::string>()] = event;
+                        old["reuseCount"] = old.value("reuseCount", 0) + 1; saveTask(db, old);
+                        scope["latestTaskId"] = old.at("id"); scope["fingerprint"] = agentLearnerFingerprint(db, access);
+                        db.setProfileMeta(scopeKey(access), scope.dump()); task = old; return;
+                    }
+                }
             }
         }
         agentRecordLearnerEvent(db, access, event);
@@ -614,6 +699,8 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
                 });
                 return;
             }
+            auto startupObserved = task.at("event").value("type", "") == "startup" && agentEfficiencyEnabled("GANGYI_AGENT_STARTUP_REUSE")
+                ? startupFingerprint(db, access, task.at("event")) : std::string();
             ChatOptions options;
             options.maxTokens = std::clamp(task.value("responseTokenLimit", 8192), 8192, 16384);
             options.timeoutMs = options.maxTokens == 8192 && task.at("event").value("type", "") != "library_research" ? 60000 : 120000;
@@ -777,6 +864,7 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
             failureStage = "structure";
             ownedUpdate(db, task, [&](Json& current) {
                 // 保存原响应供模型修正，不能把截取或补齐后的半成品当成可执行行动。
+                if (!startupObserved.empty() && startupObserved != startupFingerprint(db, access, current.at("event"))) current["startupReuseInvalidated"] = true;
                 current["model"] = response.model;
                 current["messages"].push_back({{"role", "assistant"}, {"content", response.content}});
                 recordActivity(current, {{"phase", "validation"}, {"state", "started"}, {"title", "校验 AI 返回的内容和操作"},
@@ -873,6 +961,8 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
                     const auto current = taskFor(db, access, taskId);
                     if (current.value("status", "") != "running" || current.dump() != task.dump() || db.learningRevision() != task.value("learningVersion", 0))
                         throw std::runtime_error("学习情况或任务状态已变化");
+                    if (!startupObserved.empty() && (startupObserved != startupFingerprint(db, access, task.at("event")) || prepared.afterCommit))
+                        task["startupReuseInvalidated"] = true;
                     if (prepared.commit) prepared.commit(db);
                     if (prepared.commit || !tools_.at(name).readOnly) contextReuse.clear();
                     task["learningVersion"] = db.learningRevision();
@@ -907,6 +997,7 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
                     recordActivity(task, activity);
                     recordEvent(task, {{"type", "action"}, {"actionId", id}, {"activity", task["activity"]}, {"message", resolvingInput || holdPublicContent ? Json("") : decision["message"]}});
                     writeScopeFingerprint(db, access); saveTask(db, task);
+                    if (!startupObserved.empty()) startupObserved = startupFingerprint(db, access, task.at("event"));
                 });
                 if (name == "append_section") AIActivity::taskContent(taskId);
                 if(prepared.afterCommit) { prepared.afterCommit(db); contextReuse.clear(); }
@@ -938,6 +1029,7 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
             }
             ownedUpdate(db, task, [&](Json& current) {
                 current.erase("failureCount"); current.erase("failureKind");
+                if (!startupObserved.empty() && startupObserved != startupFingerprint(db, access, current.at("event"))) current["startupReuseInvalidated"] = true;
                 current.erase("failure"); current.erase("error");
                 current["results"].push_back(results);
                 if (holdPublicContent) current["message"] = decision["message"];
@@ -974,6 +1066,15 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
                         {"title", current["status"] == "ready" ? "本次处理已完成" : "教学回复已保存，等待你的回应"},
                         {"detail", prepared ? "完整课件已保存，可以进入课堂。" : "本轮有效内容和操作已保存。"}});
                     recordEvent(current, {{"type", current["status"]}, {"message", decision["message"]}});
+                    if (type == "startup" && !startupObserved.empty() && !current.value("startupReuseInvalidated", false)) {
+                        const auto recommendations = agentRecommendationView(db, access);
+                        if (validRecommendations(recommendations) && recommendations.value("taskId", "") == current.at("id")) {
+                            auto scope = parsed(db.profileMeta(scopeKey(access)));
+                            scope["startupReuse"] = {{"signature", startupFingerprint(db, access, current.at("event"))},
+                                {"taskId", current.at("id")}, {"recommendations", resourceDigest(recommendations.dump())}};
+                            db.setProfileMeta(scopeKey(access), scope.dump());
+                        }
+                    }
                 }
             });
             errors = 0;

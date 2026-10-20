@@ -21,6 +21,13 @@
 #include <string>
 #include <ctime>
 #include <vector>
+#include <thread>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace gangyi {
 namespace {
@@ -253,14 +260,53 @@ std::string detectDomain(const std::string& goal) {
     return "general";
 }
 
-struct HttpResult { long status = 0; std::string body; CURLcode error = CURLE_OK; bool directRetry = false; };
+struct HttpResult { long status = 0; std::string body; CURLcode error = CURLE_OK; bool directRetry = false; int attempts = 0; };
+
+bool evaluationSearchAttempt() {
+    const auto filename = std::getenv("GANGYI_EVAL_SEARCH_BUDGET_FILE");
+    if (!filename || !*filename) return true;
+#ifdef _WIN32
+    // 仅开发验收启用；发送前先持久记账，未知请求不退款，各进程共用同一把文件锁。
+    try {
+        const auto path = fs::u8path(filename);
+        struct Lock {
+            HANDLE handle = INVALID_HANDLE_VALUE;
+            explicit Lock(const fs::path& file) {
+                const auto name = file.wstring() + L".lock";
+                for (int i = 0; i < 1500; ++i) {
+                    handle = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+                    if (handle != INVALID_HANDLE_VALUE) return;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                }
+                throw std::runtime_error("搜索预算锁不可用");
+            }
+            ~Lock() { if (handle != INVALID_HANDLE_VALUE) CloseHandle(handle); }
+        } lock(path);
+        json value;
+        { std::ifstream input(path, std::ios::binary); input >> value; }
+        for (const auto* field : {"limit", "attempts", "reserved"})
+            if (!value.at(field).is_number_integer() || value.at(field).get<long long>() < 0) return false;
+        const auto limit = value.at("limit").get<long long>();
+        if (limit > 20 || value.at("attempts").get<long long>() + value.at("reserved").get<long long>() >= limit) return false;
+        value["attempts"] = value.at("attempts").get<long long>() + 1;
+        value["countingPolicy"] = "发送前计入；中断及未知请求不退款";
+        auto temporary = path; temporary += ".tmp";
+        { std::ofstream output(temporary, std::ios::binary | std::ios::trunc); output << value.dump(2); output.flush();
+          if (!output) return false;
+          output.close(); if (!output) return false; }
+        return MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+    } catch (...) { return false; }
+#else
+    return false;
+#endif
+}
 
 int searchProgress(void* user, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
     const auto* cancelled = static_cast<const std::function<bool()>*>(user);
     try { return cancelled && *cancelled && (*cancelled)() ? 1 : 0; } catch (...) { return 1; }
 }
 HttpResult postJson(const std::string& url, const std::string& key, const json& body, long timeoutMs,
-                    const std::function<bool()>& cancelled = {}) {
+                    const std::function<bool()>& cancelled = {}, const std::function<bool()>& started = {}) {
     HttpResult result;
     CURL* curl = curl_easy_init();
     if (!curl) { result.error = CURLE_FAILED_INIT; return result; }
@@ -285,7 +331,11 @@ HttpResult postJson(const std::string& url, const std::string& key, const json& 
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, searchProgress);
     curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &cancelled);
-    result.error = curl_easy_perform(curl);
+    const auto perform = [&] {
+        if (!(started ? started() : evaluationSearchAttempt())) return CURLE_ABORTED_BY_CALLBACK;
+        ++result.attempts; return curl_easy_perform(curl);
+    };
+    result.error = perform();
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &result.status);
     long usedProxy = 0;
 #if LIBCURL_VERSION_NUM >= 0x080700
@@ -296,7 +346,7 @@ HttpResult postJson(const std::string& url, const std::string& key, const json& 
         result.status = 0;
         result.directRetry = true;
         curl_easy_setopt(curl, CURLOPT_NOPROXY, "*");
-        result.error = curl_easy_perform(curl);
+        result.error = perform();
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &result.status);
     }
     curl_slist_free_all(headers);
@@ -424,6 +474,8 @@ std::optional<std::vector<SearchResource>> readCache(const std::string& dir, con
 }
 
 void writeCache(const std::string& dir, const std::string& key, const std::vector<SearchResource>& resources) {
+    static std::mutex writer;
+    std::lock_guard<std::mutex> lock(writer);
     try {
         fs::create_directories(dir);
         const fs::path path = fs::path(dir) / (key + ".json");
@@ -513,9 +565,12 @@ std::string deepseekQuery(const ResourceQuery& request) {
     return characters <= 128 ? query : std::string();
 }
 
-ResourceQueryResult providerQuery(const std::string& provider, const ResourceQuery& request, const std::string& cacheDir) {
-    ResourceQueryResult result;
-    result.status = "missing_key";
+struct ProviderConfiguration {
+    std::string base;
+    std::string key;
+};
+
+ProviderConfiguration providerConfiguration(const std::string& provider) {
     const bool deepseek = provider == "deepseek";
     auto base = trim(env(deepseek ? "DEEPSEEK_SEARCH_BASE_URL" : "BOCHA_BASE_URL",
                          deepseek ? "https://api.deepseek.com" : "https://api.bochaai.com"));
@@ -526,19 +581,32 @@ ResourceQueryResult providerQuery(const std::string& provider, const ResourceQue
     // 只复用官方 DeepSeek 的模型凭据，其他模型服务商的密钥不会发给 DeepSeek。
     if (deepseek && key.empty() && hostFromUrl(env("AI_BASE_URL", "https://api.deepseek.com")) == "api.deepseek.com")
         key = trim(env("AI_API_KEY"));
+    return {base, key};
+}
+
+ResourceQueryResult providerQueryOnce(const std::string& provider, const ResourceQuery& request,
+                                    const std::string& cacheDir, const ProviderConfiguration& configuration,
+                                    const std::function<bool()>& started = {},
+                                    const std::function<bool(const std::function<void()>&)>& publish = {}) {
+    ResourceQueryResult result;
+    result.status = "missing_key";
+    const bool deepseek = provider == "deepseek";
+    const auto& base = configuration.base;
+    const auto& key = configuration.key;
     if (key.empty()) return result;
     if (request.cancelled && request.cancelled()) { result.status = "cancelled"; return result; }
     const auto query = deepseek ? deepseekQuery(request) : request.query;
     if (query.empty()) { result.status = "query_too_long"; return result; }
-    const auto cacheKey = sha256Hex("dual-v1:" + provider + ":" + base + ":" + sha256Hex(key) + ":" + query + ":" + request.freshness + ":" + std::to_string(request.count));
+    const auto cacheKey = sha256Hex("dual-v1:" + provider + ":" + base + ":" + sha256Hex(key) + ":" + query + ":" + request.freshness + ":" + std::to_string(request.count) +
+        (request.scopeId.empty() ? std::string() : ":scope:" + sha256Hex(request.scopeId)));
     if (!request.refresh) if (const auto cached = readCache(cacheDir, cacheKey, request.freshness == "noLimit" ? 86400LL : 3600LL)) {
         result.resources = *cached; result.status = "completed"; result.cached = true; return result;
     }
     json body = deepseek ? json{{"query", query}, {"count", request.count}, {"need_content", false}} :
         json{{"query", query}, {"freshness", request.freshness}, {"count", request.count}, {"summary", true}};
     const auto response = postJson(base + (deepseek ? "/v1/tools/search" : "/v1/web-search"), key, body,
-        static_cast<long>(std::clamp(env_ll("RESOURCE_SEARCH_TIMEOUT_MS", 15000LL), 1000LL, 60000LL)), request.cancelled);
-    result.attempts = response.error == CURLE_FAILED_INIT ? 0 : response.directRetry ? 2 : 1;
+        static_cast<long>(std::clamp(env_ll("RESOURCE_SEARCH_TIMEOUT_MS", 15000LL), 1000LL, 60000LL)), request.cancelled, started);
+    result.attempts = response.attempts;
     if (response.error == CURLE_ABORTED_BY_CALLBACK) result.status = "cancelled";
     else if (response.error != CURLE_OK) result.status = "network_error";
     else if (response.status < 200 || response.status >= 300) result.status = "http_" + std::to_string(response.status);
@@ -570,11 +638,122 @@ ResourceQueryResult providerQuery(const std::string& provider, const ResourceQue
             }
             result.resources = normalizeResources(std::move(result.resources), detectDomain(request.query));
             for (auto& resource : result.resources) resource.searchProviders = {provider};
-            result.status = "completed";
-            writeCache(cacheDir, cacheKey, result.resources);
+            if (request.cancelled && request.cancelled()) {
+                result.resources.clear(); result.status = "cancelled";
+            } else {
+                const auto save = [&] { writeCache(cacheDir, cacheKey, result.resources); };
+                const bool saved = publish ? publish(save) : (save(), true);
+                result.status = saved ? "completed" : "cancelled";
+                if (!saved) result.resources.clear();
+            }
         } catch (...) { result.resources.clear(); result.status = "invalid_response"; }
     }
     return result;
+}
+
+struct SearchWaiters {
+    std::mutex mutex;
+    int active = 1;
+    int unreportedAttempts = 0;
+    bool stopped = false;
+    bool join() {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (stopped) return false;
+        ++active; return true;
+    }
+    int leave() {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (--active == 0) stopped = true;
+        const auto attempts = unreportedAttempts;
+        unreportedAttempts = 0;
+        return attempts;
+    }
+    bool start() {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (stopped || !evaluationSearchAttempt()) return false;
+        ++unreportedAttempts; return true;
+    }
+    bool cancelled() {
+        std::lock_guard<std::mutex> lock(mutex);
+        return stopped;
+    }
+    bool publish(const std::function<void()>& save) {
+        // 最后一次取消与缓存提交串行，不能取消后再等写锁落入成功缓存。
+        std::lock_guard<std::mutex> lock(mutex);
+        if (stopped) return false;
+        save(); return true;
+    }
+};
+
+struct SearchFlight {
+    std::shared_ptr<SearchWaiters> waiters = std::make_shared<SearchWaiters>();
+    std::shared_future<ResourceQueryResult> result;
+};
+
+ResourceQueryResult providerQuery(const std::string& provider, const ResourceQuery& request, const std::string& cacheDir) {
+    const auto configuration = providerConfiguration(provider);
+    if (request.refresh || env("GANGYI_SEARCH_SINGLEFLIGHT") == "0" || configuration.key.empty())
+        return providerQueryOnce(provider, request, cacheDir, configuration);
+    struct Flights {
+        std::mutex mutex;
+        std::map<std::string, std::shared_ptr<SearchFlight>> active;
+        // 已取消的工作仍由有界网络超时收尾，调用者退出时无需等待异步析构。
+        std::vector<std::shared_ptr<SearchFlight>> retiring;
+    };
+    static Flights flights;
+    const auto identity = json{{"provider", provider}, {"base", configuration.base},
+        {"credential", sha256Hex(configuration.key)}, {"query", request.query},
+        {"effectiveQuery", provider == "deepseek" ? deepseekQuery(request) : request.query},
+        {"freshness", request.freshness}, {"count", request.count}, {"scope", request.scopeId},
+        {"cacheDir", fs::absolute(fs::u8path(cacheDir)).lexically_normal().u8string()}}.dump();
+    const auto identityKey = sha256Hex(identity);
+    std::shared_ptr<SearchFlight> flight;
+    bool shared = false;
+    {
+        std::lock_guard<std::mutex> lock(flights.mutex);
+        const auto ready = [](const auto& value) {
+            return value->result.valid() && value->result.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready;
+        };
+        flights.retiring.erase(std::remove_if(flights.retiring.begin(), flights.retiring.end(), ready), flights.retiring.end());
+        for (auto it = flights.active.begin(); it != flights.active.end();) {
+            if (ready(it->second)) it = flights.active.erase(it); else ++it;
+        }
+        const auto existing = flights.active.find(identityKey);
+        if (existing != flights.active.end()) {
+            if (existing->second->waiters->join()) { flight = existing->second; shared = true; }
+            else { flights.retiring.push_back(existing->second); flights.active.erase(existing); }
+        }
+        if (!flight) {
+            flight = std::make_shared<SearchFlight>();
+            auto work = request;
+            work.cancelled = [waiters = flight->waiters] { return waiters->cancelled(); };
+            flight->result = std::async(std::launch::async, [provider, work, cacheDir, configuration, waiters = flight->waiters] {
+                return providerQueryOnce(provider, work, cacheDir, configuration, [waiters] { return waiters->start(); },
+                    [waiters](const auto& save) { return waiters->publish(save); });
+            }).share();
+            flights.active[identityKey] = flight;
+        }
+    }
+    struct Subscription {
+        std::shared_ptr<SearchWaiters> waiters;
+        int finish() { const auto attempts = waiters->leave(); waiters.reset(); return attempts; }
+        ~Subscription() { if (waiters) waiters->leave(); }
+    } subscription{flight->waiters};
+    while (true) {
+        if (request.cancelled && request.cancelled()) {
+            ResourceQueryResult result; result.status = "cancelled"; result.shared = shared;
+            // 每笔实际请求只由一个回执领取；最后退出与发送使用同一把锁。
+            result.attempts = subscription.finish();
+            return result;
+        }
+        if (flight->result.wait_for(std::chrono::milliseconds(20)) == std::future_status::ready) {
+            ResourceQueryResult result;
+            try { result = flight->result.get(); } catch (...) { result.status = "internal_error"; }
+            result.shared = shared;
+            result.attempts = subscription.finish();
+            return result;
+        }
+    }
 }
 
 }  // namespace
@@ -655,9 +834,11 @@ ResourceQueryResult SearchClient::query(const ResourceQuery& request) const {
         try { part = provider == "deepseek" ? deepseek.get() : bocha.get(); }
         catch (...) { part.status = "internal_error"; }
         result.attempts += part.attempts;
+        result.shared = result.shared || part.shared;
         if (part.status == "completed") ++completed;
         result.providers.push_back({{"provider", provider}, {"status", part.status}, {"attempts", part.attempts},
-            {"cached", part.cached}, {"results", part.resources.size()}});
+            {"cached", part.cached}, {"shared", part.shared},
+            {"reuseReason", part.shared ? "in_flight" : part.cached ? "cache" : "none"}, {"results", part.resources.size()}});
         std::size_t rank = 0;
         for (auto& resource : part.resources) {
             const auto key = resource.url;

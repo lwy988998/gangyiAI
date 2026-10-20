@@ -301,7 +301,7 @@ void registerAgentPreferenceTools(LearningAgent& agent) {
             const auto key = recommendationKey(accessFor(task)), raw = db.profileMeta(key);
             const auto value = Json{{"status", "ready"}, {"items", {{"lite", args["lite"]}, {"deep", args["deep"]}}},
                 {"reason", requireText(args, "reason")}, {"model", source.model}, {"generatedAt", now()},
-                {"learningVersion", task.at("learningVersion")}};
+                {"learningVersion", task.at("learningVersion")}, {"taskId", task.at("id")}};
             return PreparedAgentTool{{{"updated", true}}, [raw, value, key](Database& connection) {
                 if (!connection.compareProfileMeta(key, raw, value.dump())) throw std::invalid_argument("推荐已被其他任务更新");
             }};

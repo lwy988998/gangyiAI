@@ -67,9 +67,10 @@ void checkCourseAccess(Database& db, const Json& task, const std::string& id) {
     const auto ids = task.at("courseIds").get<std::vector<std::string>>();
     if (std::find(ids.begin(), ids.end(), id) == ids.end()) throw std::invalid_argument("无权读取此课程的资料");
 }
-void operation(Database& db, const std::string& key, const std::string& kind, const std::string& status, int attempts, bool cached, const std::string& taskId, const std::string& provider = {}) {
+void operation(Database& db, const std::string& key, const std::string& kind, const std::string& status, int attempts, bool cached, const std::string& taskId, const std::string& provider = {}, bool shared = false) {
     const auto id = "library-usage:" + libraryDigest(key + ":" + libraryNow() + ":" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-    save(db, id, "library-usage", {{"kind", kind}, {"status", status}, {"attempts", attempts}, {"cached", cached}, {"provider", provider}, {"taskId", taskId}, {"at", libraryNow()}}, 0);
+    save(db, id, "library-usage", {{"kind", kind}, {"status", status}, {"attempts", attempts}, {"cached", cached}, {"shared", shared},
+        {"reuseReason", shared ? "in_flight" : cached ? "cache" : "none"}, {"provider", provider}, {"taskId", taskId}, {"at", libraryNow()}}, 0);
 }
 Json sourceFromSearch(Database& db, const SearchResource& resource, const std::string& query, const std::string& courseId) {
     if (!libraryPublicURL(resource.url)) return Json();
@@ -306,10 +307,12 @@ void registerLibraryTools(LearningAgent& agent) {
                 if (cancelled()) throw std::runtime_error("资料检索已暂停或学习背景已更新");
                 ResourceQuery request; request.query = query; request.freshness = freshness; request.count = item.value("count", 10);
                 request.refresh = args.value("refresh", false); request.cancelled = cancelled;
+                request.scopeId = task.at("scopeId").get<std::string>() + ":" + courseId;
                 const auto response = SearchClient().query(request);
+                // 已发生的网络用量独立保存，来源解析失败不能把它回滚成零。
+                for (const auto& provider : response.providers)
+                    operation(db, key, "search", provider.at("status"), provider.at("attempts"), provider.at("cached"), task.at("id"), provider.at("provider"), provider.value("shared", false));
                 db.transaction([&] {
-                    for (const auto& provider : response.providers)
-                        operation(db, key, "search", provider.at("status"), provider.at("attempts"), provider.at("cached"), task.at("id"), provider.at("provider"));
                     Json sourceIds = Json::array();
                     for (const auto& resource : response.resources) {
                         const auto sourceId = "library-source:" + libraryDigest(libraryCanonicalURL(resource.url));

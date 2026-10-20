@@ -6,6 +6,7 @@ import sys
 
 from evaluation_guard import (BudgetStateError, budget_copy, file_hash, isolated_output,
                               persist_budget, require_live_authorization)
+from evaluation_guard import using_decision
 from teaching_eval_provider import call_api
 from evaluation_core_fixture import run as run_core
 
@@ -16,12 +17,17 @@ def main():
     parser.add_argument('--output', required=True, help='新的隔离结果目录')
     args = parser.parse_args()
     manifest = json.loads(Path(args.manifest).read_text(encoding='utf-8-sig'))
+    with using_decision(manifest.get('decisionFile') or manifest.get('shared', {}).get('decisionFile')):
+        return run_comparison(manifest, args.output, args.manifest)
+
+
+def run_comparison(manifest, output_dir, manifest_path):
     mode = manifest.get('mode', 'preflight')
     if mode == 'live':
         require_live_authorization()
     if mode not in ('preflight', 'fixture', 'live'):
         raise ValueError('未知运行模式')
-    output = isolated_output(args.output)
+    output = isolated_output(output_dir)
     output.mkdir(parents=True, exist_ok=False)
     cases = json.loads(Path(manifest['casesFile']).read_text(encoding='utf-8-sig')) if manifest.get('casesFile') else []
     if manifest.get('caseIds'):
@@ -45,7 +51,7 @@ def main():
                 material_hashes[str(path.resolve())] = file_hash(path) if path.exists() else None
     results = []
     def save():
-        value = {'manifestSha256': file_hash(args.manifest), 'mode': mode, 'results': results,
+        value = {'manifestSha256': file_hash(manifest_path), 'mode': mode, 'results': results,
                  'sourceMaterialHashes': material_hashes,
                  'paidModelRequests': 0 if mode != 'live' else None,
                  'acceptanceComplete': False,

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(gangyiAI VERSION 5.6.5 LANGUAGES C CXX)
+project(gangyiAI VERSION 5.6.6 LANGUAGES C CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -296,6 +296,7 @@ if(BUILD_TESTING)
     endif()
     target_sources(learning-agent-tests PRIVATE tests/library_checks.cpp)
     add_test(NAME learning-agent COMMAND learning-agent-tests)
+  add_test(NAME startup-reuse COMMAND learning-agent-tests --startup-reuse-only)
     add_executable(socket-adaptor-tests tests/socket_adaptor_tests.cpp)
     target_link_libraries(socket-adaptor-tests PRIVATE Crow::Crow Threads::Threads)
     if(WIN32)
@@ -403,6 +404,9 @@ if(BUILD_TESTING)
         add_test(NAME dual-search COMMAND ${Python3_EXECUTABLE} -X utf8
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/dual_search_smoke.py $<TARGET_FILE:dual-search-driver>)
         set_tests_properties(dual-search PROPERTIES TIMEOUT 50)
+        add_test(NAME search-reuse COMMAND ${Python3_EXECUTABLE} -X utf8
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/search_reuse_smoke.py $<TARGET_FILE:dual-search-driver>)
+        set_tests_properties(search-reuse PROPERTIES TIMEOUT 60)
         add_test(NAME dual-search-library COMMAND ${Python3_EXECUTABLE} -X utf8
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/dual_search_library_smoke.py $<TARGET_FILE:gangyiAI>)
         set_tests_properties(dual-search-library PROPERTIES TIMEOUT 60)

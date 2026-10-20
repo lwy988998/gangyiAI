@@ -3,6 +3,9 @@
 #include "agent_profiles.hpp"
 #include "question_evidence.hpp"
 #include "teaching_evidence.hpp"
+#include "search_client.hpp"
+#include <curl/curl.h>
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -18,6 +21,20 @@
 #endif
 
 using Json = nlohmann::json;
+std::atomic_bool evaluationSearchBlocked{false};
+extern "C" CURLcode __real_curl_easy_perform(CURL* handle);
+extern "C" CURLcode __wrap_curl_easy_perform(CURL* handle) {
+    const auto mode = std::getenv("GANGYI_EVAL_MODE");
+    if (mode && std::string(mode) == "live") {
+        char* url = nullptr; curl_easy_getinfo(handle, CURLINFO_EFFECTIVE_URL, &url);
+        const std::string address = url ? url : "";
+        if (address.find("/tools/search") != std::string::npos || address.find("/web-search") != std::string::npos) {
+            // 两版教学都使用冻结资料；搜索另行验收，不能暗中绕过次数预算。
+            evaluationSearchBlocked = true; return CURLE_ABORTED_BY_CALLBACK;
+        }
+    }
+    return __real_curl_easy_perform(handle);
+}
 bool localEvaluationEndpoint(const std::string& url) {
     for (const auto* prefix : {"http://127.0.0.1:", "http://localhost:", "http://[::1]:"}) {
         const std::string host(prefix);
@@ -27,6 +44,36 @@ bool localEvaluationEndpoint(const std::string& url) {
         return index > start && (index == url.size() || url[index] == '/');
     }
     return false;
+}
+
+void validateEvaluationAuthorization(const std::string& endpoint) {
+    const auto mode = std::getenv("GANGYI_EVAL_MODE");
+    if ((!mode || std::string(mode) != "live") && localEvaluationEndpoint(endpoint)) return;
+    const auto path = std::getenv("GANGYI_EVAL_DECISION_FILE");
+    const auto budgetPath = std::getenv("GANGYI_EVAL_BUDGET_FILE");
+    const auto model = std::getenv("AI_MODEL");
+    const auto denied = [] { throw gangyi::AIClientError("eval_authorization", "本轮授权、冻结配置或累计预算不匹配，未发送请求"); };
+    if (!mode || std::string(mode) != "live" || !path || !budgetPath || !model) denied();
+    const auto read = [](const std::string& filename) {
+        std::ifstream input(std::filesystem::u8path(filename), std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+    };
+    const auto approved = Json::parse(read(path));
+    if (!approved.value("newPaidCallsAllowedThisRound", false) || approved.value("baseUrl", "") != endpoint ||
+        approved.value("model", "") != model || endpoint.rfind("https://", 0) != 0) denied();
+    const auto original = approved.at("originalBudgetPath").get<std::string>();
+    if (gangyi::resourceDigest(read(original)) != approved.at("originalBudgetSha256")) denied();
+    const auto active = std::filesystem::weakly_canonical(std::filesystem::u8path(budgetPath));
+    if (active != std::filesystem::weakly_canonical(std::filesystem::u8path(approved.at("activeBudgetPath").get<std::string>())) ||
+        active == std::filesystem::weakly_canonical(std::filesystem::u8path(original))) denied();
+    const auto budget = Json::parse(read(budgetPath));
+    const auto frozen = Json::parse(read(original));
+    for (const auto* field : {"limitTokens", "usedTokens", "reservedTokens"})
+        if (!budget.at(field).is_number_integer() || budget.at(field).get<long long>() < 0) denied();
+    if (approved.at("limitTokens") != 1000000 || budget.at("limitTokens") != approved.at("limitTokens") ||
+        approved.at("knownUsedTokens") != frozen.at("usedTokens") || approved.at("unknownReservedTokens") != frozen.at("reservedTokens") ||
+        budget.at("usedTokens").get<long long>() < frozen.at("usedTokens").get<long long>() ||
+        budget.at("reservedTokens").get<long long>() < frozen.at("reservedTokens").get<long long>()) denied();
 }
 // 仅开发验收使用：请求前预留输入字节上界、输出及全部SDK故障/兼容重试，未知用量不退款。
 class EvaluationBudget {
@@ -114,6 +161,18 @@ public:
 // 开发验收入口直接调用现有 C++ 主控；不进入安装包。评分标准只来自隔离用例。
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string(argv[1]) == "--check-live-authorization") {
+            const auto endpoint = std::getenv("AI_BASE_URL");
+            validateEvaluationAuthorization(endpoint ? endpoint : "");
+            std::cout << "{\"authorized\":true,\"httpRequests\":0}" << std::endl; return 0;
+        }
+        if (argc == 2 && std::string(argv[1]) == "--check-live-search-block") {
+            auto* handle = curl_easy_init();
+            curl_easy_setopt(handle, CURLOPT_URL, "http://127.0.0.1:9/v1/tools/search");
+            const auto result = __wrap_curl_easy_perform(handle); curl_easy_cleanup(handle);
+            if (result != CURLE_ABORTED_BY_CALLBACK || !evaluationSearchBlocked) return 1;
+            std::cout << "{\"searchBlocked\":true,\"httpRequests\":0}" << std::endl; return 0;
+        }
         if (argc == 3 && std::string(argv[1]) == "--budget-self-test") {
             // 免费重现旧版本请求ID更新、未知用量和请求前预算拦截。
             const auto folder = std::filesystem::u8path(argv[2]);
@@ -194,6 +253,7 @@ int main(int argc, char** argv) {
                 {"recoveredHttpRecord", true}});
         }
         gangyi::LearningAgent agent(argv[2], [&](const gangyi::ChatOptions& options, const std::function<bool(const std::string&)>& sink) {
+            if (evaluationSearchBlocked) throw gangyi::AIClientError("eval_search_mode", "教学对照要求冻结资料；出现新搜索，停止后续模型请求");
             Json prompt = {{"purpose", options.activity.purpose}, {"inputBytes", 0}};
             Json messages = Json::array(); std::size_t bytes = 0;
             for (const auto& message : options.messages) {
@@ -246,10 +306,12 @@ int main(int argc, char** argv) {
             auto requestOptions=options;
             if (const auto limit=std::getenv("GANGYI_EVAL_MAX_OUTPUT_TOKENS"))
                 requestOptions.maxTokens=std::min(options.maxTokens,std::stoi(limit));
-            // 本轮驱动仅允许本机模拟服务；直接执行驱动也不能绕过Python授权门禁。
+            // 原生发送点独立校验本轮授权，不能只靠 Python 或环境开关放行。
             const std::string endpoint = std::getenv("AI_BASE_URL") ? std::getenv("AI_BASE_URL") : "";
-            if (!localEvaluationEndpoint(endpoint))
-                throw gangyi::AIClientError("eval_authorization","本轮禁止新增付费请求；驱动仅允许本机模拟服务");
+            validateEvaluationAuthorization(endpoint);
+            if (const auto mode = std::getenv("GANGYI_EVAL_MODE"); mode && std::string(mode) == "live" &&
+                (std::getenv("GANGYI_EVAL_MAX_OUTPUT_TOKENS") || options.maxTokens != requestOptions.maxTokens))
+                throw gangyi::AIClientError("eval_authorization", "真实对照禁止缩减产品输出上限");
             gangyi::AIClient client; gangyi::AIResult response;
             EvaluationBudget budget(db,requestOptions);
             try { response = client.chatStream(requestOptions, sink); }
@@ -312,6 +374,7 @@ int main(int argc, char** argv) {
             if (!alreadyShown) agent.process(db, task.at("id"));
             // 主控会将回调异常保存为任务失败；另用专用退出码阻止Python把旧预算当作新结算。
             if (EvaluationBudget::storageFailed()) throw std::runtime_error("预算保存失败，不能继续验收");
+            if (evaluationSearchBlocked) throw std::runtime_error("教学对照出现未冻结的新搜索，已在发送前阻止，不能作为完整验收");
             const auto externalProcessMs = alreadyShown ? Json() : Json(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-processStarted).count());
             const auto row = db.getClassroomActivity(task.at("id")); const auto raw = Json::parse(row->payload);
             if (!alreadyShown) {

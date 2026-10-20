@@ -11,6 +11,7 @@ import hashlib
 from evaluation_guard import (SCHEMA, budget_copy, digest, file_hash, isolated_output,
                               local_fixture_url, require_live_authorization, summarize, successful,
                               BudgetStateError, read_budget)
+from evaluation_guard import using_decision
 
 
 def reviewed_criteria(case):
@@ -32,7 +33,7 @@ def reviewed_criteria(case):
 
 def configured_environment(config=None):
     """授权后按明确档案读取凭据；两版共用同一冻结的非密配置。"""
-    require_live_authorization()
+    approved = require_live_authorization()
     config = config or {}
     profile = config.get('profileName')
     if not isinstance(profile, str) or not profile or any(c in profile for c in '/\\'):
@@ -40,6 +41,9 @@ def configured_environment(config=None):
     frozen = json.loads(Path(config['frozenConfiguration']).read_text(encoding='utf-8-sig'))
     if frozen.get('profileName') != profile or not frozen.get('baseUrl') or not frozen.get('model'):
         raise ValueError('冻结模型配置与profileName不匹配。')
+    if (approved.get('baseUrl') != frozen['baseUrl'] or approved.get('model') != frozen['model'] or
+            not approved.get('activeBudgetPath') or not approved.get('searchBudgetPath')):
+        raise PermissionError('模型配置与本轮冻结授权不一致。')
     env = os.environ.copy()
     env['AI_BASE_URL'], env['AI_MODEL'] = frozen['baseUrl'], frozen['model']
     class Credential(ctypes.Structure):
@@ -65,13 +69,22 @@ def configured_environment(config=None):
 
 
 def call_api(prompt, options, context):
+    with using_decision(options['config'].get('decisionFile')):
+        return _call_api(prompt, options, context)
+
+
+def _call_api(prompt, options, context):
     config = options['config']
     mode = config.get('mode', 'live')
     if mode not in ('live', 'fixture', 'preflight'):
         raise ValueError('mode只接受live、fixture或preflight。')
     if mode == 'live':
         require_live_authorization()
+        if config.get('maxOutputTokens') is not None:
+            raise ValueError('真实对照保持产品输出上限，禁止另行缩减。')
     case = context['vars']['case']
+    if mode == 'live' and case.get('fixtureMode'):
+        raise ValueError('真实对照禁止固定模型演示模式。')
     variant = config['variant']
     if variant not in ('baseline', 'optimized', 'candidate'):
         raise ValueError('variant只接受baseline、optimized或candidate。')
@@ -105,10 +118,23 @@ def call_api(prompt, options, context):
         env = dict(os.environ, AI_BASE_URL=local_fixture_url(config['fixtureUrl']) if mode == 'fixture' else 'http://127.0.0.1:1/v1',
                    AI_MODEL=config.get('model', 'isolated-fixture'), AI_API_KEY='isolated-fixture-key')
     # 禁止继承可能污染复现的主机开关及外部检索凭据。
-    for key in ('GANGYI_EVAL_MAX_CALLS', 'GANGYI_EVAL_MAX_OUTPUT_TOKENS', 'GANGYI_EVAL_RESUME'):
+    for key in ('GANGYI_EVAL_MAX_CALLS', 'GANGYI_EVAL_MAX_OUTPUT_TOKENS', 'GANGYI_EVAL_RESUME',
+                'GANGYI_EVAL_MODE', 'GANGYI_EVAL_DECISION_FILE', 'GANGYI_EVAL_SEARCH_BUDGET_FILE'):
         env.pop(key, None)
     env['BOCHA_API_KEY'] = ''
-    env['GANGYI_EVAL_BUDGET_FILE'] = str(budget_copy(root/'budget-copy.json', config.get('budgetFile')))
+    for key in ('DEEPSEEK_SEARCH_API_KEY', 'DEEPSEEK_API_KEY'):
+        env[key] = ''
+    if mode == 'live':
+        approved = require_live_authorization()
+        if not config.get('decisionFile') or not approved.get('activeBudgetPath'):
+            raise PermissionError('真实验收必须显式提供本轮授权及唯一累计账本。')
+        env['GANGYI_EVAL_MODE'] = 'live'
+        env['GANGYI_EVAL_DECISION_FILE'] = str(Path(config['decisionFile']).resolve())
+        env['GANGYI_EVAL_BUDGET_FILE'] = approved['activeBudgetPath']
+        if not approved.get('searchBudgetPath'):
+            raise PermissionError('真实验收须绑定双搜索累计预算。')
+    else:
+        env['GANGYI_EVAL_BUDGET_FILE'] = str(budget_copy(root/'budget-copy.json', config.get('budgetFile')))
     for field,key in [('maxCalls','GANGYI_EVAL_MAX_CALLS'),('maxOutputTokens','GANGYI_EVAL_MAX_OUTPUT_TOKENS')]:
         if field in config:
             if type(config[field]) is not int or config[field] < 0:

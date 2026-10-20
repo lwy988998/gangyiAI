@@ -16,6 +16,60 @@ import evaluation_guard as guard
 import evaluation_compare as compare
 
 
+class LiveAuthorizationTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix='evaluation-authorization-')
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.original = self.root/'original.json'
+        self.active = self.root/'active.json'
+        self.state = {'limitTokens': 1000000, 'usedTokens': 839528, 'reservedTokens': 72075}
+        self.original.write_text(json.dumps(self.state), encoding='utf-8')
+        self.active.write_text(json.dumps(self.state), encoding='utf-8')
+        self.approval = {'newPaidCallsAllowedThisRound': True, 'limitTokens': 1000000,
+            'knownUsedTokens': 839528, 'unknownReservedTokens': 72075,
+            'originalBudgetPath': str(self.original), 'originalBudgetSha256': guard.file_hash(self.original),
+            'activeBudgetPath': str(self.active), 'baseUrl': 'https://frozen.example/v1', 'model': 'frozen-model'}
+        self.path = self.root/'decision.json'
+
+    def write_decision(self):
+        self.path.write_text(json.dumps(self.approval), encoding='utf-8')
+
+    def test_explicit_decision_restores_previous_context(self):
+        self.write_decision()
+        denied = self.root/'denied.json'
+        denied.write_text('{"newPaidCallsAllowedThisRound":false}', encoding='utf-8')
+        with guard.using_decision(denied):
+            with self.assertRaises(PermissionError):
+                guard.require_live_authorization()
+            with guard.using_decision(self.path):
+                self.assertEqual(guard.require_live_authorization()['activeBudgetPath'], str(self.active))
+            with self.assertRaises(PermissionError):
+                guard.require_live_authorization()
+
+    def test_reset_budget_and_original_mutation_are_rejected(self):
+        self.write_decision()
+        with guard.using_decision(self.path):
+            for field in ('usedTokens', 'reservedTokens'):
+                reduced = dict(self.state, **{field: 0})
+                self.active.write_text(json.dumps(reduced), encoding='utf-8')
+                with self.assertRaises(PermissionError):
+                    guard.require_live_authorization()
+            self.active.write_text(json.dumps(self.state), encoding='utf-8')
+            self.original.write_text('{}', encoding='utf-8')
+            with self.assertRaises(PermissionError):
+                guard.require_live_authorization()
+
+    def test_frozen_model_mismatch_precedes_credentials(self):
+        self.write_decision()
+        frozen = self.root/'configuration.json'
+        frozen.write_text(json.dumps({'profileName': 'fixture', 'baseUrl': self.approval['baseUrl'], 'model': 'different'}), encoding='utf-8')
+        with guard.using_decision(self.path), patch.object(provider.ctypes, 'WinDLL', create=True) as credential:
+            with self.assertRaises(PermissionError):
+                provider.configured_environment({'profileName': 'fixture', 'frozenConfiguration': str(frozen)})
+            credential.assert_not_called()
+
+
 class EntryTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix='evaluation-entry-')
