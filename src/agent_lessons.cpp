@@ -67,6 +67,21 @@ std::string responseView(const Json& lesson, const Json& task) {
     }
     return view;
 }
+std::string lessonTaskView(const Json& lesson, const Json& task) {
+    const auto& event = task.at("event");
+    if (event.value("type", "") == "lesson_finish_request" || event.value("view", "") == "summary") return "summary";
+    return responseView(lesson, task);
+}
+std::string queryComponent(const std::string& value) {
+    static constexpr char digits[] = "0123456789ABCDEF";
+    std::string encoded;
+    for (const unsigned char byte : value) {
+        if ((byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') ||
+            (byte >= '0' && byte <= '9') || byte == '-' || byte == '_' || byte == '.' || byte == '~') encoded += static_cast<char>(byte);
+        else { encoded += '%'; encoded += digits[byte >> 4]; encoded += digits[byte & 15]; }
+    }
+    return encoded;
+}
 void selectResponseQuestion(Json& focus, const Json& lesson, const Json& task, const Json& section) {
     const auto& event = task.at("event");
     if (event.value("lessonId", "") != lesson.at("id") || section.at("kind") != "question") return;
@@ -151,6 +166,19 @@ Json link(const Json& lesson) {
     return {{"id", lesson.at("id")}, {"title", lesson.at("title")}, {"courseId", lesson.at("courseId")},
         {"href", "/learn?lessonId=" + lesson.at("id").get<std::string>()}, {"status", lesson.at("status")}};
 }
+}
+
+AgentJson agentSectionLocation(const Json& lesson, const Json& section, const Json& originTask) {
+    const auto kind = section.value("questionKind", section.value("legacyKind", "practice"));
+    std::string view = section.at("kind") == "summary" ? "summary" : section.at("kind") == "question" &&
+        kind != "interaction" && kind != "diagnostic" && kind != "example" ? "practice" : "learn";
+    const auto event = originTask.value("event", Json::object());
+    // 练习中的补讲和追问题留在当次练习，类型名称不能代替实际页面归属。
+    if (event.value("lessonId", "") == lesson.at("id") && section.at("kind") != "summary" &&
+        lessonTaskView(lesson, originTask) == "practice") view = "practice";
+    const auto id = section.at("id").get<std::string>();
+    return {{"sectionId", id}, {"view", view},
+        {"href", "/" + view + "?lessonId=" + queryComponent(lesson.at("id").get<std::string>()) + "&sectionId=" + queryComponent(id)}};
 }
 
 void registerAgentLessonTools(LearningAgent& agent) {
@@ -336,8 +364,10 @@ void registerAgentLessonTools(LearningAgent& agent) {
                 }
             }
             lesson["model"] = source.model; lesson["updatedAt"] = now();
-            return update(db, task, id, lesson, {{"sectionId", section.at("id")}, {"questionId", section.value("questionId", "")},
-                {"questionKind", section.value("questionKind", "")}, {"version", lesson["version"]}});
+            auto result = agentSectionLocation(lesson, section, task);
+            result["questionId"] = section.value("questionId", ""); result["questionKind"] = section.value("questionKind", "");
+            result["version"] = lesson["version"];
+            return update(db, task, id, lesson, std::move(result));
         }});
     agent.registerTool("finish_lesson", {"AI 判断课时已准备完整后提交。参数 lessonId。只保存模型实际生成的完整板块，不强制六板块、题数或先后顺序。完成后返回进入课堂链接。", false,
         [](Database& db, const Json& args, const Json& task, const AIResult& source) {
@@ -704,16 +734,10 @@ Json agentLessonView(Database& db, const AgentAccess& access, const std::string&
     // 聊天课堂重放真实任务顺序。仅公开教师文字和已提交板块的身份，不能带出工具参数、答案或评分标准。
     // teachingDialog 继续保留原来的“实际已展示”协议；timeline 可读取未读回复，读取本身不修改已读证据。
     shown["timeline"] = Json::array();
-    const auto taskView = [&](const Json& task) {
-        const auto& event = task.at("event");
-        if (event.value("type", "") == "lesson_finish_request") return std::string("summary");
-        if (event.value("view", "") == "summary") return std::string("summary");
-        return responseView(saved, task);
-    };
+    const auto taskView = [&](const Json& task) { return lessonTaskView(saved, task); };
     for (auto& section : shown["sections"]) {
-        const auto kind = section.value("questionKind", section.value("legacyKind", "practice"));
-        section["view"] = section.at("kind") == "summary" ? "summary" : section.at("kind") == "question" &&
-            kind != "interaction" && kind != "diagnostic" && kind != "example" ? "practice" : "learn";
+        const auto location = agentSectionLocation(saved, section);
+        section["view"] = location.at("view"); section["href"] = location.at("href");
     }
     for (const auto& row : tasks) if (row.kind == "agent-task") {
         const auto task = Json::parse(row.payload, nullptr, false);
@@ -755,10 +779,13 @@ Json agentLessonView(Database& db, const AgentAccess& access, const std::string&
                         evaluations.insert(evaluation.at("id").get<std::string>());
                     }
                 if (action.at("args").value("lessonId", "") != lessonId) continue;
-                if (tool == "append_section" && view == "practice") {
+                if (tool == "append_section") {
                     const auto sectionId = completed.at(id).value("result", Json::object()).value("sectionId", "");
-                    for (auto& section : shown["sections"]) if (section.at("id") == sectionId && section.at("kind") != "summary")
-                        section["view"] = "practice";
+                    for (auto& section : shown["sections"]) if (section.at("id") == sectionId) {
+                        // 老回执没有位置字段时，也按原任务重建同一地址，不迁移记录。
+                        const auto location = agentSectionLocation(saved, section, task);
+                        section["view"] = location.at("view"); section["href"] = location.at("href");
+                    }
                 }
                 std::vector<std::string> identities;
                 if (tool == "append_section" && action.at("args").value("activate", true))
@@ -766,10 +793,8 @@ Json agentLessonView(Database& db, const AgentAccess& access, const std::string&
                 else if (tool == "select_teaching_focus") for (const auto* key : {"sectionId", "interactionSectionId", "practiceSectionId"})
                     if (action.at("args").contains(key)) identities.push_back(action.at("args").value(key, ""));
                 for (const auto& identity : identities) for (auto& section : shown["sections"]) if (section.at("id") == identity) {
-                    // 练习中新增的答题解释与互动题属于该次练习；小结与集中练习仍按内容用途分区。
-                    if (tool == "append_section" && view == "practice" && section.at("kind") != "summary") section["view"] = "practice";
                     shown["timeline"].push_back({{"type", "section"}, {"id", taskId.get<std::string>() + ":" + id + ":" + identity},
-                        {"sectionId", identity}, {"view", section.at("view")}, {"taskId", taskId}});
+                        {"sectionId", identity}, {"view", section.at("view")}, {"href", section.at("href")}, {"taskId", taskId}});
                 }
             }
         }

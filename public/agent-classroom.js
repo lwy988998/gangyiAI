@@ -54,6 +54,26 @@
   const isQuestion = section => section?.kind === 'question' && section.legacyKind !== 'example';
   const areaFor = section => section.view || (section.kind === 'summary' ? 'summary' : isQuestion(section) &&
     !['interaction', 'diagnostic'].includes(section.questionKind || section.legacyKind) ? 'practice' : 'learn');
+  const sectionNode = id => nodes.get('section:' + id) || nodes.get('summary:' + id);
+  function sectionHref(section) {
+    const url = new URL(section.href || '/' + areaFor(section), location.origin);
+    url.searchParams.set('lessonId', lessonId); url.searchParams.set('sectionId', section.id);
+    // 复习入口会固定打开练习页，讲解和小结的直达地址不能继承它。
+    for (const key of ['day', 'lessonTaskId', ...(areaFor(section) === 'practice' ? ['review', 'reviewId'] : [])])
+      if (query.has(key)) url.searchParams.set(key, query.get(key));
+    return url.pathname + url.search;
+  }
+  function sectionLink(section, text) {
+    const link = element('a', text, 'ma-link'); link.href = sectionHref(section); link.dataset.sectionLink = section.id;
+    link.onclick = event => {
+      saveDraft();
+      if (areaFor(section) !== activeView || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      if (isQuestion(section)) selectQuestion(section.id);
+      query.set('sectionId', section.id); history.replaceState(null, '', link.href); jumpTo(sectionNode(section.id));
+    };
+    return link;
+  }
   const pageKey = prefix => prefix + ':' + lessonId + ':' + activeView;
   const draftKey = () => selectedQuestion ? 'draft:' + lessonId + ':' + selectedQuestion : pageKey('chat-draft');
   function saveDraft() {
@@ -140,6 +160,7 @@
       for(const citation of section.citations){const entry=element('p');const link=element('a',citation.title||'查看原文依据');link.href=citation.href;entry.append(link);
         entry.append(element('span',citation.locator?.page?' · 第'+citation.locator.page+'页':citation.locator?.start!=null?' · '+citation.locator.start+'秒':' · '+citation.segmentId));
         if(citation.quote)entry.append(element('p',citation.quote));details.append(entry);}card.append(details);}
+    card.append(sectionLink(section, '直达此段'));
     return card;
   }
   function makeMessage(record) {
@@ -229,21 +250,27 @@
       paintNextStep(); paintTarget(); setDisabled();
     });
     // 直接进入练习/小结时可能没有讲解焦点，也必须完成定位并开始累计滚动展示。
-    if (initialPosition && (activeView !== 'learn' || focus().sectionId || admissionError || !lesson.teachingTaskId)) {
+    const requestedSection = sectionFor(query.get('sectionId'));
+    if (initialPosition && (requestedSection || activeView !== 'learn' || focus().sectionId || admissionError || !lesson.teachingTaskId)) {
       initialPosition = false; let saved;
       try { saved = JSON.parse(api.storage.get(pageKey('scroll')) || 'null'); } catch (_) { /* 默认定位当前课堂。 */ }
-      if (saved) restorePosition(saved); else locate(activeView, false);
+      // 显式直达优先于上次滚动位置，也能打开归档内的非题目补讲卡片。
+      if (requestedSection && areaFor(requestedSection) === activeView) jumpTo(sectionNode(requestedSection.id));
+      else if (saved) restorePosition(saved); else locate(activeView, false);
     }
     if (lesson.teachingTaskId && !admissionError && lesson.teachingTaskId !== watchingTask) observe(lesson.teachingTaskId);
   }
   function paintNextStep() {
     const prompt = $('lesson-next-step'), response = focus().responseTaskId === lesson.teachingTaskId ? sectionFor(focus().responseSectionId) : null;
     const latest = (lesson.timeline || []).filter(item => item.taskId === lesson.teachingTaskId && item.type === 'section').at(-1);
-    const target = response ? areaFor(response) : latest ? areaFor(sectionFor(latest.sectionId)) : lesson.teachingTaskView;
-    prompt.replaceChildren(); prompt.hidden = !target || target === activeView;
+    const section = response || (latest && sectionFor(latest.sectionId));
+    const target = section ? areaFor(section) : lesson.teachingTaskView;
+    prompt.replaceChildren(); prompt.hidden = !target || !section && target === activeView;
     if (prompt.hidden) return;
     prompt.append(element('span', 'AI 已保存下一步内容。'));
-    const link = element('a', '进入' + {learn:'讲解', practice:'练习', summary:'小结'}[target] + ' →'); link.href = lessonHref(target); prompt.append(link);
+    const text = '查看' + {learn:'讲解', practice:'练习', summary:'小结'}[target] + '原卡片 →';
+    if (section) prompt.append(sectionLink(section, text));
+    else { const link = element('a', '进入' + {learn:'讲解', practice:'练习', summary:'小结'}[target] + ' →'); link.href = lessonHref(target); prompt.append(link); }
   }
   function renderSummary() {
     const parent = $('lesson-summary-content');
@@ -390,9 +417,12 @@
     if (!lessonId) throw new Error('缺少课时标识，请从课程入口进入。');
     lesson = await api.request('/api/learning-agent/lesson?lessonId=' + encodeURIComponent(lessonId));
     if (lesson.status !== 'ready') throw new Error('课时尚未完整保存，请等待 AI 备课后进入。');
+    const requestedSection = sectionFor(query.get('sectionId'));
+    if (requestedSection && areaFor(requestedSection) !== activeView) { location.replace(sectionHref(requestedSection)); return; }
     try {
       if (!lesson.entered) await api.control({command:'enter_lesson', lessonId});
-      if (activeView === 'learn' && !lesson.initialTeachingTaskId) { await api.control({command:'start_lesson', lessonId});
+      // 回看已保存卡片只读取原记录，普通讲解入口仍按原流程启动教学。
+      if (activeView === 'learn' && !lesson.initialTeachingTaskId && !requestedSection) { await api.control({command:'start_lesson', lessonId});
         lesson = await api.request('/api/learning-agent/lesson?lessonId=' + encodeURIComponent(lessonId)); }
     } catch (error) { admissionError = error.message; }
     const context = {courseId:lesson.courseId, lessonId, phaseIndex:lesson.phaseIndex, topicIndex:lesson.topicIndex, topicId:lesson.topicId, teachingTaskId:lesson.teachingTaskId};

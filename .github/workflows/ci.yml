@@ -63,6 +63,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw '统一主控接口验收失败' }
           python tests/learning_agent_browser_smoke.py dist/windows/gangyiAI.exe
           if ($LASTEXITCODE -ne 0) { throw '统一主控课堂与备课页面验收失败' }
+          python -X utf8 tests/section_navigation_browser_smoke.py
+          if ($LASTEXITCODE -ne 0) { throw '原卡片定位、跨页导航与草稿恢复回归失败' }
           python tests/radar_browser_smoke.py dist/windows/gangyiAI.exe
           if ($LASTEXITCODE -ne 0) { throw '双模式六维雷达页面验收失败' }
           python tests/page_ready_browser_smoke.py dist/windows/gangyiAI.exe

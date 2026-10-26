@@ -60,6 +60,8 @@ public:
     bool retryable = false;
     long long retryAfterMs = 0;
     bool contentDelivered = false;
+    // 仅保存固定错误码、阶段及连接里程碑，不包含端点、代理地址或凭据。
+    nlohmann::json transportDiagnostic = nullptr;
 };
 
 class AIClient {

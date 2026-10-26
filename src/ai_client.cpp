@@ -151,6 +151,53 @@ AIClientError errorFor(CURLcode code, long status, const std::string& message) {
     return AIClientError("provider_rejected", message, static_cast<int>(status));
 }
 
+json transportDiagnostic(CURL* curl, CURLcode code) {
+    if (code == CURLE_OK || code == CURLE_ABORTED_BY_CALLBACK) return nullptr;
+    double connected = 0, secured = 0, received = 0;
+    long verification = 0, proxyStatus = 0;
+    char* scheme = nullptr;
+    curl_easy_getinfo(curl, CURLINFO_CONNECT_TIME, &connected);
+    curl_easy_getinfo(curl, CURLINFO_APPCONNECT_TIME, &secured);
+    curl_easy_getinfo(curl, CURLINFO_STARTTRANSFER_TIME, &received);
+    curl_easy_getinfo(curl, CURLINFO_SSL_VERIFYRESULT, &verification);
+    curl_easy_getinfo(curl, CURLINFO_HTTP_CONNECTCODE, &proxyStatus);
+    curl_easy_getinfo(curl, CURLINFO_SCHEME, &scheme);
+    auto protocol = std::string(scheme ? scheme : "");
+    std::transform(protocol.begin(), protocol.end(), protocol.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    const bool tls = protocol == "https";
+    std::string phase = received > 0 ? "response_body" : connected > 0 ? "response_headers" : "tcp_connect";
+    // 阶段是错误码与已完成里程碑的观察结果，不能据此断言代理或服务商是根因。
+    switch (code) {
+    case CURLE_COULDNT_RESOLVE_PROXY: phase = "proxy_resolution"; break;
+    case CURLE_COULDNT_RESOLVE_HOST: phase = "dns_resolution"; break;
+    case CURLE_COULDNT_CONNECT: phase = "tcp_connect"; break;
+    case CURLE_SSL_CONNECT_ERROR: phase = "tls_handshake"; break;
+    case CURLE_PEER_FAILED_VERIFICATION:
+    case CURLE_SSL_ISSUER_ERROR:
+    case CURLE_SSL_PINNEDPUBKEYNOTMATCH:
+    case CURLE_SSL_INVALIDCERTSTATUS: phase = "tls_verification"; break;
+    case CURLE_SSL_CERTPROBLEM:
+    case CURLE_SSL_CIPHER:
+    case CURLE_SSL_CACERT_BADFILE: phase = "tls_configuration"; break;
+    case CURLE_SEND_ERROR: phase = "request_send"; break;
+    case CURLE_OPERATION_TIMEDOUT:
+        if (tls && connected > 0 && secured == 0) phase = "tls_handshake";
+        break;
+    default: break;
+    }
+    if (proxyStatus >= 400) phase = "proxy_connect";
+    const auto* version = curl_version_info(CURLVERSION_NOW);
+    json diagnostic = {{"curlCode", static_cast<int>(code)}, {"curlReason", curl_easy_strerror(code)}, {"phase", phase},
+        {"connectionEstablished", connected > 0}, {"firstByteReceived", received > 0}, {"tlsRequested", tls}};
+    if (tls) {
+        diagnostic["tlsBackend"] = version && version->ssl_version ? version->ssl_version : "unknown";
+        diagnostic["tlsHandshakeCompleted"] = secured > 0;
+        diagnostic["tlsVerifyResult"] = secured > 0 || verification != 0 || phase == "tls_verification" ? json(verification) : json(nullptr);
+    }
+    if (proxyStatus > 0) diagnostic["proxyConnectStatus"] = proxyStatus;
+    return diagnostic;
+}
+
 // 以短间隔驱动传输，暂停在连接、等待首字和接收期间均能生效。
 CURLcode perform(CURL* curl, const std::function<bool()>& cancelled) {
     CURLM* multi = curl_multi_init();
@@ -300,6 +347,7 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
     } catch (...) { transferError = std::current_exception(); }
     long status = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    const auto diagnostic = transportDiagnostic(curl, code);
     curl_easy_cleanup(curl);
     curl_slist_free_all(headers);
     if (started) AIActivity::requestFinished(activityId,code==CURLE_ABORTED_BY_CALLBACK?"cancelled":"failed",nullptr,{},receipt);
@@ -312,6 +360,7 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
                       << " body omitted" << std::endl;
         }
         auto error = errorFor(code, status, code == CURLE_OK ? "AI provider returned HTTP " + std::to_string(status) : curl_easy_strerror(code));
+        error.transportDiagnostic = diagnostic;
         error.retryAfterMs = retryHeader.milliseconds; throw error;
     }
     try {
@@ -348,6 +397,9 @@ struct StreamState {
     std::exception_ptr callbackError = nullptr;
     json usage = nullptr;
     std::string errorBody;
+    bool invalidFrame = false;
+    bool doneSeen = false;
+    bool lengthLimited = false;
 };
 
 int streamProgress(void* user, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
@@ -370,19 +422,35 @@ size_t writeStreamContent(char* data, size_t size, size_t count, void* user) {
         if (line.compare(0, 5, "data:") != 0) {if(state.errorBody.size()<4096)state.errorBody+=line.substr(0,4096-state.errorBody.size());continue;}
         std::string payload = line.substr(5);
         if (!payload.empty() && payload.front() == ' ') payload.erase(payload.begin());
-        if (payload == "[DONE]") { state.completed = true; continue; }
+        if (payload == "[DONE]") { state.completed = true; state.doneSeen = true; continue; }
+        if (payload.find_first_not_of(" \t\r") == std::string::npos) continue;
         const json event = json::parse(payload, nullptr, false);
+        if (!event.is_object()) { state.invalidFrame = true; continue; }
         if(event.is_object()&&event.contains("usage"))state.usage=reportedUsage(event["usage"]);
-        if (!event.is_object() || !event.contains("choices") || !event["choices"].is_array() || event["choices"].empty()) continue;
+        if (state.doneSeen || event.contains("error")) { state.invalidFrame = true; continue; }
+        if (!event.contains("choices")) continue;
+        if (!event["choices"].is_array()) { state.invalidFrame = true; continue; }
+        if (event["choices"].empty()) continue;
         if (event.contains("model") && event["model"].is_string()) state.model = event["model"].get<std::string>();
-        if (!event["choices"][0].is_object()) continue;
+        if (!event["choices"][0].is_object()) { state.invalidFrame = true; continue; }
+        const bool completedBeforeFrame = state.completed;
         const auto& choice = event["choices"][0];
-        if (choice.value("finish_reason", json()).is_string()) state.finishReason = choice["finish_reason"].get<std::string>();
+        if (choice.contains("finish_reason") && !choice["finish_reason"].is_null() && !choice["finish_reason"].is_string()) state.invalidFrame = true;
+        if (choice.value("finish_reason", json()).is_string()) {
+            state.finishReason = choice["finish_reason"].get<std::string>();
+            if (!state.finishReason.empty() && state.finishReason != "stop" && state.finishReason != "length") state.invalidFrame = true;
+        }
+        if (state.finishReason == "length") state.lengthLimited = true;
         if (choice.value("finish_reason", json()) == "stop") state.completed = true;
         const auto delta = choice.value("delta", json::object());
-        if (!delta.is_object() || !delta.value("content", json()).is_string()) continue;
+        if (delta.is_null()) continue;
+        if (!delta.is_object()) { state.invalidFrame = true; continue; }
+        if (delta.contains("content") && !delta["content"].is_null() && !delta["content"].is_string()) state.invalidFrame = true;
+        if (!delta.value("content", json()).is_string()) continue;
         const std::string chunk = delta["content"].get<std::string>();
         if (chunk.empty()) continue;
+        // stop同帧的正文有效；终态之后只能补用量或空结束帧，不能再拼入新正文。
+        if (completedBeforeFrame) { state.invalidFrame = true; continue; }
         state.content += chunk;
         if (!state.onChunk(chunk)) { state.cancelled = true; return 0; }
     }
@@ -447,6 +515,11 @@ AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int
     } catch (...) { transferError = std::current_exception(); }
     long status = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    const auto diagnostic = transportDiagnostic(curl, code);
+    // 尾帧可能没有换行；仍用同一个回调边界解析，不能丢掉正文后仅凭先前 stop 判成功。
+    if (code == CURLE_OK && status >= 200 && status < 300 && !state.cancelled && !state.callbackError && !state.pending.empty()) {
+        char newline = '\n'; writeStream(&newline, 1, 1, &state);
+    }
     curl_easy_cleanup(curl);
     curl_slist_free_all(headers);
     if (started) AIActivity::requestFinished(activityId,code==CURLE_ABORTED_BY_CALLBACK?"cancelled":"failed",state.usage,state.model,receipt);
@@ -457,9 +530,12 @@ AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int
     if(status==400&&options.requestTokenUsage&&((state.errorBody+state.pending).find("stream_options")!=std::string::npos||(state.errorBody+state.pending).find("include_usage")!=std::string::npos))throw streamError(AIClientError("unsupported_stream_usage","接口不支持流式用量选项",400));
     if (code != CURLE_OK || status < 200 || status >= 300) {
         auto error = errorFor(code, status, code == CURLE_OK ? "AI provider returned HTTP " + std::to_string(status) : curl_easy_strerror(code));
+        error.transportDiagnostic = diagnostic;
         error.retryAfterMs = retryHeader.milliseconds; throw streamError(error);
     }
-    if (state.finishReason == "length") throw AIClientError("output_limit", "AI 回复达到长度限制，未接收完整内容");
+    if (state.lengthLimited) throw AIClientError("output_limit", "AI 回复达到长度限制，未接收完整内容");
+    if (state.invalidFrame || (!state.finishReason.empty() && state.finishReason != "stop"))
+        throw streamError(AIClientError("invalid_response", "AI stream contains an invalid frame or finish reason"));
     if (state.content.empty() || !state.completed) throw streamError(AIClientError("invalid_response", "AI stream is incomplete"));
     AIResult result{state.content,state.model,static_cast<int>(status),"stop","not_requested",{}};
     result.tokenUsage=state.usage;AIActivity::requestFinished(activityId,"completed",result.tokenUsage,result.model,receipt);return result;
@@ -568,11 +644,13 @@ std::vector<std::string> requestModels(const Endpoint& endpoint, int timeoutMs) 
     CURLcode code = curl_easy_perform(curl);
     long status = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    const auto diagnostic = transportDiagnostic(curl, code);
     curl_easy_cleanup(curl);
     curl_slist_free_all(headers);
     if (code != CURLE_OK || status < 200 || status >= 300) {
         if (status == 404) throw AIClientError("models_unsupported", "provider does not expose /models");
-        throw errorFor(code, status, code == CURLE_OK ? "AI provider returned HTTP " + std::to_string(status) : curl_easy_strerror(code));
+        auto error = errorFor(code, status, code == CURLE_OK ? "AI provider returned HTTP " + std::to_string(status) : curl_easy_strerror(code));
+        error.transportDiagnostic = diagnostic; throw error;
     }
     try {
         const json parsed = json::parse(responseBody);

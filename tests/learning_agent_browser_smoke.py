@@ -4,6 +4,7 @@ import sqlite3
 import sys
 import time
 from contextlib import closing
+from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 from playwright.sync_api import expect, sync_playwright
 from classroom_v560_fixture import start_session
@@ -54,8 +55,15 @@ def main(executable):
             field.fill('本段草稿，尚未提交。')
             page.reload()
             expect(page.locator('#lesson-input')).to_have_value('本段草稿，尚未提交。')
-            calls_before=json.load(urlopen(info['fixture']))['calls']
             original_task=api('/api/learning-agent/lesson?lessonId='+lesson)['initialTeachingTaskId']
+            # 先等实际教学任务终态，再比较导航前后服务端真实接收的模型请求数。
+            deadline=time.monotonic()+30
+            while time.monotonic()<deadline:
+                settled=api('/api/learning-agent?taskId='+original_task)
+                if settled['status'] not in ('pending','running'): break
+                time.sleep(.05)
+            assert settled['status'] in ('ready','waiting_student'), settled.get('error')
+            calls_before=json.load(urlopen(info['fixture']))['calls']
             for area in ('practice','summary','learn'):
                 page.locator('[data-lesson-link='+area+']').click()
                 expect(page.locator('[data-lesson-view]')).to_have_attribute('data-lesson-view', area)
@@ -64,6 +72,43 @@ def main(executable):
                 fits()
             assert json.load(urlopen(info['fixture']))['calls']==calls_before
             assert api('/api/learning-agent/lesson?lessonId='+lesson)['initialTeachingTaskId']==original_task
+            # 使用实际服务公开的地址，跨过服务权限校验和真实前端，而非替换 GangyiAgent。
+            public_lesson=api('/api/learning-agent/lesson?lessonId='+lesson)
+            saved_section=next(section for section in public_lesson['sections'] if section['title']=='把化合价变化联系到电子')
+            href=saved_section['href']; destination=urlsplit(href); identity=saved_section['id']
+            assert destination.path=='/'+saved_section['view']=='/learn'
+            assert parse_qs(destination.query)['lessonId']==[lesson] and parse_qs(destination.query)['sectionId']==[identity]
+            target=page.locator('[data-section-id="'+identity+'"]')
+            def located_saved_section():
+                expect(target).to_have_count(1)
+                expect(target.get_by_role('heading',name=saved_section['title'],exact=True)).to_be_visible()
+                page.wait_for_function("""identity=>{const target=[...document.querySelectorAll('[data-section-id]')].find(node=>node.dataset.sectionId===identity);
+                    if(!target)return false;const box=target.getBoundingClientRect(),viewport=document.getElementById('lesson-scroll').getBoundingClientRect();
+                    return box.top>=viewport.top-2&&box.top<viewport.bottom-20;}""",arg=identity)
+                assert target.locator('xpath=ancestor::details').evaluate_all('(nodes)=>nodes.every(node=>node.open)')
+                assert page.locator('#lesson-scroll').evaluate('node=>node.scrollTop')>0
+            page.goto(info['base']+href)
+            expect(page.locator('[data-lesson-view]')).to_have_attribute('data-lesson-view',saved_section['view'])
+            located_saved_section()
+            expect(field).to_have_value('本段草稿，尚未提交。')
+            permalink=target.get_by_role('link',name='直达此段',exact=True)
+            assert permalink.get_attribute('href')==href
+            # 在远离目标的滚动位置激活实际链接，避免 Playwright 先自动滚到链接而掩盖定位缺陷。
+            page.locator('#lesson-scroll').evaluate('node=>node.scrollTop=0')
+            permalink.evaluate('link=>link.click()')
+            located_saved_section()
+            page.reload(); located_saved_section()
+            expect(field).to_have_value('本段草稿，尚未提交。')
+            for area in ('practice','summary','learn'):
+                page.locator('[data-lesson-link='+area+']').click()
+                expect(page.locator('[data-lesson-view]')).to_have_attribute('data-lesson-view',area)
+                expect(field).to_be_enabled()
+            page.goto(info['base']+href); located_saved_section()
+            after_navigation=api('/api/learning-agent/lesson?lessonId='+lesson)
+            assert after_navigation['teachingTaskId']==public_lesson['teachingTaskId']
+            assert after_navigation['initialTeachingTaskId']==original_task
+            assert api('/api/learning-agent?taskId='+original_task)['status'] in ('ready','waiting_student')
+            assert json.load(urlopen(info['fixture']))['calls']==calls_before
             page.locator('[data-lesson-link=practice]').click()
             practice=page.locator('.chat-section').filter(has=page.get_by_role('heading',name='练习一：判断变化',exact=True))
             expect(practice).to_have_count(1)

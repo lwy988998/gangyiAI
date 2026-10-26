@@ -3,16 +3,18 @@
 #include "agent_profiles.hpp"
 #include "my_ai.hpp"
 #include "agent_prompt.hpp"
+#include "teaching_protocol_checks.hpp"
 
 // 接口回归使用确定性模型夹具；真实教学效果另由同模型多轮对照验证。
 inline void runTeachingEvidenceChecks(const std::filesystem::path& path) {
+    runTeachingProtocolChecks(path.parent_path() / "teaching-protocol.db");
     gangyi::Database db; db.open(path.string()); db.migrate();
     const gangyi::AgentAccess access{"teaching-check", {"math"}};
     assert(db.insert(gangyi::Course{"math", access.scopeId, {}, "数学", "deep", "数学", {}, "ai", "active", "2026-10-13", "2026-10-13"}));
     Json lesson = {{"id", "lesson-check"}, {"scopeId", access.scopeId}, {"courseId", "math"}, {"title", "分数"},
         {"purpose", "验证教学记录"}, {"status", "ready"}, {"entered", true}, {"version", 1}, {"updatedAt", "2026-10-13"},
         {"sourceLearningVersion", db.learningRevision()}, {"sections", {
-            {{"id", "concept"}, {"kind", "explanation"}, {"title", "分数概念"}, {"body", "分母表示每份大小"}, {"version", 1}},
+            {{"id", "concept"}, {"kind", "explanation"}, {"title", "分数概念"}, {"body", "分母表示把同一整体平均分成的份数，每份相当于整体的1/分母"}, {"version", 1}},
             {{"id", "q1"}, {"kind", "question"}, {"title", "第一题"}, {"questionKind", "practice"}, {"questionId", "qid-1"}, {"version", 1},
                 {"question", {{"question", "1/2+1/3=?"}, {"expectedAnswer", "5/6"}, {"rubric", "PRIVATE-CHECK"}}}},
             {{"id", "q2"}, {"kind", "question"}, {"title", "第二题"}, {"questionKind", "practice"}, {"questionId", "qid-2"}, {"version", 1},

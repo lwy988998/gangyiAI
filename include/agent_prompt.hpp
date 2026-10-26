@@ -6,6 +6,13 @@
 #include "agent_efficiency.hpp"
 
 namespace gangyi {
+inline constexpr const char* kAgentPromptRevision = "teaching-quality-navigation-2026-10-26-r1";
+// 诊断会重建提示；共用这段约束，避免评价与后续讲解使用不同定义。
+inline constexpr const char* kAgentTeachingAccuracyRule =
+    u8"公开反馈、讲解和示范应使用准确且一致的术语，区分定义与由定义推得的含义。"
+    u8"例如，分母表示把同一整体平均分成的份数，每份相当于整体的1/分母；不能直接把分母定义为每份的大小。"
+    u8"历史已展示表述有误时新增明确的更正说明，保留原文，不改原题、真实回答、评分依据和实际帮助记录。";
+
 // 只精简发送给模型的副本，完整学习记录及按需读取接口保持原样。
 inline nlohmann::json agentPromptContext(nlohmann::json context, bool assessment) {
     using Json = nlohmann::json;
