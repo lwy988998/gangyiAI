@@ -68,9 +68,14 @@ def exercise(executable):
                     assert request('/api/ai-activity/control', {'command': 'resume'}, headers)[0] == 403, headers
                     assert json.loads(request('/api/ai-activity')[1])['paused'], headers
                 assert request('/api/my-ai/preferences', headers={'Host': 'untrusted.example.invalid'})[0] == 403
-                assert request('/api/ai-activity/control', {'command': 'resume'}, {
-                    'Host': f'127.0.0.1:{port}', 'Connection': 'Upgrade', 'Upgrade': 'websocket',
-                    'Origin': 'https://untrusted.invalid'}, http10=True)[0] == 403
+                try:
+                    legacy_upgrade = request('/api/ai-activity/control', {'command': 'resume'}, {
+                        'Host': f'127.0.0.1:{port}', 'Connection': 'Upgrade', 'Upgrade': 'websocket',
+                        'Origin': 'https://untrusted.invalid'}, http10=True)[0]
+                except (ConnectionResetError, http.client.RemoteDisconnected):
+                    # 部分 Crow/HTTP 解析器直接关闭不支持的 HTTP/1.0 升级，拒绝且不执行写入即可。
+                    legacy_upgrade = 0
+                assert legacy_upgrade in (0, 400, 403)
                 assert json.loads(request('/api/ai-activity')[1])['paused']
                 assert request('/health', headers={'Host': f'localhost:{port}'})[0] == 200
                 assert request('/health', headers={'Origin': base, 'Sec-Fetch-Site': 'none'})[0] == 200
