@@ -19,8 +19,11 @@ Json load(Database& db, const std::string& id, const std::string& kind = {}) {
 Json save(Database& db, const std::string& id, const std::string& kind, Json value, int version) {
     value.erase("version"); value.erase("updatedAt"); value["id"] = id;
     if (!db.saveMyAIRecord({id, kind, value.dump(), libraryNow(), 0}, version)) throw std::runtime_error("资料已在其他窗口更新，请重新读取后修改");
-    const auto previous = db.profileMeta("library-revision");
-    db.setProfileMeta("library-revision", std::to_string((previous.empty() ? 0 : std::stoi(previous)) + 1));
+    // 缓存命中和请求计数只更新统计；来源、快照及选用变化仍使教学上下文与启动复用失效。
+    if (kind != "library-usage") {
+        const auto previous = db.profileMeta("library-revision");
+        db.setProfileMeta("library-revision", std::to_string((previous.empty() ? 0 : std::stoi(previous)) + 1));
+    }
     value["version"] = version + 1; return value;
 }
 std::string requiredText(const Json& value, const char* key, size_t limit = 3000) {

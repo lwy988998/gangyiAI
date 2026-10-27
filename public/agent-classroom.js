@@ -47,6 +47,7 @@
   const nodes = new Map(), records = new Map();
   let lesson, admissionError = '', selectedQuestion = '', watchingTask = '', watchingView = '', unsubscribe, watchEpoch = 0;
   let busy = false, sending = false, refreshing = false, refreshAgain = false, loaded = false, rendering = false, taskRevision = 0;
+  let initialTeachingDeferred = false, startingInitialTeaching = false;
   let activeView = document.querySelector('[data-lesson-view]').dataset.lessonView, initialPosition = true;
   const element = (tag, text = '', className = '') => { const node = document.createElement(tag); node.textContent = text; node.className = className; return node; };
   const focus = () => lesson?.teachingFocus || {};
@@ -348,10 +349,22 @@
             mutate(() => root.append(putRecord(taskId + ':fallback', {type:'message', role:'assistant', taskId, text:task.message, optimistic:true})));
           for (const [key, record] of records) if (record.taskId === taskId && record.role === 'assistant') updateMessage(nodes.get(key), record);
           refreshLesson();
+          if (initialTeachingDeferred && ['ready', 'waiting_student'].includes(task.status)) startDeferredInitialTeaching();
         }
       },
       onConnectionError(error) { if (epoch === watchEpoch) $('lesson-task-status').textContent = error; }
     });
+  }
+  async function startDeferredInitialTeaching() {
+    if (!initialTeachingDeferred || startingInitialTeaching) return;
+    startingInitialTeaching = true; initialTeachingDeferred = false;
+    try {
+      const started = await api.control({command:'start_lesson', lessonId});
+      initialTeachingDeferred = Boolean(started.initialTeachingDeferred);
+      // 新开课绑定后，先前仍在返回的课时读取不能把旧任务重新装回界面。
+      taskRevision++; refreshLesson();
+    } catch (error) { initialTeachingDeferred = true; $('lesson-task-status').textContent = error.message; }
+    finally { startingInitialTeaching = false; }
   }
   async function refreshLesson() {
     if (refreshing) { refreshAgain = true; return; } refreshing = true;
@@ -389,20 +402,21 @@
     } catch (error) { $('lesson-task-status').textContent = error.message; }
     finally { sending = false; setDisabled(); }
   }
-  function sendAnswer(id, action, fromComposer = false) {
+  function sendAnswer(id, action) {
     const section = sectionFor(id), form = nodes.get('section:' + id)?.querySelector('form'); if (!isQuestion(section)) return;
     const choices = [...(form?.querySelectorAll('input:checked') || [])];
     const explanation = selectedQuestion === id ? input.value.trim() : readDraft('draft:' + lessonId + ':' + id, section).trim();
     const text = action === 'unknown' ? '暂时不会' : action === 'skip' ? '我跳过这道题' :
-      (!fromComposer && choices.length ? '我选' + choices.map(choice => (Number(choice.value) + 1) + '：' + section.question.options[Number(choice.value)]).join('、') + '\n' : '') + explanation;
+      (choices.length ? '我选' + choices.map(choice => (Number(choice.value) + 1) + '：' + section.question.options[Number(choice.value)]).join('、') + '\n' : '') + explanation;
     if (!text.trim()) { if (form) form.querySelector('.question-note').textContent = '请先选择选项，或在下方写出你的答案。'; selectQuestion(id, true); return; }
     sendEvent({type:'question_answer', action, text, sectionId:id, sectionVersion:section.version},
       action === 'answer' ? {key:'draft:' + lessonId + ':' + id, text:selectedQuestion === id ? input.value : readDraft('draft:' + lessonId + ':' + id, section)} : null,
-      !fromComposer && action === 'answer' && form ? {key:'draft:' + lessonId + ':' + id + ':choice', value:api.storage.get('draft:' + lessonId + ':' + id + ':choice'), form} : null);
+      action === 'answer' && form ? {key:'draft:' + lessonId + ':' + id + ':choice', value:api.storage.get('draft:' + lessonId + ':' + id + ':choice'), form} : null);
   }
   function sendTeaching(text, fromComposer = false) {
+    // “正在回答”使用与题卡一致的完整作答；切到自由交流后仍只发送追问文字。
+    if (fromComposer && selectedQuestion) { sendAnswer(selectedQuestion, 'answer'); return; }
     if (!text.trim()) { input.focus(); return; }
-    if (fromComposer && selectedQuestion) { sendAnswer(selectedQuestion, 'answer', true); return; }
     sendEvent({type:'chat', text, ...(focus().sectionId ? {sectionId:focus().sectionId} : {})}, fromComposer ? {key:draftKey(), text:input.value} : null);
   }
   function requestTeaching(requestType) {
@@ -422,7 +436,8 @@
     try {
       if (!lesson.entered) await api.control({command:'enter_lesson', lessonId});
       // 回看已保存卡片只读取原记录，普通讲解入口仍按原流程启动教学。
-      if (activeView === 'learn' && !lesson.initialTeachingTaskId && !requestedSection) { await api.control({command:'start_lesson', lessonId});
+      if (activeView === 'learn' && !lesson.initialTeachingTaskId && !requestedSection) {
+        const started = await api.control({command:'start_lesson', lessonId}); initialTeachingDeferred = Boolean(started.initialTeachingDeferred);
         lesson = await api.request('/api/learning-agent/lesson?lessonId=' + encodeURIComponent(lessonId)); }
     } catch (error) { admissionError = error.message; }
     const context = {courseId:lesson.courseId, lessonId, phaseIndex:lesson.phaseIndex, topicIndex:lesson.topicIndex, topicId:lesson.topicId, teachingTaskId:lesson.teachingTaskId};

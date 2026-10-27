@@ -65,6 +65,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw '统一主控课堂与备课页面验收失败' }
           python -X utf8 tests/section_navigation_browser_smoke.py
           if ($LASTEXITCODE -ne 0) { throw '原卡片定位、跨页导航与草稿恢复回归失败' }
+          python -B -X utf8 tests/classroom_answer_browser_smoke.py
+          if ($LASTEXITCODE -ne 0) { throw '题卡与底部作答一致性回归失败' }
+          python -B -X utf8 tests/lesson_start_binding_browser_smoke.py dist/windows/gangyiAI.exe
+          if ($LASTEXITCODE -ne 0) { throw '先练习后首次讲解任务绑定回归失败' }
           python tests/radar_browser_smoke.py dist/windows/gangyiAI.exe
           if ($LASTEXITCODE -ne 0) { throw '双模式六维雷达页面验收失败' }
           python tests/page_ready_browser_smoke.py dist/windows/gangyiAI.exe
@@ -161,16 +165,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            gh release edit "${{ github.ref_name }}" \
-              --repo "${{ github.repository }}" \
-              --title "钢一定制AI ${{ github.ref_name }}" \
-              --latest \
-              --notes-file "docs/releases/${{ github.ref_name }}.md"
-          else
-            gh release create "${{ github.ref_name }}" release-artifacts/* \
-              --repo "${{ github.repository }}" --verify-tag \
-              --title "钢一定制AI ${{ github.ref_name }}" \
-              --latest \
-              --notes-file "docs/releases/${{ github.ref_name }}.md"
-          fi
+          python3 scripts/publish_release.py \
+            --repository "${{ github.repository }}" \
+            --tag "${{ github.ref_name }}" \
+            --artifacts release-artifacts \
+            --notes "docs/releases/${{ github.ref_name }}.md"

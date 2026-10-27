@@ -4,6 +4,8 @@
 #include <string>
 #include <future>
 #include <thread>
+#include <filesystem>
+#include <fstream>
 
 using Json = nlohmann::json;
 Json runQuery(const Json& input) {
@@ -16,6 +18,14 @@ Json runQuery(const Json& input) {
             for (auto& item : pending) rows.push_back(item.get());
             return {{"parallel", rows}};
         }
+        if (input.contains("startAfterFile")) {
+            const auto signal = std::filesystem::u8path(input.at("startAfterFile").get<std::string>());
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            while (!std::filesystem::exists(signal)) {
+                if (std::chrono::steady_clock::now() >= deadline) throw std::runtime_error("本机检索夹具等待信号超时");
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(input.value("startDelayMs", 0)));
         gangyi::SearchClient client;
         gangyi::ResourceQuery request;
@@ -24,9 +34,19 @@ Json runQuery(const Json& input) {
         request.scopeId = input.value("scopeId", "");
         const auto started = std::chrono::steady_clock::now();
         const auto cancelAfter = input.value("cancelAfterMs", -1);
-        request.cancelled = [started, cancelAfter] {
-            return cancelAfter >= 0 && std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - started).count() >= cancelAfter;
+        const auto cancelSignal = input.value("cancelOnFile", "");
+        const auto cancelObserved = input.value("cancelObservedFile", "");
+        const auto checksAfter = input.value("cancelCheckAfterFile", "");
+        const auto checksFile = input.value("cancelChecksFile", "");
+        request.cancelled = [started, cancelAfter, cancelSignal, cancelObserved, checksAfter, checksFile] {
+            if (!checksAfter.empty() && !checksFile.empty() && std::filesystem::exists(std::filesystem::u8path(checksAfter))) {
+                std::ofstream output(std::filesystem::u8path(checksFile), std::ios::app); output << '\n';
+            }
+            const bool cancelled = (!cancelSignal.empty() && std::filesystem::exists(std::filesystem::u8path(cancelSignal))) ||
+                (cancelAfter >= 0 && std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - started).count() >= cancelAfter);
+            if (cancelled && !cancelObserved.empty()) { std::ofstream output(std::filesystem::u8path(cancelObserved)); }
+            return cancelled;
         };
         gangyi::ResourceQueryResult result;
         if (input.value("legacy", false)) { result.resources = client.search(request.query); result.status = "legacy"; }

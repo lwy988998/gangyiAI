@@ -33,7 +33,16 @@ void runLibraryChecks();
 #include "agent_quantum_checks.hpp"
 #include "startup_reuse_checks.hpp"
 #include "section_navigation_checks.hpp"
+#include "lesson_start_binding_checks.hpp"
 int main(int argc, char** argv) {
+    if (argc == 2 && std::string(argv[1]) == "--lesson-start-only") {
+        const auto isolated = std::filesystem::temp_directory_path() /
+            ("gangyi-lesson-start-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        std::filesystem::create_directories(isolated);
+        runLessonStartBindingChecks(isolated / "fixture.db");
+        std::filesystem::remove_all(isolated);
+        std::cout << "先练后讲、执行中延后、跨连接接管和旧任务隔离检查通过；付费请求0。\n"; return 0;
+    }
     if (argc == 2 && std::string(argv[1]) == "--section-navigation-only") {
         const auto isolated = std::filesystem::temp_directory_path() /
             ("gangyi-section-navigation-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -646,6 +655,7 @@ int main(int argc, char** argv) {
     runAgentEfficiencyChecks(root / "efficiency.db");
     runAgentQuantumChecks(root / "quantum.db");
     runSectionNavigationChecks(root / "section-navigation.db");
+    runLessonStartBindingChecks(root / "lesson-start-binding.db");
     std::filesystem::remove_all(root);
     std::cout << "多步 AI 主控、幂等、访问隔离、失败停止与事务回滚测试通过\n";
 }

@@ -54,6 +54,21 @@ void requireTeachingTarget(const Json& task, const Json& lesson) {
     if (!lesson.value("teachingTaskId", "").empty() && lesson.at("teachingTaskId") != task.at("id"))
         throw std::invalid_argument("本课已有更新的教学任务，旧输出不应用");
 }
+Json currentTeachingTask(Database& db, const AgentAccess& access, const Json& lesson) {
+    const auto id = lesson.value("teachingTaskId", "");
+    if (id.empty()) return Json::object();
+    const auto row = db.getClassroomActivity(id);
+    if (!row || row->kind != "agent-task") throw std::invalid_argument("当前课堂任务不存在");
+    const auto task = Json::parse(row->payload);
+    if (task.value("scopeId", "") != access.scopeId || task.value("courseId", "") != lesson.at("courseId") ||
+        task.value("event", Json::object()).value("lessonId", "") != lesson.at("id"))
+        throw std::invalid_argument("当前课堂任务归属不匹配");
+    return task;
+}
+bool canReplaceTeachingTask(const Json& task) {
+    const auto status = task.value("status", "");
+    return status == "ready" || status == "waiting_student" || status == "cancelled" || status == "superseded";
+}
 // AI 选择或追加的当轮问题，应在学生正在使用的页面承接；题目身份与用途仍保留。
 std::string responseView(const Json& lesson, const Json& task) {
     const auto& event = task.at("event");
@@ -835,18 +850,35 @@ void agentAttachLessonTask(Database& db, const AgentAccess& access, const Json& 
     if (lesson.at("status") != "ready" || lesson.at("courseId") != event.value("courseId", ""))
         throw std::invalid_argument("课程尚未准备好或所属课程不匹配");
     if (event.value("type", "") == "lesson_start") {
+        // 新开课只接管本课终态；取消和过时记录保留原样，不重放旧请求。
+        const auto current = currentTeachingTask(db, access, lesson);
+        if (!current.empty() && current.at("id") != taskId && !canReplaceTeachingTask(current))
+            throw std::invalid_argument("本课当前教学任务尚未完成，请先继续或恢复该任务");
         lesson["initialTeachingTaskId"] = taskId;
-        if (!lesson.contains("teachingTaskId")) lesson["teachingTaskId"] = taskId;
+        lesson["teachingTaskId"] = taskId;
     } else lesson["teachingTaskId"] = taskId;
     lesson["updatedAt"] = now(); saveLesson(db, lesson);
 }
 Json agentStartLesson(Database& db, const AgentAccess& access, const Json& body) {
     const auto id = text(body, "lessonId"); agentEnterLesson(db, access, body);
-    const auto lesson = lessonFor(db, access, id);
-    if (!lesson.value("initialTeachingTaskId", "").empty()) return agentView(db, access, lesson.at("initialTeachingTaskId"));
-    return agentSubmit(db, access, {{"type", "lesson_start"}, {"requestId", "lesson-start:" + id},
-        {"courseId", lesson.at("courseId")}, {"lessonId", id},
-        {"text", "请读取本课已经保存的板块和真实学习记录，选择当前讲解段及合适的互动题，分段带我学习。围绕当前段边问边讲；等待我的反馈再决定继续、补讲或举例。已有课件无需重新生成，切换讲解、练习和小结不表示完成。"}});
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        const auto lesson = lessonFor(db, access, id);
+        if (!lesson.value("initialTeachingTaskId", "").empty()) return agentView(db, access, lesson.at("initialTeachingTaskId"));
+        const auto current = currentTeachingTask(db, access, lesson);
+        if (!current.empty() && !canReplaceTeachingTask(current)) {
+            // 继续观察或恢复原请求；等它有效结束后再开讲，不能因切页打断原回答。
+            auto result = agentView(db, access, current.at("id")); result["initialTeachingDeferred"] = true; return result;
+        }
+        try {
+            return agentSubmit(db, access, {{"type", "lesson_start"}, {"requestId", "lesson-start:" + id},
+                {"courseId", lesson.at("courseId")}, {"lessonId", id},
+                {"text", "请读取本课已经保存的板块和真实学习记录，选择当前讲解段及合适的互动题，分段带我学习。围绕当前段边问边讲；等待我的反馈再决定继续、补讲或举例。已有课件无需重新生成，切换讲解、练习和小结不表示完成。"}});
+        } catch (const std::invalid_argument& error) {
+            if (std::string(error.what()) != "本课当前教学任务尚未完成，请先继续或恢复该任务" || attempt != 0) throw;
+            // 读取与提交间若出现新任务，重读后返回它；不重复生成或覆盖并发任务。
+        }
+    }
+    throw std::runtime_error("当前课堂任务已经变化，请保留输入后重试");
 }
 Json agentExposeTask(Database& db, const AgentAccess& access, const Json& body) {
     if (body.contains("lessonId") && (body.contains("sections") || body.contains("evaluations"))) {

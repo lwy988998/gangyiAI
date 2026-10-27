@@ -20,7 +20,7 @@ def saved_lesson():
         sections.append(dict(id=f'question-{index}', kind='question', title=f'原练习 {index + 1}', questionKind='practice',
                              questionId=f'qid-{index}', version=1, view='practice',
                              href=f'/practice?lessonId=navigation-fixture&sectionId=question-{index}',
-                             question=dict(question='请说明分数单位与平均分的关系。' * 5, type='choice', options=['先统一单位', '直接相加'])))
+                             question=dict(question='请说明分数单位与平均分的关系。' * 5, type='multi_choice' if index == 1 else 'choice', options=['先统一单位', '直接相加'])))
     sections.append(dict(id='repair', kind='explanation', title='练习中的原补讲', version=1, view='practice',
                          href='/practice?lessonId=navigation-fixture&sectionId=repair',
                          body='分母表示把同一整体平均分成的份数，每份相当于整体的1/分母。'))
@@ -49,15 +49,32 @@ def classroom_html(view):
     const fixture = FIXTURE, query = new URLSearchParams(location.search);
     if (query.has('legacy')) fixture.sections.forEach(section => delete section.href);
     if (query.has('archived')) fixture.timeline = [{type:'section',sectionId:'question-0',taskId:'saved-task',view:'practice'}];
+    let ownerStatus = 'running';
+    const fixtureWatches = new Map();
     window.fixtureRequests = {read:0,control:[],submit:[],visible:[]};
+    window.fixtureOwnerState = status => { ownerStatus=status; fixtureWatches.get('saved-task')?.onState({id:'saved-task',status}); };
+    window.fixtureFinishOwner = () => window.fixtureOwnerState('waiting_student');
     const storageKey = key => 'navigation-fixture:' + key;
     window.GangyiAgent = {
       request: async path => { if (!path.startsWith('/api/learning-agent/lesson?')) throw Error('非预期读取');
         window.fixtureRequests.read++; return structuredClone(fixture); },
-      control: async event => { window.fixtureRequests.control.push(event); throw Error('回看不能启动教学'); },
-      submit: async event => { window.fixtureRequests.submit.push(event); throw Error('回看不能提交教学请求'); },
+      control: async event => { window.fixtureRequests.control.push(event);
+        if(query.has('deferred') && event.command==='start_lesson') {
+          if(!['ready','waiting_student','cancelled','superseded'].includes(ownerStatus))return {id:'saved-task',status:ownerStatus,initialTeachingDeferred:true};
+          fixture.initialTeachingTaskId=fixture.teachingTaskId='initial-task'; fixture.teachingTaskView='learn';
+          fixture.teachingFocus={sectionId:'learn-first'};
+          return {id:'initial-task',status:'waiting_student'};
+        }
+        throw Error('回看不能启动教学'); },
+      submit: async event => { window.fixtureRequests.submit.push(event);
+        if(query.has('answer-test'))return {id:'submitted-task-'+window.fixtureRequests.submit.length,status:'waiting_student',requestId:event.requestId};
+        throw Error('回看不能提交教学请求'); },
       storage: {get:key=>localStorage.getItem(storageKey(key))||'',set:(key,value)=>localStorage.setItem(storageKey(key),value||''),remove:key=>localStorage.removeItem(storageKey(key))},
-      richText:(node,value)=>node.textContent=String(value),watch:()=>()=>{},flushExposure:async()=>{},id:()=>crypto.randomUUID(),
+      richText:(node,value)=>node.innerHTML=window.GangyiChat.renderMarkdown(String(value),{math:false}),
+      watch:(id,handlers)=>{ if(query.has('deferred')) { fixtureWatches.set(id,handlers);
+          queueMicrotask(()=>handlers.onState({id,status:id==='initial-task'?'waiting_student':ownerStatus})); }
+        return ()=>fixtureWatches.delete(id); },
+      flushExposure:async()=>{},id:()=>crypto.randomUUID(),
       failureMessage:()=>'',recordVisibleMessage:()=>{},recordEvaluation:()=>{},
       recordVisibleSection:(lesson,section,node,scroll)=>{ if(!node)return; const a=node.getBoundingClientRect(),b=scroll.getBoundingClientRect();
         if(a.width&&a.height&&a.bottom>b.top&&a.top<b.bottom)window.fixtureRequests.visible.push(section.id); }
@@ -65,7 +82,7 @@ def classroom_html(view):
     """.replace('FIXTURE', fixture)
     return ('<!doctype html><html lang="zh-CN"><meta charset="utf-8">' + styles +
             '<body class="dark-app"><header style="height:76px">离线导航回归</header>' + body +
-            '<script>' + script + '</script><script defer src="/agent-classroom.js"></script></body></html>').encode()
+            '<script src="/chat-render.js"></script><script>' + script + '</script><script defer src="/agent-classroom.js"></script></body></html>').encode()
 
 
 @contextmanager
@@ -78,7 +95,7 @@ def local_pages():
             path = urlsplit(self.path).path
             if path in ('/learn', '/practice', '/summary'):
                 content, kind = classroom_html(path[1:]), 'text/html; charset=utf-8'
-            elif path == '/agent-classroom.js' or path.endswith('.css') and '/' not in path[1:]:
+            elif path in ('/agent-classroom.js', '/chat-render.js') or path.endswith('.css') and '/' not in path[1:]:
                 content = (REPO / 'public' / path[1:]).read_bytes()
                 kind = 'text/javascript; charset=utf-8' if path.endswith('.js') else 'text/css; charset=utf-8'
             else:
@@ -170,8 +187,39 @@ def main():
         assert not errors, errors
         assert not external, external
         assert not page.evaluate('fixtureRequests.control.length || fixtureRequests.submit.length')
+        # 教师文字中的站内 Markdown 入口使用真实渲染器，也能进入实际原卡片。
+        page.evaluate("""() => {const note=document.createElement('div');note.id='fixture-markdown-link';
+          GangyiAgent.richText(note,'[查看原补讲](/practice?lessonId=navigation-fixture&sectionId=repair)');
+          document.getElementById('page-status').after(note);}""")
+        markdown_link = page.locator('#fixture-markdown-link a')
+        assert markdown_link.get_attribute('target') is None
+        markdown_link.click()
+        page.wait_for_url('**/practice?**sectionId=repair**')
+        assert_located(page, 'repair')
+        # 首次讲解不能抢占正在处理的练习；收到有效终态后仅续开一次。
+        page.goto(base + '/learn?lessonId=navigation-fixture&deferred=1')
+        expect(page.locator('#lesson-task-status')).to_have_text('AI 正在结合你的回答互动')
+        assert page.evaluate('fixtureRequests.control.length') == 1
+        assert not page.evaluate('fixture.initialTeachingTaskId')
+        page.evaluate('fixtureFinishOwner()')
+        page.wait_for_function("fixture.initialTeachingTaskId==='initial-task'&&fixtureRequests.control.length===2")
+        expect(page.locator('#lesson-task-status')).to_have_text('你可以继续回答或追问')
+        assert page.evaluate('fixture.teachingTaskId') == 'initial-task'
+        assert page.evaluate('fixtureRequests.control.every(event=>event.command==="start_lesson")')
+        assert not page.evaluate('fixtureRequests.submit.length')
+        # 当前页刚取消原任务时，停止意图优先；不能因终态变成 cancelled 自动启动 B。
+        page.goto(base + '/learn?lessonId=navigation-fixture&deferred=1')
+        expect(page.locator('#lesson-task-status')).to_have_text('AI 正在结合你的回答互动')
+        page.evaluate("fixtureOwnerState('cancelled')")
+        expect(page.locator('#lesson-task-status')).to_contain_text('已停止本次回答')
+        expect(page.locator('#lesson-retry')).to_be_visible()
+        page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+        assert page.evaluate('fixtureRequests.control.length') == 1
+        assert not page.evaluate('fixture.initialTeachingTaskId')
+        assert not errors, errors
+        assert not external, external
         browser.close()
-    print(f'生产课堂 DOM/脚本离线回归通过：归档原卡片实际滚动 {first_top:.0f}px、旧位置优先级、旧链接兼容、同页/跨页、小结、窄屏、草稿保持；外部请求与教学提交均为0。')
+    print(f'生产课堂 DOM/脚本离线回归通过：归档原卡片实际滚动 {first_top:.0f}px、旧位置优先级、同页/跨页、小结、窄屏、草稿保持、运行任务结束后续开一次；外部请求与教学提交均为0。')
 
 
 if __name__ == '__main__':

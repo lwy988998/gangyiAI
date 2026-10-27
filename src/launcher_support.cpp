@@ -8,9 +8,13 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
 #endif
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cwctype>
 #include <fstream>
@@ -84,55 +88,150 @@ bool openDatabase(const std::filesystem::path& path, int flags, sqlite3** databa
     return false;
 }
 
-bool copyDatabase(const std::filesystem::path& source, const std::filesystem::path& destination,
-                  std::wstring& error) {
-    sqlite3* sourceDb = nullptr;
-    sqlite3* destinationDb = nullptr;
-    if (!openDatabase(source, SQLITE_OPEN_READONLY, &sourceDb, error)) return false;
+struct DatabaseHandle {
+    sqlite3* value = nullptr;
+    DatabaseHandle() = default;
+    DatabaseHandle(const DatabaseHandle&) = delete;
+    DatabaseHandle& operator=(const DatabaseHandle&) = delete;
+    ~DatabaseHandle() { if (value) sqlite3_close(value); }
+};
+
+struct OwnedDatabaseFile {
+    std::filesystem::path path;
+    bool removeOnExit = false;
+    ~OwnedDatabaseFile() {
+        if (!removeOnExit) return;
+        std::error_code ignored;
+        // 仅清理本次新建且已经关闭的临时数据库，绝不删除原档案的附属文件。
+        for (const auto* suffix : {L"", L"-wal", L"-shm", L"-journal"})
+            std::filesystem::remove(std::filesystem::path(path.wstring() + suffix), ignored);
+    }
+};
+
+std::filesystem::path temporaryDatabase(const std::filesystem::path& destination) {
+    static std::atomic_uint64_t sequence{0};
+    return std::filesystem::path(destination.wstring() + L".tmp-" +
+        std::to_wstring(std::chrono::steady_clock::now().time_since_epoch().count()) + L"-" +
+        std::to_wstring(++sequence));
+}
+
+bool reserveDatabaseFile(const std::filesystem::path& path, std::wstring& error) {
+    // 原子占用新路径，失败时不能清理另一个进程刚创建的档案。
+#ifdef _WIN32
+    const auto file = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file != INVALID_HANDLE_VALUE) { CloseHandle(file); return true; }
+#else
+    const int file = open(path.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600);
+    if (file >= 0) { close(file); return true; }
+#endif
+    setError(error, L"新快照路径已被占用或无法创建，请选择新的备份位置。");
+    return false;
+}
+
+bool copyDatabaseContent(sqlite3* sourceDb, sqlite3* destinationDb, std::wstring& error) {
+    sqlite3_backup* backup = sqlite3_backup_init(destinationDb, "main", sourceDb, "main");
+    if (!backup) {
+        setError(error, L"无法创建数据库快照，原档案没有替换。");
+        return false;
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    int result;
+    do {
+        result = sqlite3_backup_step(backup, 128);
+        if (result == SQLITE_BUSY || result == SQLITE_LOCKED) {
+            if (std::chrono::steady_clock::now() >= deadline) break;
+            sqlite3_sleep(50);
+        }
+    } while (result == SQLITE_OK || result == SQLITE_BUSY || result == SQLITE_LOCKED);
+    // 无论成功失败均结束备份；失败的写事务由 SQLite 回滚，不能遗留活动备份句柄。
+    const int finish = sqlite3_backup_finish(backup);
+    if (result != SQLITE_DONE || finish != SQLITE_OK) {
+        setError(error, L"数据库复制失败或正在使用，请关闭其他连接后重试；原档案未替换。");
+        return false;
+    }
+    return runQuickCheck(destinationDb, error);
+}
+
+bool copyOpenDatabase(sqlite3* sourceDb, const std::filesystem::path& destination, std::wstring& error) {
     std::error_code filesystemError;
+    if (std::filesystem::exists(destination, filesystemError) || filesystemError) {
+        setError(error, L"快照文件已经存在或无法检查，请选择新的备份位置。");
+        return false;
+    }
     if (!destination.parent_path().empty()) {
         std::filesystem::create_directories(destination.parent_path(), filesystemError);
         if (filesystemError) {
-            sqlite3_close(sourceDb);
             setError(error, L"无法创建数据库目标目录。");
             return false;
         }
     }
-    std::filesystem::remove(destination, filesystemError);
-    if (!openDatabase(destination, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, &destinationDb, error)) {
-        sqlite3_close(sourceDb);
-        return false;
-    }
+    if (!reserveDatabaseFile(destination, error)) return false;
+    OwnedDatabaseFile created{destination, true};
+    DatabaseHandle destinationDb;
+    if (!openDatabase(destination, SQLITE_OPEN_READWRITE, &destinationDb.value, error)) return false;
     sqlite3_busy_timeout(sourceDb, 5000);
-    sqlite3_busy_timeout(destinationDb, 5000);
-    sqlite3_backup* backup = sqlite3_backup_init(destinationDb, "main", sourceDb, "main");
-    bool ok = backup != nullptr;
-    if (backup) {
-        int result = SQLITE_OK;
-        do {
-            result = sqlite3_backup_step(backup, 128);
-            if (result == SQLITE_BUSY || result == SQLITE_LOCKED) sqlite3_sleep(50);
-        } while (result == SQLITE_OK || result == SQLITE_BUSY || result == SQLITE_LOCKED);
-        ok = result == SQLITE_DONE && sqlite3_backup_finish(backup) == SQLITE_OK;
-    }
-    if (ok) ok = runQuickCheck(destinationDb, error);
-    sqlite3_close(destinationDb);
-    sqlite3_close(sourceDb);
-    if (!ok) {
-        std::filesystem::remove(destination, filesystemError);
-        if (error.empty()) setError(error, L"数据库复制失败，请检查磁盘空间和文件权限。");
-    }
+    sqlite3_busy_timeout(destinationDb.value, 5000);
+    const bool ok = copyDatabaseContent(sourceDb, destinationDb.value, error);
+    created.removeOnExit = !ok;
     return ok;
 }
 
-bool replaceFile(const std::filesystem::path& source, const std::filesystem::path& destination) {
-#ifdef _WIN32
-    return MoveFileExW(source.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) == TRUE;
-#else
+bool copyDatabase(const std::filesystem::path& source, const std::filesystem::path& destination,
+                  std::wstring& error) {
+    DatabaseHandle sourceDb;
+    return openDatabase(source, SQLITE_OPEN_READONLY, &sourceDb.value, error) &&
+        copyOpenDatabase(sourceDb.value, destination, error);
+}
+
+bool sameDatabasePath(const std::filesystem::path& left, const std::filesystem::path& right) {
     std::error_code error;
-    std::filesystem::rename(source, destination, error);
-    return !error;
-#endif
+    if (std::filesystem::equivalent(left, right, error)) return true;
+    error.clear(); const auto first = std::filesystem::weakly_canonical(left, error);
+    if (error) return false;
+    const auto second = std::filesystem::weakly_canonical(right, error);
+    return !error && first == second;
+}
+
+bool installDatabaseSnapshot(const std::filesystem::path& snapshot, const std::filesystem::path& destination,
+                             const std::filesystem::path& rollback, std::wstring& error) {
+    std::error_code filesystemError;
+    const bool existed = std::filesystem::exists(destination, filesystemError);
+    if (filesystemError) { setError(error, L"无法检查目标数据库。"); return false; }
+    if (!destination.parent_path().empty()) {
+        std::filesystem::create_directories(destination.parent_path(), filesystemError);
+        if (filesystemError) { setError(error, L"无法创建数据库目标目录。"); return false; }
+    }
+    if (!existed && !reserveDatabaseFile(destination, error)) return false;
+    OwnedDatabaseFile created{destination, !existed};
+    DatabaseHandle destinationDb;
+    if (!openDatabase(destination, SQLITE_OPEN_READWRITE, &destinationDb.value, error)) return false;
+    sqlite3_busy_timeout(destinationDb.value, 250);
+    // 独占模式在 COMMIT 后仍持锁，覆盖回滚副本、检查点和写回；其他活动读写连接必须退出。
+    if (sqlite3_exec(destinationDb.value, "PRAGMA locking_mode=EXCLUSIVE;BEGIN EXCLUSIVE;COMMIT;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        setError(error, L"目标数据库正在使用，未执行替换；请关闭其他连接后重试。");
+        return false;
+    }
+    if (existed && !rollback.empty() && !copyOpenDatabase(destinationDb.value, rollback, error)) return false;
+
+    // 由 SQLite 合并 WAL 并处理附属文件，不直接删除可能尚未写回主文件的学习记录。
+    sqlite3_stmt* journal = nullptr;
+    bool checkpointed = sqlite3_prepare_v2(destinationDb.value, "PRAGMA journal_mode=DELETE", -1, &journal, nullptr) == SQLITE_OK;
+    if (checkpointed) {
+        const int result = sqlite3_step(journal);
+        const auto* mode = result == SQLITE_ROW ? sqlite3_column_text(journal, 0) : nullptr;
+        checkpointed = mode && std::string(reinterpret_cast<const char*>(mode)) == "delete";
+    }
+    sqlite3_finalize(journal);
+    if (!checkpointed) {
+        setError(error, L"目标数据库仍有活动连接，无法完成安全检查点；原档案和恢复前副本已保留。");
+        return false;
+    }
+    DatabaseHandle snapshotDb;
+    if (!openDatabase(snapshot, SQLITE_OPEN_READONLY, &snapshotDb.value, error)) return false;
+    if (!copyDatabaseContent(snapshotDb.value, destinationDb.value, error)) return false;
+    created.removeOnExit = false;
+    return true;
 }
 
 std::string toUtf8(const std::wstring& value) {
@@ -260,42 +359,33 @@ bool validateDatabase(const std::filesystem::path& path, std::wstring& error) {
 bool backupDatabase(const std::filesystem::path& source, const std::filesystem::path& destination,
                     std::wstring& error) {
     error.clear();
-    std::error_code equivalentError;
-    if (std::filesystem::exists(destination) && std::filesystem::equivalent(source, destination, equivalentError)) {
+    if (sameDatabasePath(source, destination)) {
         setError(error, L"备份目标不能是当前课程数据库。");
         return false;
     }
     if (!validateDatabase(source, error)) return false;
-    const auto temporary = std::filesystem::path(destination.wstring() + L".tmp");
+    const auto temporary = temporaryDatabase(destination);
     if (!copyDatabase(source, temporary, error)) return false;
-    std::error_code filesystemError;
-    if (!replaceFile(temporary, destination)) {
-        std::filesystem::remove(temporary, filesystemError);
-        setError(error, L"无法写入目标备份文件，请检查路径和权限。");
-        return false;
-    }
-    return true;
+    OwnedDatabaseFile snapshot{temporary, true};
+    return installDatabaseSnapshot(temporary, destination, {}, error);
 }
 
 bool restoreDatabase(const std::filesystem::path& backup, const std::filesystem::path& destination,
                      const std::filesystem::path& rollback, std::wstring& error) {
     error.clear();
-    std::error_code equivalentError;
-    if (std::filesystem::exists(destination) && std::filesystem::equivalent(backup, destination, equivalentError)) {
+    if (sameDatabasePath(backup, destination)) {
         setError(error, L"请选择与当前课程数据库不同的备份文件。");
         return false;
     }
-    if (!validateDatabase(backup, error)) return false;
-    if (std::filesystem::exists(destination) && !backupDatabase(destination, rollback, error)) return false;
-    const auto temporary = std::filesystem::path(destination.wstring() + L".restore.tmp");
-    if (!copyDatabase(backup, temporary, error)) return false;
-    std::error_code filesystemError;
-    if (!replaceFile(temporary, destination)) {
-        if (std::filesystem::exists(rollback)) copyDatabase(rollback, destination, error);
-        setError(error, L"无法替换课程数据库，已保留恢复前备份。");
+    if (rollback.empty() || sameDatabasePath(backup, rollback) || sameDatabasePath(destination, rollback)) {
+        setError(error, L"恢复前副本必须使用不同于当前档案及所选备份的新路径。");
         return false;
     }
-    return true;
+    if (!validateDatabase(backup, error)) return false;
+    const auto temporary = temporaryDatabase(destination);
+    if (!copyDatabase(backup, temporary, error)) return false;
+    OwnedDatabaseFile snapshot{temporary, true};
+    return installDatabaseSnapshot(temporary, destination, rollback, error);
 }
 
 bool writeDiagnosticReport(const std::filesystem::path& destination, const DiagnosticInfo& info,

@@ -12,6 +12,7 @@
 #include <fstream>
 #include <future>
 #include <iomanip>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -27,6 +28,10 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#else
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
 #endif
 
 namespace gangyi {
@@ -437,7 +442,7 @@ json serializeCache(const std::vector<SearchResource>& resources) {
 
 std::optional<std::vector<SearchResource>> readCache(const std::string& dir, const std::string& key, long long ttlSeconds) {
     try {
-        const fs::path path = fs::path(dir) / (key + ".json");
+        const fs::path path = fs::u8path(dir) / (key + ".json");
         if (!fs::exists(path)) return std::nullopt;
         std::ifstream in(path, std::ios::binary);
         if (!in) return std::nullopt;
@@ -473,29 +478,154 @@ std::optional<std::vector<SearchResource>> readCache(const std::string& dir, con
     }
 }
 
-void writeCache(const std::string& dir, const std::string& key, const std::vector<SearchResource>& resources) {
-    static std::mutex writer;
-    std::lock_guard<std::mutex> lock(writer);
+// 每个精确缓存键使用系统文件锁，独立进程也必须先核对世代再提交。
+class SearchCacheLock {
+public:
+    SearchCacheLock(const fs::path& path, const std::function<bool()>& cancelled = {}) {
+#ifdef _WIN32
+        handle_ = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+            nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (handle_ == INVALID_HANDLE_VALUE) throw std::runtime_error("搜索缓存锁不可用");
+#else
+        handle_ = open(path.c_str(), O_CREAT | O_RDWR, 0600);
+        if (handle_ < 0) throw std::runtime_error("搜索缓存锁不可用");
+#endif
+        for (int attempt = 0; attempt < 100; ++attempt) {
+            if (cancelled && cancelled()) break;
+#ifdef _WIN32
+            if (LockFileEx(handle_, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &overlap_)) return;
+#else
+            if (flock(handle_, LOCK_EX | LOCK_NB) == 0) return;
+#endif
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        close(); throw std::runtime_error("搜索缓存锁等待已结束");
+    }
+    ~SearchCacheLock() { close(); }
+    SearchCacheLock(const SearchCacheLock&) = delete;
+    SearchCacheLock& operator=(const SearchCacheLock&) = delete;
+private:
+    void close() {
+#ifdef _WIN32
+        if (handle_ != INVALID_HANDLE_VALUE) {
+            UnlockFileEx(handle_, 0, 1, 0, &overlap_); CloseHandle(handle_); handle_ = INVALID_HANDLE_VALUE;
+        }
+#else
+        if (handle_ >= 0) { flock(handle_, LOCK_UN); ::close(handle_); handle_ = -1; }
+#endif
+    }
+#ifdef _WIN32
+    HANDLE handle_ = INVALID_HANDLE_VALUE;
+    OVERLAPPED overlap_{};
+#else
+    int handle_ = -1;
+#endif
+};
+
+void replaceCacheFile(const fs::path& path, const json& value) {
+    auto temporary = path; temporary += ".tmp";
+    std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+    output << value.dump(2); output.flush();
+    if (!output) throw std::runtime_error("搜索缓存保存失败");
+    output.close();
+    if (!output) throw std::runtime_error("搜索缓存关闭失败");
+#ifdef _WIN32
+    if (!MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+        throw std::runtime_error("搜索缓存提交失败");
+#else
+    fs::rename(temporary, path);
+#endif
+}
+
+struct SearchCacheVersion {
+    std::uint64_t generation = 0;
+    std::uint64_t committed = 0;
+};
+
+SearchCacheVersion cacheVersion(const fs::path& path) {
+    if (!fs::exists(path)) return {};
+    std::ifstream input(path, std::ios::binary);
+    json value; input >> value;
+    for (const auto* name : {"generation", "committed"})
+        if (!value.at(name).is_number_integer() ||
+            (!value.at(name).is_number_unsigned() && value.at(name).get<long long>() < 0))
+            throw std::runtime_error("搜索缓存世代无效");
+    return {value.at("generation").get<std::uint64_t>(), value.at("committed").get<std::uint64_t>()};
+}
+
+void saveCacheVersion(const fs::path& path, const SearchCacheVersion& value) {
+    replaceCacheFile(path, {{"generation", value.generation}, {"committed", value.committed}});
+}
+
+struct SearchCacheTicket {
+    std::string dir, key;
+    SearchCacheVersion version;
+    bool valid = false;
+    std::optional<std::vector<SearchResource>> cached;
+};
+
+std::optional<std::vector<SearchResource>> currentCache(const SearchCacheTicket& ticket, long long ttlSeconds) {
+    if (!ticket.valid) return std::nullopt;
     try {
-        fs::create_directories(dir);
-        const fs::path path = fs::path(dir) / (key + ".json");
-        const fs::path temp = path.string() + ".tmp";
-        const json payload = serializeCache(resources);
-        {
-            std::ofstream out(temp, std::ios::binary | std::ios::trunc);
-            if (!out) return;
-            out << payload.dump(2);
-            if (!out.good()) return;
-        }
-        std::error_code ec;
-        fs::rename(temp, path, ec);
-        if (ec) {
-            fs::remove(path, ec);
-            ec.clear();
-            fs::rename(temp, path, ec);
-            if (ec) fs::remove(temp, ec);
-        }
+        const auto root = fs::u8path(ticket.dir);
+        SearchCacheLock lock(root / (ticket.key + ".lock"));
+        const auto current = cacheVersion(root / (ticket.key + ".state"));
+        if (current.generation == ticket.version.generation) return readCache(ticket.dir, ticket.key, ttlSeconds);
     } catch (...) {}
+    return std::nullopt;
+}
+
+SearchCacheTicket prepareCache(const std::string& dir, const std::string& key, long long ttlSeconds,
+                              bool refresh, const std::function<bool()>& cancelled) {
+    SearchCacheTicket ticket{dir, key, {}, false, std::nullopt};
+    // 显式空目录表示不使用磁盘缓存；此时刷新仍按普通网络请求执行。
+    if (dir.empty()) return ticket;
+    try {
+        const auto root = fs::u8path(dir);
+        fs::create_directories(root);
+        SearchCacheLock lock(root / (key + ".lock"), cancelled);
+        const auto path = root / (key + ".state");
+        ticket.version = cacheVersion(path);
+        if (refresh) {
+            if (ticket.version.generation == std::numeric_limits<std::uint64_t>::max()) return ticket;
+            ++ticket.version.generation;
+            saveCacheVersion(path, ticket.version);
+        } else ticket.cached = readCache(dir, key, ttlSeconds);
+        ticket.valid = true;
+    } catch (...) { /* 无法协调时不读取或写入缓存，普通搜索仍可返回实际网络结果。 */ }
+    return ticket;
+}
+
+bool writeCache(const SearchCacheTicket& ticket, bool refresh, const std::vector<SearchResource>& resources,
+                const std::function<bool()>& cancelled,
+                const std::function<bool(const std::function<void()>&)>& publish) {
+    if (cancelled && cancelled()) return false;
+    if (!ticket.valid) return publish ? publish([] {}) : true;
+    bool committing = false;
+    try {
+        const auto root = fs::u8path(ticket.dir);
+        // 等待跨进程锁期间不能持有等待者互斥锁，最后一次取消必须能立即退出。
+        SearchCacheLock lock(root / (ticket.key + ".lock"), cancelled);
+        if (cancelled && cancelled()) return false;
+        const auto commit = [&] {
+            const auto state = root / (ticket.key + ".state");
+            auto current = cacheVersion(state);
+            if (current.generation != ticket.version.generation ||
+                (!refresh && current.committed != ticket.version.committed) ||
+                current.committed == std::numeric_limits<std::uint64_t>::max()) return;
+            // 此处是提交临界区的起点；之后的取消不能把已提交缓存说成未缓存。
+            committing = true;
+            ++current.committed; saveCacheVersion(state, current);
+            replaceCacheFile(root / (ticket.key + ".json"), serializeCache(resources));
+        };
+        // 共享请求在此才持等待者锁，核对全部取消并提交；刷新则再次读取自己的取消状态。
+        if (publish) return publish(commit);
+        if (cancelled && cancelled()) return false;
+        commit(); return true;
+    } catch (...) {
+        // 缓存失败不改变已校验的网络结果；仅在进入提交前取消时报告未提交。
+        return committing || !(cancelled && cancelled());
+    }
 }
 
 std::vector<std::string> detectQueries(const std::string& domain, const std::string& goal) {
@@ -585,7 +715,7 @@ ProviderConfiguration providerConfiguration(const std::string& provider) {
 }
 
 ResourceQueryResult providerQueryOnce(const std::string& provider, const ResourceQuery& request,
-                                    const std::string& cacheDir, const ProviderConfiguration& configuration,
+                                    const SearchCacheTicket& cache, const ProviderConfiguration& configuration,
                                     const std::function<bool()>& started = {},
                                     const std::function<bool(const std::function<void()>&)>& publish = {}) {
     ResourceQueryResult result;
@@ -597,9 +727,8 @@ ResourceQueryResult providerQueryOnce(const std::string& provider, const Resourc
     if (request.cancelled && request.cancelled()) { result.status = "cancelled"; return result; }
     const auto query = deepseek ? deepseekQuery(request) : request.query;
     if (query.empty()) { result.status = "query_too_long"; return result; }
-    const auto cacheKey = sha256Hex("dual-v1:" + provider + ":" + base + ":" + sha256Hex(key) + ":" + query + ":" + request.freshness + ":" + std::to_string(request.count) +
-        (request.scopeId.empty() ? std::string() : ":scope:" + sha256Hex(request.scopeId)));
-    if (!request.refresh) if (const auto cached = readCache(cacheDir, cacheKey, request.freshness == "noLimit" ? 86400LL : 3600LL)) {
+    // 准备票据与进入工作线程之间，另一请求可能刚完成；再次读取避免重复发送。
+    if (!request.refresh) if (const auto cached = currentCache(cache, request.freshness == "noLimit" ? 86400LL : 3600LL)) {
         result.resources = *cached; result.status = "completed"; result.cached = true; return result;
     }
     json body = deepseek ? json{{"query", query}, {"count", request.count}, {"need_content", false}} :
@@ -641,8 +770,7 @@ ResourceQueryResult providerQueryOnce(const std::string& provider, const Resourc
             if (request.cancelled && request.cancelled()) {
                 result.resources.clear(); result.status = "cancelled";
             } else {
-                const auto save = [&] { writeCache(cacheDir, cacheKey, result.resources); };
-                const bool saved = publish ? publish(save) : (save(), true);
+                const bool saved = writeCache(cache, request.refresh, result.resources, request.cancelled, publish);
                 result.status = saved ? "completed" : "cancelled";
                 if (!saved) result.resources.clear();
             }
@@ -678,7 +806,7 @@ struct SearchWaiters {
         return stopped;
     }
     bool publish(const std::function<void()>& save) {
-        // 最后一次取消与缓存提交串行，不能取消后再等写锁落入成功缓存。
+        // 跨进程锁已在外层取得；这里只串行最后一次取消与最终缓存提交。
         std::lock_guard<std::mutex> lock(mutex);
         if (stopped) return false;
         save(); return true;
@@ -692,8 +820,25 @@ struct SearchFlight {
 
 ResourceQueryResult providerQuery(const std::string& provider, const ResourceQuery& request, const std::string& cacheDir) {
     const auto configuration = providerConfiguration(provider);
-    if (request.refresh || env("GANGYI_SEARCH_SINGLEFLIGHT") == "0" || configuration.key.empty())
-        return providerQueryOnce(provider, request, cacheDir, configuration);
+    ResourceQueryResult immediate;
+    if (configuration.key.empty()) { immediate.status = "missing_key"; return immediate; }
+    if (request.cancelled && request.cancelled()) { immediate.status = "cancelled"; return immediate; }
+    const auto query = provider == "deepseek" ? deepseekQuery(request) : request.query;
+    if (query.empty()) { immediate.status = "query_too_long"; return immediate; }
+    // 新协议隔离不遵守世代锁的旧进程；升级首次检索会冷启动，字段范围和有效期不变。
+    const auto cacheKey = sha256Hex("dual-v2:" + provider + ":" + configuration.base + ":" + sha256Hex(configuration.key) + ":" + query + ":" + request.freshness + ":" + std::to_string(request.count) +
+        (request.scopeId.empty() ? std::string() : ":scope:" + sha256Hex(request.scopeId)));
+    const auto cache = prepareCache(cacheDir, cacheKey, request.freshness == "noLimit" ? 86400LL : 3600LL, request.refresh, request.cancelled);
+    if (request.cancelled && request.cancelled()) { immediate.status = "cancelled"; return immediate; }
+    if (request.refresh && !cacheDir.empty() && !cache.valid) {
+        // 未建立持久世代隔离的刷新不能伪称成功；不发送，也不叠加网络重试。
+        immediate.status = "cache_unavailable"; return immediate;
+    }
+    if (cache.cached) {
+        immediate.resources = *cache.cached; immediate.status = "completed"; immediate.cached = true; return immediate;
+    }
+    if (request.refresh || env("GANGYI_SEARCH_SINGLEFLIGHT") == "0" || (!cacheDir.empty() && !cache.valid))
+        return providerQueryOnce(provider, request, cache, configuration);
     struct Flights {
         std::mutex mutex;
         std::map<std::string, std::shared_ptr<SearchFlight>> active;
@@ -705,7 +850,8 @@ ResourceQueryResult providerQuery(const std::string& provider, const ResourceQue
         {"credential", sha256Hex(configuration.key)}, {"query", request.query},
         {"effectiveQuery", provider == "deepseek" ? deepseekQuery(request) : request.query},
         {"freshness", request.freshness}, {"count", request.count}, {"scope", request.scopeId},
-        {"cacheDir", fs::absolute(fs::u8path(cacheDir)).lexically_normal().u8string()}}.dump();
+        {"cacheDir", cacheDir.empty() ? std::string() : fs::absolute(fs::u8path(cacheDir)).lexically_normal().u8string()},
+        {"cacheGeneration", cache.version.generation}}.dump();
     const auto identityKey = sha256Hex(identity);
     std::shared_ptr<SearchFlight> flight;
     bool shared = false;
@@ -727,8 +873,8 @@ ResourceQueryResult providerQuery(const std::string& provider, const ResourceQue
             flight = std::make_shared<SearchFlight>();
             auto work = request;
             work.cancelled = [waiters = flight->waiters] { return waiters->cancelled(); };
-            flight->result = std::async(std::launch::async, [provider, work, cacheDir, configuration, waiters = flight->waiters] {
-                return providerQueryOnce(provider, work, cacheDir, configuration, [waiters] { return waiters->start(); },
+            flight->result = std::async(std::launch::async, [provider, work, cache, configuration, waiters = flight->waiters] {
+                return providerQueryOnce(provider, work, cache, configuration, [waiters] { return waiters->start(); },
                     [waiters](const auto& save) { return waiters->publish(save); });
             }).share();
             flights.active[identityKey] = flight;

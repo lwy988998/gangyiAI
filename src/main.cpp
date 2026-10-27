@@ -1,4 +1,5 @@
 #include "my_ai.hpp"
+#include "local_request_guard.hpp"
 #include "learning_library.hpp"
 #include "config.hpp"
 #include "version.hpp"
@@ -353,7 +354,9 @@ int main() {
     gangyi::LearningAgent learningAgent(config.database_path);
     gangyi::registerAgentPreferenceTools(learningAgent);
     gangyi::registerAgentLessonTools(learningAgent);
-    crow::SimpleApp app;
+    crow::App<gangyi::LocalRequestGuard> app;
+    auto& requestGuard = app.get_middleware<gangyi::LocalRequestGuard>();
+    requestGuard.port = config.port;
     // 访问路径可能包含用户填写的学习目标，避免将其写入信息级访问日志。
     app.loglevel(crow::LogLevel::Warning);
 
@@ -735,7 +738,8 @@ int main() {
     std::mutex socketMapMutex;
     std::atomic<int> socketWorkerCount{0};
     std::unordered_map<crow::websocket::connection*, std::shared_ptr<ClassroomSocket>> socketMap;
-    const auto socketAccept = [](const crow::request& request, void** userData) {
+    const auto socketAccept = [&requestGuard](const crow::request& request, void** userData) {
+            if (!requestGuard.allows(request)) return false;
             *userData = new crow::request(request);
             return true;
         };

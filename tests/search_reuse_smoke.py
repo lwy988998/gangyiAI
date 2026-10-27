@@ -8,6 +8,7 @@ import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from search_refresh_checks import run_refresh_checks
 
 
 def main():
@@ -47,6 +48,7 @@ def main():
                        DEEPSEEK_SEARCH_BASE_URL=f'http://127.0.0.1:{server.server_port}',
                        BOCHA_BASE_URL=f'http://127.0.0.1:{server.server_port}',
                        RESOURCE_SEARCH_CACHE_DIR=folder, NO_PROXY='*')
+            env.pop('GANGYI_EVAL_SEARCH_BUDGET_FILE', None)
 
             def run(items, **settings):
                 before = len(received)
@@ -98,7 +100,8 @@ def main():
                 rows, count = run([{'query': '预算不足不发送'}], GANGYI_EVAL_SEARCH_BUDGET_FILE=str(ledger))
                 assert count == 0 and rows[0]['status'] == 'failed'
                 assert json.loads(ledger.read_text(encoding='utf-8'))['attempts'] == 20
-            print('并发六次双搜索仅2次HTTP；取消隔离、刷新、范围隔离、失败恢复和关闭开关通过；外网请求0。')
+            run_refresh_checks(sys.argv[1])
+            print('并发六次双搜索仅2次HTTP；取消隔离、刷新世代、跨进程、缓存失效边界、范围隔离、失败恢复和关闭开关通过；外网请求0。')
     finally:
         server.shutdown()
         server.server_close()

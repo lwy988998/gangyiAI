@@ -37,11 +37,15 @@ void createDatabase(const std::filesystem::path& path) {
 
 }  // namespace
 
+#include "launcher_restore_checks.hpp"
+
 int main(int argc, char** argv) {
     using namespace gangyi::launcher;
     // 仅测试工具提供备份恢复入口，CI升级验证复用产品真实SQLite机制；不进入安装包。
     if (argc >= 2) {
         std::wstring error;
+        if (argc == 3 && std::string(argv[1]) == "--crash-wal")
+            return launcher_restore_checks::crashWal(std::filesystem::u8path(argv[2]));
         if (argc == 4 && std::string(argv[1]) == "--backup")
             return backupDatabase(std::filesystem::u8path(argv[2]), std::filesystem::u8path(argv[3]), error) ? 0 : 1;
         if (argc == 5 && std::string(argv[1]) == "--restore")
@@ -104,7 +108,7 @@ int main(int argc, char** argv) {
     }
     expect(!validateDatabase(root / "corrupt.db", error), "拒绝损坏的数据库");
     sqlite3* futureDatabase = nullptr;
-    sqlite3_open16(backup.c_str(), &futureDatabase);
+    sqlite3_open(backup.u8string().c_str(), &futureDatabase);
     sqlite3_exec(futureDatabase, "PRAGMA user_version=999", nullptr, nullptr, nullptr);
     sqlite3_close(futureDatabase);
     expect(!validateDatabase(backup, error), "拒绝未来不兼容版本的数据库");
@@ -176,6 +180,7 @@ int main(int argc, char** argv) {
         expect(empty.width == 1152, "保存尺寸为零时应回退默认");
     }
 
+    launcher_restore_checks::run(root, std::filesystem::absolute(std::filesystem::u8path(argv[0])));
     std::filesystem::remove_all(root, filesystemError);
     return failures == 0 ? 0 : 1;
 }
