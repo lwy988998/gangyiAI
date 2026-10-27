@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cwctype>
 #include <ctime>
 #include <filesystem>
@@ -424,7 +425,8 @@ bool localHttpRequest(int port, const char* method, const char* path, const std:
         closesocket(client);
         return false;
     }
-    std::string request = std::string(method) + " " + path + " HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n";
+    std::string request = std::string(method) + " " + path + " HTTP/1.1\r\nHost: 127.0.0.1:" +
+        std::to_string(port) + "\r\nConnection: close\r\n";
     if (!token.empty()) {
         std::string narrowToken;
         narrowToken.reserve(token.size());
@@ -1635,6 +1637,86 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     return DefWindowProcW(window, message, wParam, lParam);
 }
 
+bool selfTestNativeHttp() {
+    // 仅监听临时回环端口，真实走启动器原生请求，不读取配置、凭据或连接产品服务。
+    struct SocketOwner {
+        SOCKET value = INVALID_SOCKET;
+        ~SocketOwner() { if (value != INVALID_SOCKET) closesocket(value); }
+    } listener{socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)};
+    if (listener.value == INVALID_SOCKET) return false;
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = 0;
+    if (bind(listener.value, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0 ||
+        listen(listener.value, 2) != 0) return false;
+    int addressSize = sizeof(address);
+    if (getsockname(listener.value, reinterpret_cast<sockaddr*>(&address), &addressSize) != 0) return false;
+    const int port = ntohs(address.sin_port);
+    const std::string host = "\r\nHost: 127.0.0.1:" + std::to_string(port) + "\r\n";
+    constexpr wchar_t token[] = L"launcher-native-fixture-token";
+    int validRequests = 0;
+    try {
+        std::thread server([&] {
+            try {
+                for (int index = 0; index < 2; ++index) {
+                    fd_set incoming;
+                    FD_ZERO(&incoming); FD_SET(listener.value, &incoming);
+                    timeval acceptWait{2, 0};
+                    if (select(0, &incoming, nullptr, nullptr, &acceptWait) != 1) return;
+                    SocketOwner client{accept(listener.value, nullptr, nullptr)};
+                    if (client.value == INVALID_SOCKET) return;
+                    const DWORD timeout = 1000;
+                    setsockopt(client.value, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+                    setsockopt(client.value, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+                    std::string request;
+                    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+                    while (request.find("\r\n\r\n") == std::string::npos && request.size() < 8192 &&
+                           std::chrono::steady_clock::now() < deadline) {
+                        fd_set readable;
+                        FD_ZERO(&readable); FD_SET(client.value, &readable);
+                        timeval readWait{0, 100000};
+                        const int ready = select(0, &readable, nullptr, nullptr, &readWait);
+                        if (ready == SOCKET_ERROR) return;
+                        if (ready == 0) continue;
+                        std::array<char, 1024> buffer{};
+                        const int received = recv(client.value, buffer.data(), static_cast<int>(buffer.size()), 0);
+                        if (received <= 0) break;
+                        request.append(buffer.data(), static_cast<std::size_t>(received));
+                    }
+                    const bool valid = request.find("\r\n\r\n") != std::string::npos && request.find(host) != std::string::npos &&
+                        request.find("\r\nOrigin:") == std::string::npos &&
+                        (index == 0 ? request.rfind("GET /health HTTP/1.1\r\n", 0) == 0 &&
+                            request.find("\r\nX-Gangyi-Control-Token:") == std::string::npos :
+                            request.rfind("POST /internal/shutdown HTTP/1.1\r\n", 0) == 0 &&
+                            request.find("\r\nX-Gangyi-Control-Token: launcher-native-fixture-token\r\n") != std::string::npos);
+                    if (valid) ++validRequests;
+                    const std::string response = valid ?
+                        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}" :
+                        "HTTP/1.1 403 Forbidden\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}";
+                    std::size_t sent = 0;
+                    while (sent < response.size()) {
+                        const int count = send(client.value, response.data() + sent, static_cast<int>(response.size() - sent), 0);
+                        if (count <= 0) return;
+                        sent += static_cast<std::size_t>(count);
+                    }
+                }
+            } catch (...) { /* 假服务异常通过有效请求数反映，不能越过线程边界。 */ }
+        });
+        struct JoinThread {
+            std::thread& value;
+            ~JoinThread() { if (value.joinable()) value.join(); }
+        } joined{server};
+        bool health = false, shutdown = false;
+        try {
+            health = localHttpRequest(port, "GET", "/health");
+            shutdown = localHttpRequest(port, "POST", "/internal/shutdown", token);
+        } catch (...) { /* 退出前始终等待具有超时的假服务线程。 */ }
+        server.join();
+        return health && shutdown && validRequests == 2;
+    } catch (...) { return false; }
+}
+
 int selfTest() {
     const std::wstring token = randomToken();
     if (!validBaseUrl(L"https://api.deepseek.com/v1") || validBaseUrl(L"file:///tmp/key")) return 10;
@@ -1646,6 +1728,7 @@ int selfTest() {
         !canStartService(settings, true, false)) return 14;
     settings.baseUrl.clear();
     if (canStartService(settings, true, false) || !canStartService(settings, false, true)) return 15;
+    if (!selfTestNativeHttp()) return 16;
     return 0;
 }
 
