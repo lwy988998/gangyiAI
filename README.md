@@ -1,8 +1,8 @@
 # 钢一定制AI
 
-钢一定制AI 是面向柳州市钢一中学的 Windows 本机 AI 学习平台，最近正式发布版本为 **v5.6.6**，当前开发版本为 **v5.6.7 整改候选（未正式发布）**。候选修复教学作答、课时任务、备份恢复、调用复用及本机接口问题；保留原模型设置与教学算法。使用 C++17、Crow、SQLite、WebView2 和原生 HTML/CSS/JavaScript，课程与学习记录保存在本机，无需在线账号。
+钢一定制AI 是面向柳州市钢一中学的 Windows 本机 AI 学习平台，当前版本为 **v5.6.7**。本版修复教学作答、课时任务、备份恢复、调用复用及本机接口问题，并明确数学术语与等价解评分边界；保留原模型设置与教学算法。使用 C++17、Crow、SQLite、WebView2 和原生 HTML/CSS/JavaScript，课程与学习记录保存在本机，无需在线账号。
 
-需要联网时两家同时搜索，合并去重并保留来源；分别显示请求、缓存和失败状态。已有资料、原文快照和课堂引用继续保留。详见 [v5.6.6 版本说明](docs/releases/v5.6.6.md) 和 [v5.6.7 候选说明](docs/releases/v5.6.7-candidate.md)。真实教学质量及 Token/耗时改善仍待完整对照验证。
+需要联网时两家同时搜索，合并去重并保留来源；分别显示请求、缓存和失败状态。已有资料、原文快照和课堂引用继续保留。详见 [v5.6.7 版本说明](docs/releases/v5.6.7.md)。本轮只完成短案例对照与等价解专项，不代表全部学科、六教学案例及三类核心流程已完成真实验收，也不外推整体 Token 或耗时改善。
 
 ## 学习与 AI
 
@@ -13,13 +13,13 @@
 - 学科画像与学习能力六维图依据真实作答评估。充分性由 AI 判断，无固定三题门槛；证据不足显示待评估，六维都有有效评分后显示完整区域。
 - 全软件 AI 悬浮监控显示正在调用的任务、来源、用途、具体操作和请求次数，支持暂停全部请求、恢复未完成任务及失败重试。
 
-详细行为见 [AI 教学主控](docs/ai-controller.md)、[课堂与页面协议](docs/v5.6.0-ai-classroom.md)、[AI 调用监控](docs/AI调用监控.md) 和 [版本说明](docs/releases/v5.6.6.md)。
+详细行为见 [AI 教学主控](docs/ai-controller.md)、[课堂与页面协议](docs/v5.6.0-ai-classroom.md)、[AI 调用监控](docs/AI调用监控.md) 和 [版本说明](docs/releases/v5.6.7.md)。
 
 ## Windows 使用
 
-在 [GitHub Releases](https://github.com/lwy988998/gangyiAI/releases/latest) 下载已发布的 `gangyiAI-learning-preview1-v5.6.6-x64.exe`，或完整解压 `gangyiAI-learning-preview1-v5.6.6-x64.zip` 后运行 `gangyiAI-launcher.exe`。v5.6.7 当前为本机构建候选，不能将正式下载页视为候选已发布的证明。
+在 [GitHub Releases](https://github.com/lwy988998/gangyiAI/releases/latest) 下载 `gangyiAI-learning-preview1-v5.6.7-x64.exe`，或完整解压 `gangyiAI-learning-preview1-v5.6.7-x64.zip` 后运行 `gangyiAI-launcher.exe`。版本标签的 Windows/Linux 检查通过并校验附件后，由流水线正式发布。
 
-已安装“学习增强试用版”时，使用同页 `gangyiAI-learning-preview1-v5.6.6-x64.exe` 原位升级，继续使用原试用档案。候选升级须先备份程序、学习档案和设置，并保留回退副本。正式版与试用版使用独立档案，安装其中一种不会自动合并另一种的数据。
+已安装“学习增强试用版”时，使用同页 `gangyiAI-learning-preview1-v5.6.7-x64.exe` 原位升级，继续使用原试用档案；本次发布沿用既有安装和档案标识。升级前备份程序、学习档案和设置，并保留回退副本。正式版与试用版使用独立档案，安装其中一种不会自动合并另一种的数据。
 
 独立窗口恢复上次大小与位置，每次冷启动播放一次光栅扫描动画。首次启动可暂不配置 AI，后续在设置中填写服务商、接口地址、模型和 API Key。密钥保存在 Windows 凭据管理器，配置与课程数据位于 `%LOCALAPPDATA%/GangyiAI`；卸载默认保留课程数据。AI 不可用时保留有效内容并提供重试。
 
@@ -28,7 +28,7 @@
 下载页提供 `SHA256SUMS.txt`，校验命令：
 
 ```powershell
-Get-FileHash ./gangyiAI-learning-preview1-v5.6.6-x64.exe -Algorithm SHA256
+Get-FileHash ./gangyiAI-learning-preview1-v5.6.7-x64.exe -Algorithm SHA256
 ```
 
 ## 构建与验收
