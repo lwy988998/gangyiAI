@@ -75,8 +75,19 @@
     let out = text;
     out = out.replace(/`([^`\n]+)`/g, '<code>$1</code>');
     out = out.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (match, label, url) => {
-      const safe = /^https?:\/\//i.test(url) ? url.replace(/"/g, '%22') : '';
-      return safe ? '<a href="' + safe + '" target="_blank" rel="noopener noreferrer">' + label + '</a>' : label;
+      // 站内入口只接受单斜杠根路径；禁止反斜杠及控制字符改变浏览器的地址解释。
+      const safeCharacters = !/[\\\u0000-\u0020\u007f]/.test(url);
+      const external = safeCharacters && /^https?:\/\//i.test(url);
+      let internal = safeCharacters && /^\/(?!\/)/.test(url);
+      if (internal) {
+        try { const path = decodeURIComponent(url.split(/[?#]/, 1)[0]); internal = /^\/(?!\/)/.test(path) && !/[\\\u0000-\u0020\u007f]/.test(path); }
+        catch (_) { internal = false; }
+      }
+      if (!external && !internal) return label;
+      const attributes = external ? ' target="_blank" rel="noopener noreferrer"' : '';
+      // 链接单独保护，查询参数中的下划线等字符不能再次被当成 Markdown 语法。
+      store.code.push('<a href="' + url.replace(/"/g, '%22') + '"' + attributes + '>' + inline(label, store) + '</a>');
+      return token('C', store.code.length - 1);
     });
     out = out.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
     out = out.replace(/__([^_\n]+)__/g, '<strong>$1</strong>');

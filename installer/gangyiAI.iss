@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "5.6.6"
+  #define MyAppVersion "5.6.7"
 #endif
 
 #ifdef TeachingPreview
@@ -71,6 +71,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 ; 只清理旧程序包中的候选标识，档案与设置不在此目录。
 Type: files; Name: "{app}\candidate-metadata.json"
 Type: files; Name: "{app}\离线候选说明.txt"
+Type: files; Name: "{app}\v{#MyAppVersion}-candidate.md"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "启动 {#MyAppName}"; Flags: nowait postinstall skipifsilent

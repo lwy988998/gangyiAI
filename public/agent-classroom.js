@@ -47,6 +47,7 @@
   const nodes = new Map(), records = new Map();
   let lesson, admissionError = '', selectedQuestion = '', watchingTask = '', watchingView = '', unsubscribe, watchEpoch = 0;
   let busy = false, sending = false, refreshing = false, refreshAgain = false, loaded = false, rendering = false, taskRevision = 0;
+  let initialTeachingDeferred = false, startingInitialTeaching = false;
   let activeView = document.querySelector('[data-lesson-view]').dataset.lessonView, initialPosition = true;
   const element = (tag, text = '', className = '') => { const node = document.createElement(tag); node.textContent = text; node.className = className; return node; };
   const focus = () => lesson?.teachingFocus || {};
@@ -54,6 +55,26 @@
   const isQuestion = section => section?.kind === 'question' && section.legacyKind !== 'example';
   const areaFor = section => section.view || (section.kind === 'summary' ? 'summary' : isQuestion(section) &&
     !['interaction', 'diagnostic'].includes(section.questionKind || section.legacyKind) ? 'practice' : 'learn');
+  const sectionNode = id => nodes.get('section:' + id) || nodes.get('summary:' + id);
+  function sectionHref(section) {
+    const url = new URL(section.href || '/' + areaFor(section), location.origin);
+    url.searchParams.set('lessonId', lessonId); url.searchParams.set('sectionId', section.id);
+    // 复习入口会固定打开练习页，讲解和小结的直达地址不能继承它。
+    for (const key of ['day', 'lessonTaskId', ...(areaFor(section) === 'practice' ? ['review', 'reviewId'] : [])])
+      if (query.has(key)) url.searchParams.set(key, query.get(key));
+    return url.pathname + url.search;
+  }
+  function sectionLink(section, text) {
+    const link = element('a', text, 'ma-link'); link.href = sectionHref(section); link.dataset.sectionLink = section.id;
+    link.onclick = event => {
+      saveDraft();
+      if (areaFor(section) !== activeView || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      if (isQuestion(section)) selectQuestion(section.id);
+      query.set('sectionId', section.id); history.replaceState(null, '', link.href); jumpTo(sectionNode(section.id));
+    };
+    return link;
+  }
   const pageKey = prefix => prefix + ':' + lessonId + ':' + activeView;
   const draftKey = () => selectedQuestion ? 'draft:' + lessonId + ':' + selectedQuestion : pageKey('chat-draft');
   function saveDraft() {
@@ -140,6 +161,7 @@
       for(const citation of section.citations){const entry=element('p');const link=element('a',citation.title||'查看原文依据');link.href=citation.href;entry.append(link);
         entry.append(element('span',citation.locator?.page?' · 第'+citation.locator.page+'页':citation.locator?.start!=null?' · '+citation.locator.start+'秒':' · '+citation.segmentId));
         if(citation.quote)entry.append(element('p',citation.quote));details.append(entry);}card.append(details);}
+    card.append(sectionLink(section, '直达此段'));
     return card;
   }
   function makeMessage(record) {
@@ -229,21 +251,27 @@
       paintNextStep(); paintTarget(); setDisabled();
     });
     // 直接进入练习/小结时可能没有讲解焦点，也必须完成定位并开始累计滚动展示。
-    if (initialPosition && (activeView !== 'learn' || focus().sectionId || admissionError || !lesson.teachingTaskId)) {
+    const requestedSection = sectionFor(query.get('sectionId'));
+    if (initialPosition && (requestedSection || activeView !== 'learn' || focus().sectionId || admissionError || !lesson.teachingTaskId)) {
       initialPosition = false; let saved;
       try { saved = JSON.parse(api.storage.get(pageKey('scroll')) || 'null'); } catch (_) { /* 默认定位当前课堂。 */ }
-      if (saved) restorePosition(saved); else locate(activeView, false);
+      // 显式直达优先于上次滚动位置，也能打开归档内的非题目补讲卡片。
+      if (requestedSection && areaFor(requestedSection) === activeView) jumpTo(sectionNode(requestedSection.id));
+      else if (saved) restorePosition(saved); else locate(activeView, false);
     }
     if (lesson.teachingTaskId && !admissionError && lesson.teachingTaskId !== watchingTask) observe(lesson.teachingTaskId);
   }
   function paintNextStep() {
     const prompt = $('lesson-next-step'), response = focus().responseTaskId === lesson.teachingTaskId ? sectionFor(focus().responseSectionId) : null;
     const latest = (lesson.timeline || []).filter(item => item.taskId === lesson.teachingTaskId && item.type === 'section').at(-1);
-    const target = response ? areaFor(response) : latest ? areaFor(sectionFor(latest.sectionId)) : lesson.teachingTaskView;
-    prompt.replaceChildren(); prompt.hidden = !target || target === activeView;
+    const section = response || (latest && sectionFor(latest.sectionId));
+    const target = section ? areaFor(section) : lesson.teachingTaskView;
+    prompt.replaceChildren(); prompt.hidden = !target || !section && target === activeView;
     if (prompt.hidden) return;
     prompt.append(element('span', 'AI 已保存下一步内容。'));
-    const link = element('a', '进入' + {learn:'讲解', practice:'练习', summary:'小结'}[target] + ' →'); link.href = lessonHref(target); prompt.append(link);
+    const text = '查看' + {learn:'讲解', practice:'练习', summary:'小结'}[target] + '原卡片 →';
+    if (section) prompt.append(sectionLink(section, text));
+    else { const link = element('a', '进入' + {learn:'讲解', practice:'练习', summary:'小结'}[target] + ' →'); link.href = lessonHref(target); prompt.append(link); }
   }
   function renderSummary() {
     const parent = $('lesson-summary-content');
@@ -321,10 +349,22 @@
             mutate(() => root.append(putRecord(taskId + ':fallback', {type:'message', role:'assistant', taskId, text:task.message, optimistic:true})));
           for (const [key, record] of records) if (record.taskId === taskId && record.role === 'assistant') updateMessage(nodes.get(key), record);
           refreshLesson();
+          if (initialTeachingDeferred && ['ready', 'waiting_student'].includes(task.status)) startDeferredInitialTeaching();
         }
       },
       onConnectionError(error) { if (epoch === watchEpoch) $('lesson-task-status').textContent = error; }
     });
+  }
+  async function startDeferredInitialTeaching() {
+    if (!initialTeachingDeferred || startingInitialTeaching) return;
+    startingInitialTeaching = true; initialTeachingDeferred = false;
+    try {
+      const started = await api.control({command:'start_lesson', lessonId});
+      initialTeachingDeferred = Boolean(started.initialTeachingDeferred);
+      // 新开课绑定后，先前仍在返回的课时读取不能把旧任务重新装回界面。
+      taskRevision++; refreshLesson();
+    } catch (error) { initialTeachingDeferred = true; $('lesson-task-status').textContent = error.message; }
+    finally { startingInitialTeaching = false; }
   }
   async function refreshLesson() {
     if (refreshing) { refreshAgain = true; return; } refreshing = true;
@@ -362,20 +402,21 @@
     } catch (error) { $('lesson-task-status').textContent = error.message; }
     finally { sending = false; setDisabled(); }
   }
-  function sendAnswer(id, action, fromComposer = false) {
+  function sendAnswer(id, action) {
     const section = sectionFor(id), form = nodes.get('section:' + id)?.querySelector('form'); if (!isQuestion(section)) return;
     const choices = [...(form?.querySelectorAll('input:checked') || [])];
     const explanation = selectedQuestion === id ? input.value.trim() : readDraft('draft:' + lessonId + ':' + id, section).trim();
     const text = action === 'unknown' ? '暂时不会' : action === 'skip' ? '我跳过这道题' :
-      (!fromComposer && choices.length ? '我选' + choices.map(choice => (Number(choice.value) + 1) + '：' + section.question.options[Number(choice.value)]).join('、') + '\n' : '') + explanation;
+      (choices.length ? '我选' + choices.map(choice => (Number(choice.value) + 1) + '：' + section.question.options[Number(choice.value)]).join('、') + '\n' : '') + explanation;
     if (!text.trim()) { if (form) form.querySelector('.question-note').textContent = '请先选择选项，或在下方写出你的答案。'; selectQuestion(id, true); return; }
     sendEvent({type:'question_answer', action, text, sectionId:id, sectionVersion:section.version},
       action === 'answer' ? {key:'draft:' + lessonId + ':' + id, text:selectedQuestion === id ? input.value : readDraft('draft:' + lessonId + ':' + id, section)} : null,
-      !fromComposer && action === 'answer' && form ? {key:'draft:' + lessonId + ':' + id + ':choice', value:api.storage.get('draft:' + lessonId + ':' + id + ':choice'), form} : null);
+      action === 'answer' && form ? {key:'draft:' + lessonId + ':' + id + ':choice', value:api.storage.get('draft:' + lessonId + ':' + id + ':choice'), form} : null);
   }
   function sendTeaching(text, fromComposer = false) {
+    // “正在回答”使用与题卡一致的完整作答；切到自由交流后仍只发送追问文字。
+    if (fromComposer && selectedQuestion) { sendAnswer(selectedQuestion, 'answer'); return; }
     if (!text.trim()) { input.focus(); return; }
-    if (fromComposer && selectedQuestion) { sendAnswer(selectedQuestion, 'answer', true); return; }
     sendEvent({type:'chat', text, ...(focus().sectionId ? {sectionId:focus().sectionId} : {})}, fromComposer ? {key:draftKey(), text:input.value} : null);
   }
   function requestTeaching(requestType) {
@@ -390,9 +431,13 @@
     if (!lessonId) throw new Error('缺少课时标识，请从课程入口进入。');
     lesson = await api.request('/api/learning-agent/lesson?lessonId=' + encodeURIComponent(lessonId));
     if (lesson.status !== 'ready') throw new Error('课时尚未完整保存，请等待 AI 备课后进入。');
+    const requestedSection = sectionFor(query.get('sectionId'));
+    if (requestedSection && areaFor(requestedSection) !== activeView) { location.replace(sectionHref(requestedSection)); return; }
     try {
       if (!lesson.entered) await api.control({command:'enter_lesson', lessonId});
-      if (activeView === 'learn' && !lesson.initialTeachingTaskId) { await api.control({command:'start_lesson', lessonId});
+      // 回看已保存卡片只读取原记录，普通讲解入口仍按原流程启动教学。
+      if (activeView === 'learn' && !lesson.initialTeachingTaskId && !requestedSection) {
+        const started = await api.control({command:'start_lesson', lessonId}); initialTeachingDeferred = Boolean(started.initialTeachingDeferred);
         lesson = await api.request('/api/learning-agent/lesson?lessonId=' + encodeURIComponent(lessonId)); }
     } catch (error) { admissionError = error.message; }
     const context = {courseId:lesson.courseId, lessonId, phaseIndex:lesson.phaseIndex, topicIndex:lesson.topicIndex, topicId:lesson.topicId, teachingTaskId:lesson.teachingTaskId};

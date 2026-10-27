@@ -3,6 +3,7 @@
 #include "json_fix.hpp"
 #include "plan_generator.hpp"
 #include "search_client.hpp"
+#include <curl/curl.h>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -32,6 +33,7 @@ constexpr Socket kInvalidSocket = -1;
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <set>
 #include <thread>
 #include <vector>
 
@@ -115,6 +117,8 @@ private:
                 const int received = recv(client, buffer, sizeof(buffer), 0);
                 if (received <= 0) break;
                 currentRequest.append(buffer, static_cast<size_t>(received));
+                // TLS失败夹具收到ClientHello即回送明文HTTP，不等待不存在的HTTP请求头。
+                if (!currentRequest.empty() && static_cast<unsigned char>(currentRequest.front()) == 0x16) break;
             }
             const auto headerEnd = currentRequest.find("\r\n\r\n");
             const auto lengthStart = currentRequest.find("Content-Length:");
@@ -203,6 +207,7 @@ void expectError(const char* expectedType, MockServer& server, int timeoutMs = 1
 }  // namespace
 
 #include "retry_coordination_checks.hpp"
+#include "transport_diagnostic_checks.hpp"
 
 int main(int argc, char** argv) {
 #ifdef _WIN32
@@ -507,6 +512,8 @@ int main(int argc, char** argv) {
         for (const auto& task : view.at("tasks")) if (task.at("id") == "stream-pause-test")
             expect(task.at("calls") == 2 && task.at("status") == "completed", "流式请求的中断及恢复应准确累计");
     }
+    runTransportDiagnosticChecks();
+    runStreamIntegrityChecks();
     runRetryCoordinationChecks();
     if (std::getenv("LIVE_BOCHA_PROBE")) {
         std::string diagnostic;

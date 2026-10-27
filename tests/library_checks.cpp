@@ -4,6 +4,7 @@
 #include "learning_library.hpp"
 #include "learning_agent.hpp"
 #include "agent_prompt.hpp"
+#include "library_revision_checks.hpp"
 #include <cassert>
 #include <algorithm>
 #include <iostream>
@@ -241,5 +242,6 @@ void runLibraryChecks() {
         const auto limitSaved=Json::parse(db.getClassroomActivity(limitTask.at("id"))->payload);
         assert(limitSaved["responseTokenLimit"]==16384);
     }
+    runLibraryRevisionChecks();
     std::cout<<"资料引用、快照、排除、冲突及字幕专项检查通过\n";
 }

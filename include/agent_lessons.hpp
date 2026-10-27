@@ -4,9 +4,12 @@
 namespace gangyi {
 // 保存模型自主选择的教学板块；公开读取始终排除题目答案与评分资料。
 void registerAgentLessonTools(LearningAgent& agent);
+// 只计算已保存板块的真实页面和直达链接；调用方仍须校验课时权限。
+AgentJson agentSectionLocation(const AgentJson& lesson, const AgentJson& section,
+                              const AgentJson& originTask = AgentJson::object());
 AgentJson agentLessonView(Database& db, const AgentAccess& access, const std::string& lessonId);
 AgentJson agentEnterLesson(Database& db, const AgentAccess& access, const AgentJson& body);
-// 开课请求使用同一课时的固定身份；刷新和三页切换复用已有任务。
+// 开课请求使用固定身份；原任务未完成时延后，完成后在原事务中接管首次讲解。
 AgentJson agentStartLesson(Database& db, const AgentAccess& access, const AgentJson& body);
 // 在主控事件的同一事务中保存当前教学任务，旧窗口不能覆盖新反馈。
 void agentAttachLessonTask(Database& db, const AgentAccess& access, const AgentJson& event, const std::string& taskId);

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(gangyiAI VERSION 5.6.6 LANGUAGES C CXX)
+project(gangyiAI VERSION 5.6.7 LANGUAGES C CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -372,6 +372,8 @@ if(BUILD_TESTING AND WIN32)
     target_compile_definitions(launcher-support-tests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_link_libraries(launcher-support-tests PRIVATE ${GANGYI_SQLITE_LIB})
     add_test(NAME launcher-support COMMAND launcher-support-tests)
+    add_test(NAME launcher-native-http COMMAND gangyiAI-launcher --self-test)
+    set_tests_properties(launcher-native-http PROPERTIES TIMEOUT 30)
 endif()
 if(BUILD_TESTING)
     add_executable(database-atomic-tests tests/database_atomic_tests.cpp src/db.cpp)
@@ -384,6 +386,8 @@ if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     find_program(GANGYI_NODE_EXECUTABLE NAMES node)
     if(GANGYI_NODE_EXECUTABLE)
+        add_test(NAME chat-links COMMAND ${GANGYI_NODE_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/chat_link_tests.cjs)
         add_test(NAME help-display COMMAND ${GANGYI_NODE_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/help_display_smoke.js)
         add_test(NAME legacy-drafts COMMAND ${GANGYI_NODE_EXECUTABLE}
@@ -398,6 +402,11 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/library_course_tests.cjs)
     endif()
     if(Python3_Interpreter_FOUND)
+        add_test(NAME release-publish COMMAND ${Python3_EXECUTABLE} -B -X utf8
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/release_publish_tests.py -v)
+        add_test(NAME local-request-guard COMMAND ${Python3_EXECUTABLE} -B -X utf8
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/local_request_guard_smoke.py $<TARGET_FILE:gangyiAI>)
+        set_tests_properties(local-request-guard PROPERTIES TIMEOUT 90)
         add_executable(dual-search-driver tests/dual_search_driver.cpp src/search_client.cpp)
         target_include_directories(dual-search-driver PRIVATE include ${GANGYI_CURL_INCLUDE})
         target_link_libraries(dual-search-driver PRIVATE nlohmann_json::nlohmann_json ${GANGYI_CURL_LINK} Threads::Threads)
