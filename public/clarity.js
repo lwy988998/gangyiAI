@@ -4,6 +4,31 @@
   const body = document.body;
   if (!body.classList.contains('clarity-app')) return;
   const header = document.querySelector('.site-header, .my-ai-top');
+  // 顶部导航按实际页面归属标记；静态备课、窄屏和旧版页面也保持一致。
+  const coursePages = new Set(['/current-course', '/plan', '/phase', '/learn', '/practice', '/summary',
+    '/deep-course', '/agent-prepare.html', '/agent-classroom.html']);
+  const currentPage = location.pathname;
+  const currentSection = coursePages.has(currentPage) ? '/current-course' :
+    currentPage === '/' || currentPage === '/startup' ? '/' :
+    currentPage === '/my-courses' ? '/my-courses' : currentPage === '/ask' ? '/ask' :
+    currentPage === '/my-ai' || currentPage.startsWith('/my-ai/') ? '/my-ai' : null;
+  const mainSections = new Set(['/', '/my-courses', '/current-course', '/ask', '/my-ai']);
+  if (header && currentSection) {
+    for (const nav of header.querySelectorAll('nav')) {
+      const links = [...nav.querySelectorAll('a')].map(link => {
+        if (link.hasAttribute('data-current-course-link')) return {link, section: '/current-course'};
+        const href = link.getAttribute('href');
+        return {link, section: mainSections.has(href) ? href : null};
+      }).filter(item => item.section);
+      if (!links.some(item => item.section === currentSection)) continue;
+      for (const {link, section} of links) {
+        const active = section === currentSection;
+        link.classList.toggle('is-active', active);
+        if (active) link.setAttribute('aria-current', 'page');
+        else link.removeAttribute('aria-current');
+      }
+    }
+  }
   function measureHeader() {
     if (header) body.style.setProperty('--gy-header-height', `${header.getBoundingClientRect().height}px`);
   }

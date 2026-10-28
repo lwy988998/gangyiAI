@@ -6,12 +6,31 @@ int failures = 0;
 void expect(bool condition, const char* message) {
     if (!condition) { std::cerr << "失败: " << message << '\n'; ++failures; }
 }
+void expectNavigation(const std::string& page, const std::string& expectedHref) {
+    const auto label = page.find("aria-label=\"主导航\"");
+    expect(label != std::string::npos, "页面应提供顶部主导航");
+    if (label == std::string::npos) return;
+    const auto end = page.find("</nav>", label);
+    const auto navigation = page.substr(label, end - label);
+    const std::string current = "aria-current=\"page\"";
+    const auto first = navigation.find(current);
+    expect(first != std::string::npos && navigation.find(current, first + current.size()) == std::string::npos,
+        "顶部主导航只能标记一个当前页面");
+    const auto href = navigation.find("href=\"" + expectedHref + "\"");
+    if (href == std::string::npos) { expect(false, "顶部主导航应保留预期入口"); return; }
+    const auto anchorStart = navigation.rfind("<a", href);
+    const auto anchorEnd = navigation.find('>', href);
+    expect(navigation.substr(anchorStart, anchorEnd - anchorStart).find(current) != std::string::npos,
+        "顶部主导航应高亮页面所属入口");
+}
 }
 int main() {
     const auto ask = gangyi::renderAskPage();
+    expectNavigation(ask, "/ask");
     expect(ask.find("当前配置的 AI 模型") != std::string::npos && ask.find("DeepSeek V4 Flash") == std::string::npos,
         "问答页应显示配置模型，不写死服务商");
     const auto home = gangyi::renderHomePage();
+    expectNavigation(home, "/");
     expect(home.find("clarity-app") != std::string::npos && home.find("/clarity.css") != std::string::npos &&
         home.find("school-logo.png") != std::string::npos && home.find("gy-theme-lab") == std::string::npos,
         "正式页面采用用户选定的澄明方向并保留原校徽");
@@ -23,12 +42,15 @@ int main() {
         "首页清除无关滚动展示");
     expect(home.find("startup-playing") == std::string::npos, "普通首页不播放开机动画");
     const auto startup = gangyi::renderStartupPage();
+    expectNavigation(startup, "/");
     expect(startup.find("id=\"startup-overlay\"") != std::string::npos && startup.find("/startup.js") != std::string::npos,
         "启动页保留独立过渡与真实首页");
     expect(startup.find("location.replace('/')") == std::string::npos, "启动完成不能强制刷新首页");
     nlohmann::json plan = {{"courseStructure", {{{"stage", "概念阶段"}, {"goal", "比较变化"}, {"why", "已有 AI 排列说明"},
         {"topics", {{{"title", "化合价比较<测试>"}, {"id", "stable-topic"}, {"legacyPhaseIndex", 3}, {"legacyTopicIndex", 4}}}}}}}};
     const auto phase = gangyi::renderPhasePage("course-1", "anonymous-1", "学习目标", "deep", "1", "概念阶段", plan, nlohmann::json::object());
+    expectNavigation(phase, "/current-course");
+    expectNavigation(gangyi::renderPhasePage("course-1", "anonymous-1", "学习目标", "deep", "2", "", plan, nlohmann::json::object()), "/current-course");
     expect(phase.find("化合价比较&lt;测试&gt;") != std::string::npos && phase.find("化合价比较<测试>") == std::string::npos,
         "阶段页按文本转义已有内容");
     expect(phase.find("legacyPhaseIndex") == std::string::npos && phase.find("phaseIndex=3") != std::string::npos && phase.find("topicIndex=4") != std::string::npos,
@@ -38,6 +60,7 @@ int main() {
     const auto learn = gangyi::renderLearnPage("course-1", "目标", "deep", "1", "概念", "1", "化合价", "anonymous-1", "", "", "");
     for (const auto* view : {"learn", "practice", "summary"}) {
         const auto page = gangyi::renderClassroomPage(view);
+        expectNavigation(page, "/current-course");
         expect(page.find(std::string("data-lesson-view=\"") + view + "\"") != std::string::npos,
             "旧路由必须保留对应内容的定位标识");
         expect(page.find("/agent-classroom.js") != std::string::npos && page.find("id=\"lesson-sections\"") != std::string::npos,
@@ -52,12 +75,17 @@ int main() {
     expect(learn.find("id=\"finish-lesson\"") != std::string::npos && learn.find("id=\"lesson-stop\"") != std::string::npos && learn.find("id=\"lesson-retry\"") != std::string::npos,
         "真实主控完成入口共用常驻的停止和重试操作");
     const auto planPage = gangyi::renderPlanPage("目标", "deep", "", "anonymous-1");
+    expectNavigation(planPage, "/current-course");
+    expectNavigation(gangyi::renderPlanPage("目标", "lite", "course-1", "anonymous-1"), "/current-course");
     expect(planPage.find("course-stages") != std::string::npos && planPage.find("course-more") != std::string::npos,
         "课程阶段突出显示，其余完整内容默认折叠");
     const nlohmann::json courses = {{"anonymousId", "anonymous-1"}, {"stats", {{"total", 1}}},
         {"courses", {{{"courseId", "course-1"}, {"title", "函数课程"}, {"goal", "学习函数"}, {"createdAt", "2026-09-08"}}}}};
     const auto myCourses = gangyi::renderMyCoursesPage(courses);
     const auto emptyCourse = gangyi::renderCurrentCourseEmptyPage();
+    expectNavigation(myCourses, "/my-courses");
+    expectNavigation(emptyCourse, "/current-course");
+    expectNavigation(gangyi::renderCurrentCourseEmptyPage(true), "/current-course");
     expect(emptyCourse.find("当前没有课程") != std::string::npos && emptyCourse.find("href=\"/current-course\"") != std::string::npos,
         "空档案的当前课程入口可点击，进入独立空状态页面");
     expect(myCourses.find("data-course-id=\"course-1\"") != std::string::npos && myCourses.find("/user-center.js") != std::string::npos,
