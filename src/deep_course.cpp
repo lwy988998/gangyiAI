@@ -384,7 +384,7 @@ Json deepImageCandidates(const std::string& html, const std::string& pageUrl, co
         if (candidate.at("metadata") == true) score -= 3;
         candidate.erase("metadata"); candidate["relevanceScore"] = score; candidate["textMatches"] = matches;
     }
-    if (!terms.empty()) {
+    if (!query.empty() || !title.empty()) {
         std::stable_sort(result.begin(), result.end(), [](const auto& a, const auto& b) { return a.at("relevanceScore").template get<int>() > b.at("relevanceScore").template get<int>(); });
         result.erase(std::remove_if(result.begin(), result.end(), [](const auto& item) { return item.at("relevanceScore").template get<int>() <= 0; }), result.end());
     }

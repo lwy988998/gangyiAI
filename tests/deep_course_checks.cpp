@@ -245,6 +245,9 @@ void runDeepCourseChecks() {
     assert(!ranked.empty() && ranked.at(0).at("url") == "https://example.org/figure-12.webp");
     for (const auto& item : ranked) assert(item.at("url") != "https://example.org/satellite.webp" && item.at("url") != "https://example.org/hero.webp");
     assert(gangyi::deepImageCandidates("<img src='/photo.webp' alt='Satellite dishes.'>", "https://example.org/quadratic-functions", "parabola graph", "函数图").empty());
+    assert(gangyi::deepImageCandidates(imagePage, "https://example.org/math", "AI", "AI").empty());
+    assert(gangyi::deepImageCandidates(imagePage, "https://example.org/math", "Go", "图片 参考").empty());
+    assert(gangyi::deepImageCandidates(imagePage, "https://example.org/math", "图片", "参考").empty());
     const auto captionMatch = gangyi::deepImageCandidates("<div data-type='figure'><div><img src='/event.webp' alt='示意图'></div><span data-type='caption'>法国大革命攻占巴士底狱的历史场景。</span></div>",
         "https://example.org/history", "法国大革命 攻占巴士底狱", "历史图片");
     assert(captionMatch.size() == 1 && !captionMatch.at(0).at("sourceCaption").get<std::string>().empty());
