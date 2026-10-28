@@ -1,10 +1,10 @@
 # 我的AI电脑版
 
-“我的AI”是本机个人中心和软件控制中心，位于首页导航“AI导师”右侧。首版使用单人档案，保留现有学校深色配色与校徽。
+“我的AI”是本机个人中心和软件控制中心，位于顶部导航“AI导师”右侧。使用单人档案，与首页、两种课堂和资料库共享 A「澄明」蓝白配色、字体层级与学校校徽。
 
 ## 页面与交互
 
-`/my-ai` 默认显示个人概览；`/my-ai/chat`、`reports`、`plan`、`preferences`、`memories`、`tasks`、`usage`、`profile`、`settings`、`data` 为独立页面。目录跳转支持浏览器历史和直接打开。我的课程里的画像、统一课表和学习时间入口迁入报告与计划页，旧画像锚点跳转到新位置。
+`/my-ai` 默认显示个人概览；`/my-ai/chat`、`library`、`reports`、`plan`、`preferences`、`memories`、`tasks`、`usage`、`profile`、`settings`、`data` 为独立页面，共十二类页面。目录跳转支持浏览器历史和直接打开。我的课程里的画像、统一课表和学习时间入口迁入报告与计划页，旧画像锚点跳转到新位置。
 
 管家聊天可以新建、重命名、搜索、归档和恢复。消息与输入草稿分开保存；浏览器保留即时草稿，服务端保存版本、草稿与滚动位置。日常偏好修改直接生效，支持在教学偏好页撤回；重要删除操作先生成影响预览，再确认。其他窗口修改后，旧版本提交会被拒绝。
 
@@ -20,7 +20,7 @@
 
 `GET /api/my-ai/<section>` 读取概览、资料、偏好、记忆、聊天、报告、用量、任务、操作和撤回记录；写入携带读取时的 `version`。新建聊天、记忆和操作使用独立标识。`POST /api/my-ai/chat/send` 提交管家消息，`POST /api/my-ai/confirm` 确认或取消重要操作。课程与课表继续复用原有接口和候选确认规则。
 
-数据库结构升级到 7，新增 `MyAIRecord` 保存个人中心的版本化元信息和统计，原有对话互动和课程表继续使用。6 版数据库迁移前自动建立 `.pre-v7.db` 备份。
+v5.6.1 首次引入本功能时，数据库结构由 6 升至 7，新增 `MyAIRecord` 保存个人中心的版本化元信息和统计，原有对话互动和课程表继续使用。该次迁移前自动建立 `.pre-v7.db` 备份；后续版本沿用原档案升级流程，不因界面调整重建用户数据。
 
 使用情况按实际 HTTP 模型请求计数，包含失败和重试；任务数与请求数分别展示。普通和流式响应只解析服务商实际返回的 Token 字段，未提供用量显示“未提供”。流式接口明确拒绝用量选项时，用兼容请求重试，并记录这两次实际请求。
 
@@ -33,6 +33,6 @@ powershell -ExecutionPolicy Bypass -File ./scripts/build_windows.ps1
 python tests/my_ai_browser_smoke.py ./build-windows/gangyiAI.exe ./verification/my-ai
 ```
 
-v5.6.1 正式版使用 `%LOCALAPPDATA%/GangyiAI`，升级保留已有档案、凭据和安装目录。构建时添加 `-Preview` 可生成独立试用包，使用 `%LOCALAPPDATA%/GangyiAI-MyAI-Preview` 和独立安装标识。
+正式构建使用 `%LOCALAPPDATA%/GangyiAI`，同渠道升级保留已有档案、凭据和安装目录。当前构建时添加 `-Preview` 生成学习增强试用包，使用 `%LOCALAPPDATA%/GangyiAI-Library-Preview`，并沿用该渠道独立的安装、注册表、凭据及启动互斥锁标识。正式版与试用版档案不自动合并。v5.6.1 专项结果见 [历史验收附录](releases/v5.6.1.md#历史验收附录我的ai电脑版)。
 
 图表使用随包提供的 Apache ECharts 6.1.0，许可证与 NOTICE 位于 `public/vendor/echarts`。交互参考 LibreChat、Open WebUI 和 assistant-ui，界面与控制逻辑在本项目原生架构中实现。

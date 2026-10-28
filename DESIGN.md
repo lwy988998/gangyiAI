@@ -161,7 +161,7 @@ components:
 - 桌面与窄屏共享校徽、学习入口、课程目录和清楚的焦点。
 - 真实进度与状态进入原有组件，部分失败提供就地恢复入口。
 
-本文件提取自 `public/clarity.css` 和 `public/deep-course.css`，行为参照对应 renderer 与脚本。前置令牌为机器可读记录；圆角和间距是已使用的 CSS 常量归纳，不表示源码已经定义同名变量。颜色在源码使用 `--gy-*`；深度课堂的 `--dc-*` 继承相应 `--gy-*`，二者保持同一视觉来源。产品范围见 [PRODUCT.md](PRODUCT.md)，页面构图见 [界面整改简报](docs/ui-clarity-brief.md)。
+本文件提取自 `public/clarity.css` 和 `public/deep-course.css`，行为参照对应 renderer 与脚本。前置令牌为机器可读记录；圆角和间距是已使用的 CSS 常量归纳，不表示源码已经定义同名变量。颜色在源码使用 `--gy-*`；深度课堂的 `--dc-*` 继承相应 `--gy-*`，二者保持同一视觉来源。产品范围见 [PRODUCT.md](PRODUCT.md)，页面构图见 [澄明界面规范原件](.impeccable/surfaces/public-clarity-css.md)。
 
 ## Colors
 

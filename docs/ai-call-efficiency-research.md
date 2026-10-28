@@ -1,5 +1,7 @@
 # AI调用节省Token与生成效率调研
 
+> 历史调研与实施记录（2026-10-17）。依赖、服务商文档、预算与已安装状态按该日期解读，不代表最新配置或质量结论；后续结果见[版本说明索引](README.md#正式版本与候选记录)。
+
 核对日期：2026-10-17。初始调研基于电脑版整合分支`2b7c1b3`；本机已安装产品仍为`f2e33f5`。调研阶段完成GitHub源码读取、本地逻辑审查及已有提示的离线统计，后续源码实施见文末。已安装试用版与接口设置保持原样，未新增付费模型请求。后续开发验收继续遵守用户确认的累计100万Token上限。
 
 ## 建议结论
@@ -38,15 +40,15 @@
 
 这份样本中个人上下文只有278字节，记忆不是该样本的主要体积来源。首轮应同时解决工具目录与恢复内容，不能把“安装一个记忆库”当作全部优化。
 
-[统计结果](D:/gangyiAI-library/verification/ai-call-research-20261017/context-audit.json)不包含提示正文。可复用命令：
+统计结果不包含提示正文，属于本机私有验收记录（未上传）。可复用命令：
 
 ```powershell
-D:/python/python.exe D:/gangyiAI-library/scripts/audit_prompt_context.py D:/gangyiAI-library/verification/integrated-preflight-resume-after/result.json --output D:/gangyiAI-library/verification/ai-call-research-20261017/context-audit.json
+python -X utf8 scripts/audit_prompt_context.py verification/integrated-preflight-resume-after/result.json --output verification/ai-call-research-20261017/context-audit.json
 ```
 
 ## GitHub参考与采用方式
 
-以下均核对了相关文件及许可证，文件对象标识记录在[参考清单](D:/gangyiAI-library/verification/ai-call-research-20261017/references.json)。这不是固定依赖版本；实际接入时还需固定完整提交、打包文件及许可证。
+以下均核对了相关文件及许可证，文件对象标识保存在参考清单，属于本机私有验收记录（未上传）。这不是固定依赖版本；实际接入时还需固定完整提交、打包文件及许可证。
 
 | 项目 | 已核对内容 | 本项目采用方式 |
 |---|---|---|
@@ -125,7 +127,7 @@ D:/python/python.exe D:/gangyiAI-library/scripts/audit_prompt_context.py D:/gang
 
 本地模拟服务覆盖两类响应、真实零值、只有部分明细、缺失及无效用量，核对教学回复、请求内容和原有思考设置不变，每次只发送一笔请求。持久化专项核对完整明细保留、旧请求不被重试覆盖、未知请求仍为未知，汇总仍使用服务商总量而不重复累计缓存与思考部分。
 
-`ai-client`与`my-ai`两项CTest通过，耗时3.75秒；测试仅使用本地模拟模型，搜索密钥在测试进程中置空。[回归日志](D:/gangyiAI-library/verification/ai-call-research-20261017/usage-details-regression.log)。这项改动只建立真实对照指标，尚未证明Token或生成耗时下降，也没有启用思考降档、提示压缩或修改已安装试用版。
+`ai-client`与`my-ai`两项CTest通过，耗时3.75秒；测试仅使用本地模拟模型，搜索密钥在测试进程中置空。回归日志：本机私有验收记录（未上传）。这项改动只建立真实对照指标，尚未证明Token或生成耗时下降，也没有启用思考降档、提示压缩或修改已安装试用版。
 
 ## 第二项实施：相同工具回执减少重复发送
 
@@ -135,7 +137,7 @@ D:/python/python.exe D:/gangyiAI-library/scripts/audit_prompt_context.py D:/gang
 
 原生回归通过真实缓存读取对比“省略offset”与“offset=0”：该组工具回执消息由1,832缩到993个UTF-8字节，减少839字节（45.80%）。测试逐字段还原后与原始消息相等，完整行动回执和原文快照仍在，掌握度未增加。这只是本地模型夹具下该回执消息的体积，不是整次请求、实际Token或平均耗时的节省率。
 
-最终`learning-agent`定向CTest通过，耗时43.75秒；同轮覆盖既有教学证据、引用、原题身份、帮助与复练、事务回滚、暂停恢复、幂等及版本冲突回归。[最终日志](D:/gangyiAI-library/verification/ai-call-research-20261017/prompt-dedup-final-regression.log)。未使用付费模型，本机试用版未替换；真实模型下的整体节省率及教学质量对照仍未完成，完整目标不因此标记通过。
+最终`learning-agent`定向CTest通过，耗时43.75秒；同轮覆盖既有教学证据、引用、原题身份、帮助与复练、事务回滚、暂停恢复、幂等及版本冲突回归。最终日志：本机私有验收记录（未上传）。未使用付费模型，本机试用版未替换；真实模型下的整体节省率及教学质量对照仍未完成，完整目标不因此标记通过。
 
 ## 第三项实施：使用情况展示可核对的构成
 

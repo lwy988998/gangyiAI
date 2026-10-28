@@ -1,5 +1,7 @@
 # v5.6.4 同协议离线对照入口
 
+> v5.6.4 开发阶段的离线验收入口记录。文中预算与本机升级状态按该阶段解读，不构成新的付费授权；后续验收范围见[正式版本与候选记录](README.md#正式版本与候选记录)。
+
 当前预算决定维持累计100万Token，本轮新增付费调用关闭。`live`模式先读取本项目的预算决定，在读取凭据和启动子进程前拒绝；C++教学驱动还会拒绝非本机模拟地址。今后即使预算决定更新，也需要显式审查驱动门禁，不能仅修改清单就启动付费调用。
 
 ## 构建同一教学驱动
@@ -15,33 +17,33 @@ python -X utf8 tests/teaching_eval_driver_smoke.py build-library-release/teachin
 
 ## 零调用预检
 
-把清单保存在私有、未跟踪目录。`casesFile`为外部案例数组，`preferencesFile`为两版共用的固定偏好JSON。`profileName`必须明确填写；离线模式不会打开凭据管理器、注册表或真实用户数据库。预检强制`maxCalls=0`，即使父进程存在真实服务环境变量也不会连接真实服务。每次运行创建新目录，预算只写`budget-copy.json`，上限最多取用户确认的100万。
+在仓库根目录执行命令，以下示例将清单保存在私有、未跟踪的 `verification/private-evaluation` 目录；清单内相对路径也从仓库根目录解析。`casesFile`为外部案例数组，`preferencesFile`为两版共用的固定偏好JSON。`profileName`必须明确填写；离线模式不会打开凭据管理器、注册表或真实用户数据库。预检强制`maxCalls=0`，即使父进程存在真实服务环境变量也不会连接真实服务。每次运行创建新目录，预算只写`budget-copy.json`，上限最多取用户确认的100万。
 
 ```json
 {
   "mode": "preflight",
-  "casesFile": "D:/private-evaluation/cases.json",
+  "casesFile": "verification/private-evaluation/cases.json",
   "shared": {
     "profileName": "GangyiAI-Library-Preview",
-    "preferencesFile": "D:/private-evaluation/preferences.json"
+    "preferencesFile": "verification/private-evaluation/preferences.json"
   },
   "entries": [
     {
       "variant": "baseline",
       "sourceCommit": "effb401c7fe2a73785fcebe12b173204cfee769e",
-      "driver": "D:/gangyiAI-library/build-library-release/teaching-eval-task4-baseline.exe"
+      "driver": "build-library-release/teaching-eval-task4-baseline.exe"
     },
     {
       "variant": "candidate",
       "sourceCommit": "填写候选产品提交",
-      "driver": "D:/gangyiAI-library/build-library-release/teaching-eval-task4-candidate.exe"
+      "driver": "build-library-release/teaching-eval-task4-candidate.exe"
     }
   ]
 }
 ```
 
 ```powershell
-python -X utf8 scripts/evaluation_compare.py D:/private-evaluation/manifest.json --output D:/private-evaluation/preflight-001
+python -X utf8 scripts/evaluation_compare.py verification/private-evaluation/manifest.json --output verification/private-evaluation/preflight-001
 ```
 
 v5.6.3支持原生`teaching_request`，默认不转换。`entryProtocol: legacy-chat`只能显式用于其他旧基线；已知v5.6.3提交会拒绝该选项。

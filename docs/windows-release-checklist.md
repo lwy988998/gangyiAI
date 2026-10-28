@@ -1,5 +1,7 @@
 # Windows 10/11 发布前人工验收
 
+GitHub Actions 的 CI 临时包保留 14 天；正式 Release 附件保留供下载与回退，不受该临时包期限影响。
+
 - 在未安装 CMake、编译器、Visual Studio、Python 和 Node.js 的 Windows 10 x64 虚拟机安装。
 - 在同样干净的 Windows 11 x64 虚拟机安装。
 - 验证中文用户名、非管理员账户、默认安装目录和桌面快捷方式。
