@@ -18,9 +18,15 @@ def main():
     with fixture.start_session(executable) as (info, api, process):
         query = urlencode({'courseId':info['courseId'],'lessonId':info['lessonId'],'phaseIndex':1,'topicIndex':1})
         personal = ['', 'chat', 'library', 'reports', 'plan', 'preferences', 'memories', 'tasks', 'usage', 'profile', 'settings', 'data']
-        routes = [('/', 'home'),('/my-courses','courses'),('/plan?'+query,'course'),('/phase?'+query,'phase'),
-                  ('/learn?'+query,'quick-learn'),('/practice?'+query,'quick-practice'),('/summary?'+query,'quick-summary'),('/ask','tutor')]
-        routes += [('/my-ai'+('/'+item if item else ''),'my-ai-'+(item or 'overview')) for item in personal]
+        routes = [('/', 'home', '/'),('/my-courses','courses','/my-courses'),
+                  ('/current-course','current-course','/current-course'),
+                  ('/plan?'+query,'course','/current-course'),('/phase?'+query,'phase','/current-course'),
+                  ('/learn?'+query,'quick-learn','/current-course'),('/practice?'+query,'quick-practice','/current-course'),
+                  ('/summary?'+query,'quick-summary','/current-course'),('/ask','tutor','/ask'),
+                  # 未知任务只显示备课错误态，不提交生成，确保检查静态备课页本身而非跳走后的课堂。
+                  ('/agent-prepare.html?taskId=navigation-only&courseId='+info['courseId'],'prepare-header','/current-course'),
+                  ('/deep-course?'+query,'deep-header','/current-course')]
+        routes += [('/my-ai'+('/'+item if item else ''),'my-ai-'+(item or 'overview'),'/my-ai') for item in personal]
         with sync_playwright() as playwright:
             browser_options={'headless':True}
             if os.name=='nt' and not Path(playwright.chromium.executable_path).is_file():
@@ -31,7 +37,7 @@ def main():
             page.on('pageerror',lambda error:errors.append(str(error)))
             for width,height in [(1280,720),(1440,900),(390,844)]:
                 page.set_viewport_size({'width':width,'height':height})
-                for route,name in routes:
+                for route,name,expected_navigation in routes:
                     response=page.goto(info['base']+route,wait_until='networkidle')
                     assert response and response.ok, f'页面打开失败：{route}'
                     page.evaluate('document.fonts.ready')
@@ -40,8 +46,17 @@ def main():
                       const visible = el => {const r=el.getBoundingClientRect(),s=getComputedStyle(el);return r.width>0&&r.height>0&&s.visibility!=='hidden'&&s.display!=='none'};
                       const composer=document.querySelector('.lesson-chat-panel');
                       const logo=Array.from(document.images).filter(visible).some(img=>/school-logo/.test(img.src)&&img.complete&&img.naturalWidth>0);
+                      const header=document.querySelector('.site-header,.my-ai-top');
+                      const sections=new Set(['/','/my-courses','/current-course','/ask','/my-ai']);
+                      const navigation=[...header.querySelectorAll('nav')].map(nav=>{
+                        const links=[...nav.querySelectorAll('a')].map(link=>({link,
+                          section:link.hasAttribute('data-current-course-link')?'/current-course':
+                            sections.has(link.getAttribute('href'))?link.getAttribute('href'):null})).filter(item=>item.section);
+                        return {active:links.filter(item=>item.link.classList.contains('is-active')).map(item=>item.section),
+                          current:links.filter(item=>item.link.getAttribute('aria-current')==='page').map(item=>item.section)};
+                      });
                       return {title:document.title,overflow:document.documentElement.scrollWidth>innerWidth+1,
-                        logo,background:getComputedStyle(document.body).backgroundColor,
+                        logo,navigation,background:getComputedStyle(document.body).backgroundColor,
                         composer:composer&&visible(composer)?{top:composer.getBoundingClientRect().top,bottom:composer.getBoundingClientRect().bottom}:null,
                         viewportHeight:innerHeight};
                     }''')
@@ -49,6 +64,10 @@ def main():
                     results.append(row)
                     assert not state['overflow'],f'页面横向溢出：{name}@{width}'
                     assert state['logo'],f'校徽不可见：{name}@{width}'
+                    assert state['navigation'],f'顶部主导航缺失：{name}@{width}'
+                    for navigation in state['navigation']:
+                        assert navigation['active'] == [expected_navigation],f'导航高亮错误或不唯一：{name}@{width} {navigation}'
+                        assert navigation['current'] == [expected_navigation],f'导航当前页语义错误或不唯一：{name}@{width} {navigation}'
                     if state['composer']:
                         assert state['composer']['bottom'] <= height+2,f'课堂输入区在视口外：{name}@{width}'
                     awaitable_name=f'{name}-{width}.png'

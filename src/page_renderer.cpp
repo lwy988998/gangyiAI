@@ -69,7 +69,8 @@ std::string headerShell(const std::string& active) {
     const std::string links = navLink("/", "首页", is("home")) +
         navLink("/my-courses", "我的课程", is("my-courses")) +
         std::string("<a data-current-course-link class=\"dark-nav-link") + (is("learn") ? " is-active" : "") +
-        "\" href=\"/current-course\" title=\"查看当前课程\">当前课程</a>" + navLink("/ask", "AI 导师", is("ask")) + navLink("/my-ai", "我的AI", is("my-ai"));
+        "\" href=\"/current-course\" title=\"查看当前课程\"" + (is("learn") ? " aria-current=\"page\"" : "") +
+        ">当前课程</a>" + navLink("/ask", "AI 导师", is("ask")) + navLink("/my-ai", "我的AI", is("my-ai"));
     return R"HTML(<header class="site-header dark-header"><div class="dark-nav-shell"><a class="dark-brand" href="/"><img class="dark-brand-mark" src="/school-logo.png" alt="柳州市钢一中学校徽"><span>钢一<b>定制AI</b></span></a><nav class="dark-nav-links" aria-label="主导航">)HTML" + links +
         R"HTML(</nav><a class="dark-nav-cta" href="/my-ai/reports">我的画像 ↗</a><details class="dark-mobile-nav"><summary aria-label="打开菜单"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></summary><nav aria-label="移动导航">)HTML" + links +
         R"HTML(</nav></details></div></header>)HTML";
@@ -130,7 +131,7 @@ std::string renderStartupPage() {
 
 std::string renderPlanPage(const std::string& goal, const std::string& mode,
                            const std::string& courseId, const std::string& anonymousId) {
-    const std::string body = headerShell("home") + R"HTML(
+    const std::string body = headerShell("learn") + R"HTML(
 <main class="plan-page min-h-screen bg-[#f5f9ff] text-slate-950">
   <section class="mx-auto w-full max-w-7xl px-4 py-7 sm:px-6 lg:px-8 lg:py-10">
     <div class="plan-heading"><div><p class="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">学习工作台 · 课程规划</p><h1 id="plan-title" class="mt-2 text-3xl font-bold tracking-tight sm:text-5xl">正在准备你的课程</h1><p id="plan-goal" class="mt-3 max-w-3xl text-base leading-7 text-slate-600"></p></div><div id="save-status" class="save-status" role="status">正在连接</div></div>
