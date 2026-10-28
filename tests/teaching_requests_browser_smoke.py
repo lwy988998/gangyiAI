@@ -23,6 +23,7 @@ def main(executable):
             target=page.locator('.chat-section.is-current-question').get_attribute('data-section-id')
             for button,kind in [('teaching-hint','hint'),('teaching-example','worked_example'),('explain-again','rephrase'),('teaching-retry','retry_question')]:
                 expect(page.locator('#'+button)).to_be_enabled()
+                page.locator('[popovertarget="classroom-more"]').click()
                 with page.expect_request(lambda req:req.url.endswith('/api/learning-agent/events')) as sent:
                     page.locator('#'+button).click()
                 event=sent.value.post_data_json

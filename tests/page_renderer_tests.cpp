@@ -12,8 +12,9 @@ int main() {
     expect(ask.find("当前配置的 AI 模型") != std::string::npos && ask.find("DeepSeek V4 Flash") == std::string::npos,
         "问答页应显示配置模型，不写死服务商");
     const auto home = gangyi::renderHomePage();
-    expect(home.find("gy-theme-lab") != std::string::npos && home.find("school-logo.png") != std::string::npos,
-        "正式页面使用用户选定的 C 方向与原校徽");
+    expect(home.find("clarity-app") != std::string::npos && home.find("/clarity.css") != std::string::npos &&
+        home.find("school-logo.png") != std::string::npos && home.find("gy-theme-lab") == std::string::npos,
+        "正式页面采用用户选定的澄明方向并保留原校徽");
     expect(home.find("/learning-flow.js") < home.find("/classroom.js") && home.find("/app-layout.js") != std::string::npos,
         "统一课堂与目录资源必须加载");
     expect(home.find("data-profile-radar") != std::string::npos && home.find("home-goal-surface") != std::string::npos,
@@ -66,5 +67,12 @@ int main() {
     expect(myCourses.find("href=\"/my-ai/plan\"") != std::string::npos && myCourses.find("id=\"uc-availability-grid\"") == std::string::npos,
         "时间设置迁入独立学习计划页");
     expect(myCourses.find("id=\"open-api-settings\"") != std::string::npos, "原 AI 配置入口继续存在");
+    auto legacyCourses = courses;
+    legacyCourses["courses"][0]["mode"] = "deep";
+    expect(gangyi::renderMyCoursesPage(legacyCourses).find("快速规划 · 完成") != std::string::npos,
+        "历史deep参数课程按原教学方式显示为快速规划");
+    legacyCourses["courses"][0]["pedagogy"] = "deep-v1";
+    expect(gangyi::renderMyCoursesPage(legacyCourses).find("深度课程 · 完成") != std::string::npos,
+        "新深度课程依据明确呈现协议显示模式");
     return failures == 0 ? 0 : 1;
 }

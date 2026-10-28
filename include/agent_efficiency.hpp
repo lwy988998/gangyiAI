@@ -13,6 +13,19 @@ inline bool agentEfficiencyEnabled(const char* name) {
 // 权限独立于目录说明。评分专用阶段仍由主控严格限制为原有的两个工具。
 inline bool agentToolAuthorized(const std::string& name, const AgentJson& task) {
     const auto type = task.at("event").value("type", "");
+    if (type == "plan_course" && task.at("event").value("mode", "") == "deep") {
+        // 新模式规划只读取已有资料并保存新大纲，不能借旧课程上下文修改教学、进度或画像。
+        static const std::set<std::string> planningTools = {"create_course", "read_context", "read_history", "read_outline",
+            "read_library", "read_resource", "search_resources", "describe_tools", "read_profile_evidence", "read_personal_center"};
+        if (!planningTools.count(name)) return false;
+    }
+    if (type == "prepare_next" && task.at("event").value("resumeDraft", false)) {
+        static const std::set<std::string> recoveryTools = {"read_context", "read_history", "read_outline", "read_lesson", "read_library",
+            "read_resource", "search_resources", "describe_tools", "append_section", "set_deep_content", "search_lesson_images", "finish_lesson"};
+        if (!recoveryTools.count(name)) return false;
+    }
+    if ((name == "set_deep_content" || name == "search_lesson_images") &&
+        type != "prepare_next" && task.at("event").value("lessonId", "").empty()) return false;
     if (type == "library_research" && name != "read_context" && name != "read_library" &&
         name != "search_resources" && name != "read_resource" && name != "select_resources" && name != "describe_tools") return false;
     if ((type == "startup" || type == "profile_update" || type == "learning_updated" || type == "schedule_changed") &&
@@ -36,9 +49,9 @@ inline AgentJson agentToolCatalog(const std::map<std::string, AgentTool>& tools,
     static const std::map<std::string, std::set<std::string>> stages = {
         {"assistant", {"read_personal_center", "set_teaching_preferences", "remember_preference", "propose_personal_action", "control_ai_task", "open_personal_page", "adjust_schedule"}},
         {"planning", {"create_course", "read_outline", "update_course_preview", "read_library", "search_resources", "read_resource", "select_resources"}},
-        {"preparation", {"read_outline", "read_lesson", "create_lesson", "append_section", "finish_lesson", "read_library", "search_resources", "read_resource", "select_resources"}},
+        {"preparation", {"read_outline", "read_lesson", "create_lesson", "append_section", "finish_lesson", "set_deep_content", "search_lesson_images", "read_library", "search_resources", "read_resource", "select_resources"}},
         {"assessment", {"evaluate_answer", "classify_input"}},
-        {"teaching", {"read_lesson", "append_section", "select_teaching_focus", "complete_lesson", "read_resource", "schedule_review"}},
+        {"teaching", {"read_lesson", "append_section", "set_deep_content", "search_lesson_images", "select_teaching_focus", "complete_lesson", "read_resource", "schedule_review"}},
         {"research", {"read_library", "search_resources", "read_resource", "select_resources"}},
         {"background", {"read_profile_evidence", "update_profiles", "update_topic_mastery", "update_recommendations", "read_outline", "adjust_goal", "revise_outline", "adjust_schedule"}}
     };

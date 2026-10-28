@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(gangyiAI VERSION 5.6.7 LANGUAGES C CXX)
+project(gangyiAI VERSION 5.7.0 LANGUAGES C CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -201,7 +201,7 @@ endif()
 add_executable(gangyiAI src/my_ai_pages.cpp src/main.cpp src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/json_fix.cpp src/plan_generator.cpp src/page_renderer.cpp
     src/plan_cache.cpp src/plan_adapter.cpp src/search_client.cpp src/quality_gate.cpp src/course_service.cpp
     src/progress_service.cpp src/profile_service.cpp src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/classroom_service.cpp src/image_goal_analyzer.cpp src/home_recommendations.cpp src/learning_flow.cpp src/next_lesson.cpp
-    src/learning_agent.cpp src/learning_library.cpp src/library_io.cpp src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/agent_curriculum.cpp src/my_ai.cpp src/my_ai_tools.cpp
+    src/deep_course.cpp src/learning_agent.cpp src/learning_library.cpp src/library_io.cpp src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/agent_curriculum.cpp src/my_ai.cpp src/my_ai_tools.cpp
     ${GANGYI_SERVICE_RESOURCE})
 
 target_include_directories(gangyiAI PRIVATE
@@ -284,7 +284,7 @@ if(BUILD_TESTING)
     target_include_directories(agent-stream-tests PRIVATE include)
     target_link_libraries(agent-stream-tests PRIVATE nlohmann_json::nlohmann_json)
     add_test(NAME agent-stream COMMAND agent-stream-tests)
-    add_executable(learning-agent-tests tests/learning_agent_tests.cpp src/learning_agent.cpp src/learning_library.cpp src/library_io.cpp
+    add_executable(learning-agent-tests tests/learning_agent_tests.cpp src/deep_course.cpp src/learning_agent.cpp src/learning_library.cpp src/library_io.cpp
         src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/agent_curriculum.cpp src/my_ai.cpp src/my_ai_tools.cpp
         src/learning_flow.cpp src/next_lesson.cpp src/classroom_service.cpp src/learning_generator.cpp src/profile_service.cpp
         src/course_service.cpp src/progress_service.cpp src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp)
@@ -294,7 +294,8 @@ if(BUILD_TESTING)
     if(WIN32)
         target_link_libraries(learning-agent-tests PRIVATE ws2_32)
     endif()
-    target_sources(learning-agent-tests PRIVATE tests/library_checks.cpp)
+    target_sources(learning-agent-tests PRIVATE tests/library_checks.cpp tests/deep_course_checks.cpp)
+    add_test(NAME deep-course COMMAND learning-agent-tests --deep-course-only)
     add_test(NAME learning-agent COMMAND learning-agent-tests)
   add_test(NAME startup-reuse COMMAND learning-agent-tests --startup-reuse-only)
     add_executable(socket-adaptor-tests tests/socket_adaptor_tests.cpp)

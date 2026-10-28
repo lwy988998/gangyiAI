@@ -1,0 +1,423 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-28T11:05:08.018Z",
+  "title": "Design System: 钢一定制 AI · 澄明",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "澄明蓝",
+        "canonical": "#3d61ce",
+        "tonalRamp": [
+          "oklch(15% 0.0248 266.61)",
+          "oklch(26% 0.0794 266.61)",
+          "oklch(37% 0.1340 266.61)",
+          "oklch(49% 0.1737 266.61)",
+          "oklch(61% 0.1737 266.61)",
+          "oklch(74% 0.1737 266.61)",
+          "oklch(86% 0.0973 266.61)",
+          "oklch(95% 0.0347 266.61)"
+        ]
+      },
+      "primary-hover": {
+        "role": "primary",
+        "displayName": "沉静蓝",
+        "canonical": "#2f50b8",
+        "tonalRamp": [
+          "oklch(15% 0.0241 266.47)",
+          "oklch(26% 0.0772 266.47)",
+          "oklch(37% 0.1303 266.47)",
+          "oklch(49% 0.1689 266.47)",
+          "oklch(61% 0.1689 266.47)",
+          "oklch(74% 0.1689 266.47)",
+          "oklch(86% 0.0946 266.47)",
+          "oklch(95% 0.0338 266.47)"
+        ]
+      },
+      "neutral-bg": {
+        "role": "neutral",
+        "displayName": "冷白底",
+        "canonical": "#f6f8fc",
+        "tonalRamp": [
+          "oklch(15% 0.0008 264.53)",
+          "oklch(26% 0.0026 264.53)",
+          "oklch(37% 0.0044 264.53)",
+          "oklch(49% 0.0057 264.53)",
+          "oklch(61% 0.0057 264.53)",
+          "oklch(74% 0.0057 264.53)",
+          "oklch(86% 0.0032 264.53)",
+          "oklch(95% 0.0011 264.53)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "内容白",
+        "canonical": "#fff",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(26% 0.0000 0.00)",
+          "oklch(37% 0.0000 0.00)",
+          "oklch(49% 0.0000 0.00)",
+          "oklch(61% 0.0000 0.00)",
+          "oklch(74% 0.0000 0.00)",
+          "oklch(86% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "surface-alt": {
+        "role": "neutral",
+        "displayName": "浅蓝层",
+        "canonical": "#eef3fc",
+        "tonalRamp": [
+          "oklch(15% 0.0019 262.38)",
+          "oklch(26% 0.0060 262.38)",
+          "oklch(37% 0.0102 262.38)",
+          "oklch(49% 0.0132 262.38)",
+          "oklch(61% 0.0132 262.38)",
+          "oklch(74% 0.0132 262.38)",
+          "oklch(86% 0.0074 262.38)",
+          "oklch(95% 0.0026 262.38)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "深蓝灰",
+        "canonical": "#21324b",
+        "tonalRamp": [
+          "oklch(15% 0.0072 257.89)",
+          "oklch(26% 0.0231 257.89)",
+          "oklch(37% 0.0389 257.89)",
+          "oklch(49% 0.0505 257.89)",
+          "oklch(61% 0.0505 257.89)",
+          "oklch(74% 0.0505 257.89)",
+          "oklch(86% 0.0283 257.89)",
+          "oklch(95% 0.0101 257.89)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "辅助蓝灰",
+        "canonical": "#5e6d82",
+        "tonalRamp": [
+          "oklch(15% 0.0054 256.82)",
+          "oklch(26% 0.0173 256.82)",
+          "oklch(37% 0.0292 256.82)",
+          "oklch(49% 0.0378 256.82)",
+          "oklch(61% 0.0378 256.82)",
+          "oklch(74% 0.0378 256.82)",
+          "oklch(86% 0.0212 256.82)",
+          "oklch(95% 0.0076 256.82)"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "分隔灰蓝",
+        "canonical": "#dfe6ef",
+        "tonalRamp": [
+          "oklch(15% 0.0021 254.61)",
+          "oklch(26% 0.0066 254.61)",
+          "oklch(37% 0.0111 254.61)",
+          "oklch(49% 0.0144 254.61)",
+          "oklch(61% 0.0144 254.61)",
+          "oklch(74% 0.0144 254.61)",
+          "oklch(86% 0.0080 254.61)",
+          "oklch(95% 0.0029 254.61)"
+        ]
+      },
+      "danger": {
+        "role": "semantic",
+        "displayName": "错误红",
+        "canonical": "#a4373e",
+        "tonalRamp": [
+          "oklch(15% 0.0205 20.42)",
+          "oklch(26% 0.0656 20.42)",
+          "oklch(37% 0.1107 20.42)",
+          "oklch(49% 0.1435 20.42)",
+          "oklch(61% 0.1435 20.42)",
+          "oklch(74% 0.1435 20.42)",
+          "oklch(86% 0.0804 20.42)",
+          "oklch(95% 0.0287 20.42)"
+        ]
+      },
+      "danger-bg": {
+        "role": "semantic",
+        "displayName": "错误浅底",
+        "canonical": "#fff3f2",
+        "tonalRamp": [
+          "oklch(15% 0.0019 23.19)",
+          "oklch(26% 0.0060 23.19)",
+          "oklch(37% 0.0100 23.19)",
+          "oklch(49% 0.0130 23.19)",
+          "oklch(61% 0.0130 23.19)",
+          "oklch(74% 0.0130 23.19)",
+          "oklch(86% 0.0073 23.19)",
+          "oklch(95% 0.0026 23.19)"
+        ]
+      },
+      "warning": {
+        "role": "semantic",
+        "displayName": "注意棕",
+        "canonical": "#78541e",
+        "tonalRamp": [
+          "oklch(15% 0.0120 73.85)",
+          "oklch(26% 0.0384 73.85)",
+          "oklch(37% 0.0649 73.85)",
+          "oklch(49% 0.0841 73.85)",
+          "oklch(61% 0.0841 73.85)",
+          "oklch(74% 0.0841 73.85)",
+          "oklch(86% 0.0471 73.85)",
+          "oklch(95% 0.0168 73.85)"
+        ]
+      },
+      "warning-bg": {
+        "role": "semantic",
+        "displayName": "注意浅底",
+        "canonical": "#fff7ea",
+        "tonalRamp": [
+          "oklch(15% 0.0027 80.12)",
+          "oklch(26% 0.0088 80.12)",
+          "oklch(37% 0.0148 80.12)",
+          "oklch(49% 0.0192 80.12)",
+          "oklch(61% 0.0192 80.12)",
+          "oklch(74% 0.0192 80.12)",
+          "oklch(86% 0.0107 80.12)",
+          "oklch(95% 0.0038 80.12)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "首页主标题",
+        "purpose": "首页桌面主标题；窄屏使用已实现的较小字号。"
+      },
+      "headline": {
+        "displayName": "快速课堂标题",
+        "purpose": "快速课堂当前课时标题。"
+      },
+      "title": {
+        "displayName": "区域标题",
+        "purpose": "通用页面区域的标题层级。"
+      },
+      "body": {
+        "displayName": "中文正文",
+        "purpose": "常规内容、表单和消息的正文基准。"
+      },
+      "reading": {
+        "displayName": "深度讲义",
+        "purpose": "较大行高、有限行宽的长文阅读。"
+      },
+      "navigation": {
+        "displayName": "顶部导航",
+        "purpose": "桌面全局导航链接。"
+      },
+      "action": {
+        "displayName": "主要行动",
+        "purpose": "首页主按钮与紧凑主要行动。"
+      },
+      "label": {
+        "displayName": "辅助说明",
+        "purpose": "来源、日期、状态和紧凑操作的辅助文字。"
+      },
+      "slide-title": {
+        "displayName": "课件标题",
+        "purpose": "翻页课件中的主要标题。"
+      }
+    },
+    "shadows": [
+      {
+        "name": "navigation-menu",
+        "value": "0 8px 24px #21324b18",
+        "purpose": "窄屏导航的局部浮层。"
+      },
+      {
+        "name": "classroom-more",
+        "value": "0 8px 28px #1c34511a",
+        "purpose": "快速课堂的原生弹出工具菜单。"
+      },
+      {
+        "name": "deep-more",
+        "value": "0 8px 24px #24395914",
+        "purpose": "深度课堂次要工具浮层。"
+      },
+      {
+        "name": "ai-status-detail",
+        "value": "0 10px 35px #1f36531c",
+        "purpose": "头部展开的状态详情。"
+      }
+    ],
+    "motion": [
+      {
+        "name": "control-transition",
+        "value": "background .18s, color .18s, border-color .18s",
+        "purpose": "常规按钮与选择控件的颜色状态过渡。"
+      },
+      {
+        "name": "reduced-motion",
+        "value": "@media (prefers-reduced-motion: reduce) { animation: none; transition: none; scroll-behavior: auto; }",
+        "purpose": "用户请求减少动态效果时关闭界面动画、过渡与流畅滚动。"
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "narrow",
+        "value": "700px"
+      },
+      {
+        "name": "my-ai-horizontal-navigation",
+        "value": "780px"
+      },
+      {
+        "name": "my-ai-desktop-chat-min",
+        "value": "781px"
+      },
+      {
+        "name": "course-directory",
+        "value": "900px"
+      },
+      {
+        "name": "compact-global",
+        "value": "1000px"
+      },
+      {
+        "name": "compact-deep",
+        "value": "1150px"
+      },
+      {
+        "name": "compact-page-gutters",
+        "value": "1180px"
+      },
+      {
+        "name": "wide-deep-min",
+        "value": "1500px"
+      },
+      {
+        "name": "short-classroom-max-height",
+        "value": "690px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "主按钮",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "首页的主要行动；生产页面复用同色按钮家族。",
+      "html": "<button class=\"ds-primary\">开始学习 <svg aria-hidden=\"true\" viewBox=\"0 0 24 24\"><path d=\"M5 12h14m-6-6 6 6-6 6\"/></svg></button>",
+      "css": ".ds-primary{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:40px;padding:9px 15px;border:1px solid transparent;border-radius:7px;background:var(--gy-accent,#3d61ce);color:var(--gy-surface,#fff);font:600 13px/1.7 \"Segoe UI\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",sans-serif;cursor:pointer;transition:background .18s,color .18s,border-color .18s}.ds-primary svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.ds-primary:hover{background:var(--gy-accent-hover,#2f50b8)}.ds-primary:focus-visible{outline:2px solid var(--gy-accent,#3d61ce);outline-offset:4px}.ds-primary:disabled{cursor:wait;opacity:.55}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none}}"
+    },
+    {
+      "name": "次要按钮",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "保留常用次级行动的边界与点击面积。",
+      "html": "<button class=\"ds-secondary\">返回课程</button>",
+      "css": ".ds-secondary{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:8px 13px;border:1px solid var(--gy-border,#dfe6ef);border-radius:7px;background:var(--gy-surface,#fff);color:var(--gy-text,#21324b);font:400 13px/1.7 \"Segoe UI\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",sans-serif;cursor:pointer;transition:background .18s,color .18s,border-color .18s}.ds-secondary:hover{background:var(--gy-surface-alt,#eef3fc)}.ds-secondary:focus-visible{outline:2px solid var(--gy-accent,#3d61ce);outline-offset:4px}.ds-secondary:disabled{cursor:wait;opacity:.55}@media(prefers-reduced-motion:reduce){.ds-secondary{transition:none}}"
+    },
+    {
+      "name": "文字操作",
+      "kind": "button",
+      "refersTo": "button-text",
+      "description": "目标输入区的低强调辅助行动，以文字和清楚焦点保持可发现。",
+      "html": "<button class=\"ds-text-action\">上传图片</button>",
+      "css": ".ds-text-action{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:36px;padding:5px 2px;border:0;background:transparent;color:var(--gy-muted,#5e6d82);font:400 13px/1.7 \"Segoe UI\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",sans-serif;cursor:pointer;transition:background .18s,color .18s,border-color .18s}.ds-text-action:hover{color:var(--gy-accent,#3d61ce)}.ds-text-action:focus-visible{outline:2px solid var(--gy-accent,#3d61ce);outline-offset:4px}.ds-text-action:disabled{cursor:wait;opacity:.55}@media(prefers-reduced-motion:reduce){.ds-text-action{transition:none}}"
+    },
+    {
+      "name": "目标输入",
+      "kind": "input",
+      "refersTo": "goal-input",
+      "description": "白色复合输入面，文字输入取得焦点时边线转蓝。",
+      "html": "<label class=\"ds-input-label\" for=\"ds-goal\">今天想学什么？</label><div class=\"ds-input-surface\"><textarea id=\"ds-goal\" class=\"ds-input\" placeholder=\"输入学习目标，或描述遇到的问题\"></textarea></div>",
+      "css": ".ds-input-label{display:block;margin-bottom:8px;color:var(--gy-text,#21324b);font:400 14px/1.7 \"Segoe UI\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",sans-serif}.ds-input-surface{border:1px solid var(--gy-border,#dfe6ef);border-radius:9px;background:var(--gy-surface,#fff)}.ds-input-surface:focus-within{border-color:var(--gy-accent,#3d61ce)}.ds-input{display:block;width:100%;min-height:86px;max-height:200px;padding:15px 16px 10px;resize:vertical;border:0;background:transparent;color:var(--gy-text,#21324b);font:400 15px/1.8 \"Segoe UI\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",sans-serif;outline:0;caret-color:var(--gy-accent,#3d61ce);box-sizing:border-box}.ds-input::placeholder{color:#6a778a;opacity:1}.ds-input:focus-visible{outline:0}@media(max-width:700px){.ds-input{font-size:14px;min-height:102px;padding:13px}}"
+    },
+    {
+      "name": "顶部导航",
+      "kind": "nav",
+      "refersTo": "top-navigation",
+      "description": "固定的顶部位置与底部选中线；示例只展示导航链接，生产保留原始校徽。",
+      "html": "<nav class=\"ds-nav\" aria-label=\"主导航\"><a class=\"ds-nav-link\" href=\"#ds-home\" aria-current=\"page\">首页</a><a class=\"ds-nav-link\" href=\"#ds-courses\">我的课程</a><a class=\"ds-nav-link\" href=\"#ds-my-ai\">我的 AI</a></nav>",
+      "css": ".ds-nav{display:flex;align-items:center;gap:29px;height:72px;padding:0 36px;border-bottom:1px solid var(--gy-border,#dfe6ef);background:var(--gy-surface,#fff);overflow-x:auto;white-space:nowrap}.ds-nav-link{display:inline-flex;align-items:center;height:100%;border-bottom:2px solid transparent;color:var(--gy-muted,#5e6d82);font:400 14px/1.7 \"Segoe UI\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",sans-serif;text-decoration:none}.ds-nav-link:hover{color:var(--gy-accent,#3d61ce)}.ds-nav-link[aria-current=page]{color:var(--gy-accent,#3d61ce);border-bottom-color:var(--gy-accent,#3d61ce);font-weight:600}.ds-nav-link:focus-visible{outline:2px solid var(--gy-accent,#3d61ce);outline-offset:4px}@media(max-width:700px){.ds-nav{height:64px;padding:0 19px;gap:23px}.ds-nav-link{font-size:13px}}"
+    },
+    {
+      "name": "课程模式选择",
+      "kind": "chip",
+      "refersTo": "mode-chip",
+      "description": "选中状态同时使用浅蓝底、蓝字、边线与 aria-pressed。",
+      "html": "<div class=\"ds-mode-group\" role=\"group\" aria-label=\"课程模式\"><button class=\"ds-mode\" aria-pressed=\"true\"><b>快速规划</b><span>边学边调整</span></button><button class=\"ds-mode\" aria-pressed=\"false\"><b>深度课程</b><span>沿大纲逐课学习</span></button></div>",
+      "css": ".ds-mode-group{display:flex;gap:9px}.ds-mode{flex:1;display:flex;flex-wrap:wrap;align-items:center;gap:3px 8px;padding:9px 11px;border:1px solid var(--gy-border,#dfe6ef);border-radius:7px;background:var(--gy-surface,#fff);color:var(--gy-muted,#5e6d82);font:400 12px/1.7 \"Segoe UI\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",sans-serif;text-align:left;cursor:pointer;transition:background .18s,color .18s,border-color .18s}.ds-mode b{font-size:13px;font-weight:550}.ds-mode[aria-pressed=true]{background:var(--gy-surface-alt,#eef3fc);color:var(--gy-accent,#3d61ce);border-color:#879fe6}.ds-mode:hover{color:var(--gy-accent,#3d61ce)}.ds-mode:focus-visible{outline:2px solid var(--gy-accent,#3d61ce);outline-offset:4px}@media(prefers-reduced-motion:reduce){.ds-mode{transition:none}}"
+    },
+    {
+      "name": "内容容器",
+      "kind": "card",
+      "refersTo": "card-standard",
+      "description": "白底、轻边框和克制圆角；常驻内容不使用投影。",
+      "html": "<section class=\"ds-card\"><h2>学习记录</h2><p>围绕真实学习过程组织内容，保留清楚的标题与阅读空间。</p><a href=\"#ds-records\">查看记录</a></section>",
+      "css": ".ds-card{padding:22px;border:1px solid var(--gy-border,#dfe6ef);border-radius:12px;background:var(--gy-surface,#fff);color:var(--gy-text,#21324b);font:400 15px/1.7 \"Segoe UI\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",sans-serif}.ds-card h2{margin:0 0 12px;font-size:18px;font-weight:600;line-height:1.5}.ds-card p{margin:0 0 15px;color:var(--gy-muted,#5e6d82)}.ds-card a{color:var(--gy-accent,#3d61ce);font-size:13px;text-decoration:none;text-underline-offset:3px}.ds-card a:hover{text-decoration:underline}.ds-card a:focus-visible{outline:2px solid var(--gy-accent,#3d61ce);outline-offset:4px}"
+    },
+    {
+      "name": "课堂更多菜单",
+      "kind": "custom",
+      "refersTo": "more-menu",
+      "description": "展开后的次要工具外观；生产页面通过原生 popover 或 details 管理开合。",
+      "html": "<div class=\"ds-more-menu\" role=\"group\" aria-label=\"课堂更多操作\"><button>提示</button><button>看示范</button><button>换种讲法</button></div>",
+      "css": ".ds-more-menu{width:180px;padding:7px;border:1px solid var(--gy-border,#dfe6ef);border-radius:9px;background:var(--gy-surface,#fff);color:var(--gy-text,#21324b);box-shadow:0 8px 28px #1c34511a}.ds-more-menu button{display:block;width:100%;padding:9px 12px;border:0;border-radius:5px;background:transparent;color:var(--gy-text,#21324b);font:400 13px/1.7 \"Segoe UI\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",sans-serif;text-align:left;cursor:pointer;transition:background .18s,color .18s}.ds-more-menu button:hover{background:var(--gy-surface-alt,#eef3fc);color:var(--gy-accent,#3d61ce)}.ds-more-menu button:focus-visible{outline:2px solid var(--gy-accent,#3d61ce);outline-offset:4px}@media(prefers-reduced-motion:reduce){.ds-more-menu button{transition:none}}"
+    },
+    {
+      "name": "教学时间轴",
+      "kind": "custom",
+      "refersTo": "teaching-timeline",
+      "description": "时间列、细线和蓝色节点帮助呈现学习过程中的先后关系。",
+      "html": "<figure class=\"ds-timeline-card\"><h3>思路的发展</h3><ol class=\"ds-timeline\"><li><strong>观察</strong><div>先描述现象，记录能够重复看到的变化。</div></li><li><strong>解释</strong><div>用模型连接现象，再通过实验检查解释。</div></li></ol><figcaption>图示用于辅助讲解。</figcaption></figure>",
+      "css": ".ds-timeline-card{margin:0;padding:18px;border:1px solid var(--gy-border,#dfe6ef);border-radius:12px;background:var(--gy-surface,#fff);color:var(--gy-text,#21324b);font:400 13px/1.8 \"Segoe UI\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",sans-serif}.ds-timeline-card h3{margin:0 0 13px;font-size:15px;font-weight:600;line-height:1.6}.ds-timeline{list-style:none;padding:0;margin:5px 0}.ds-timeline li{display:grid;grid-template-columns:82px minmax(0,1fr);gap:18px;padding:0 0 21px}.ds-timeline li:last-child{padding-bottom:0}.ds-timeline strong{color:var(--gy-accent,#3d61ce);font-size:13px;font-weight:550}.ds-timeline li>div{position:relative;border-left:1px solid var(--gy-border,#dfe6ef);padding-left:18px}.ds-timeline li>div::before{content:\"\";position:absolute;width:7px;height:7px;border-radius:50%;left:-4px;top:7px;background:var(--gy-accent,#3d61ce)}.ds-timeline-card figcaption{margin-top:12px;color:var(--gy-muted,#5e6d82);font-size:12px;line-height:1.85}@media(max-width:700px){.ds-timeline-card{padding:15px 13px;border-radius:10px}.ds-timeline li{grid-template-columns:62px minmax(0,1fr);gap:12px}.ds-timeline li>div{padding-left:13px}}"
+    },
+    {
+      "name": "课堂翻页课件",
+      "kind": "custom",
+      "refersTo": "lesson-slide",
+      "description": "浅蓝整面、较大标题与舒展正文；翻页控件与页码固定在视图工具栏下方，长正文独立滚动。",
+      "html": "<article class=\"ds-slide\"><h2>从问题出发</h2><div class=\"ds-slide-rich\"><p>先识别已知条件，再选择能够验证的解释。</p><ul><li>观察发生了什么变化。</li><li>说明证据支持哪些判断。</li></ul></div></article>",
+      "css": ".ds-slide{min-height:310px;max-width:980px;margin:0 auto;padding:29px 32px;border-radius:12px;background:var(--gy-surface-alt,#eef3fc);color:var(--gy-text,#21324b);font:400 17px/1.9 \"Segoe UI\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",sans-serif;overflow-wrap:anywhere}.ds-slide h2{margin:0 0 22px;font-size:27px;font-weight:600;line-height:1.5;letter-spacing:-.02em}.ds-slide-rich p{margin:0 0 15px}.ds-slide-rich ul{padding-left:24px;margin:12px 0 18px}.ds-slide-rich li{margin:6px 0}@media(max-width:700px){.ds-slide{min-height:320px;padding:23px 19px;border-radius:10px;font-size:15px}.ds-slide h2{font-size:23px;margin-bottom:18px}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "澄明阅览室",
+    "overview": "蓝白、留白、顶部导航和清楚的字体层级来自用户已确认的 A「澄明」方向。浅灰蓝背景托住白色内容面，蓝色标记当前位置与主要行动；学校校徽保持原始比例，作为稳定的身份入口。界面面向中文学习，视觉密度让位于阅读、作答和继续学习。\n\n首页、课程管理、快速规划、深度课程、资料与知识库，以及“我的 AI”十二类页面共享这套视觉体系。列表以细分隔线组织，确有边界的内容、表单与媒体才使用容器。课堂的次要工具和 AI 调用详情按需展开，保留学习内容与输入区的可见空间。",
+    "keyCharacteristics": [
+      "蓝白与中性浅色构成主体，蓝色服务于导航、选择和行动。",
+      "中文系统字体、可读正文和有节制的标题层级。",
+      "平面内容、轻边框、适量圆角与充足留白。",
+      "桌面与窄屏共享校徽、学习入口、课程目录和清楚的焦点。",
+      "真实进度与状态进入原有组件，部分失败提供就地恢复入口。"
+    ],
+    "rules": [
+      {
+        "name": "蓝色有义",
+        "body": "蓝色标记可行动、已选中或当前学习位置，同一状态同时保留文字、边线或形状线索。",
+        "section": "colors"
+      },
+      {
+        "name": "阅读优先",
+        "body": "主体以（15px）为基准；窄屏通过重排和隐藏冗余说明保留空间，辅助正文与操作文字保持至少（12px）。",
+        "section": "typography"
+      },
+      {
+        "name": "平面承载",
+        "body": "学习内容与常驻表单保持平面；覆盖内容的浮层才使用投影或遮罩建立前后关系。",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** 沿用澄明蓝、白色内容面和共享中性色，让首页、两类课堂及个人中心保持一致。",
+      "**Do** 保留原始校徽比例、中文说明、真实进度与已有功能入口。",
+      "**Do** 以（15px）正文和至少（12px）的辅助信息建立层级，并为长讲义保留舒展行高。",
+      "**Do** 在（1280×720）与窄屏核对输入区、目录入口、导航和键盘焦点。",
+      "**Do** 用细边框、间距和按需展开组织信息，把停止、失败说明和重试放在相关状态中。"
+    ],
+    "donts": [
+      "**Don't** 在共享页面重新引入黑绿、玻璃网格或大面积装饰背景，冲淡已选定的蓝白方向。",
+      "**Don't** 将每条列表信息变成独立高阴影卡片，或用密集按钮挤压阅读和作答空间。",
+      "**Don't** 缩小辅助正文来容纳更多信息，或仅以颜色表示选中、错误和学习状态。",
+      "**Don't** 让弹层、状态详情或目录遮挡常态课堂输入，或让宽表格与公式撑破整页。",
+      "**Don't** 把资料库、旧课程或深度课程扩展成另一套不兼容的颜色、导航与控件样式。"
+    ]
+  }
+}
