@@ -387,6 +387,9 @@ std::optional<WeeklyPlan> Database::getWeeklyPlan(const std::string& courseId) c
     return WeeklyPlan{str(s.p,0),str(s.p,1),str(s.p,3),sqlite3_column_int(s.p,2)};
 }
 void Database::deleteClassroomData(const std::string& courseId) {
+    // 图片字节独立于课堂列表，避免每次教学读取整批图片；删除课程时一并清理。
+    Stmt images(db_, "DELETE FROM MyAIRecord WHERE kind='deep-image' AND CASE WHEN json_valid(payload) THEN json_extract(payload,'$.courseId') END=?");
+    text(images,1,courseId);done(images);
     Stmt activities(db_, "DELETE FROM ClassroomActivity WHERE courseId=?");text(activities,1,courseId);done(activities);
     Stmt weekly(db_, "DELETE FROM WeeklyPlan WHERE courseId=?");text(weekly,1,courseId);done(weekly);
     const auto prefix = "lesson-reached:" + courseId + ":";

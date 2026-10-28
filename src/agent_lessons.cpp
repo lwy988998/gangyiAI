@@ -3,6 +3,7 @@
 #include "question_evidence.hpp"
 #include "teaching_evidence.hpp"
 #include "agent_curriculum.hpp"
+#include "deep_course.hpp"
 #include "course_service.hpp"
 #include <algorithm>
 #include <chrono>
@@ -42,11 +43,12 @@ Json lessonFor(Database& db, const AgentAccess& access, const std::string& id) {
     if (value.at("scopeId") != access.scopeId) throw std::invalid_argument("无权读取该课时");
     requireCourse(db, access, row->courseId); return value;
 }
-// 课堂交流绑定学生实际所在课时；备课仍可创建或补充另一课时。
+// 课堂交流及显式草稿恢复绑定实际课时；普通旧备课保留原有范围。
 void requireTeachingTarget(const Json& task, const Json& lesson) {
     const auto& event = task.at("event");
     const auto type = event.value("type", "");
-    if (type != "question_answer" && type != "chat" && type != "lesson_start" && type != "teaching_request") return;
+    if (type != "question_answer" && type != "chat" && type != "lesson_start" && type != "teaching_request" &&
+        !(type == "prepare_next" && event.value("resumeDraft", false))) return;
     const auto current = event.value("lessonId", "");
     if (current.empty()) return;
     if (lesson.at("id") != current)
@@ -387,7 +389,11 @@ void registerAgentLessonTools(LearningAgent& agent) {
     agent.registerTool("finish_lesson", {"AI 判断课时已准备完整后提交。参数 lessonId。只保存模型实际生成的完整板块，不强制六板块、题数或先后顺序。完成后返回进入课堂链接。", false,
         [](Database& db, const Json& args, const Json& task, const AIResult& source) {
             const auto id = text(args, "lessonId"); auto lesson = lessonFor(db, accessFor(task), id);
+            if (task.at("event").value("type", "") == "prepare_next" && task.at("event").value("resumeDraft", false)) requireTeachingTarget(task, lesson);
             if (lesson.at("sections").empty()) throw std::invalid_argument("空课时不能进入课堂");
+            if (deepCourseEnabled(db, lesson.at("courseId")) &&
+                lesson.value("deepContent", Json::object()).value("lecture", Json::array()).empty())
+                throw std::invalid_argument("深度课时尚未保存讲义，请先调用set_deep_content；失败媒体可保留单独重试状态");
             lesson["status"] = "ready"; lesson["model"] = source.model; lesson["updatedAt"] = now();
             lesson["sourceLearningVersion"] = task.at("learningVersion"); lesson["version"] = lesson.at("version").get<int>() + 1;
             return update(db, task, id, lesson, {{"lesson", link(lesson)}, {"version", lesson.at("version")}});
@@ -847,6 +853,21 @@ Json agentEnterLesson(Database& db, const AgentAccess& access, const Json& body)
 void agentAttachLessonTask(Database& db, const AgentAccess& access, const Json& event, const std::string& taskId) {
     if (!event.contains("lessonId")) return;
     auto lesson = lessonFor(db, access, text(event, "lessonId"));
+    if (event.value("type", "") == "prepare_next" && event.value("resumeDraft", false)) {
+        const auto ownerRow = db.getClassroomActivity(lesson.value("taskId", ""));
+        const auto owner = ownerRow ? Json::parse(ownerRow->payload) : Json::object();
+        const auto original = owner.value("event", Json::object());
+        const auto status = owner.value("status", "");
+        if (lesson.at("status") != "draft" || lesson.at("courseId") != event.value("courseId", "") ||
+            lesson.value("topicId", "") != event.value("topicId", "") || lesson.value("intent", "") != "advance" ||
+            lesson.value("sourceLearningVersion", -1) != db.learningRevision() || !deepCourseEnabled(db, lesson.at("courseId")) ||
+            owner.value("scopeId", "") != access.scopeId || original.value("type", "") != "plan_course" || original.value("mode", "") != "deep" ||
+            owner.value("course", Json::object()).value("id", "") != lesson.at("courseId") ||
+            (status != "ready" && status != "failed" && status != "cancelled" && status != "superseded"))
+            throw std::invalid_argument("只能继续同范围、同知识点、学习情况未变且原规划任务已结束的深度备课草稿");
+        lesson["taskId"] = taskId; lesson["teachingTaskId"] = taskId;
+        lesson["updatedAt"] = now(); saveLesson(db, lesson); return;
+    }
     if (lesson.at("status") != "ready" || lesson.at("courseId") != event.value("courseId", ""))
         throw std::invalid_argument("课程尚未准备好或所属课程不匹配");
     if (event.value("type", "") == "lesson_start") {

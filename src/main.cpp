@@ -24,6 +24,7 @@
 #include "agent_preferences.hpp"
 #include "agent_lessons.hpp"
 #include "agent_curriculum.hpp"
+#include "deep_course.hpp"
 #include "classroom_service.hpp"
 #include "next_lesson.hpp"
 #include "json_fix.hpp"
@@ -503,6 +504,13 @@ int main() {
         try {
             const auto scope = questionRequestBody(req);
             const std::string target = req.url_params.get("review") ? "practice" : view;
+            std::string courseId = scope.value("courseId", "");
+            if (!scope.value("lessonId", "").empty())
+                courseId = gangyi::agentLessonView(db, localAgentAccess(db), scope.at("lessonId")).at("courseId");
+            if (!courseId.empty() && gangyi::deepCourseEnabled(db, courseId)) {
+                crow::response response(gangyi::renderDeepCoursePage());
+                response.set_header("Content-Type", "text/html; charset=utf-8"); return response;
+            }
             if (!scope.value("lessonId", "").empty()) {
                 gangyi::agentLessonView(db, localAgentAccess(db), scope.at("lessonId"));
                 if (target != view) { crow::response response(302); response.set_header("Location", "/practice?" + req.raw_url.substr(req.raw_url.find('?') + 1)); return response; }
@@ -694,6 +702,7 @@ int main() {
             doneTopics += courseDone;
             dueTotal += courseDue;
             list.push_back({{"courseId", c.id}, {"title", title}, {"goal", c.goal}, {"mode", c.mode},
+                {"pedagogy", gangyi::deepCourseEnabled(db, c.id) ? "deep-v1" : "quick"},
                 {"source", c.source}, {"createdAt", c.createdAt}, {"updatedAt", c.updatedAt},
                 {"status", "generated"}, {"totalTopics", courseTotal}, {"doneTopics", courseDone},
                 {"percent", courseTotal > 0 ? courseDone * 100 / courseTotal : 0},
@@ -1207,6 +1216,42 @@ int main() {
             response.set_header("Content-Type", "application/json; charset=utf-8"); return response;
         } catch (const std::exception& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
     });
+    CROW_ROUTE(app, "/deep-course")([] {
+        crow::response response(gangyi::renderDeepCoursePage());
+        response.set_header("Content-Type", "text/html; charset=utf-8"); return response;
+    });
+    CROW_ROUTE(app, "/api/deep-course")([databasePath = config.database_path](const crow::request& req) {
+        try {
+            gangyi::Database connection; connection.open(databasePath);
+            nlohmann::json scope = nlohmann::json::object();
+            for (const auto* key : {"courseId", "lessonId", "topicId", "phaseIndex", "topicIndex"})
+                if (const char* value = req.url_params.get(key)) scope[key] = value;
+            crow::response response(gangyi::deepCourseView(connection, localAgentAccess(connection), scope).dump());
+            response.set_header("Content-Type", "application/json; charset=utf-8"); response.set_header("Cache-Control", "no-store"); return response;
+        } catch (const std::exception& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/deep-course/start").methods(crow::HTTPMethod::POST)([databasePath = config.database_path](const crow::request& req) {
+        try {
+            gangyi::Database connection; connection.open(databasePath);
+            crow::response response(202, gangyi::deepCourseStart(connection, localAgentAccess(connection), nlohmann::json::parse(req.body)).dump());
+            response.set_header("Content-Type", "application/json; charset=utf-8"); return response;
+        } catch (const std::exception& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/deep-course/retry-media").methods(crow::HTTPMethod::POST)([databasePath = config.database_path](const crow::request& req) {
+        try {
+            gangyi::Database connection; connection.open(databasePath);
+            crow::response response(202, gangyi::deepCourseRetryMedia(connection, localAgentAccess(connection), nlohmann::json::parse(req.body)).dump());
+            response.set_header("Content-Type", "application/json; charset=utf-8"); return response;
+        } catch (const std::exception& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/deep-course/image")([databasePath = config.database_path](const crow::request& req) {
+        try {
+            gangyi::Database connection; connection.open(databasePath);
+            const auto image = gangyi::deepCourseImage(connection, localAgentAccess(connection), req.url_params.get("lessonId") ? req.url_params.get("lessonId") : "", req.url_params.get("mediaId") ? req.url_params.get("mediaId") : "");
+            crow::response response(image.second); response.set_header("Content-Type", image.first);
+            response.set_header("X-Content-Type-Options", "nosniff"); response.set_header("Cache-Control", "private, max-age=86400"); return response;
+        } catch (const std::exception&) { return crow::response(404, "图片尚未准备完成"); }
+    });
     CROW_ROUTE(app, "/api/learning-agent/lesson")([databasePath = config.database_path](const crow::request& req) {
         try {
             gangyi::Database connection; connection.open(databasePath);
@@ -1353,6 +1398,7 @@ int main() {
                 std::string href = "/plan?courseId=" + c.id;
                 if (anonymousId) href += "&anonymousId=" + std::string(anonymousId);
                 arr.push_back({{"id", c.id}, {"goal", c.goal}, {"mode", c.mode}, {"title", c.title},
+                    {"pedagogy", gangyi::deepCourseEnabled(db, c.id) ? "deep-v1" : "quick"},
                     {"summary", c.summary ? nlohmann::json(*c.summary) : nlohmann::json(nullptr)},
                     {"createdAt", c.createdAt}, {"updatedAt", c.updatedAt}, {"href", href}});
             }
@@ -1374,6 +1420,7 @@ int main() {
             }
             const nlohmann::json course = {{"id", found->course.id}, {"goal", found->course.goal},
                 {"mode", found->course.mode}, {"title", found->course.title},
+                {"pedagogy", gangyi::deepCourseEnabled(db, courseId) ? "deep-v1" : "quick"},
                 {"summary", found->course.summary ? nlohmann::json(*found->course.summary) : nlohmann::json(nullptr)},
                 {"source", found->course.source},
                 {"createdAt", found->course.createdAt}, {"updatedAt", found->course.updatedAt}};

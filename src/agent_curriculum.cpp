@@ -1,5 +1,6 @@
 #include "agent_curriculum.hpp"
 #include "agent_lessons.hpp"
+#include "deep_course.hpp"
 #include "agent_preferences.hpp"
 #include "question_evidence.hpp"
 #include "progress_service.hpp"
@@ -322,6 +323,8 @@ void registerAgentCurriculumTools(LearningAgent& agent) {
             const auto course = courseFor(db, accessFor(task), text(args, "courseId"));
             const auto saved = latest(db, course.id); const auto before = normalizeOutline(parse(saved.payload), course.id);
             auto after = normalizeOutline(args.at("payload"), course.id); agentValidateOutline(db, course.id, before, after);
+            if (before.value("pedagogy", "") == "deep-v1") after["pedagogy"] = "deep-v1";
+            else after.erase("pedagogy");
             after["generation"] = {{"source", "ai"}, {"model", source.model}, {"promptVersion", "ai-agent-v551"}, {"generatedAt", now()}};
             const auto change = agentChangeRecord(db, task, source, args, "outline", course.id, before, after);
             const Json publicChange = {{"id", change.at("id")}, {"kind", "outline"}, {"target", course.id},
@@ -358,9 +361,15 @@ void registerAgentCurriculumTools(LearningAgent& agent) {
         }});
     agent.registerTool("create_course", {"由 AI 自主规划并保存新课程。参数 goal,title,mode:lite|deep,summary,payload:{courseStructure:[{stage,topics:[知识点文字或{title,id}]}],roadmap可选,其他公开规划资料可选}。阶段及知识点数量由你决定，不套固定模板。", false,
         [](Database&, const Json& args, const Json& task, const AIResult& source) {
-            const auto courseId = id("course"), mode = args.value("mode", "deep");
+            const auto courseId = id("course");
+            const auto mode = task.at("event").value("type", "") == "plan_course"
+                ? task.at("event").value("mode", args.value("mode", "deep")) : args.value("mode", "deep");
             if (mode != "deep" && mode != "lite") throw std::invalid_argument("课程模式无效");
             auto payload = normalizeOutline(args.at("payload"), courseId);
+            // 只给本次明确选择深度的新建课程加标记，旧课原始mode保持不变。
+            payload.erase("pedagogy");
+            if (task.at("event").value("type", "") == "plan_course" && task.at("event").value("mode", "") == "deep")
+                payload["pedagogy"] = "deep-v1";
             payload["title"] = text(args, "title"); payload["summary"] = args.value("summary", "");
             payload["generation"] = {{"source", "ai"}, {"model", source.model}, {"promptVersion", "ai-agent-v551"}, {"generatedAt", now()}};
             const Course course{courseId, {}, {}, text(args, "goal"), mode, text(args, "title"), args.value("summary", ""), "ai", "active", now(), now()};

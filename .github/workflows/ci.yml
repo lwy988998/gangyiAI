@@ -63,6 +63,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw '统一主控接口验收失败' }
           python tests/learning_agent_browser_smoke.py dist/windows/gangyiAI.exe
           if ($LASTEXITCODE -ne 0) { throw '统一主控课堂与备课页面验收失败' }
+          python -X utf8 tests/teaching_requests_browser_smoke.py dist/windows/gangyiAI.exe
+          if ($LASTEXITCODE -ne 0) { throw '快速课堂更多菜单与教学请求回归失败' }
           python -X utf8 tests/section_navigation_browser_smoke.py
           if ($LASTEXITCODE -ne 0) { throw '原卡片定位、跨页导航与草稿恢复回归失败' }
           python -B -X utf8 tests/classroom_answer_browser_smoke.py
@@ -75,6 +77,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw '页面就绪判定回归失败' }
           python tests/my_ai_browser_smoke.py dist/windows/gangyiAI.exe verification/my-ai
           if ($LASTEXITCODE -ne 0) { throw '我的AI页面与控制工具验收失败' }
+          python -X utf8 tests/clarity_browser_smoke.py dist/windows/gangyiAI.exe verification/clarity-ui
+          if ($LASTEXITCODE -ne 0) { throw '全项目澄明界面与课堂可用区域验收失败' }
+          python -X utf8 tests/deep_course_browser_smoke.py verification/deep-course-ui
+          if ($LASTEXITCODE -ne 0) { throw '深度课堂呈现与交互协议验收失败' }
+          python -X utf8 tests/deep_course_integration_smoke.py dist/windows/gangyiAI.exe verification/deep-course-integration
+          if ($LASTEXITCODE -ne 0) { throw 'C++深度课堂建课、进入与作答闭环验收失败' }
           python tests/startup_browser_smoke.py
           if ($LASTEXITCODE -ne 0) { throw '启动动画与首页过渡验收失败' }
       - name: 验收安装包和免安装版

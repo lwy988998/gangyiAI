@@ -26,6 +26,7 @@ gangyi::AIResult output(const Json& value, const std::function<bool(const std::s
     return result;
 }
 void runLibraryChecks();
+void runDeepCourseChecks();
 #include "teaching_evidence_checks.hpp"
 #include "evaluation_feedback_checks.hpp"
 #include "demonstrated_question_checks.hpp"
@@ -35,6 +36,9 @@ void runLibraryChecks();
 #include "section_navigation_checks.hpp"
 #include "lesson_start_binding_checks.hpp"
 int main(int argc, char** argv) {
+    if (argc == 2 && std::string(argv[1]) == "--deep-course-only") {
+        runDeepCourseChecks(); return 0;
+    }
     if (argc == 2 && std::string(argv[1]) == "--lesson-start-only") {
         const auto isolated = std::filesystem::temp_directory_path() /
             ("gangyi-lesson-start-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));

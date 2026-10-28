@@ -6,6 +6,7 @@
 #include "agent_lessons.hpp"
 #include "agent_profiles.hpp"
 #include "agent_curriculum.hpp"
+#include "deep_course.hpp"
 #include "agent_stream.hpp"
 #include "teaching_evidence.hpp"
 #include "agent_prompt.hpp"
@@ -13,6 +14,7 @@
 #include "version.hpp"
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <ctime>
 #include <iomanip>
 #include <iostream>
@@ -626,6 +628,7 @@ LearningAgent::LearningAgent(std::string path, ModelCall model) : databasePath_(
     registerMyAITools(*this);
     registerLibraryTools(*this);
     registerAgentCurriculumTools(*this);
+    registerDeepCourseTools(*this);
     registerTool("describe_tools", {"按 names 字符串数组读取当前已授权工具的准确完整说明；省略详细说明的工具仍可调用。", true,
         [this](Database&, const Json& args, const Json& task, const AIResult&) {
             if (!args.value("names", Json()).is_array()) throw std::invalid_argument("names 必须为工具名数组");
@@ -685,6 +688,17 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
     if (terminal(task.value("status", "")) || task["status"] == "paused") return;
     AIActivity::taskRunning(taskId);
     ownedUpdate(db, task, [](Json& current) { current.erase("completionMs"); current["status"] = "running"; });
+    // 新深度模式的大纲与逐课备课分阶段；恢复时直接认领已成功保存的大纲，避免重复付费规划。
+    if (task.at("event").value("type", "") == "plan_course" && task.at("event").value("mode", "") == "deep" &&
+        task.value("course", Json()).is_object() && deepCourseEnabled(db, task.at("course").value("id", ""))) {
+        ownedUpdate(db, task, [](Json& current) {
+            current["status"] = "ready"; current["message"] = "课程大纲已保存，进入课时时继续准备学习内容。";
+            current.erase("error"); current.erase("failure"); current.erase("failureCount"); current.erase("failureKind");
+            recordActivity(current, {{"phase", "finished"}, {"state", "completed"}, {"title", "课程大纲已保存"}, {"detail", "复用已有规划，逐课内容在进入课时时继续准备。"}});
+            recordEvent(current, {{"type", "ready"}, {"message", current["message"]}});
+        });
+        persistTaskTiming(db, task); return;
+    }
     const auto yield = [&] {
         if (!quantum) return false;
         ownedUpdate(db, task, [](Json& current) {
@@ -723,6 +737,8 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
             options.responseFormat = "json_object";
             options.temperature = 0.25;
             const auto catalog = agentToolCatalog(tools_, task);
+            const auto deepPrompt = deepCoursePrompt(db, task);
+            if (!deepPrompt.empty()) options.messages.push_back({"system", deepPrompt, ""});
             std::set<std::string> allowedTools;
             for (const auto& [name, tool] : tools_) if (agentToolAuthorized(name, task)) allowedTools.insert(name);
             options.messages.push_back({"system",
@@ -763,6 +779,37 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
                         } else item["detailsTool"] = "read_lesson";
                         currentLesson["sections"].push_back(std::move(item));
                     }
+                    if (!deepPrompt.empty() && lesson.value("deepContent", Json()).is_object()) {
+                        const auto kind = task.at("event").value("deepView", "lecture") == "slides" ? "slides" : "lecture";
+                        const auto contentId = task.at("event").value("contentId", "");
+                        const auto content = lesson.at("deepContent");
+                        for (const auto& block : content.value(kind, Json::array())) if (contentId.empty() || block.value("id", "") == contentId) {
+                            currentLesson["currentDeepPage"] = block;
+                            currentLesson["currentDeepPage"]["view"] = kind;
+                            currentLesson["currentDeepPage"]["contentVersion"] = content.value("version", 1);
+                            currentLesson["currentDeepPage"]["media"] = Json::array();
+                            Json observed = Json::object();
+                            const auto state = task.at("event").value("mediaState", Json::object());
+                            for (const auto& mediaId : block.value("mediaIds", Json::array()))
+                                for (auto media : content.value("media", Json::array())) if (media.at("id") == mediaId) {
+                                    media.erase("blobId");
+                                    const auto id = mediaId.get<std::string>();
+                                    if (state.is_object() && state.contains(id) && state.at(id).is_number()) {
+                                        const auto value = state.at(id).get<double>();
+                                        const auto parameter = media.value("parameter", Json::object());
+                                        const double minimum = parameter.empty() ? -100000 : parameter.value("min", -100000.0);
+                                        const double maximum = parameter.empty() ? 100000 : parameter.value("max", 100000.0);
+                                        if (std::isfinite(value) && value >= minimum && value <= maximum &&
+                                            (media.value("type", "") == "forces" || !parameter.empty())) {
+                                            media["currentParameterValue"] = value; observed[id] = value;
+                                        }
+                                    }
+                                    currentLesson["currentDeepPage"]["media"].push_back(std::move(media));
+                                }
+                            promptContext["event"]["mediaState"] = observed;
+                            break;
+                        }
+                    }
                     promptContext["lessonContext"] = std::move(currentLesson);
                 }
             }
@@ -772,7 +819,7 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
                 : "本次没有重新排课授权。不可调用 adjust_schedule 或改变统一学习课表；仍可依据真实表现决定教学、备课及未来大纲。", ""});
             if (task.at("event").value("type", "") == "prepare_next") options.messages.push_back({"system",
                 "当前是备课页面，学生还不能在这里作课堂题。依据真实记录决定推进、巩固或复习，再用 create_lesson、append_section、finish_lesson 保存完整课时并返回入口。已有完整课堂适合继续学习时，可以调用 finish_lesson 复用并返回它。证据不足可先准备巩固，不必假定学生已掌握；不要在备课页口头出题或说题目在下面。只有确实缺少学生信息时才使用 waiting_student，并清楚说明需要补充什么。不要对另一个教学任务控制中的课时直接 select_teaching_focus。", ""});
-            if (!task.at("event").value("lessonId", "").empty()) options.messages.push_back({"system",
+            if (!task.at("event").value("lessonId", "").empty() && deepPrompt.empty()) options.messages.push_back({"system",
                 "本课界面分为讲解、练习、小结，三页共享同一课时。lessonContext 已提供当前题目、板块索引与教学焦点，currentInputs 保留原题标准和实际帮助；已有信息足够时直接处理，不重复 read_lesson。需要未载入板块内容时再 read_lesson（可传sectionIds选取板块）。讲解一次聚焦一个知识段，用 select_teaching_focus 保存当前位置；讲解提问使用 questionKind=interaction，集中练习使用 practice。根据本次实际反馈自主决定继续、补讲、举例或再问，等待学生时停止。示范放 explanation，不给示范新评分。小结只引用已有证据；请求完成时仍由你结合真实记录判断。页面切换、回看和刷新不表示掌握或完成，也无需重新备课。", ""});
             if (!task.at("event").value("lessonId", "").empty()) options.messages.push_back({"system",
                 "event.view 表示学生当前页面。课堂的 append_section 和 select_teaching_focus 必须逐字使用 event.lessonId，不能使用 reviews 中的另一课时，也不能把本次题目保存到新建课时。需要新题时必须先 append_section 保存完整 question、实际 options 和私有评分标准，不能只在 message 中说下面有题。课堂当轮的新题默认 activate=true，会在学生当前页面接续显示；预备未来题请显式 activate=false。选用旧题时调用 select_teaching_focus。学生要求选择题时按实际需求生成选择题，至少两个选项；不要把未保存的题目当成可作答的题。保存位置以工具成功回执的view和href为准，练习中的即时补讲通常留在practice；不能因内容是讲解就声称已经保存到讲解页。界面会提供实际内容入口，不为确认位置重复读取或发起新模型请求。", ""});
@@ -1028,6 +1075,10 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
                 if(prepared.afterCommit) { prepared.afterCommit(db); contextReuse.clear(); }
                 if (name == "append_section") persistTaskTiming(db, task);
                 results.push_back({{"id", id}, {"result", prepared.result}});
+                // 大纲保存即完成本阶段；模型同轮误带的后续课时动作也不能提前执行。
+                if (task.at("event").value("type", "") == "plan_course" && task.at("event").value("mode", "") == "deep" && task.contains("course")) {
+                    state = "completed"; break;
+                }
             }
             failureStage = "structure"; failureTool.clear();
             ownedUpdate(db, task, [](Json& current) {
