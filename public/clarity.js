@@ -58,9 +58,12 @@
       summary.textContent = '查看画像依据与建议';
       radarDetail.replaceWith(disclosure);
       disclosure.append(summary, radarDetail);
-      compactRadar.addEventListener('click', event => {
+      const revealEvidence = event => {
         if (event.target.closest('.radar-axis')) disclosure.open = true;
-      });
+      };
+      compactRadar.addEventListener('click', revealEvidence);
+      // 维度本身支持键盘聚焦，折叠详情须同步展开才能读取当前真实评估。
+      compactRadar.addEventListener('focusin', revealEvidence);
     }
     function arrangeReviews() {
       const reviews = document.getElementById('due-reviews');

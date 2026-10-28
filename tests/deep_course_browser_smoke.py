@@ -348,8 +348,62 @@ def run(output):
             tab.locator('#dc-continue').click()
             assert tab.locator('#dc-directory-toggle').get_attribute('aria-expanded') == 'true'
             assert len([entry for entry in FixtureServer.requests if entry['path'] == '/api/learning-agent/events']) == events_before
+
+            # 长课件的翻页栏始终在滚动区外，正文末段仍可完整阅读。
+            FixtureServer.data = copy.deepcopy(FIXTURE)
+            FixtureServer.data['lesson'].update({'id': 'long-fixture-lesson', 'entered': True})
+            long_body = '\n\n'.join(['长页夹具正文：比较自变量与函数值的变化，并说明判断所依据的关系。'] * 35 + ['长页完整正文的末段标记。'])
+            FixtureServer.data['lesson']['sections'][0]['body'] = long_body
+            FixtureServer.data['content']['lecture'][0].update({'body': long_body, 'mediaIds': []})
+            FixtureServer.data['content']['media'] = []
+            FixtureServer.data['content']['slides'][0].update({'body': long_body, 'mediaIds': []})
+            FixtureServer.data['content']['slides'].append({'id': 'slide-three', 'title': '回看判断过程', 'sourceSectionIds': ['summary-one'], 'mediaIds': []})
+            tab.goto(f'http://127.0.0.1:{server.server_port}/deep?lessonId=long-fixture-lesson')
+            tab.add_style_tag(url='/clarity.css')
+            tab.locator('.dc-lecture-section').wait_for()
+            assert not tab.locator('#dc-slide-navigation').is_visible()
+            tab.locator('[data-action="view:slides"]').click()
+            paging_checks = []
+            model_events_before = len([entry for entry in FixtureServer.requests if entry['path'] == '/api/learning-agent/events'])
+            for width, height in [(1280, 720), (1440, 900), (390, 844)]:
+                tab.set_viewport_size({'width': width, 'height': height})
+                tab.locator('#dc-reading').evaluate('node => { node.scrollTop = 0; }')
+                assert tab.locator('#dc-slide-count').inner_text() == '1 / 3'
+                assert tab.locator('#dc-slide-previous').is_disabled() and tab.locator('#dc-slide-next').is_enabled()
+                state = tab.evaluate('''() => {
+                    const pager = document.getElementById('dc-slide-navigation').getBoundingClientRect();
+                    const reading = document.getElementById('dc-reading');
+                    const viewport = reading.getBoundingClientRect();
+                    const controls = [...document.querySelectorAll('#dc-slide-navigation button,#dc-slide-count')].map(node => { const box = node.getBoundingClientRect(); return {top:box.top,bottom:box.bottom,left:box.left,right:box.right}; });
+                    return {width:innerWidth,contentWidth:document.documentElement.scrollWidth,pagerTop:pager.top,pagerBottom:pager.bottom,readingTop:viewport.top,readingBottom:viewport.bottom,footerTop:document.querySelector('.dc-footer').getBoundingClientRect().top,scrollHeight:reading.scrollHeight,readingHeight:reading.clientHeight,controls};
+                }''')
+                assert state['contentWidth'] <= width + 1 and state['pagerBottom'] <= state['readingTop'] + 1, state
+                assert state['readingBottom'] <= state['footerTop'] + 1 and state['scrollHeight'] > state['readingHeight'] * 2, state
+                assert all(box['top'] >= 0 and box['bottom'] <= height and box['left'] >= 0 and box['right'] <= width for box in state['controls']), state
+                tab.screenshot(path=str(output / f'deep-course-long-slides-{width}.png'), full_page=True)
+                tab.locator('#dc-reading').evaluate('node => { node.scrollTop = node.scrollHeight; }')
+                bottom = tab.evaluate('''() => { const pager = document.getElementById('dc-slide-navigation').getBoundingClientRect(); const viewport = document.getElementById('dc-reading').getBoundingClientRect(); const last = document.querySelector('.dc-slide-source .dc-rich').lastElementChild.getBoundingClientRect(); return {pagerTop:pager.top,lastTop:last.top,lastBottom:last.bottom,readingTop:viewport.top,readingBottom:viewport.bottom}; }''')
+                assert abs(bottom['pagerTop'] - state['pagerTop']) < 1 and bottom['lastTop'] < bottom['readingBottom'] and bottom['lastBottom'] > bottom['readingTop'], bottom
+                assert '长页完整正文的末段标记。' in tab.locator('.dc-slide-source').inner_text()
+                tab.locator('#dc-slide-next').focus()
+                tab.keyboard.press('Enter')
+                assert tab.locator('#dc-slide-count').inner_text() == '2 / 3'
+                assert tab.locator('.dc-slide h2').inner_text() == '用定义说明'
+                assert tab.evaluate("document.activeElement.id === 'dc-slide-next' && document.getElementById('dc-reading').scrollTop === 0")
+                tab.locator('#dc-slide-next').click()
+                assert tab.locator('#dc-slide-count').inner_text() == '3 / 3' and tab.locator('#dc-slide-next').is_disabled()
+                tab.locator('#dc-slide-previous').click()
+                tab.locator('#dc-slide-previous').click()
+                assert tab.locator('#dc-slide-count').inner_text() == '1 / 3'
+                tab.locator('[data-action="view:lecture"]').click()
+                assert not tab.locator('#dc-slide-navigation').is_visible()
+                tab.locator('[data-action="view:slides"]').click()
+                assert tab.locator('#dc-slide-navigation').is_visible() and tab.locator('#dc-slide-count').inner_text() == '1 / 3'
+                paging_checks.append(state)
+            assert len([entry for entry in FixtureServer.requests if entry['path'] == '/api/learning-agent/events']) == model_events_before
             assert not errors, errors
             result = {'fixtureOnly': True, 'checks': checks, 'errors': errors,
+                      'longSlidePaging': paging_checks,
                       'continuation': {'unansweredLocated': True, 'evaluatedRequestsController': True,
                                        'newQuestionLocated': True, 'completionUsesSavedState': True,
                                        'nextTopicRequiresExplicitPreparation': True},

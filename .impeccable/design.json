@@ -373,7 +373,7 @@
       "name": "课堂翻页课件",
       "kind": "custom",
       "refersTo": "lesson-slide",
-      "description": "浅蓝整面、较大标题与舒展正文；生产页面在下方提供翻页控件与页码。",
+      "description": "浅蓝整面、较大标题与舒展正文；翻页控件与页码固定在视图工具栏下方，长正文独立滚动。",
       "html": "<article class=\"ds-slide\"><h2>从问题出发</h2><div class=\"ds-slide-rich\"><p>先识别已知条件，再选择能够验证的解释。</p><ul><li>观察发生了什么变化。</li><li>说明证据支持哪些判断。</li></ul></div></article>",
       "css": ".ds-slide{min-height:310px;max-width:980px;margin:0 auto;padding:29px 32px;border-radius:12px;background:var(--gy-surface-alt,#eef3fc);color:var(--gy-text,#21324b);font:400 17px/1.9 \"Segoe UI\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",sans-serif;overflow-wrap:anywhere}.ds-slide h2{margin:0 0 22px;font-size:27px;font-weight:600;line-height:1.5;letter-spacing:-.02em}.ds-slide-rich p{margin:0 0 15px}.ds-slide-rich ul{padding-left:24px;margin:12px 0 18px}.ds-slide-rich li{margin:6px 0}@media(max-width:700px){.ds-slide{min-height:320px;padding:23px 19px;border-radius:10px;font-size:15px}.ds-slide h2{font-size:23px;margin-bottom:18px}}"
     }

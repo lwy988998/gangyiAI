@@ -3,7 +3,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 from radar_smoke import Harness, IDS, NAMES, SUBJECTS
 
 def main(executable, screenshots=None):
@@ -47,10 +47,19 @@ def main(executable, screenshots=None):
                 page.wait_for_function("document.querySelector('#home-radar .radar-axis strong')?.textContent === '入门起点'")
                 assert widget.locator('.radar-value-point').count() == 2
                 assert not widget.locator('.radar-area').is_visible()
-                widget.locator('.radar-axis').first.focus()
-                assert '入门起点 · 0 分' in widget.locator('.radar-detail h4').inner_text()
+                zero_axis = widget.get_by_role('button', name='语文，入门起点，查看依据和建议', exact=True)
+                detail_heading = widget.locator('.radar-detail h4')
+                assert not widget.locator('.radar-detail').is_visible(), '首页评估依据默认折叠'
+                zero_axis.focus()
+                expect(detail_heading).to_be_visible()
+                expect(detail_heading).to_have_text('语文 · 入门起点 · 0 分')
                 assert '<b>这是虚构测试依据</b>' in widget.locator('.radar-detail-reason').inner_text()
                 assert widget.locator('.radar-detail b').count() == 0
+                widget.get_by_role('button', name='英语，待评估，查看依据和建议', exact=True).click()
+                expect(detail_heading).to_have_text('英语 · 待评估')
+                assert '0 分' not in detail_heading.inner_text(), '待评估不能冒充零分'
+                zero_axis.click()
+                expect(detail_heading).to_have_text('语文 · 入门起点 · 0 分')
                 seed([32, 57, 81, 61, 44, 70], [72, 81, 66, 59, 52, 38])
                 page.reload()
                 widget.locator('.radar-area').wait_for(state='visible')

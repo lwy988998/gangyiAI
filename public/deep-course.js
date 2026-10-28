@@ -107,6 +107,12 @@
       tab.setAttribute('role', 'tab'); tab.setAttribute('aria-selected', String(view === currentView)); tab.setAttribute('aria-controls', 'dc-reading'); tab.tabIndex = view === currentView ? 0 : -1; tabs.append(tab);
     }
     const savedLabel = element('span', '已保存内容优先复用', 'dc-saved'); savedLabel.prepend(icon('check')); toolbar.append(tabs, savedLabel);
+    const slideToolbar = element('nav', '', 'dc-slide-navigation'); slideToolbar.id = 'dc-slide-navigation'; slideToolbar.hidden = true; slideToolbar.setAttribute('aria-label', '课件翻页');
+    const previousSlide = button('上一页', 'previous', false, 'left'), nextSlide = button('下一页', 'next', false, 'right');
+    previousSlide.id = 'dc-slide-previous'; nextSlide.id = 'dc-slide-next';
+    for (const control of [previousSlide, nextSlide]) control.setAttribute('aria-controls', 'dc-reading');
+    const slideCount = element('span', '', 'dc-slide-count'); slideCount.id = 'dc-slide-count'; slideCount.setAttribute('role', 'status'); slideCount.setAttribute('aria-live', 'polite'); slideCount.setAttribute('aria-atomic', 'true');
+    slideToolbar.append(previousSlide, slideCount, nextSlide);
     const reading = element('div', '', 'dc-reading'); reading.id = 'dc-reading'; reading.tabIndex = 0; reading.setAttribute('role', 'tabpanel'); reading.setAttribute('aria-labelledby', 'dc-tab-lecture'); reading.append(skeleton());
     const footer = element('footer', '', 'dc-footer'); const feedback = element('p', '正在读取课堂…', 'dc-footer-message'); feedback.id = 'dc-status'; feedback.setAttribute('role', 'status'); feedback.setAttribute('aria-live', 'polite');
     const footerControls = element('div', '', 'dc-footer-controls');
@@ -118,7 +124,7 @@
     const retry = button('重试', 'retry'); retry.id = 'dc-retry'; retry.hidden = true;
     const enter = button('重新进入', 'enter'); enter.id = 'dc-enter'; enter.hidden = true;
     const next = button('继续学习', 'continue', true, 'arrow'); next.id = 'dc-continue';
-    footerControls.append(stop, retry, enter, more, next); footer.append(feedback, footerControls); reader.append(toolbar, reading, footer);
+    footerControls.append(stop, retry, enter, more, next); footer.append(feedback, footerControls); reader.append(toolbar, slideToolbar, reading, footer);
     const answerPanel = element('aside', '', 'dc-answer-panel'); answerPanel.id = 'dc-answer-panel'; answerPanel.setAttribute('aria-label', 'AI 答疑'); answerPanel.append(buildChat());
     layout.append(outline, reader, answerPanel); mount.append(head, layout);
     const outlineDialog = element('dialog', '', 'dc-dialog'); outlineDialog.id = 'dc-outline-dialog'; outlineDialog.setAttribute('aria-label', '课程目录');
@@ -338,7 +344,6 @@
         if(sources.length){for(const source of sources){const block=element('div','','dc-slide-source');block.dataset.sectionId=source.id;block.append(rich(source.body||''));card.append(block);}}
         else card.append(rich(slide.body || ''));
         for(const media of mediaFor(slide.mediaIds))card.append(renderMedia(media));reading.append(card);
-        const controls=element('nav','','dc-slide-navigation');controls.setAttribute('aria-label','课件翻页');const previous=button('上一页','previous',false,'left'),next=button('下一页','next',false,'right');previous.disabled=currentSlide===0;next.disabled=currentSlide===slides.length-1;controls.append(previous,element('span',`${currentSlide+1} / ${slides.length}`,'dc-slide-count'),next);reading.append(controls);
       }
     } else {
       const article=element('article','','dc-lecture'),attached=new Set();
@@ -347,6 +352,8 @@
       for(const section of questions)article.append(renderQuestion(section));
       reading.append(article);
     }
+    const slideToolbar=document.getElementById('dc-slide-navigation');slideToolbar.hidden=currentView!=='slides'||!slides.length;
+    if(!slideToolbar.hidden){document.getElementById('dc-slide-previous').disabled=currentSlide===0;document.getElementById('dc-slide-next').disabled=currentSlide===slides.length-1;document.getElementById('dc-slide-count').textContent=`${currentSlide+1} / ${slides.length}`;}
     reading.scrollTop=oldTop;document.getElementById('dc-tab-lecture').setAttribute('aria-selected',String(currentView==='lecture'));document.getElementById('dc-tab-slides').setAttribute('aria-selected',String(currentView==='slides'));
     for(const tab of mount.querySelectorAll('.dc-tab'))tab.tabIndex=tab.getAttribute('aria-selected')==='true'?0:-1;
     reading.setAttribute('aria-labelledby',`dc-tab-${currentView}`);setDisabled();requestAnimationFrame(exposeVisible);
@@ -498,7 +505,7 @@
     if(action==='close-directory'){document.getElementById('dc-outline-dialog').close();updatePanels();return;}
     if(action==='chat'){toggleChat(mount.dataset.chatOpen!=='true');return;}if(action==='close-chat'){toggleChat(false);return;}
     if(action.startsWith('view:')){readingPositions.set(currentView,document.getElementById('dc-reading').scrollTop);currentView=action.slice(5);store('view',currentView);renderReading(false);return;}
-    if(action==='previous'||action==='next'){currentSlide+=action==='next'?1:-1;store('slide',currentSlide);renderReading(false);return;}
+    if(action==='previous'||action==='next'){currentSlide+=action==='next'?1:-1;store('slide',currentSlide);store('scroll:slides',0);readingPositions.set('slides',0);renderReading(false);return;}
     if(action==='topic'){openTopic({id:control.dataset.topicId,legacyPhaseIndex:control.dataset.phaseIndex,legacyTopicIndex:control.dataset.topicIndex});return;}
     if(action==='start'){start();return;}if(action==='reload'||action==='enter'){entryFailure='';refresh();return;}if(action==='media'){retryMedia(control.dataset.mediaId,control.dataset.repair==='true');return;}if(action==='retry-media'){retryMedia();return;}
     control.closest('.dc-more')?.removeAttribute('open');
