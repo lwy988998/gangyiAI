@@ -1,5 +1,7 @@
 # 教学主控调用减量与本机更新
 
+> 历史测量记录（2026-10-14）。本文的累计预算、模型与本机状态只描述当时阶段，失败与 6／18 案例未完成结论保留；后续结果见[版本说明索引](README.md#正式版本与候选记录)。
+
 本轮保留当前 `deepseek-flash` 模型，减少每轮重复发送的上下文，继续使用 C++、SQLite、原生课堂和完整学习档案。用户已将开发验收累计总预算从10万调整为100万 Token，此前76,192继续计入；它不限制正常上课的题量或调用次数。
 
 ## 改了什么
@@ -43,17 +45,17 @@
 
 请求前按输入字节上界、输出上限和一次SDK兼容重试预留额度；结束后用实际HTTP用量结算。剩余额度不足以保守预留下次请求时就停止，不重置预算继续跑。6案例均保留了记录，多轮流程尚未完整完成；没有把预算停止、协议失败或待发布评价算作有效掌握。18案例和整体教学改善仍待后续验收。
 
-完整核心回归、课堂浏览器回归和安装验收结果见 [教学验收报告](D:/gangyiAI-teaching/docs/teaching-acceptance.md)。18:43本机更新的是报错凭据引用与独立用量标识版；之后的示范题索引和工具说明修正交付源码，由协同整合统一打包与安装，不冒充已安装。正式版本仍待教学验收后确定。
+完整核心回归、课堂浏览器回归和安装验收结果见 [教学验收报告](teaching-acceptance.md)。18:43本机更新的是报错凭据引用与独立用量标识版；之后的示范题索引和工具说明修正交付源码，由协同整合统一打包与安装，不冒充已安装。正式版本仍待教学验收后确定。
 
 ## 本机证据
 
-- [示范题关联修正版输入体积记录](D:/gangyiAI-teaching/verification/token-optimization-demonstrated/summary.json)
-- [真实输入Token计量](D:/gangyiAI-teaching/verification/token-optimization-final/actual-input-tokens.json)
-- [总预算和实际用量](D:/gangyiAI-teaching/verification/budget100k/budget.json)
-- [预算内教学对照](D:/gangyiAI-teaching/verification/budget100k/teaching-comparison.html)
-- [100万预算阶段逐轮记录与审阅](D:/gangyiAI-teaching/verification/budget1m-review/teaching-comparison.html)
-- [真实任务历史免费重放](D:/gangyiAI-teaching/verification/receipt-history-measurement.json)
-- [压缩诊断协议复核](D:/gangyiAI-teaching/verification/budget100k/compact-diagnosis-review.json)
-- [本机更新检查](D:/gangyiAI-teaching/verification/local-preview-update-result.json)
+- 示范题关联修正版输入体积记录：本机私有验收记录（未上传）
+- 真实输入Token计量：本机私有验收记录（未上传）
+- 总预算和实际用量：本机私有验收记录（未上传）
+- 预算内教学对照：本机私有验收记录（未上传）
+- 100万预算阶段逐轮记录与审阅：本机私有验收记录（未上传）
+- 真实任务历史免费重放：本机私有验收记录（未上传）
+- 压缩诊断协议复核：本机私有验收记录（未上传）
+- 本机更新检查：本机私有验收记录（未上传）
 
 验收材料和工具依赖保存在本机忽略目录，不进入安装包；程序评分标准继续使用私有接口。

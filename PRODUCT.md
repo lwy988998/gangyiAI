@@ -35,7 +35,7 @@ C++17、Crow、SQLite、WebView2 与原生 HTML/CSS/JavaScript。单人本机档
 
 ## Evidence on Hand
 
-已批准方案见本机 `D:/钢一定制AI/output/ui-preview-20261028/项目整改流程-A方案.md`，A 方案截图与可点击预览位于同目录。正式界面接真实数据，预览演示数据不进入产品。
+已批准方案、A 方案截图与可点击预览为本机私有设计记录（未上传），正式视觉规范见 [DESIGN.md](DESIGN.md)。正式界面接真实数据，预览演示数据不进入产品。
 
 现有 README、docs/ai-controller.md、docs/v5.6.0-ai-classroom.md、docs/MY_AI.md 与对应源码是行为依据。
 

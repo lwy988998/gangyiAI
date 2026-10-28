@@ -147,7 +147,6 @@ function New-WizardImage([string]$LogoPath, [string]$Destination, [int]$Width, [
 
 $transparentLogo = Join-Path $publicDir 'school-logo.png'
 New-TransparentLogo $SourceImage $transparentLogo
-Copy-Item -LiteralPath $transparentLogo -Destination (Join-Path $assetDir 'school-logo.png') -Force
 New-MultiSizeIcon $transparentLogo (Join-Path $assetDir 'gangyiAI.ico')
 New-WizardImage $transparentLogo (Join-Path $assetDir 'wizard-large.bmp') 164 314 $false
 New-WizardImage $transparentLogo (Join-Path $assetDir 'wizard-small.bmp') 55 55 $true

@@ -98,6 +98,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gangyiAI-windows-${{ github.run_id }}
+          retention-days: 14
           path: |
             dist/installer/gangyiAI-setup-*-x64.exe
             dist/installer/gangyiAI-portable-*-x64.zip

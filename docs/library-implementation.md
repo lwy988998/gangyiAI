@@ -1,6 +1,8 @@
 # 个性化联网资料实施记录
 
-基线：Windows v5.6.1，独立分支 feat/learning-library-desktop，工作区 D:\gangyiAI-library。
+> 历史实施记录（v5.6.1 资料整合阶段）。本文保留当时的基线和设计取舍；当前产品范围见[项目首页](../README.md)，教学与深度课程行为见[文档导航](README.md#架构与协议)。
+
+基线：Windows v5.6.1，独立分支 feat/learning-library-desktop。
 
 ## 当前实现
 

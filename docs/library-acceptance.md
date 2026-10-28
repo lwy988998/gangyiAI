@@ -1,6 +1,8 @@
 # 资料与教学整合验收
 
-核验记录更新：2026-10-17；最终完整回归与本机安装执行于2026-10-17。基线：Windows v5.6.1（651e741）。工作区：D:\gangyiAI-library。当前结果可供继续试用，尚不能宣布完整目标验收通过或正式发布。
+> 历史整合验收（2026-10-17）。预算、安装及未完成状态按该日期解读，不代表最新发布状态；后续结果见[版本说明索引](README.md#正式版本与候选记录)。本机原件均为私有验收记录，未上传。
+
+核验记录更新：2026-10-17；最终完整回归与本机安装执行于2026-10-17。基线：Windows v5.6.1（651e741）。当前结果可供继续试用，尚不能宣布完整目标验收通过或正式发布。
 
 ## 最终整合与本机交付
 
@@ -8,9 +10,9 @@
 - 按用户要求先卸载三个旧版本，再只安装一个“钢一定制AI 学习增强试用版”5.6.1。安装退出码0、安装版启动器自检退出码0，8项文件SHA256匹配；原有13个档案文件逐字保留，接口配置与凭据和加密备份一致。
 - 最后修复区分部分/完整展示，旧记录保持不确定；完整回执不会被迟到的部分回执降级。直接进入练习页缺少讲解焦点时也完成初始定位，不再一直跳过滚动检查。
 - 教学端隔离课堂验证长板块、长消息、刷新恢复、原题/其他题关联和私有字段；这项验证不替代最终资料库页面截图和6/18真实模型教学验收。
-- [安装包](D:/gangyiAI-library/dist/installer/gangyiAI-learning-preview1-v5.6.1-x64.exe) SHA256：`ab97c5c4ccaabc348f33f21647c1c2ff8e69d843b3f91b497a871c56f171f2f3`。
-- [免安装ZIP](D:/gangyiAI-library/dist/installer/gangyiAI-learning-preview1-v5.6.1-x64.zip) SHA256：`00374afbb6ed59b7a2dad5df44a6b616cac0fdd4c4e8f144e53c13a52b881421`。
-- [本次安装核对](D:/gangyiAI-library/verification/local-final-integrated-install-result.json)、[完整回归](D:/gangyiAI-library/verification/library-final-integrated-package.log)、[教学展示说明](D:/gangyiAI-library/docs/teaching-display-evidence.md)。
+- 安装包：本机私有验收记录（未上传） SHA256：`ab97c5c4ccaabc348f33f21647c1c2ff8e69d843b3f91b497a871c56f171f2f3`。
+- 免安装ZIP：本机私有验收记录（未上传） SHA256：`00374afbb6ed59b7a2dad5df44a6b616cac0fdd4c4e8f144e53c13a52b881421`。
+- 本次安装核对：本机私有验收记录（未上传）、完整回归：本机私有验收记录（未上传）、[教学展示说明](teaching-display-evidence.md)。
 
 ## 已合并的教学修正
 
@@ -28,7 +30,7 @@
 - 使用原始档案与预算的隔离副本验证，原生预算保护返回`eval_budget`，新增HTTP用量行为0；原有15条请求记录、原始档案和真实预算账本均未改变。缺口6,645只是下一请求预留差额，不能视为完成剩余案例的成本。
 - 跨版本最后一轮恢复不能算最新整合版从头完整案例，也不放宽基线、模型、教学偏好或验收入口的一致性要求。6/18完整多轮对照、整体教学改善结论及最终资料库界面验收继续标为未完成。
 
-核对原件：[用户预算选择](D:/gangyiAI-library/verification/budget-reconfirmed-20261017.json)、[实际恢复提示预检](D:/gangyiAI-library/verification/integrated-preflight-resume-after/summary.json)、[预算发送前拦截](D:/gangyiAI-library/verification/integrated-budget-denial/summary.json)、[免费恢复回归](D:/gangyiAI-library/verification/integrated-eval-resume-smoke.log)。
+核对原件：用户预算选择：本机私有验收记录（未上传）、实际恢复提示预检：本机私有验收记录（未上传）、预算发送前拦截：本机私有验收记录（未上传）、免费恢复回归：本机私有验收记录（未上传）。
 
 ## 功能验证
 
@@ -103,31 +105,31 @@
 
 ## 可核对的原件
 
-- [五领域逐项记录](D:/gangyiAI-library/verification/five-domains-final/progress.json)
-- [真实初学者任务与重试](D:/gangyiAI-library/verification/live-library-retry/result.json)
-- [进阶用户实际推荐](D:/gangyiAI-library/verification/library-advanced/result.json)
-- [英语全文来源复核](D:/gangyiAI-library/verification/five-domains-final/language-candidate-reviewed/result.json)
-- [英语任务收尾、幂等及用量保留](D:/gangyiAI-library/verification/five-domains-final/language-final-retry/summary.json)
-- [最终英语讲解与练习](D:/gangyiAI-library/verification/five-domains-final/language-current-final/result.json)
-- [编程基线原任务重试](D:/gangyiAI-library/verification/five-domains-final/programming-baseline-retry/result.json)
-- [时效基线原任务重试](D:/gangyiAI-library/verification/five-domains-final/timeliness-baseline-retry/result.json)
-- [进阶编程实际讲解](D:/gangyiAI-library/verification/personalized-teaching-advanced/result.json)
-- [实际原文关键词缓存验证](D:/gangyiAI-library/verification/actual-keyword-cache/summary.json)
-- [实际明确刷新及旧快照保留](D:/gangyiAI-library/verification/actual-explicit-refresh/summary.json)
-- [实际关键词采用阶段及失败记录](D:/gangyiAI-library/verification/actual-keyword-model/summary.json)
-- [复杂资料任务完成、源码和引用核对](D:/gangyiAI-library/verification/library-research-recovery-live/summary.json)
-- [三版卸载与档案保留](D:/gangyiAI-library/verification/local-all-versions-uninstall-result.json)
-- [整合版本机安装与档案保留](D:/gangyiAI-library/verification/local-library-combined-install-result.json)
-- [整合版完整回归](D:/gangyiAI-library/verification/library-teaching-combined-package.log)
-- [教学后续配对与预算清单](D:/gangyiAI-teaching/verification/remaining-acceptance-1m.json)
-- [原生解析、缓存及暂停回归](D:/gangyiAI-library/verification/library-bounded-source-tests.log)
-- [安装脚本](D:/gangyiAI-library/scripts/test_windows_release.ps1)
-- [最新构建、26项回归与打包记录](D:/gangyiAI-library/verification/library-final-package.log)
-- [本机安装与安装文件校验](D:/gangyiAI-library/verification/local-library-install-result.json)
-- [上轮整合包原生安装验收](D:/gangyiAI-library/verification/merged-native-install.log)
-- [最终打包文件核对](D:/gangyiAI-library/verification/merged-artifact-identity.json)
-- [真实讲解与题目的阅读报告](D:/gangyiAI-library/verification/five-domains-final/review.html)
-- [独立试用安装包](D:/gangyiAI-library/dist/installer/gangyiAI-learning-preview1-v5.6.1-x64.exe)
-- [独立免安装ZIP](D:/gangyiAI-library/dist/installer/gangyiAI-learning-preview1-v5.6.1-x64.zip)
-- [校验值](D:/gangyiAI-library/dist/installer/SHA256SUMS.txt)
-- [教学专项验收](D:/gangyiAI-teaching/docs/teaching-acceptance.md)
+- 五领域逐项记录：本机私有验收记录（未上传）
+- 真实初学者任务与重试：本机私有验收记录（未上传）
+- 进阶用户实际推荐：本机私有验收记录（未上传）
+- 英语全文来源复核：本机私有验收记录（未上传）
+- 英语任务收尾、幂等及用量保留：本机私有验收记录（未上传）
+- 最终英语讲解与练习：本机私有验收记录（未上传）
+- 编程基线原任务重试：本机私有验收记录（未上传）
+- 时效基线原任务重试：本机私有验收记录（未上传）
+- 进阶编程实际讲解：本机私有验收记录（未上传）
+- 实际原文关键词缓存验证：本机私有验收记录（未上传）
+- 实际明确刷新及旧快照保留：本机私有验收记录（未上传）
+- 实际关键词采用阶段及失败记录：本机私有验收记录（未上传）
+- 复杂资料任务完成、源码和引用核对：本机私有验收记录（未上传）
+- 三版卸载与档案保留：本机私有验收记录（未上传）
+- 整合版本机安装与档案保留：本机私有验收记录（未上传）
+- 整合版完整回归：本机私有验收记录（未上传）
+- 教学后续配对与预算清单：本机私有验收记录（未上传）
+- 原生解析、缓存及暂停回归：本机私有验收记录（未上传）
+- [安装脚本](../scripts/test_windows_release.ps1)
+- 最新构建、26项回归与打包记录：本机私有验收记录（未上传）
+- 本机安装与安装文件校验：本机私有验收记录（未上传）
+- 上轮整合包原生安装验收：本机私有验收记录（未上传）
+- 最终打包文件核对：本机私有验收记录（未上传）
+- 真实讲解与题目的阅读报告：本机私有验收记录（未上传）
+- 独立试用安装包：本机私有验收记录（未上传）
+- 独立免安装ZIP：本机私有验收记录（未上传）
+- 校验值：本机私有验收记录（未上传）
+- [教学专项验收](teaching-acceptance.md)
