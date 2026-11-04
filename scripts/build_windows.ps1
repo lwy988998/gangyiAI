@@ -235,6 +235,8 @@ if (Test-Path -LiteralPath $distDir) {
 }
 # 【逐行批注】 执行当前 PowerShell 构建或测试命令：New-Item -ItemType Directory -Force -Path $distDir | Out-Null。
 New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+# 【逐行批注】 将安装说明复制进发行目录，供安装包和免安装包随附。
+Copy-Item -LiteralPath (Join-Path $repoRoot 'installer\安装说明.txt') -Destination (Join-Path $distDir '安装说明.txt') -Force
 # 【逐行批注】 执行当前 PowerShell 构建或测试命令：Copy-Item -LiteralPath $server, $launcher, (Join-Path $buildDir 'gangyiAI-source-reader.e…。
 Copy-Item -LiteralPath $server, $launcher, (Join-Path $buildDir 'gangyiAI-source-reader.exe') -Destination $distDir
 # 【逐行批注】 执行当前 PowerShell 构建或测试命令：Copy-Item -LiteralPath (Join-Path $repoRoot 'third_party\pdfium-8100\bin\pdfium.dll') -De…。
@@ -274,7 +276,7 @@ $publicDist = Join-Path $distDir 'public'
 # 【逐行批注】 执行当前 PowerShell 构建或测试命令：New-Item -ItemType Directory -Force -Path $publicDist | Out-Null。
 New-Item -ItemType Directory -Force -Path $publicDist | Out-Null
 # 【逐行批注】 逐个处理集合中的元素：foreach ($asset in @('clarity.css', 'clarity.js', 'deep-course.css', 'deep-cour…。
-foreach ($asset in @('clarity.css', 'clarity.js', 'deep-course.css', 'deep-course.js', 'library.css', 'library.js', 'my-ai.css', 'my-ai.js', 'my-ai-study.js', 'styles.css', 'plan.css', 'dark.css', 'dark.js', 'app-layout.css', 'app-layout.js', 'profile-radar.js', 'profile-radar.css', 'startup.css', 'startup.js', 'ask.js', 'classroom.js', 'classroom.css', 'learning-flow.js', 'learning-flow.css', 'learning-agent.js', 'agent-shell.js', 'agent-classroom.html', 'agent-classroom.js', 'agent-classroom.css', 'agent-prepare.html', 'agent-prepare.js', 'chat-render.js', 'user-center.js', 'school-logo.png', 'campus-background.jpg')) {
+foreach ($asset in @('clarity.css', 'clarity.js', 'deep-course.css', 'deep-course.js', 'library.css', 'library.js', 'my-ai.css', 'my-ai.js', 'my-ai-study.js', 'styles.css', 'plan.css', 'dark.css', 'dark.js', 'app-layout.css', 'app-layout.js', 'profile-radar.js', 'profile-radar.css', 'startup.css', 'startup.js', 'ask.js', 'classroom.js', 'classroom.css', 'learning-flow.js', 'learning-flow.css', 'learning-agent.js', 'agent-trace.css', 'agent-trace.js', 'agent-shell.js', 'agent-classroom.html', 'agent-classroom.js', 'agent-classroom.css', 'agent-prepare.html', 'agent-prepare.js', 'chat-render.js', 'user-center.js', 'school-logo.png', 'campus-background.jpg')) {
     # 【逐行批注】 执行当前 PowerShell 构建或测试命令：Copy-Item -LiteralPath (Join-Path $repoRoot "public\$asset") -Destination $publicDist。
     Copy-Item -LiteralPath (Join-Path $repoRoot "public\$asset") -Destination $publicDist
 # 【逐行批注】 开始或结束当前脚本代码块。
