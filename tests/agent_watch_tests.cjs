@@ -1,66 +1,135 @@
 /* 模拟迟到的真实请求时序，取消订阅后不得更新界面、记录曝光或启动重试。 */
+// 【逐行批注】 声明前端变量 assert，保存本行计算出的数据或对象。
 const assert=require('node:assert/strict');
+// 【逐行批注】 声明前端变量 fs，保存本行计算出的数据或对象。
 const fs=require('node:fs');
+// 【逐行批注】 声明前端变量 path，保存本行计算出的数据或对象。
 const path=require('node:path');
+// 【逐行批注】 声明前端变量 vm，保存本行计算出的数据或对象。
 const vm=require('node:vm');
+// 【逐行批注】 声明前端变量 source，保存本行计算出的数据或对象。
 const source=fs.readFileSync(path.join(__dirname,'../public/learning-agent.js'),'utf8');
+// 【逐行批注】 声明前端变量 drain，保存本行计算出的数据或对象。
 const drain=()=>new Promise(resolve=>setImmediate(resolve));
+// 【逐行批注】 定义函数 fixture，封装可复用的前端行为。
 function fixture(){
+  // 【逐行批注】 声明前端变量 resolve，保存本行计算出的数据或对象。
   let resolve,reject;const pending=new Promise((yes,no)=>{resolve=yes;reject=no});
+  // 【逐行批注】 声明前端变量 result，保存本行计算出的数据或对象。
   const result={states:0,events:0,errors:0,requests:0,timers:0,sockets:[]};
+  // 【逐行批注】 声明前端变量 activeTimers，保存本行计算出的数据或对象。
+  const activeTimers=new Set(); let timerId=0;
+  // 【逐行批注】 为页面事件绑定处理逻辑：class Socket{constructor(){this.listeners={};result.sockets.push(this)}addEventListe…。
   class Socket{constructor(){this.listeners={};result.sockets.push(this)}addEventListener(name,callback){this.listeners[name]=callback}send(){}close(){this.closed=true}}
+  // 【逐行批注】 声明前端变量 window，保存本行计算出的数据或对象。
   const window={addEventListener(){}};
-  vm.runInNewContext(source,{window,fetch:()=>{result.requests++;return pending},WebSocket:Socket,
-    setTimeout:()=>++result.timers,clearTimeout(){},location:{protocol:'http:',host:'fixture.invalid'}});
+  // 【逐行批注】 计算右侧结果并更新 vm.runInNewContext(source,{window,fetch:()，改变页面或请求状态。
+  vm.runInNewContext(source,{window,fetch:()=>{result.requests++;return pending},WebSocket:Socket,AbortController,
+    // 【逐行批注】 计算右侧结果并更新 setTimeout:()，改变页面或请求状态。
+    setTimeout:()=>{const id=++timerId;activeTimers.add(id);result.timers=activeTimers.size;return id},
+    // 【逐行批注】 计算右侧结果并更新 clearTimeout:id，改变页面或请求状态。
+    clearTimeout:id=>{activeTimers.delete(id);result.timers=activeTimers.size},location:{protocol:'http:',host:'fixture.invalid'}});
+  // 【逐行批注】 声明前端变量 close，保存本行计算出的数据或对象。
   const close=window.GangyiAgent.watch('fixture-task',{onState(){result.states++},onEvent(){result.events++;return true},onConnectionError(){result.errors++}});
+  // 【逐行批注】 结束当前函数并返回结果：return {resolve,reject,result,close};。
   return {resolve,reject,result,close};
+// 【逐行批注】 结束当前前端代码块。
 }
+// 【逐行批注】 定义函数 main，封装可复用的前端行为。
 async function main(){
+  // 【逐行批注】 开始当前前端代码块。
   {
+    // 【逐行批注】 声明前端变量 f，保存本行计算出的数据或对象。
     const f=fixture();f.close();
+    // 【逐行批注】 计算右侧结果并更新 f.resolve({ok:true,json:async()，改变页面或请求状态。
     f.resolve({ok:true,json:async()=>({status:'running',events:[{seq:1,type:'delta',field:'message',text:'迟到的旧文字'}]})});
+    // 【逐行批注】 调用 drain 执行页面交互或数据处理：await drain();await drain();。
     await drain();await drain();
+    // 【逐行批注】 执行当前前端表达式：assert.equal(f.result.states,0,'取消后迟到状态不能覆盖恢复后的状态');。
     assert.equal(f.result.states,0,'取消后迟到状态不能覆盖恢复后的状态');
+    // 【逐行批注】 执行当前前端表达式：assert.equal(f.result.events,0,'取消后迟到文字不再呈现');。
     assert.equal(f.result.events,0,'取消后迟到文字不再呈现');
+    // 【逐行批注】 执行当前前端表达式：assert.equal(f.result.requests,1,'未呈现文字不记录曝光');。
     assert.equal(f.result.requests,1,'未呈现文字不记录曝光');
+    // 【逐行批注】 执行当前前端表达式：assert.equal(f.result.sockets.length,0,'取消后不新建连接');。
     assert.equal(f.result.sockets.length,0,'取消后不新建连接');
+  // 【逐行批注】 结束当前前端代码块。
   }
+  // 【逐行批注】 开始当前前端代码块。
   {
+    // 【逐行批注】 声明前端变量 f，保存本行计算出的数据或对象。
     const f=fixture();f.close();f.reject(new Error('迟到的连接错误'));
+    // 【逐行批注】 调用 drain 执行页面交互或数据处理：await drain();await drain();。
     await drain();await drain();
+    // 【逐行批注】 执行当前前端表达式：assert.equal(f.result.errors,0,'取消后旧错误不能覆盖当前课堂');。
     assert.equal(f.result.errors,0,'取消后旧错误不能覆盖当前课堂');
-    assert.equal(f.result.timers,0,'取消后不安排重试轮询');
+    // 【逐行批注】 执行当前前端表达式：assert.equal(f.result.sockets.length,0,'取消后不安排重试连接');。
+    assert.equal(f.result.sockets.length,0,'取消后不安排重试连接');
+  // 【逐行批注】 结束当前前端代码块。
   }
+  // 【逐行批注】 开始当前前端代码块。
   {
+    // 【逐行批注】 声明前端变量 f，保存本行计算出的数据或对象。
     const f=fixture();f.resolve({ok:true,json:async()=>({status:'running',events:[]})});
+    // 【逐行批注】 计算右侧结果并更新 await drain();const socket，改变页面或请求状态。
     await drain();const socket=f.result.sockets[0];assert.ok(socket);
+    // 【逐行批注】 执行当前前端表达式：f.close();socket.listeners.message({data:JSON.stringify({seq:1,type:'delta',field:'messag…。
     f.close();socket.listeners.message({data:JSON.stringify({seq:1,type:'delta',field:'message',text:'已取消连接的旧事件'})});
+    // 【逐行批注】 调用 drain 执行页面交互或数据处理：socket.listeners.message({data:'无效的旧事件'});await drain();。
     socket.listeners.message({data:'无效的旧事件'});await drain();
+    // 【逐行批注】 执行当前前端表达式：assert.equal(f.result.states,1,'活动订阅仍正常报告初始状态');。
     assert.equal(f.result.states,1,'活动订阅仍正常报告初始状态');
+    // 【逐行批注】 执行当前前端表达式：assert.equal(f.result.events,0,'取消后的连接事件不再投递');。
     assert.equal(f.result.events,0,'取消后的连接事件不再投递');
+    // 【逐行批注】 执行当前前端表达式：assert.equal(f.result.errors,0,'已取消连接的异常不再投递');。
     assert.equal(f.result.errors,0,'已取消连接的异常不再投递');
+  // 【逐行批注】 结束当前前端代码块。
   }
+  // 【逐行批注】 开始当前前端代码块。
   {
+    // 【逐行批注】 声明前端变量 f，保存本行计算出的数据或对象。
     const f=fixture();f.resolve({ok:true,json:async()=>({status:'waiting_student',events:[{seq:1,type:'delta',field:'message',text:'完整反馈'}]})});
+    // 【逐行批注】 调用 drain 执行页面交互或数据处理：await drain();await drain();。
     await drain();await drain();
+    // 【逐行批注】 执行当前前端表达式：assert.equal(f.result.states,1,'有效完成状态仍正常报告');。
     assert.equal(f.result.states,1,'有效完成状态仍正常报告');
+    // 【逐行批注】 执行当前前端表达式：assert.equal(f.result.events,1,'最后的有效反馈不会被取消保护丢弃');。
     assert.equal(f.result.events,1,'最后的有效反馈不会被取消保护丢弃');
+    // 【逐行批注】 执行当前前端表达式：assert.equal(f.result.requests,2,'实际展示的有效文字仍保存曝光');。
     assert.equal(f.result.requests,2,'实际展示的有效文字仍保存曝光');
+    // 【逐行批注】 执行当前前端表达式：f.close();。
     f.close();
+  // 【逐行批注】 结束当前前端代码块。
   }
+  // 【逐行批注】 开始当前前端代码块。
   {
+    // 【逐行批注】 声明前端变量 f，保存本行计算出的数据或对象。
     const f=fixture();f.reject(new Error('活动连接错误'));await drain();await drain();
+    // 【逐行批注】 执行当前前端表达式：assert.equal(f.result.errors,1,'活动订阅的真实故障仍上报');。
     assert.equal(f.result.errors,1,'活动订阅的真实故障仍上报');
+    // 【逐行批注】 执行当前前端表达式：assert.equal(f.result.timers,1,'活动订阅的故障仍安排恢复轮询');。
     assert.equal(f.result.timers,1,'活动订阅的故障仍安排恢复轮询');
+    // 【逐行批注】 执行当前前端表达式：f.close();。
     f.close();
+  // 【逐行批注】 结束当前前端代码块。
   }
+  // 【逐行批注】 开始当前前端代码块。
   {
+    // 【逐行批注】 声明前端变量 f，保存本行计算出的数据或对象。
     const f=fixture();f.resolve({ok:true,json:async()=>({status:'paused',pauseReason:'global',events:[]})});
+    // 【逐行批注】 计算右侧结果并更新 await drain();const socket，改变页面或请求状态。
     await drain();const socket=f.result.sockets[0];assert.ok(socket,'全软件暂停保留恢复订阅');
+    // 【逐行批注】 执行当前前端表达式：socket.listeners.message({data:JSON.stringify({type:'state',task:{status:'running',events…。
     socket.listeners.message({data:JSON.stringify({type:'state',task:{status:'running',events:[]}})});
+    // 【逐行批注】 执行当前前端表达式：socket.listeners.message({data:JSON.stringify({seq:1,type:'delta',field:'message',text:'恢…。
     socket.listeners.message({data:JSON.stringify({seq:1,type:'delta',field:'message',text:'恢复后的有效反馈'})});
+    // 【逐行批注】 调用 drain 执行页面交互或数据处理：await drain();assert.equal(f.result.states,2,'恢复后仍接收任务状态');assert.equ…。
     await drain();assert.equal(f.result.states,2,'恢复后仍接收任务状态');assert.equal(f.result.events,1,'恢复后仍接收教学回复');f.close();
+  // 【逐行批注】 结束当前前端代码块。
   }
+  // 【逐行批注】 执行当前前端表达式：console.log('订阅取消及全局恢复时序：迟到事件被隔离，暂停后仍能恢复接收教学回复。');。
   console.log('订阅取消及全局恢复时序：迟到事件被隔离，暂停后仍能恢复接收教学回复。');
+// 【逐行批注】 结束当前前端代码块。
 }
+// 【逐行批注】 计算右侧结果并更新 main().catch(error，改变页面或请求状态。
 main().catch(error=>{console.error(error);process.exitCode=1});

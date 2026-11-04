@@ -1,0 +1,159 @@
+/* 统一 AI 执行轨迹：沿用澄明蓝白体系，实时说明可验证的阶段和工具结果。 */
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-host{display:block;flex:none;min-width:0}。 */
+.gy-trace-host{display:block;flex:none;min-width:0}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-host[hidden]{display:none}。 */
+.gy-trace-host[hidden]{display:none}
+/* 【逐行批注】 为选择器 .gy-agent-trace 定义一组样式。 */
+.gy-agent-trace{
+  /* 【逐行批注】 把样式属性 --trace-accent 设置为 var(--gy-accent, #3d61ce)。 */
+  --trace-accent:var(--gy-accent, #3d61ce);
+  /* 【逐行批注】 把样式属性 --trace-accent-hover 设置为 var(--gy-accent-hover, #2f50b8)。 */
+  --trace-accent-hover:var(--gy-accent-hover, #2f50b8);
+  /* 【逐行批注】 把样式属性 --trace-soft 设置为 var(--gy-surface-alt, #eef3fc)。 */
+  --trace-soft:var(--gy-surface-alt, #eef3fc);
+  /* 【逐行批注】 把样式属性 --trace-line 设置为 var(--gy-border, #dfe6ef)。 */
+  --trace-line:var(--gy-border, #dfe6ef);
+  /* 【逐行批注】 把样式属性 --trace-text 设置为 var(--gy-text, #21324b)。 */
+  --trace-text:var(--gy-text, #21324b);
+  /* 【逐行批注】 把样式属性 --trace-muted 设置为 var(--gy-muted, #5e6d82)。 */
+  --trace-muted:var(--gy-muted, #5e6d82);
+  /* 【逐行批注】 把样式属性 border 设置为 1px solid var(--trace-line)。 */
+  border:1px solid var(--trace-line);
+  /* 【逐行批注】 把样式属性 border-radius 设置为 12px。 */
+  border-radius:12px;
+  /* 【逐行批注】 把样式属性 background 设置为 var(--gy-surface, #fff)。 */
+  background:var(--gy-surface, #fff);
+  /* 【逐行批注】 把样式属性 color 设置为 var(--trace-text)。 */
+  color:var(--trace-text);
+  /* 轨迹是过程说明，不能抢占学习内容与常驻输入区的高度。 */
+  /* 【逐行批注】 把样式属性 max-height 设置为 min(40vh, 340px)。 */
+  max-height:min(40vh, 340px);
+  /* 【逐行批注】 把样式属性 overflow 设置为 auto。 */
+  overflow:auto;
+  /* 【逐行批注】 把样式属性 overscroll-behavior 设置为 contain。 */
+  overscroll-behavior:contain;
+  /* 【逐行批注】 把样式属性 overflow-wrap 设置为 anywhere。 */
+  overflow-wrap:anywhere;
+  /* 【逐行批注】 把样式属性 word-break 设置为 break-word。 */
+  word-break:break-word;
+/* 【逐行批注】 结束当前样式规则。 */
+}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-inline .gy-agent-trace{margin:16px 24px 0}。 */
+.gy-trace-inline .gy-agent-trace{margin:16px 24px 0}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-panel .gy-agent-trace{border:0;border-radius:9px;background:var(--trace-soft);m…。 */
+.gy-trace-panel .gy-agent-trace{border:0;border-radius:9px;background:var(--trace-soft);max-height:min(38vh, 300px)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-agent-trace[data-status=failed]{border-color:var(--gy-danger-border, #e7b9b4);backgro…。 */
+.gy-agent-trace[data-status=failed]{border-color:var(--gy-danger-border, #e7b9b4);background:var(--gy-danger-bg, #fff3f2)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-agent-trace[data-status=paused]{border-color:var(--gy-warning-border, #e2cfaa);backgr…。 */
+.gy-agent-trace[data-status=paused]{border-color:var(--gy-warning-border, #e2cfaa);background:var(--gy-warning-bg, #fff7ea)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-head{display:flex;align-items:flex-start;gap:11px;padding:13px 15px}。 */
+.gy-trace-head{display:flex;align-items:flex-start;gap:11px;padding:13px 15px}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-agent-trace[data-collapsed=true]{max-height:none;overflow:hidden}。 */
+.gy-agent-trace[data-collapsed=true]{max-height:none;overflow:hidden}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-agent-trace[data-collapsed=true] .gy-trace-head{padding:10px 12px}。 */
+.gy-agent-trace[data-collapsed=true] .gy-trace-head{padding:10px 12px}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-agent-trace[data-collapsed=true] .gy-trace-eyebrow{display:none}。 */
+.gy-agent-trace[data-collapsed=true] .gy-trace-eyebrow{display:none}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-agent-trace[data-collapsed=true] .gy-trace-title{font-size:14px}。 */
+.gy-agent-trace[data-collapsed=true] .gy-trace-title{font-size:14px}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-mark{width:9px;height:9px;flex:none;margin-top:7px;border-radius:50%;background…。 */
+.gy-trace-mark{width:9px;height:9px;flex:none;margin-top:7px;border-radius:50%;background:var(--trace-accent);box-shadow:0 0 0 4px #3d61ce14}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-agent-trace[data-status=failed] .gy-trace-mark{background:var(--gy-danger, #a4373e);b…。 */
+.gy-agent-trace[data-status=failed] .gy-trace-mark{background:var(--gy-danger, #a4373e);box-shadow:0 0 0 4px #a4373e14}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-agent-trace[data-status=paused] .gy-trace-mark{background:var(--gy-warning, #78541e);…。 */
+.gy-agent-trace[data-status=paused] .gy-trace-mark{background:var(--gy-warning, #78541e);box-shadow:0 0 0 4px #78541e14}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-agent-trace[data-status=ready] .gy-trace-mark,。 */
+.gy-agent-trace[data-status=ready] .gy-trace-mark,
+/* 【逐行批注】 定义或补充当前界面样式：.gy-agent-trace[data-status=waiting_student] .gy-trace-mark{background:var(--gy-success, …。 */
+.gy-agent-trace[data-status=waiting_student] .gy-trace-mark{background:var(--gy-success, #3c7a57);box-shadow:0 0 0 4px #3c7a5714}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-title-wrap{min-width:0;flex:1}。 */
+.gy-trace-title-wrap{min-width:0;flex:1}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-eyebrow{margin:0 0 2px;color:var(--trace-muted);font-size:12px;line-height:1.5}。 */
+.gy-trace-eyebrow{margin:0 0 2px;color:var(--trace-muted);font-size:12px;line-height:1.5}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-title{margin:0;font-size:14px;font-weight:650;line-height:1.55}。 */
+.gy-trace-title{margin:0;font-size:14px;font-weight:650;line-height:1.55}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-meta{margin:4px 0 0;color:var(--trace-muted);font-size:12px;line-height:1.6;fon…。 */
+.gy-trace-meta{margin:4px 0 0;color:var(--trace-muted);font-size:12px;line-height:1.6;font-variant-numeric:tabular-nums}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-toggle{flex:none;min-height:32px;padding:5px 9px;border:1px solid var(--trace-l…。 */
+.gy-trace-toggle{flex:none;min-height:32px;padding:5px 9px;border:1px solid var(--trace-line);border-radius:7px;background:var(--gy-surface, #fff);color:var(--trace-muted);font:inherit;font-size:12px;line-height:1.4;cursor:pointer}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-toggle:hover{background:var(--gy-surface-alt, #f4f7fd);color:var(--trace-text)}。 */
+.gy-trace-toggle:hover{background:var(--gy-surface-alt, #f4f7fd);color:var(--trace-text)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-toggle:focus-visible{outline:2px solid var(--trace-accent);outline-offset:2px}。 */
+.gy-trace-toggle:focus-visible{outline:2px solid var(--trace-accent);outline-offset:2px}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-body[hidden]{display:none}。 */
+.gy-trace-body[hidden]{display:none}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-notice{margin:0;padding:0 15px 12px;color:var(--trace-muted);font-size:12px;lin…。 */
+.gy-trace-notice{margin:0;padding:0 15px 12px;color:var(--trace-muted);font-size:12px;line-height:1.7}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-notice[data-kind=warning]{color:var(--gy-warning, #78541e)}。 */
+.gy-trace-notice[data-kind=warning]{color:var(--gy-warning, #78541e)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-notice[data-kind=error]{color:var(--gy-danger, #a4373e)}。 */
+.gy-trace-notice[data-kind=error]{color:var(--gy-danger, #a4373e)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-steps{margin:0;padding:0 15px 10px 36px;list-style:none;max-height:170px;overfl…。 */
+.gy-trace-steps{margin:0;padding:0 15px 10px 36px;list-style:none;max-height:170px;overflow:auto}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-step{position:relative;padding:4px 0 7px;color:var(--trace-muted);font-size:12p…。 */
+.gy-trace-step{position:relative;padding:4px 0 7px;color:var(--trace-muted);font-size:12px;line-height:1.65}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-step:before{content:"";position:absolute;left:-17px;top:10px;width:7px;height:7…。 */
+.gy-trace-step:before{content:"";position:absolute;left:-17px;top:10px;width:7px;height:7px;border:1px solid #9aacd9;border-radius:50%;background:var(--gy-surface, #fff)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-step:after{content:"";position:absolute;left:-14px;top:20px;bottom:-3px;width:1…。 */
+.gy-trace-step:after{content:"";position:absolute;left:-14px;top:20px;bottom:-3px;width:1px;background:var(--trace-line)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-step:last-child:after{display:none}。 */
+.gy-trace-step:last-child:after{display:none}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-step[data-state=completed]:before{border-color:var(--gy-success, #3c7a57);backg…。 */
+.gy-trace-step[data-state=completed]:before{border-color:var(--gy-success, #3c7a57);background:var(--gy-success, #3c7a57)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-step[data-state=failed]:before{border-color:var(--gy-danger, #a4373e);backgroun…。 */
+.gy-trace-step[data-state=failed]:before{border-color:var(--gy-danger, #a4373e);background:var(--gy-danger, #a4373e)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-step strong{display:block;color:var(--trace-text);font-size:12px;font-weight:60…。 */
+.gy-trace-step strong{display:block;color:var(--trace-text);font-size:12px;font-weight:600}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-step time{margin-left:7px;color:var(--trace-muted);font-weight:400;font-variant…。 */
+.gy-trace-step time{margin-left:7px;color:var(--trace-muted);font-weight:400;font-variant-numeric:tabular-nums}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-step p{margin:1px 0 0}。 */
+.gy-trace-step p{margin:1px 0 0}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-details{border-top:1px solid #edf0f5}。 */
+.gy-trace-details{border-top:1px solid #edf0f5}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-details summary{cursor:pointer;padding:9px 15px;color:#4d6388;font-size:12px;ou…。 */
+.gy-trace-details summary{cursor:pointer;padding:9px 15px;color:#4d6388;font-size:12px;outline-offset:-3px}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-details summary:focus-visible{outline:2px solid var(--trace-accent);outline-off…。 */
+.gy-trace-details summary:focus-visible{outline:2px solid var(--trace-accent);outline-offset:-2px}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-history{max-height:180px;overflow:auto;margin:0;padding:0 15px 12px 34px;color:…。 */
+.gy-trace-history{max-height:180px;overflow:auto;margin:0;padding:0 15px 12px 34px;color:var(--trace-muted);font-size:12px;line-height:1.7}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-history li{padding:3px 0}。 */
+.gy-trace-history li{padding:3px 0}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-history time{color:var(--trace-muted);margin-right:7px;font-variant-numeric:tab…。 */
+.gy-trace-history time{color:var(--trace-muted);margin-right:7px;font-variant-numeric:tabular-nums}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-actions{display:flex;flex-wrap:wrap;gap:8px;padding:0 15px 13px}。 */
+.gy-trace-actions{display:flex;flex-wrap:wrap;gap:8px;padding:0 15px 13px}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-actions button{border:1px solid #cfd9e9;border-radius:7px;background:var(--gy-s…。 */
+.gy-trace-actions button{border:1px solid #cfd9e9;border-radius:7px;background:var(--gy-surface, #fff);color:var(--trace-text);padding:6px 10px;font:inherit;font-size:12px;cursor:pointer}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-actions button:hover{background:var(--gy-surface-alt, #f4f7fd)}。 */
+.gy-trace-actions button:hover{background:var(--gy-surface-alt, #f4f7fd)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-actions button:focus-visible{outline:2px solid var(--trace-accent);outline-offs…。 */
+.gy-trace-actions button:focus-visible{outline:2px solid var(--trace-accent);outline-offset:2px}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-actions .primary{border-color:var(--trace-accent);background:var(--trace-accent…。 */
+.gy-trace-actions .primary{border-color:var(--trace-accent);background:var(--trace-accent);color:#fff}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-actions .primary:hover{background:var(--trace-accent-hover)}。 */
+.gy-trace-actions .primary:hover{background:var(--trace-accent-hover)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-trace-actions button[aria-busy=true]{cursor:wait;opacity:.58}。 */
+.gy-trace-actions button[aria-busy=true]{cursor:wait;opacity:.58}
+/* 【逐行批注】 定义响应式媒体查询条件：@media(max-height:760px){。 */
+@media(max-height:760px){
+  /* 150% 缩放下课堂可用高度更紧；轨迹继续内部滚动，常驻输入区优先留在视口内。 */
+  /* 【逐行批注】 定义或补充当前界面样式：.gy-trace-inline .gy-agent-trace{max-height:min(35vh, 250px)}。 */
+  .gy-trace-inline .gy-agent-trace{max-height:min(35vh, 250px)}
+  /* 【逐行批注】 定义或补充当前界面样式：.gy-trace-steps{max-height:118px}。 */
+  .gy-trace-steps{max-height:118px}
+/* 【逐行批注】 结束当前样式规则。 */
+}
+/* 【逐行批注】 定义响应式媒体查询条件：@media(max-width:700px){。 */
+@media(max-width:700px){
+  /* 【逐行批注】 定义或补充当前界面样式：.gy-trace-inline .gy-agent-trace{margin:12px 14px 0;max-height:min(44vh, 300px)}。 */
+  .gy-trace-inline .gy-agent-trace{margin:12px 14px 0;max-height:min(44vh, 300px)}
+  /* 【逐行批注】 定义或补充当前界面样式：.gy-trace-steps{padding-left:32px;max-height:150px}。 */
+  .gy-trace-steps{padding-left:32px;max-height:150px}
+  /* 【逐行批注】 定义或补充当前界面样式：.gy-trace-head{gap:8px;padding:11px 12px}。 */
+  .gy-trace-head{gap:8px;padding:11px 12px}
+  /* 【逐行批注】 定义或补充当前界面样式：.gy-trace-toggle{padding:5px 7px}。 */
+  .gy-trace-toggle{padding:5px 7px}
+/* 【逐行批注】 结束当前样式规则。 */
+}
+/* 【逐行批注】 定义响应式媒体查询条件：@media(prefers-reduced-motion:reduce){.gy-agent-trace *{scroll-behavior:au…。 */
+@media(prefers-reduced-motion:reduce){.gy-agent-trace *{scroll-behavior:auto!important;transition:none!important;animation:none!important}}

@@ -1,37 +1,73 @@
 /* 真实 AI 对话、课程预览与统一安排共用现有深色主题。 */
+/* 【逐行批注】 定义或补充当前界面样式：.ai-dialogue-history {display:flex;flex-direction:column;gap:12px;margin:18px 0;max-heigh…。 */
 .ai-dialogue-history {display:flex;flex-direction:column;gap:12px;margin:18px 0;max-height:440px;overflow:auto;}
+/* 【逐行批注】 定义或补充当前界面样式：.ai-dialogue-bubble {padding:16px 18px;border-radius:16px;white-space:pre-wrap;overflow-w…。 */
 .ai-dialogue-bubble {padding:16px 18px;border-radius:16px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.75;max-width:94%;}
+/* 【逐行批注】 定义或补充当前界面样式：.ai-dialogue-bubble.is-user {align-self:flex-end;background:#20423b;color:#e0f5ed;}。 */
 .ai-dialogue-bubble.is-user {align-self:flex-end;background:#20423b;color:#e0f5ed;}
+/* 【逐行批注】 定义或补充当前界面样式：.ai-dialogue-bubble.is-teacher {align-self:flex-start;background:#14252b;border:1px solid…。 */
 .ai-dialogue-bubble.is-teacher {align-self:flex-start;background:#14252b;border:1px solid #2b4146;color:#e6efec;}
+/* 【逐行批注】 定义或补充当前界面样式：.ai-dialogue-bubble.is-failed {color:#efd6ad;}。 */
 .ai-dialogue-bubble.is-failed {color:#efd6ad;}
+/* 【逐行批注】 定义或补充当前界面样式：.ai-dialogue textarea {width:100%;min-height:110px;padding:16px;border-radius:12px;}。 */
 .ai-dialogue textarea {width:100%;min-height:110px;padding:16px;border-radius:12px;}
+/* 【逐行批注】 定义或补充当前界面样式：.ai-dialogue textarea {background:#10221d;color:#edf3ef;border:1px solid #668f80;resize:v…。 */
 .ai-dialogue textarea {background:#10221d;color:#edf3ef;border:1px solid #668f80;resize:vertical;}
+/* 【逐行批注】 定义或补充当前界面样式：.question-materials {padding:14px 16px;border-left:3px solid #8cdec5;background:#152c26;l…。 */
 .question-materials {padding:14px 16px;border-left:3px solid #8cdec5;background:#152c26;line-height:1.8;margin:12px 0;}
+/* 【逐行批注】 定义或补充当前界面样式：.question-title {color:#a4e5d2!important;font-weight:600;}。 */
 .question-title {color:#a4e5d2!important;font-weight:600;}
+/* 【逐行批注】 定义或补充当前界面样式：.ai-dialogue-history .chat-row {margin:0;}。 */
 .ai-dialogue-history .chat-row {margin:0;}
+/* 【逐行批注】 定义或补充当前界面样式：.ai-dialogue-history .chat-bubble {max-width:100%;width:100%;}。 */
 .ai-dialogue-history .chat-bubble {max-width:100%;width:100%;}
+/* 【逐行批注】 定义或补充当前界面样式：.next-lesson-page {max-width:1100px;margin:0 auto;padding:32px 20px 64px;color:#edf3ef;}。 */
 .next-lesson-page {max-width:1100px;margin:0 auto;padding:32px 20px 64px;color:#edf3ef;}
+/* 【逐行批注】 定义或补充当前界面样式：.next-lesson-heading h1 {font-size:clamp(28px,4vw,40px);margin:8px 0 16px;font-weight:700…。 */
 .next-lesson-heading h1 {font-size:clamp(28px,4vw,40px);margin:8px 0 16px;font-weight:700;}
+/* 【逐行批注】 定义或补充当前界面样式：.next-lesson-heading p {line-height:1.8;color:#c2d4d0;}。 */
 .next-lesson-heading p {line-height:1.8;color:#c2d4d0;}
+/* 【逐行批注】 定义或补充当前界面样式：.next-lesson-heading .classroom-actions {margin:20px 0 24px;align-items:center;}。 */
 .next-lesson-heading .classroom-actions {margin:20px 0 24px;align-items:center;}
+/* 【逐行批注】 定义或补充当前界面样式：.next-lesson-heading button {min-height:42px;padding:10px 18px;border-radius:10px;backgro…。 */
 .next-lesson-heading button {min-height:42px;padding:10px 18px;border-radius:10px;background:#a4e5d2;color:#10251f;font-weight:700;}
+/* 【逐行批注】 定义或补充当前界面样式：.preparation-stage[hidden] {display:none;}。 */
 .preparation-stage[hidden] {display:none;}
+/* 【逐行批注】 定义或补充当前界面样式：.preparation-stage {margin-top:20px;}。 */
 .preparation-stage {margin-top:20px;}
+/* 【逐行批注】 定义或补充当前界面样式：.preparation-stage>small {display:block;margin-top:16px;}。 */
 .preparation-stage>small {display:block;margin-top:16px;}
+/* 【逐行批注】 定义或补充当前界面样式：.preparation-stream {min-height:24px;line-height:1.85;overflow-wrap:anywhere;}。 */
 .preparation-stream {min-height:24px;line-height:1.85;overflow-wrap:anywhere;}
+/* 【逐行批注】 定义或补充当前界面样式：.preparation-prose+.preparation-prose {margin-top:12px;}。 */
 .preparation-prose+.preparation-prose {margin-top:12px;}
+/* 【逐行批注】 定义或补充当前界面样式：.preparation-question {padding:14px 0;border-top:1px solid #47645c;}。 */
 .preparation-question {padding:14px 0;border-top:1px solid #47645c;}
+/* 【逐行批注】 定义或补充当前界面样式：.preparation-options {list-style:upper-alpha;padding-left:24px;line-height:1.85;margin-to…。 */
 .preparation-options {list-style:upper-alpha;padding-left:24px;line-height:1.85;margin-top:10px;}
+/* 【逐行批注】 定义或补充当前界面样式：.learn-app-page #learn-content>section {display:flex;flex-direction:column;}。 */
 .learn-app-page #learn-content>section {display:flex;flex-direction:column;}
+/* 【逐行批注】 定义或补充当前界面样式：.learn-app-page #learn-content>section>article {width:100%;}。 */
 .learn-app-page #learn-content>section>article {width:100%;}
+/* 【逐行批注】 定义或补充当前界面样式：.ai-muted {color:#aabeb7;font-size:.9rem;line-height:1.65;}。 */
 .ai-muted {color:#aabeb7;font-size:.9rem;line-height:1.65;}
+/* 【逐行批注】 定义或补充当前界面样式：.ai-plan-comparison {display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:16px 0;}。 */
 .ai-plan-comparison {display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:16px 0;}
+/* 【逐行批注】 定义或补充当前界面样式：.ai-plan-comparison>div {padding:16px;border:1px solid #34534c;border-radius:12px;}。 */
 .ai-plan-comparison>div {padding:16px;border:1px solid #34534c;border-radius:12px;}
+/* 【逐行批注】 定义或补充当前界面样式：.ai-plan-preview {margin-top:20px;padding:18px;background:#152c26;border:1px solid #50857…。 */
 .ai-plan-preview {margin-top:20px;padding:18px;background:#152c26;border:1px solid #50857b;border-radius:16px;}
+/* 【逐行批注】 定义或补充当前界面样式：.ai-plan-preview button,.ai-dialogue>button,#course-preview>button,#ai-preparation-note>b…。 */
 .ai-plan-preview button,.ai-dialogue>button,#course-preview>button,#ai-preparation-note>button,#learn-examples [data-ai-example] {margin:10px 10px 0 0;min-height:42px;padding:10px 18px;border-radius:12px;background:#a3e7d4;color:#0d2924;border:1px solid #70bda9;cursor:pointer;}
+/* 【逐行批注】 定义或补充当前界面样式：.ai-next-action {display:inline-flex;margin-top:16px;color:#b0ebd9;font-weight:600;}。 */
 .ai-next-action {display:inline-flex;margin-top:16px;color:#b0ebd9;font-weight:600;}
+/* 【逐行批注】 定义或补充当前界面样式：.ai-preview-bullets {padding-left:22px;line-height:1.9;margin-top:16px;}。 */
 .ai-preview-bullets {padding-left:22px;line-height:1.9;margin-top:16px;}
+/* 【逐行批注】 定义或补充当前界面样式：.ai-supplement {white-space:pre-wrap;line-height:1.85;margin-top:16px;}。 */
 .ai-supplement {white-space:pre-wrap;line-height:1.85;margin-top:16px;}
+/* 【逐行批注】 定义或补充当前界面样式：#learn-examples details p {white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.85;}。 */
 #learn-examples details p {white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.85;}
+/* 【逐行批注】 定义或补充当前界面样式：.weekly-row a {color:#e0eee7;font-weight:600;}。 */
 .weekly-row a {color:#e0eee7;font-weight:600;}
+/* 【逐行批注】 定义响应式媒体查询条件：@media(max-width:700px){.ai-plan-comparison{grid-template-columns:1fr}.ai-…。 */
 @media(max-width:700px){.ai-plan-comparison{grid-template-columns:1fr}.ai-dialogue-bubble{max-width:100%;padding:12px}.weekly-row{flex-wrap:wrap}.weekly-row a{min-width:50%;}}

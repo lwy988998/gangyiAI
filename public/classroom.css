@@ -1,208 +1,408 @@
+/* 【逐行批注】 定义或补充当前界面样式：.classroom-card{margin:20px 0;padding:22px;border:1px solid #3d6259;border-radius:10px;ba…。 */
 .classroom-card{margin:20px 0;padding:22px;border:1px solid #3d6259;border-radius:10px;background:#14221f;color:#edf3ef}
+/* 【逐行批注】 定义或补充当前界面样式：.classroom-card h2{margin:0 0 10px;font-size:1.25rem;font-weight:700;color:#e9f8f1}。 */
 .classroom-card h2{margin:0 0 10px;font-size:1.25rem;font-weight:700;color:#e9f8f1}
+/* 【逐行批注】 定义或补充当前界面样式：.classroom-card h3{margin:15px 0 8px;font-size:1rem;font-weight:700;color:#e9f8f1}。 */
 .classroom-card h3{margin:15px 0 8px;font-size:1rem;font-weight:700;color:#e9f8f1}
+/* 【逐行批注】 定义或补充当前界面样式：.classroom-card p{line-height:1.7;color:#c2d4d0}。 */
 .classroom-card p{line-height:1.7;color:#c2d4d0}
+/* 【逐行批注】 定义或补充当前界面样式：.classroom-card button,#classroom-idle button,#ask-selection{min-height:40px;padding:8px …。 */
 .classroom-card button,#classroom-idle button,#ask-selection{min-height:40px;padding:8px 14px;border:1px solid #8cdec5;border-radius:7px;background:#a4e5d2;color:#10251f;font-weight:700}
+/* 【逐行批注】 定义或补充当前界面样式：.classroom-card button:hover,#classroom-idle button:hover,#ask-selection:hover{background…。 */
 .classroom-card button:hover,#classroom-idle button:hover,#ask-selection:hover{background:#c0f5e5}
+/* 【逐行批注】 定义或补充当前界面样式：.classroom-card button:disabled{background:#263a34;color:#c2d4d0;border-color:#8da69d;cur…。 */
 .classroom-card button:disabled{background:#263a34;color:#c2d4d0;border-color:#8da69d;cursor:wait;opacity:1}
+/* 【逐行批注】 定义或补充当前界面样式：.classroom-card button:focus-visible,#classroom-idle button:focus-visible,#ask-selection:…。 */
 .classroom-card button:focus-visible,#classroom-idle button:focus-visible,#ask-selection:focus-visible{outline:3px solid #d0fff0;outline-offset:3px}
+/* 【逐行批注】 定义或补充当前界面样式：.classroom-question{padding:14px 0;border-top:1px solid #47645c}。 */
 .classroom-question{padding:14px 0;border-top:1px solid #47645c}
+/* 【逐行批注】 定义或补充当前界面样式：.classroom-options{display:grid;gap:7px;margin:12px 0}。 */
 .classroom-options{display:grid;gap:7px;margin:12px 0}
+/* 【逐行批注】 定义或补充当前界面样式：.classroom-options label{display:flex;gap:10px;align-items:start;padding:8px;border:1px s…。 */
 .classroom-options label{display:flex;gap:10px;align-items:start;padding:8px;border:1px solid #48675d;border-radius:7px;cursor:pointer;color:#edf3ef}
+/* 【逐行批注】 定义或补充当前界面样式：.classroom-options label:hover{border-color:#a4e5d2;background:#20332d}。 */
 .classroom-options label:hover{border-color:#a4e5d2;background:#20332d}
+/* 【逐行批注】 定义或补充当前界面样式：.classroom-options input{accent-color:#a4e5d2}。 */
 .classroom-options input{accent-color:#a4e5d2}
+/* 【逐行批注】 定义或补充当前界面样式：.classroom-options textarea{width:100%;min-height:90px;padding:10px;border:1px solid #8aa…。 */
 .classroom-options textarea{width:100%;min-height:90px;padding:10px;border:1px solid #8aa69b;border-radius:7px}
+/* 【逐行批注】 定义或补充当前界面样式：.classroom-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}。 */
 .classroom-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+/* 【逐行批注】 定义或补充当前界面样式：.ai-dialogue h3{color:#edf3ef;font-weight:700;line-height:1.8;margin:10px 0}。 */
 .ai-dialogue h3{color:#edf3ef;font-weight:700;line-height:1.8;margin:10px 0}
+/* 【逐行批注】 定义或补充当前界面样式：.ai-dialogue .classroom-actions button{min-height:42px;padding:10px 16px;border:1px solid…。 */
 .ai-dialogue .classroom-actions button{min-height:42px;padding:10px 16px;border:1px solid #8cdec5;border-radius:9px;background:#a4e5d2;color:#10251f;font-weight:700;cursor:pointer}
+/* 【逐行批注】 定义或补充当前界面样式：.ai-dialogue .classroom-actions button:hover{background:#c0f5e5}。 */
 .ai-dialogue .classroom-actions button:hover{background:#c0f5e5}
+/* 【逐行批注】 定义或补充当前界面样式：.ai-dialogue .classroom-actions button:disabled{background:#263a34;color:#c2d4d0;border-c…。 */
 .ai-dialogue .classroom-actions button:disabled{background:#263a34;color:#c2d4d0;border-color:#8da69d;cursor:wait}
+/* 【逐行批注】 定义或补充当前界面样式：.classroom-feedback{min-height:1.5em;margin-top:10px}。 */
 .classroom-feedback{min-height:1.5em;margin-top:10px}
+/* 【逐行批注】 定义或补充当前界面样式：.availability-card{max-width:620px;margin-top:12px}。 */
 .availability-card{max-width:620px;margin-top:12px}
+/* 【逐行批注】 定义或补充当前界面样式：.availability-card legend{font-weight:700;padding:0 6px}。 */
 .availability-card legend{font-weight:700;padding:0 6px}
+/* 【逐行批注】 定义或补充当前界面样式：.availability-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));…。 */
 .availability-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:12px 0}
+/* 【逐行批注】 定义或补充当前界面样式：.availability-grid label{display:flex;align-items:center;gap:5px;color:#edf3ef}。 */
 .availability-grid label{display:flex;align-items:center;gap:5px;color:#edf3ef}
+/* 【逐行批注】 定义或补充当前界面样式：.availability-grid input[type=number]{width:54px;padding:4px;border:1px solid #8aa69b;bor…。 */
 .availability-grid input[type=number]{width:54px;padding:4px;border:1px solid #8aa69b;border-radius:5px}
+/* 【逐行批注】 定义或补充当前界面样式：.weekly-plan{margin-top:20px}。 */
 .weekly-plan{margin-top:20px}
+/* 【逐行批注】 定义或补充当前界面样式：.weekly-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;border-t…。 */
 .weekly-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #47645c}
+/* 【逐行批注】 定义或补充当前界面样式：.weekly-row strong{flex:1;min-width:150px}。 */
 .weekly-row strong{flex:1;min-width:150px}
+/* 【逐行批注】 定义或补充当前界面样式：.weekly-row input[type=date]{width:145px;padding:5px}。 */
 .weekly-row input[type=date]{width:145px;padding:5px}
+/* 【逐行批注】 定义或补充当前界面样式：.weekly-row input[type=number]{width:65px;padding:5px}。 */
 .weekly-row input[type=number]{width:65px;padding:5px}
+/* 【逐行批注】 定义或补充当前界面样式：.weekly-row input{border:1px solid #8aa69b;border-radius:5px}。 */
 .weekly-row input{border:1px solid #8aa69b;border-radius:5px}
+/* 【逐行批注】 定义或补充当前界面样式：.weekly-row button{min-width:36px;padding:5px}。 */
 .weekly-row button{min-width:36px;padding:5px}
+/* 【逐行批注】 定义或补充当前界面样式：.due-reviews{max-width:1200px;margin:24px auto;padding:20px}。 */
 .due-reviews{max-width:1200px;margin:24px auto;padding:20px}
+/* 【逐行批注】 定义或补充当前界面样式：.due-reviews ul{display:grid;gap:8px;padding-left:20px}。 */
 .due-reviews ul{display:grid;gap:8px;padding-left:20px}
+/* 【逐行批注】 定义或补充当前界面样式：.due-reviews a{color:#a4e5d2;text-decoration:underline}。 */
 .due-reviews a{color:#a4e5d2;text-decoration:underline}
+/* 【逐行批注】 定义或补充当前界面样式：.due-reviews a:hover{color:#d0fff0}。 */
 .due-reviews a:hover{color:#d0fff0}
+/* 【逐行批注】 定义或补充当前界面样式：#classroom-branch[hidden],#classroom-guidance[hidden],#classroom-next[hidden],#classroom-…。 */
 #classroom-branch[hidden],#classroom-guidance[hidden],#classroom-next[hidden],#classroom-idle[hidden],#ask-selection[hidden]{display:none}
+/* 【逐行批注】 定义或补充当前界面样式：#classroom-idle{position:fixed;left:50%;bottom:18px;z-index:35;display:flex;align-items:c…。 */
 #classroom-idle{position:fixed;left:50%;bottom:18px;z-index:35;display:flex;align-items:center;gap:12px;max-width:min(90vw,560px);padding:12px;border:1px solid #8cdec5;border-radius:9px;background:#14221f;color:#edf3ef;box-shadow:0 8px 28px #0009;transform:translateX(-50%)}
+/* 【逐行批注】 定义或补充当前界面样式：#classroom-idle button{min-width:40px}。 */
 #classroom-idle button{min-width:40px}
+/* 【逐行批注】 定义或补充当前界面样式：#ask-selection{position:fixed;z-index:45;box-shadow:0 6px 20px #0008}。 */
 #ask-selection{position:fixed;z-index:45;box-shadow:0 6px 20px #0008}
+/* 【逐行批注】 定义或补充当前界面样式：#learning-chat-stop{margin-left:8px;padding:8px 12px;border:1px solid #9db5ac;border-radi…。 */
 #learning-chat-stop{margin-left:8px;padding:8px 12px;border:1px solid #9db5ac;border-radius:7px;color:#edf3ef;background:#22332d}
+/* 【逐行批注】 定义或补充当前界面样式：.classroom-chat-user,.classroom-chat-reply{padding:10px;border-radius:9px;white-space:pre…。 */
 .classroom-chat-user,.classroom-chat-reply{padding:10px;border-radius:9px;white-space:pre-wrap;line-height:1.5}
+/* 【逐行批注】 定义或补充当前界面样式：.classroom-chat-user{margin-left:20%;background:#214238;color:#e8fff5}。 */
 .classroom-chat-user{margin-left:20%;background:#214238;color:#e8fff5}
+/* 【逐行批注】 定义或补充当前界面样式：.classroom-chat-reply{margin-right:15%;background:#1c2b31;color:#edf3ef}。 */
 .classroom-chat-reply{margin-right:15%;background:#1c2b31;color:#edf3ef}
 
 /* 全站深色界面正文、占位符、悬停、焦点和禁用态维持可读对比。 */
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app{--dark-muted:#b8cac5}。 */
 .dark-app{--dark-muted:#b8cac5}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app .dark-nav-link,.dark-app .dark-footer,.dark-app .home-floating-chip small,。 */
 .dark-app .dark-nav-link,.dark-app .dark-footer,.dark-app .home-floating-chip small,
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app .home-ticker-track,.dark-app .home-radar-top span,.dark-app .home-radar-bottom,。 */
 .dark-app .home-ticker-track,.dark-app .home-radar-top span,.dark-app .home-radar-bottom,
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app .profile-subject-card small,.dark-app #profile-message{color:#b8cac5}。 */
 .dark-app .profile-subject-card small,.dark-app #profile-message{color:#b8cac5}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app input::placeholder,.dark-app textarea::placeholder{color:#aebfba;opacity:1}。 */
 .dark-app input::placeholder,.dark-app textarea::placeholder{color:#aebfba;opacity:1}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app .text-slate-400,.dark-app .text-slate-500,.dark-app .text-slate-600{color:#b8ca…。 */
 .dark-app .text-slate-400,.dark-app .text-slate-500,.dark-app .text-slate-600{color:#b8cac5!important}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app button:disabled,.dark-app a[aria-disabled=true]{opacity:1!important;color:#b8ca…。 */
 .dark-app button:disabled,.dark-app a[aria-disabled=true]{opacity:1!important;color:#b8cac5!important;background:#263a34!important;border-color:#819d93!important}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app .bg-sky-700:disabled,.dark-app .bg-emerald-600:disabled{color:#10251f!important…。 */
 .dark-app .bg-sky-700:disabled,.dark-app .bg-emerald-600:disabled{color:#10251f!important;background:#a4e5d2!important}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app :is(a,button,input,textarea,select,summary):focus-visible{outline:3px solid #d0…。 */
 .dark-app :is(a,button,input,textarea,select,summary):focus-visible{outline:3px solid #d0fff0!important;outline-offset:3px}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app :is(a,button):hover{filter:brightness(1.12)}。 */
 .dark-app :is(a,button):hover{filter:brightness(1.12)}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app .plan-view .mode-badge{background:#214238!important;color:#e8fff5!important}。 */
 .dark-app .plan-view .mode-badge{background:#214238!important;color:#e8fff5!important}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app .plan-view :is(.plan-hero,.lite-hero,.plan-card,.phase-card,.slide-content,.res…。 */
 .dark-app .plan-view :is(.plan-hero,.lite-hero,.plan-card,.phase-card,.slide-content,.resource-item,.project-item) :is(h2,h3,h4,strong){color:#edf3ef!important}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app .plan-view .section-heading h2,.dark-app .plan-view .structure-row b{color:#edf…。 */
 .dark-app .plan-view .section-heading h2,.dark-app .plan-view .structure-row b{color:#edf3ef!important}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app .plan-view :is(.hero-facts>div,.lite-facts>span,.progress-strip,.phase-grid>div…。 */
 .dark-app .plan-view :is(.hero-facts>div,.lite-facts>span,.progress-strip,.phase-grid>div,.phase-meta span,.bullet-list span){background:#1c302a!important;border-color:#527168!important;color:#d0e5dd!important}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app .plan-view :is(.hero-facts small,.lite-facts small,.progress-strip span,.phase-…。 */
 .dark-app .plan-view :is(.hero-facts small,.lite-facts small,.progress-strip span,.phase-meta span,.phase-grid p,.step-row span){color:#c2d4d0!important}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app .plan-view :is(.hero-facts b,.lite-facts b,.step-row strong,.structure-row b,.s…。 */
 .dark-app .plan-view :is(.hero-facts b,.lite-facts b,.step-row strong,.structure-row b,.slide-content h3){color:#edf3ef!important}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app .plan-view .progress-strip b{color:#a4e5d2!important}。 */
 .dark-app .plan-view .progress-strip b{color:#a4e5d2!important}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app .plan-view :is(.step-row em,.structure-row a,.resource-item small,.phase-grid b…。 */
 .dark-app .plan-view :is(.step-row em,.structure-row a,.resource-item small,.phase-grid b){color:#a4e5d2!important}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app .plan-view .phase-number{background:#214238!important;color:#e8fff5!important}。 */
 .dark-app .plan-view .phase-number{background:#214238!important;color:#e8fff5!important}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app .plan-view .structure-row a{background:#1c302a!important;border-color:#527168!i…。 */
 .dark-app .plan-view .structure-row a{background:#1c302a!important;border-color:#527168!important}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app .next-action p,.dark-app .next-action .plan-kicker{color:#10251f!important;opac…。 */
 .dark-app .next-action p,.dark-app .next-action .plan-kicker{color:#10251f!important;opacity:1}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app .bg-amber-50{background:#3b2c14!important}。 */
 .dark-app .bg-amber-50{background:#3b2c14!important}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app .text-amber-800,.dark-app .text-amber-700{color:#ffe3a1!important}。 */
 .dark-app .text-amber-800,.dark-app .text-amber-700{color:#ffe3a1!important}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app .border-amber-100{border-color:#a6884c!important}。 */
 .dark-app .border-amber-100{border-color:#a6884c!important}
 
 /* ---- AI 对话呈现：/ask 页与课堂面板共用 ---- */
+/* 【逐行批注】 定义或补充当前界面样式：.chat-row{display:flex;margin:14px 0}。 */
 .chat-row{display:flex;margin:14px 0}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-row-ai{justify-content:flex-start}。 */
 .chat-row-ai{justify-content:flex-start}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-row-mine{justify-content:flex-end}。 */
 .chat-row-mine{justify-content:flex-end}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-bubble{max-width:min(94%,780px);padding:14px 16px;border-radius:14px;line-height:1.…。 */
 .chat-bubble{max-width:min(94%,780px);padding:14px 16px;border-radius:14px;line-height:1.85;font-size:14px;overflow-wrap:anywhere}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-bubble-ai{border:1px solid #3d6259;background:#14221f;color:#edf3ef}。 */
 .chat-bubble-ai{border:1px solid #3d6259;background:#14221f;color:#edf3ef}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-bubble-dark{border-color:#3d6259}。 */
 .chat-bubble-dark{border-color:#3d6259}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-bubble-mine{margin-left:auto;background:#a4e5d2;color:#10251f;font-weight:600;white…。 */
 .chat-bubble-mine{margin-left:auto;background:#a4e5d2;color:#10251f;font-weight:600;white-space:pre-wrap}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-body>*:first-child{margin-top:0}。 */
 .chat-body>*:first-child{margin-top:0}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-body>*:last-child{margin-bottom:0}。 */
 .chat-body>*:last-child{margin-bottom:0}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-body p{margin:0 0 10px}。 */
 .chat-body p{margin:0 0 10px}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-body h3,.chat-body h4,.chat-body h5,.chat-body h6{margin:14px 0 8px;font-size:1.02e…。 */
 .chat-body h3,.chat-body h4,.chat-body h5,.chat-body h6{margin:14px 0 8px;font-size:1.02em;font-weight:700;color:#e9f8f1}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-body ul,.chat-body ol{margin:6px 0 10px;padding-left:22px}。 */
 .chat-body ul,.chat-body ol{margin:6px 0 10px;padding-left:22px}
 /* Tailwind 预置样式清空了列表标记，这里显式恢复，保证回答里的清单看得见。 */
+/* 【逐行批注】 定义或补充当前界面样式：.chat-body ul{list-style:disc}。 */
 .chat-body ul{list-style:disc}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-body ol{list-style:decimal}。 */
 .chat-body ol{list-style:decimal}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-body ul ul{list-style:circle}。 */
 .chat-body ul ul{list-style:circle}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-body ul ul ul{list-style:square}。 */
 .chat-body ul ul ul{list-style:square}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-body li{margin:4px 0}。 */
 .chat-body li{margin:4px 0}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-body blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid #a4e5d2;border-…。 */
 .chat-body blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid #a4e5d2;border-radius:0 6px 6px 0;background:#182a26;color:#c2d4d0}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-body code{padding:1px 5px;border-radius:4px;background:#20332d;font-family:Consolas…。 */
 .chat-body code{padding:1px 5px;border-radius:4px;background:#20332d;font-family:Consolas,"Courier New",monospace;font-size:.94em}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-body a{color:#a4e5d2;text-decoration:underline}。 */
 .chat-body a{color:#a4e5d2;text-decoration:underline}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-body hr{margin:12px 0;border:0;border-top:1px solid #47645c}。 */
 .chat-body hr{margin:12px 0;border:0;border-top:1px solid #47645c}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-body .katex{color:inherit;font-size:1.03em}。 */
 .chat-body .katex{color:inherit;font-size:1.03em}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-body .katex-display{margin:10px 0;overflow-x:auto;overflow-y:hidden}。 */
 .chat-body .katex-display{margin:10px 0;overflow-x:auto;overflow-y:hidden}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-code{margin:8px 0;border:1px solid #3d6259;border-radius:8px;background:#0f1a17;ove…。 */
 .chat-code{margin:8px 0;border:1px solid #3d6259;border-radius:8px;background:#0f1a17;overflow:hidden}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-code pre{margin:0;padding:10px 12px;overflow-x:auto}。 */
 .chat-code pre{margin:0;padding:10px 12px;overflow-x:auto}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-code code{padding:0;background:none;white-space:pre}。 */
 .chat-code code{padding:0;background:none;white-space:pre}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-code-lang{display:block;padding:5px 12px;background:#1b2c27;color:#95a3a6;font-size…。 */
 .chat-code-lang{display:block;padding:5px 12px;background:#1b2c27;color:#95a3a6;font-size:12px}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-cursor{display:inline-block;width:2px;height:1em;margin-left:2px;vertical-align:-2p…。 */
 .chat-cursor{display:inline-block;width:2px;height:1em;margin-left:2px;vertical-align:-2px;background:#a4e5d2;animation:chat-blink 1s steps(2,start) infinite}
+/* 【逐行批注】 定义界面动画关键帧：@keyframes chat-blink{to{visibility:hidden}}。 */
 @keyframes chat-blink{to{visibility:hidden}}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-thinking{display:inline-flex;align-items:center;gap:6px;color:#95a3a6}。 */
 .chat-thinking{display:inline-flex;align-items:center;gap:6px;color:#95a3a6}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-thinking i{width:6px;height:6px;border-radius:50%;background:#a4e5d2;animation:chat…。 */
 .chat-thinking i{width:6px;height:6px;border-radius:50%;background:#a4e5d2;animation:chat-bounce 1.1s infinite ease-in-out}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-thinking i:nth-child(2){animation-delay:.15s}。 */
 .chat-thinking i:nth-child(2){animation-delay:.15s}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-thinking i:nth-child(3){animation-delay:.3s;margin-right:4px}。 */
 .chat-thinking i:nth-child(3){animation-delay:.3s;margin-right:4px}
+/* 【逐行批注】 定义界面动画关键帧：@keyframes chat-bounce{0%,70%,100%{transform:translateY(0);opacity:.45}35%…。 */
 @keyframes chat-bounce{0%,70%,100%{transform:translateY(0);opacity:.45}35%{transform:translateY(-4px);opacity:1}}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-error{margin:8px 0 0;color:#ffb4a8}。 */
 .chat-error{margin:8px 0 0;color:#ffb4a8}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px;padd…。 */
 .chat-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid #3d6259}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-actions:empty{display:none}。 */
 .chat-actions:empty{display:none}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-copy{min-height:32px;padding:4px 12px;border:1px solid #8cdec5;border-radius:999px;…。 */
 .chat-copy{min-height:32px;padding:4px 12px;border:1px solid #8cdec5;border-radius:999px;background:transparent;color:#a4e5d2;font-size:12px;font-weight:600}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-copy:hover{background:#20332d}。 */
 .chat-copy:hover{background:#20332d}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-chips{display:flex;flex-wrap:wrap;gap:8px}。 */
 .chat-chips{display:flex;flex-wrap:wrap;gap:8px}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-chip{min-height:32px;max-width:100%;padding:4px 12px;border:1px solid #47645c;borde…。 */
 .chat-chip{min-height:32px;max-width:100%;padding:4px 12px;border:1px solid #47645c;border-radius:999px;background:#182a26;color:#dff5ec;font-size:12.5px;text-align:left}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-chip:hover{border-color:#a4e5d2;background:#20332d}。 */
 .chat-chip:hover{border-color:#a4e5d2;background:#20332d}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-jump-wrap{position:sticky;bottom:10px;z-index:6;display:flex;justify-content:center…。 */
 .chat-jump-wrap{position:sticky;bottom:10px;z-index:6;display:flex;justify-content:center;pointer-events:none;margin-top:-4px}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-jump-wrap[hidden]{display:none}。 */
 .chat-jump-wrap[hidden]{display:none}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-jump{pointer-events:auto;min-height:34px;padding:6px 16px;border:1px solid #8cdec5;…。 */
 .chat-jump{pointer-events:auto;min-height:34px;padding:6px 16px;border:1px solid #8cdec5;border-radius:999px;background:#10251f;color:#a4e5d2;font-size:12.5px;font-weight:600;box-shadow:0 6px 18px #0009}
+/* 【逐行批注】 定义响应式媒体查询条件：@media (prefers-reduced-motion: reduce){。 */
 @media (prefers-reduced-motion: reduce){
+  /* 【逐行批注】 定义或补充当前界面样式：.chat-cursor,.chat-thinking i{animation:none}。 */
   .chat-cursor,.chat-thinking i{animation:none}
+/* 【逐行批注】 结束当前样式规则。 */
 }
 
+/* 【逐行批注】 定义或补充当前界面样式：.chat-toolbar{display:flex;justify-content:flex-end;gap:8px;margin:14px 0 0}。 */
 .chat-toolbar{display:flex;justify-content:flex-end;gap:8px;margin:14px 0 0}
+/* 【逐行批注】 定义或补充当前界面样式：.chat-empty{margin:0;padding:24px;border:1px dashed #3d6259;border-radius:12px;text-align…。 */
 .chat-empty{margin:0;padding:24px;border:1px dashed #3d6259;border-radius:12px;text-align:center;color:#95a3a6;font-size:13.5px}
 
 /* ---- 用户中心 ---- */
+/* 【逐行批注】 定义或补充当前界面样式：.uc-main{padding:22px 0 44px}。 */
 .uc-main{padding:22px 0 44px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-shell{display:grid;grid-template-columns:232px minmax(0,1fr);gap:20px;align-items:sta…。 */
 .uc-shell{display:grid;grid-template-columns:232px minmax(0,1fr);gap:20px;align-items:start;width:100%;max-width:1180px;margin:0 auto;padding:0 16px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-side{position:sticky;top:16px;display:flex;flex-direction:column;gap:14px;padding:16p…。 */
 .uc-side{position:sticky;top:16px;display:flex;flex-direction:column;gap:14px;padding:16px;border:1px solid #3d6259;border-radius:12px;background:#14221f}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-identity{display:flex;gap:10px;align-items:center}。 */
 .uc-identity{display:flex;gap:10px;align-items:center}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-avatar{display:grid;place-items:center;width:42px;height:42px;border-radius:50%;backg…。 */
 .uc-avatar{display:grid;place-items:center;width:42px;height:42px;border-radius:50%;background:#a4e5d2;color:#10251f;font-weight:700;font-size:18px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-identity strong{display:block;color:#edf3ef;font-size:14px}。 */
 .uc-identity strong{display:block;color:#edf3ef;font-size:14px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-identity small{color:#95a3a6;font-size:12px}。 */
 .uc-identity small{color:#95a3a6;font-size:12px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-nav{display:flex;flex-direction:column;gap:4px}。 */
 .uc-nav{display:flex;flex-direction:column;gap:4px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-nav a{display:block;min-height:36px;padding:8px 12px;border-radius:8px;color:#c2d4d0;…。 */
 .uc-nav a{display:block;min-height:36px;padding:8px 12px;border-radius:8px;color:#c2d4d0;text-decoration:none;font-size:13.5px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-nav a:hover{background:#1b2c27;color:#edf3ef}。 */
 .uc-nav a:hover{background:#1b2c27;color:#edf3ef}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-nav a.is-active{background:#20332d;color:#a4e5d2;font-weight:700}。 */
 .uc-nav a.is-active{background:#20332d;color:#a4e5d2;font-weight:700}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-primary{display:inline-flex;align-items:center;justify-content:center;min-height:42px…。 */
 .uc-primary{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:9px 16px;border:1px solid #8cdec5;border-radius:9px;background:#a4e5d2;color:#10251f;font-size:13.5px;font-weight:700;text-decoration:none;cursor:pointer}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-primary:hover{background:#c0f5e5}。 */
 .uc-primary:hover{background:#c0f5e5}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-primary:disabled{background:#263a34;color:#c2d4d0;border-color:#8da69d;cursor:wait}。 */
 .uc-primary:disabled{background:#263a34;color:#c2d4d0;border-color:#8da69d;cursor:wait}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-content{display:flex;flex-direction:column;gap:18px;min-width:0}。 */
 .uc-content{display:flex;flex-direction:column;gap:18px;min-width:0}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-head h1{margin:6px 0 0;font-size:clamp(26px,3.4vw,38px);color:#edf3ef}。 */
 .uc-head h1{margin:6px 0 0;font-size:clamp(26px,3.4vw,38px);color:#edf3ef}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-lead{margin:10px 0 0;color:#95a3a6;font-size:14px;line-height:1.8}。 */
 .uc-lead{margin:10px 0 0;color:#95a3a6;font-size:14px;line-height:1.8}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-eyebrow{margin:0;color:#a4e5d2;font-size:12px;font-weight:700;letter-spacing:.08em}。 */
 .uc-eyebrow{margin:0;color:#a4e5d2;font-size:12px;font-weight:700;letter-spacing:.08em}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-message{margin:0;color:#ffd9a1;font-size:13px}。 */
 .uc-message{margin:0;color:#ffd9a1;font-size:13px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-message:empty{display:none}。 */
 .uc-message:empty{display:none}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-section{display:flex;flex-direction:column;gap:12px;scroll-margin-top:20px}。 */
 .uc-section{display:flex;flex-direction:column;gap:12px;scroll-margin-top:20px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-section-title{margin:0;font-size:19px;color:#e9f8f1}。 */
 .uc-section-title{margin:0;font-size:19px;color:#e9f8f1}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-card{padding:18px;border:1px solid #3d6259;border-radius:12px;background:#14221f;colo…。 */
 .uc-card{padding:18px;border:1px solid #3d6259;border-radius:12px;background:#14221f;color:#edf3ef}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-card h3{margin:0 0 10px;font-size:15px;color:#e9f8f1}。 */
 .uc-card h3{margin:0 0 10px;font-size:15px;color:#e9f8f1}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-card p{margin:0 0 8px;line-height:1.8;color:#c2d4d0;font-size:13.5px}。 */
 .uc-card p{margin:0 0 8px;line-height:1.8;color:#c2d4d0;font-size:13.5px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-card p:last-child{margin-bottom:0}。 */
 .uc-card p:last-child{margin-bottom:0}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-stats{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(148px,1fr))}。 */
 .uc-stats{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(148px,1fr))}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-stat p{margin:0;color:#95a3a6;font-size:12.5px}。 */
 .uc-stat p{margin:0;color:#95a3a6;font-size:12.5px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-stat b{display:block;margin-top:8px;font-size:30px;line-height:1.1;color:#a4e5d2}。 */
 .uc-stat b{display:block;margin-top:8px;font-size:30px;line-height:1.1;color:#a4e5d2}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-stat b i{margin-left:2px;font-size:15px;font-style:normal}。 */
 .uc-stat b i{margin-left:2px;font-size:15px;font-style:normal}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-stat span{display:block;margin-top:6px;color:#95a3a6;font-size:12px}。 */
 .uc-stat span{display:block;margin-top:6px;color:#95a3a6;font-size:12px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-empty{margin:0;color:#95a3a6;font-size:13.5px;line-height:1.8}。 */
 .uc-empty{margin:0;color:#95a3a6;font-size:13.5px;line-height:1.8}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-due-list{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:8px}。 */
 .uc-due-list{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:8px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-due-list li{color:#c2d4d0;font-size:13.5px}。 */
 .uc-due-list li{color:#c2d4d0;font-size:13.5px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-due-list a{color:#edf3ef;text-decoration:none;display:flex;flex-wrap:wrap;gap:8px;ali…。 */
 .uc-due-list a{color:#edf3ef;text-decoration:none;display:flex;flex-wrap:wrap;gap:8px;align-items:baseline}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-due-list a:hover{color:#a4e5d2}。 */
 .uc-due-list a:hover{color:#a4e5d2}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-due-list span{color:#95a3a6;font-size:12.5px}。 */
 .uc-due-list span{color:#95a3a6;font-size:12.5px}
+/* 【逐行批注】 定义或补充当前界面样式：#uc-courses{display:grid;grid-template-columns:repeat(auto-fit,minmax(272px,1fr));gap:12p…。 */
 #uc-courses{display:grid;grid-template-columns:repeat(auto-fit,minmax(272px,1fr));gap:12px}
+/* 【逐行批注】 定义或补充当前界面样式：#uc-courses .uc-section-title{grid-column:1/-1}。 */
 #uc-courses .uc-section-title{grid-column:1/-1}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-empty-card{grid-column:1/-1;text-align:center}。 */
 .uc-empty-card{grid-column:1/-1;text-align:center}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-course{display:flex;flex-direction:column;gap:10px}。 */
 .uc-course{display:flex;flex-direction:column;gap:10px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-course-top{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;justify-content…。 */
 .uc-course-top{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;justify-content:space-between}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-course-title{margin:4px 0 0;font-size:16px;color:#edf3ef;overflow-wrap:anywhere}。 */
 .uc-course-title{margin:4px 0 0;font-size:16px;color:#edf3ef;overflow-wrap:anywhere}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-course-goal{margin:0;color:#c2d4d0;font-size:13.5px;line-height:1.8;overflow-wrap:any…。 */
 .uc-course-goal{margin:0;color:#c2d4d0;font-size:13.5px;line-height:1.8;overflow-wrap:anywhere}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-badge{padding:3px 9px;border-radius:999px;font-size:12px;font-weight:700}。 */
 .uc-badge{padding:3px 9px;border-radius:999px;font-size:12px;font-weight:700}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-badge-warn{background:#3b2c14;color:#ffe3a1;border:1px solid #a6884c}。 */
 .uc-badge-warn{background:#3b2c14;color:#ffe3a1;border:1px solid #a6884c}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-bar{height:8px;border-radius:999px;background:#20332d;overflow:hidden}。 */
 .uc-bar{height:8px;border-radius:999px;background:#20332d;overflow:hidden}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-bar i{display:block;height:100%;border-radius:999px;background:#a4e5d2}。 */
 .uc-bar i{display:block;height:100%;border-radius:999px;background:#a4e5d2}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-course-meta{margin:0;color:#95a3a6;font-size:12.5px}。 */
 .uc-course-meta{margin:0;color:#95a3a6;font-size:12.5px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-course-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:2px}。 */
 .uc-course-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:2px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-course-actions .uc-primary{min-height:38px;font-size:13px}。 */
 .uc-course-actions .uc-primary{min-height:38px;font-size:13px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-ghost-danger{min-height:38px;padding:8px 12px;border:1px solid #47645c;border-radius:…。 */
 .uc-ghost-danger{min-height:38px;padding:8px 12px;border:1px solid #47645c;border-radius:9px;background:transparent;color:#c2d4d0;font-size:13px;font-weight:600;cursor:pointer}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-ghost-danger:hover{border-color:#a6884c;color:#ffe3a1}。 */
 .uc-ghost-danger:hover{border-color:#a6884c;color:#ffe3a1}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-ghost-danger:disabled{opacity:.6;cursor:wait}。 */
 .uc-ghost-danger:disabled{opacity:.6;cursor:wait}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-course-created{margin:0;color:#95a3a6;font-size:12px}。 */
 .uc-course-created{margin:0;color:#95a3a6;font-size:12px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-hint{margin:0 0 8px;color:#95a3a6;font-size:13px}。 */
 .uc-hint{margin:0 0 8px;color:#95a3a6;font-size:13px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-summary{margin:0;color:#a4e5d2;font-size:13.5px;font-weight:600}。 */
 .uc-summary{margin:0;color:#a4e5d2;font-size:13.5px;font-weight:600}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-availability{margin:0;padding:0;border:0}。 */
 .uc-availability{margin:0;padding:0;border:0}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-availability-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr…。 */
 .uc-availability-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-profile-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(220px…。 */
 .uc-profile-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-profile-item{padding:14px;border:1px solid #47645c;border-radius:10px;background:#182…。 */
 .uc-profile-item{padding:14px;border:1px solid #47645c;border-radius:10px;background:#182a26}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-profile-item b{display:block;margin:8px 0;font-size:22px;color:#a4e5d2}。 */
 .uc-profile-item b{display:block;margin:8px 0;font-size:22px;color:#a4e5d2}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-note{margin:0 0 6px;color:#c2d4d0;font-size:12.5px;line-height:1.75}。 */
 .uc-note{margin:0 0 6px;color:#c2d4d0;font-size:12.5px;line-height:1.75}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-topic-list{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:…。 */
 .uc-topic-list{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-topic-list li{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:…。 */
 .uc-topic-list li{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid #47645c;border-radius:10px;background:#182a26}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-topic-list strong{display:block;color:#edf3ef;font-size:13.5px}。 */
 .uc-topic-list strong{display:block;color:#edf3ef;font-size:13.5px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-topic-list span{color:#95a3a6;font-size:12px}。 */
 .uc-topic-list span{color:#95a3a6;font-size:12px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-topic-score{color:#a4e5d2;font-size:14px;font-weight:700;text-align:right}。 */
 .uc-topic-score{color:#a4e5d2;font-size:14px;font-weight:700;text-align:right}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-topic-score small{display:block;margin-top:2px;color:#95a3a6;font-size:11.5px;font-we…。 */
 .uc-topic-score small{display:block;margin-top:2px;color:#95a3a6;font-size:11.5px;font-weight:400}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-settings{display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:spac…。 */
 .uc-settings{display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-settings>div{flex:1 1 320px;min-width:0}。 */
 .uc-settings>div{flex:1 1 320px;min-width:0}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-data ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px}。 */
 .uc-data ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-data li{color:#c2d4d0;font-size:13px;line-height:1.8}。 */
 .uc-data li{color:#c2d4d0;font-size:13px;line-height:1.8}
+/* 【逐行批注】 定义或补充当前界面样式：.uc-data code{padding:1px 5px;border-radius:4px;background:#20332d;font-size:12.5px}。 */
 .uc-data code{padding:1px 5px;border-radius:4px;background:#20332d;font-size:12.5px}
+/* 【逐行批注】 定义响应式媒体查询条件：@media (max-width:900px){。 */
 @media (max-width:900px){
+  /* 【逐行批注】 定义或补充当前界面样式：.uc-shell{grid-template-columns:1fr}。 */
   .uc-shell{grid-template-columns:1fr}
+  /* 【逐行批注】 定义或补充当前界面样式：.uc-side{position:static}。 */
   .uc-side{position:static}
+  /* 【逐行批注】 定义或补充当前界面样式：.uc-nav{flex-direction:row;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}。 */
   .uc-nav{flex-direction:row;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
+  /* 【逐行批注】 定义或补充当前界面样式：.uc-nav a{white-space:nowrap;border:1px solid #47645c}。 */
   .uc-nav a{white-space:nowrap;border:1px solid #47645c}
+  /* 【逐行批注】 定义或补充当前界面样式：.uc-nav a.is-active{border-color:#a4e5d2}。 */
   .uc-nav a.is-active{border-color:#a4e5d2}
+  /* 【逐行批注】 定义或补充当前界面样式：.uc-new{width:100%}。 */
   .uc-new{width:100%}
+/* 【逐行批注】 结束当前样式规则。 */
 }

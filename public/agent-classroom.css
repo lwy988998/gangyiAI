@@ -1,87 +1,171 @@
+/* 【逐行批注】 定义或补充当前界面样式：:root{color-scheme:dark;--mint:#a4e5d4;--surface:#101c22;--text:#e9f2ef;--muted:#a5b8b2}。 */
 :root{color-scheme:dark;--mint:#a4e5d4;--surface:#101c22;--text:#e9f2ef;--muted:#a5b8b2}
 *{box-sizing:border-box}body{margin:0;background:#080f12;color:var(--text);font:17px/1.75 system-ui,"Microsoft YaHei",sans-serif}
+/* 【逐行批注】 定义或补充当前界面样式：header{display:flex;justify-content:space-between;gap:1rem;padding:1rem max(1rem,calc((10…。 */
 header{display:flex;justify-content:space-between;gap:1rem;padding:1rem max(1rem,calc((100vw - 1040px)/2));border-bottom:1px solid #29423e}
+/* 【逐行批注】 定义或补充当前界面样式：a{color:var(--mint)}main{max-width:1040px;margin:auto;padding:2.5rem 1rem 5rem}h1{font-si…。 */
 a{color:var(--mint)}main{max-width:1040px;margin:auto;padding:2.5rem 1rem 5rem}h1{font-size:clamp(1.8rem,4vw,2.6rem)}h2,h3{line-height:1.4}
+/* 【逐行批注】 定义或补充当前界面样式：.eyebrow,#page-status,.agent-note{color:var(--muted)}.agent-card{padding:1.5rem;margin:1.…。 */
 .eyebrow,#page-status,.agent-note{color:var(--muted)}.agent-card{padding:1.5rem;margin:1.25rem 0;background:var(--surface);border:1px solid #2c4444;border-radius:20px}
+/* 【逐行批注】 定义或补充当前界面样式：textarea{display:block;width:100%;padding:1rem;margin:.5rem 0 1rem;border:1px solid #5065…。 */
 textarea{display:block;width:100%;padding:1rem;margin:.5rem 0 1rem;border:1px solid #50655f;border-radius:12px;background:#0a1317;color:var(--text);font:inherit;resize:vertical}
+/* 【逐行批注】 定义或补充当前界面样式：button{padding:.65rem 1rem;margin:.3rem .45rem .3rem 0;border:1px solid transparent;borde…。 */
 button{padding:.65rem 1rem;margin:.3rem .45rem .3rem 0;border:1px solid transparent;border-radius:12px;background:var(--mint);color:#102b24;font:inherit;cursor:pointer}
+/* 【逐行批注】 定义或补充当前界面样式：button.secondary{background:transparent;border-color:#48625a;color:var(--mint)}button:dis…。 */
 button.secondary{background:transparent;border-color:#48625a;color:var(--mint)}button:disabled{opacity:.5;cursor:wait}
+/* 【逐行批注】 定义或补充当前界面样式：:focus-visible{outline:3px solid #e2fbd8;outline-offset:4px}.agent-dialog{display:grid;ga…。 */
 :focus-visible{outline:3px solid #e2fbd8;outline-offset:4px}.agent-dialog{display:grid;gap:1rem}.agent-message{padding:1rem;border-radius:14px;white-space:pre-wrap;overflow-wrap:anywhere}
+/* 【逐行批注】 定义或补充当前界面样式：.agent-message.user{background:#223e37}.agent-message.assistant{background:#152a2a}.agent…。 */
 .agent-message.user{background:#223e37}.agent-message.assistant{background:#152a2a}.agent-options label{display:flex;gap:.75rem;padding:.5rem}
+/* 【逐行批注】 定义或补充当前界面样式：.agent-toolbar{display:flex;flex-wrap:wrap;align-items:center}.agent-error{color:#ffc2bb}…。 */
 .agent-toolbar{display:flex;flex-wrap:wrap;align-items:center}.agent-error{color:#ffc2bb}.agent-preview{white-space:pre-wrap;overflow-wrap:anywhere}
+/* 【逐行批注】 定义响应式媒体查询条件：@media(max-width:540px){main{padding:1.25rem .75rem 3rem}.agent-card{paddi…。 */
 @media(max-width:540px){main{padding:1.25rem .75rem 3rem}.agent-card{padding:1rem;border-radius:14px}button{font-size:15px}}
+/* 【逐行批注】 定义响应式媒体查询条件：@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;ani…。 */
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
 
 /* 聊天课堂使用独立滚动区，输入栏占用真实布局空间，正文完整保留。 */
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom{height:100dvh;overflow:hidden}。 */
 .gy-chat-classroom{height:100dvh;overflow:hidden}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .dark-footer{display:none}。 */
 .gy-chat-classroom .dark-footer{display:none}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app.gy-chat-classroom .lesson-page{height:calc(100dvh - 76px);min-height:0!importan…。 */
 .dark-app.gy-chat-classroom .lesson-page{height:calc(100dvh - 76px);min-height:0!important;max-width:none;display:flex;flex-direction:column;position:relative;padding:12px 24px 12px;overflow:hidden}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .course-context-navigation{flex:none;margin:0 0 10px;padding:0 0 10px;…。 */
 .gy-chat-classroom .course-context-navigation{flex:none;margin:0 0 10px;padding:0 0 10px;min-height:32px;font-size:12px}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .course-breadcrumbs{min-width:0;gap:8px}。 */
 .gy-chat-classroom .course-breadcrumbs{min-width:0;gap:8px}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .course-breadcrumbs>a:nth-of-type(2){max-width:350px;overflow:hidden;t…。 */
 .gy-chat-classroom .course-breadcrumbs>a:nth-of-type(2){max-width:350px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .course-context-actions a{padding:6px 10px;font-size:11px}。 */
 .gy-chat-classroom .course-context-actions a{padding:6px 10px;font-size:11px}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app.gy-chat-classroom .lesson-heading{display:flex;align-items:center;gap:16px;flex…。 */
 .dark-app.gy-chat-classroom .lesson-heading{display:flex;align-items:center;gap:16px;flex:none;padding:0 0 10px;margin:0;border:0}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .lesson-heading>div{min-width:0;flex:1}。 */
 .gy-chat-classroom .lesson-heading>div{min-width:0;flex:1}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app.gy-chat-classroom .lesson-heading h1{font-size:20px;line-height:1.45;margin:0;o…。 */
 .dark-app.gy-chat-classroom .lesson-heading h1{font-size:20px;line-height:1.45;margin:0;overflow-wrap:anywhere}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app.gy-chat-classroom .lesson-heading .uc-eyebrow{margin:0 0 3px;font-size:10px}。 */
 .dark-app.gy-chat-classroom .lesson-heading .uc-eyebrow{margin:0 0 3px;font-size:10px}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app.gy-chat-classroom #lesson-purpose{font-size:11px;margin:3px 0 0;color:var(--gy-…。 */
 .dark-app.gy-chat-classroom #lesson-purpose{font-size:11px;margin:3px 0 0;color:var(--gy-muted);max-height:36px;overflow:auto}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app.gy-chat-classroom .lesson-tabs{flex:0 0 auto;width:auto;display:flex;gap:2px;ma…。 */
 .dark-app.gy-chat-classroom .lesson-tabs{flex:0 0 auto;width:auto;display:flex;gap:2px;margin:0;padding:3px;border:1px solid #35545a;border-radius:9px;background:#0c1d24}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app.gy-chat-classroom .lesson-tabs button{padding:8px 14px;margin:0;background:tran…。 */
 .dark-app.gy-chat-classroom .lesson-tabs button{padding:8px 14px;margin:0;background:transparent;color:var(--gy-muted);border-radius:6px;font-size:12px;border:0}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app.gy-chat-classroom .lesson-tabs button[aria-pressed=true]{background:#21423d;col…。 */
 .dark-app.gy-chat-classroom .lesson-tabs button[aria-pressed=true]{background:#21423d;color:var(--gy-accent);box-shadow:none}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app.gy-chat-classroom .lesson-tabs a{padding:8px 14px;margin:0;background:transpare…。 */
 .dark-app.gy-chat-classroom .lesson-tabs a{padding:8px 14px;margin:0;background:transparent;color:var(--gy-muted);border-radius:6px;font-size:12px;border:0;text-decoration:none}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app.gy-chat-classroom .lesson-tabs a[aria-current=page]{background:#21423d;color:va…。 */
 .dark-app.gy-chat-classroom .lesson-tabs a[aria-current=page]{background:#21423d;color:var(--gy-accent);box-shadow:none}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom #lesson-next-step{flex:none;margin:0 0 7px;font-size:12px;line-height:…。 */
 .gy-chat-classroom #lesson-next-step{flex:none;margin:0 0 7px;font-size:12px;line-height:1.5;color:var(--gy-muted)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom #lesson-next-step a{margin-left:10px;color:var(--gy-accent)}。 */
 .gy-chat-classroom #lesson-next-step a{margin-left:10px;color:var(--gy-accent)}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app.gy-chat-classroom #page-status{flex:none;margin:0 0 7px;font-size:11px;line-hei…。 */
 .dark-app.gy-chat-classroom #page-status{flex:none;margin:0 0 7px;font-size:11px;line-height:1.5;max-height:48px;overflow:auto}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom #page-status a{margin-left:10px}。 */
 .gy-chat-classroom #page-status a{margin-left:10px}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom #lesson-scroll{flex:1;min-height:0;overflow:auto;overflow-anchor:none;…。 */
 .gy-chat-classroom #lesson-scroll{flex:1;min-height:0;overflow:auto;overflow-anchor:none;overscroll-behavior:contain;scrollbar-gutter:stable;padding:12px max(16px,calc((100% - 820px)/2)) 20px;border-top:1px solid #294a50}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom #lesson-sections{display:flex;flex-direction:column;gap:24px;min-width…。 */
 .gy-chat-classroom #lesson-sections{display:flex;flex-direction:column;gap:24px;min-width:0}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom :is(.chat-message,.chat-section,.chat-evaluation){min-width:0;overflow…。 */
 .gy-chat-classroom :is(.chat-message,.chat-section,.chat-evaluation){min-width:0;overflow-wrap:anywhere;font-size:15px;line-height:1.9}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .chat-author{font-size:11px;font-weight:600;letter-spacing:.3px;color:…。 */
 .gy-chat-classroom .chat-author{font-size:11px;font-weight:600;letter-spacing:.3px;color:var(--gy-accent);margin:0 0 8px}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .chat-message.assistant{padding:4px 0;background:transparent}。 */
 .gy-chat-classroom .chat-message.assistant{padding:4px 0;background:transparent}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .chat-message.user{align-self:flex-end;max-width:85%;padding:12px 18px…。 */
 .gy-chat-classroom .chat-message.user{align-self:flex-end;max-width:85%;padding:12px 18px;border:1px solid #345b50;border-radius:16px 16px 4px 16px;background:#173630}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .chat-message.user .chat-message-body{white-space:pre-wrap}。 */
 .gy-chat-classroom .chat-message.user .chat-message-body{white-space:pre-wrap}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .chat-message.user .chat-author{color:#a6cbbf}。 */
 .gy-chat-classroom .chat-message.user .chat-author{color:#a6cbbf}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom :is(.chat-section,.chat-evaluation){padding:18px 20px;border:1px solid…。 */
 .gy-chat-classroom :is(.chat-section,.chat-evaluation){padding:18px 20px;border:1px solid #34554f;border-radius:12px;background:#10242a}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .chat-section.is-current-question{border-color:#82beaa;box-shadow:inse…。 */
 .gy-chat-classroom .chat-section.is-current-question{border-color:#82beaa;box-shadow:inset 3px 0 #9fe7d9}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .chat-evaluation{background:#122a24;border-color:#355c49}。 */
 .gy-chat-classroom .chat-evaluation{background:#122a24;border-color:#355c49}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom :is(.chat-section,.chat-evaluation) h2{font-size:18px;line-height:1.5;…。 */
 .gy-chat-classroom :is(.chat-section,.chat-evaluation) h2{font-size:18px;line-height:1.5;margin:0 0 10px}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .chat-partial{font-size:11px;color:#d7bd83;padding-top:8px;margin:8px …。 */
 .gy-chat-classroom .chat-partial{font-size:11px;color:#d7bd83;padding-top:8px;margin:8px 0 0;border-top:1px dashed #536351}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom :is(.chat-message-body,.lesson-body){white-space:normal;min-width:0}。 */
 .gy-chat-classroom :is(.chat-message-body,.lesson-body){white-space:normal;min-width:0}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom :is(.chat-message-body,.lesson-body) :is(pre,.katex-display,.chat-code…。 */
 .gy-chat-classroom :is(.chat-message-body,.lesson-body) :is(pre,.katex-display,.chat-code){max-width:100%;overflow:auto}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom :is(.chat-message-body,.lesson-body) pre{white-space:pre}。 */
 .gy-chat-classroom :is(.chat-message-body,.lesson-body) pre{white-space:pre}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom :is(.chat-message-body,.lesson-body) :is(p,ul,ol){margin:0 0 12px}。 */
 .gy-chat-classroom :is(.chat-message-body,.lesson-body) :is(p,ul,ol){margin:0 0 12px}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom :is(.chat-message-body,.lesson-body)>:last-child{margin-bottom:0}。 */
 .gy-chat-classroom :is(.chat-message-body,.lesson-body)>:last-child{margin-bottom:0}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom :is(.agent-materials,.chat-message-body,.lesson-body) img{max-width:10…。 */
 .gy-chat-classroom :is(.agent-materials,.chat-message-body,.lesson-body) img{max-width:100%}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .agent-material-table{display:block;max-width:100%;overflow:auto}。 */
 .gy-chat-classroom .agent-material-table{display:block;max-width:100%;overflow:auto}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .agent-options{display:grid;gap:8px;margin:12px 0}。 */
 .gy-chat-classroom .agent-options{display:grid;gap:8px;margin:12px 0}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .agent-options label{display:flex;align-items:flex-start;padding:10px …。 */
 .gy-chat-classroom .agent-options label{display:flex;align-items:flex-start;padding:10px 12px;gap:10px;background:#0c1c21;border:1px solid #2d4947;border-radius:7px;cursor:pointer}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .agent-options input{flex:none;width:16px;height:16px;margin-top:5px;a…。 */
 .gy-chat-classroom .agent-options input{flex:none;width:16px;height:16px;margin-top:5px;accent-color:#9fe7d9}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .agent-options label:has(input:checked){border-color:#89bfaa;backgroun…。 */
 .gy-chat-classroom .agent-options label:has(input:checked){border-color:#89bfaa;background:#1b3932}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .question-actions{display:flex;flex-wrap:wrap;gap:7px}。 */
 .gy-chat-classroom .question-actions{display:flex;flex-wrap:wrap;gap:7px}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .question-actions button{font-size:12px;margin:0;padding:7px 12px}。 */
 .gy-chat-classroom .question-actions button{font-size:12px;margin:0;padding:7px 12px}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .question-note{font-size:12px;color:#dabd81;margin:8px 0 0}。 */
 .gy-chat-classroom .question-note{font-size:12px;color:#dabd81;margin:8px 0 0}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .question-note:empty{display:none}。 */
 .gy-chat-classroom .question-note:empty{display:none}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .saved-materials{border:1px solid #2b4648;border-radius:9px;padding:12…。 */
 .gy-chat-classroom .saved-materials{border:1px solid #2b4648;border-radius:9px;padding:12px 16px;color:var(--gy-muted);font-size:12px}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .saved-materials[open]>.chat-section{margin-top:14px;color:var(--gy-te…。 */
 .gy-chat-classroom .saved-materials[open]>.chat-section{margin-top:14px;color:var(--gy-text)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .lesson-completion{font-size:12px;margin:20px 0 0;color:var(--gy-muted…。 */
 .gy-chat-classroom .lesson-completion{font-size:12px;margin:20px 0 0;color:var(--gy-muted);border-top:1px solid #29494c;padding-top:14px}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom #lesson-summary-content>.chat-section,.gy-chat-classroom #lesson-summa…。 */
 .gy-chat-classroom #lesson-summary-content>.chat-section,.gy-chat-classroom #lesson-summary-content>.chat-evaluation{margin-top:14px;color:var(--gy-text)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom #lesson-summary>summary{color:var(--gy-accent)}。 */
 .gy-chat-classroom #lesson-summary>summary{color:var(--gy-accent)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .chat-reference{margin:18px 0;border-top:1px solid #2d4947;padding-top…。 */
 .gy-chat-classroom .chat-reference{margin:18px 0;border-top:1px solid #2d4947;padding-top:14px}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app.gy-chat-classroom #lesson-chat-panel{flex:none;margin:0;padding:9px 12px;backgr…。 */
 .dark-app.gy-chat-classroom #lesson-chat-panel{flex:none;margin:0;padding:9px 12px;background:#11242b;border:1px solid #42675e;border-radius:14px;box-shadow:0 -8px 22px #081117bb}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .composer-context{display:flex;align-items:center;gap:10px;min-width:0…。 */
 .gy-chat-classroom .composer-context{display:flex;align-items:center;gap:10px;min-width:0;font-size:11px;color:#a4c6b9;line-height:1.4}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom #composer-target{white-space:nowrap;overflow:hidden;text-overflow:elli…。 */
 .gy-chat-classroom #composer-target{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom #composer-chat{font-size:10px;margin:0;padding:3px 7px;flex:none}。 */
 .gy-chat-classroom #composer-chat{font-size:10px;margin:0;padding:3px 7px;flex:none}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom #lesson-chat{display:flex;align-items:flex-end;gap:10px}。 */
 .gy-chat-classroom #lesson-chat{display:flex;align-items:flex-end;gap:10px}
+/* 【逐行批注】 定义或补充当前界面样式：.dark-app.gy-chat-classroom #lesson-input{flex:1;min-width:0;min-height:48px;max-height:1…。 */
 .dark-app.gy-chat-classroom #lesson-input{flex:1;min-width:0;min-height:48px;max-height:136px;resize:none;border:0;background:transparent;padding:8px 0;margin:0;line-height:1.7;font-size:14px;box-shadow:none}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom #lesson-send{flex:none;font-size:12px;padding:8px 14px;margin:0 0 5px;…。 */
 .gy-chat-classroom #lesson-send{flex:none;font-size:12px;padding:8px 14px;margin:0 0 5px;border-radius:8px}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .composer-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:6…。 */
 .gy-chat-classroom .composer-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-top:5px;border-top:1px solid #2f4b4b}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .composer-toolbar button{padding:3px 8px;font-size:11px;margin:0;borde…。 */
 .gy-chat-classroom .composer-toolbar button{padding:3px 8px;font-size:11px;margin:0;border:0;color:var(--gy-accent)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom #lesson-task-status{font-size:10px;color:var(--gy-muted);margin-left:a…。 */
 .gy-chat-classroom #lesson-task-status{font-size:10px;color:var(--gy-muted);margin-left:auto;max-width:55%;max-height:34px;overflow:auto;line-height:1.5}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom #lesson-latest{position:absolute;left:50%;transform:translateX(-50%);b…。 */
 .gy-chat-classroom #lesson-latest{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(var(--classroom-composer-height,132px) + 25px);z-index:20;margin:0;padding:6px 14px;border:1px solid #527263;background:#173832;color:#c4eee0;border-radius:24px;font-size:12px;box-shadow:0 4px 18px #0007}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom #learning-navigation{bottom:calc(var(--classroom-composer-height,132px…。 */
 .gy-chat-classroom #learning-navigation{bottom:calc(var(--classroom-composer-height,132px) + 14px)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom #learning-navigation .gy-navigation-body{max-height:calc(100dvh - var(…。 */
 .gy-chat-classroom #learning-navigation .gy-navigation-body{max-height:calc(100dvh - var(--classroom-composer-height,132px) - 155px)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-chat-classroom .course-directory{top:88px;bottom:12px}。 */
 .gy-chat-classroom .course-directory{top:88px;bottom:12px}
+/* 【逐行批注】 定义响应式媒体查询条件：@media(max-width:900px){.dark-app.gy-chat-classroom .lesson-page{margin:0!…。 */
 @media(max-width:900px){.dark-app.gy-chat-classroom .lesson-page{margin:0!important;width:100%;padding:10px 14px 12px}.gy-chat-classroom .course-directory-mobile:not([open]){flex:none;margin:0 0 8px;padding:8px 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.gy-chat-classroom .course-context-navigation{margin-bottom:8px}.gy-chat-classroom .course-breadcrumbs>a:nth-of-type(2){max-width:210px}.gy-chat-classroom #lesson-scroll{padding:12px 5px 18px}.dark-app.gy-chat-classroom .lesson-heading h1{font-size:18px}}
+/* 【逐行批注】 定义响应式媒体查询条件：@media(max-width:700px){.dark-app.gy-chat-classroom .lesson-page{height:ca…。 */
 @media(max-width:700px){.dark-app.gy-chat-classroom .lesson-page{height:calc(100dvh - 68px)}.dark-app.gy-chat-classroom .lesson-heading{gap:8px}.dark-app.gy-chat-classroom .lesson-tabs button{padding:7px 9px;font-size:11px}.gy-chat-classroom .course-context-navigation{flex-wrap:nowrap}.gy-chat-classroom .course-context-actions{flex:none}.gy-chat-classroom .course-breadcrumbs>a:nth-of-type(2){max-width:105px}.gy-chat-classroom .course-breadcrumbs{font-size:10px;gap:4px;overflow:hidden}.gy-chat-classroom .course-breadcrumbs .breadcrumb-separator{display:none}.gy-chat-classroom .course-context-actions a{font-size:10px;padding:4px 6px}.dark-app.gy-chat-classroom .lesson-heading h1{font-size:16px}.gy-chat-classroom :is(.chat-message,.chat-section,.chat-evaluation){font-size:14px}.gy-chat-classroom :is(.chat-section,.chat-evaluation){padding:14px}.gy-chat-classroom #lesson-task-status{max-width:100%;margin-left:0}.gy-chat-classroom .chat-message.user{max-width:92%}}
+/* 【逐行批注】 定义响应式媒体查询条件：@media(max-height:650px){.dark-app.gy-chat-classroom .lesson-heading .uc-e…。 */
 @media(max-height:650px){.dark-app.gy-chat-classroom .lesson-heading .uc-eyebrow,.gy-chat-classroom #lesson-purpose{display:none}.gy-chat-classroom .course-context-navigation{margin-bottom:5px;padding-bottom:5px;min-height:25px}.dark-app.gy-chat-classroom .lesson-heading{padding-bottom:5px}.dark-app.gy-chat-classroom .lesson-heading h1{font-size:16px}.dark-app.gy-chat-classroom #page-status{margin-bottom:4px;font-size:10px}.gy-chat-classroom .course-directory-mobile:not([open]){padding:5px 10px;margin-bottom:5px}}

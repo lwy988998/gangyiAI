@@ -1,10 +1,19 @@
 /* 冷启动沿用原有完成协议，画面与澄明学习空间一致。 */
+/* 【逐行批注】 定义或补充当前界面样式：.startup-overlay{position:fixed;z-index:100;inset:0;width:100vw;height:100dvh;display:gri…。 */
 .startup-overlay{position:fixed;z-index:100;inset:0;width:100vw;height:100dvh;display:grid;place-items:center;overflow:hidden;background:#f6f8fc;color:#21324b;opacity:1;transition:opacity .45s ease-out}
+/* 【逐行批注】 定义或补充当前界面样式：.startup-overlay-grid,.scan-grid,.scan-beam,.scan-metrics,.startup-overlay-brand,.startup…。 */
 .startup-overlay-grid,.scan-grid,.scan-beam,.scan-metrics,.startup-overlay-brand,.startup-transition-layer{display:none}
+/* 【逐行批注】 定义或补充当前界面样式：.startup-scene{width:100%}.scan-art{width:min(90vw,600px);margin:auto;padding:65px 30px 7…。 */
 .startup-scene{width:100%}.scan-art{width:min(90vw,600px);margin:auto;padding:65px 30px 72px;text-align:center}
+/* 【逐行批注】 定义或补充当前界面样式：.scan-art::before{content:'';display:block;width:66px;height:66px;margin:0 auto 27px;back…。 */
 .scan-art::before{content:'';display:block;width:66px;height:66px;margin:0 auto 27px;background:url('/school-logo.png') center/contain no-repeat}
+/* 【逐行批注】 定义或补充当前界面样式：.scan-copy{display:flex;flex-direction:column;align-items:center;gap:13px}.scan-copy smal…。 */
 .scan-copy{display:flex;flex-direction:column;align-items:center;gap:13px}.scan-copy small{display:none}.scan-copy strong{font-size:32px;line-height:1.5;font-weight:600;letter-spacing:-.025em}.scan-copy span{font-size:14px;line-height:1.8;color:#5e6d82}
+/* 【逐行批注】 定义或补充当前界面样式：.startup-progress{position:absolute;left:50%;bottom:max(15%,70px);width:min(240px,60vw);h…。 */
 .startup-progress{position:absolute;left:50%;bottom:max(15%,70px);width:min(240px,60vw);height:3px;border-radius:3px;overflow:hidden;transform:translateX(-50%);background:#dce5f8}.startup-progress span{display:block;width:0;height:100%;background:#3d61ce;border-radius:3px;animation:clarity-startup-progress 3.45s ease-out forwards}
+/* 【逐行批注】 定义或补充当前界面样式：[data-startup-phase=outro] .startup-overlay{opacity:0;pointer-events:none}@keyframes clar…。 */
 [data-startup-phase=outro] .startup-overlay{opacity:0;pointer-events:none}@keyframes clarity-startup-progress{to{width:100%}}
+/* 【逐行批注】 定义响应式媒体查询条件：@media(max-width:700px){.scan-copy strong{font-size:28px}.scan-copy span{f…。 */
 @media(max-width:700px){.scan-copy strong{font-size:28px}.scan-copy span{font-size:13px}.scan-art{padding:40px 20px}}
+/* 【逐行批注】 定义响应式媒体查询条件：@media(prefers-reduced-motion:reduce){.startup-overlay{transition:none}.st…。 */
 @media(prefers-reduced-motion:reduce){.startup-overlay{transition:none}.startup-progress span{animation:none;width:100%}}

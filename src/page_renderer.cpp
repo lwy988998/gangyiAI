@@ -1,94 +1,172 @@
+// 【逐行批注】 引入头文件 "page_renderer.hpp"，为后续实现提供类型或接口声明。
 #include "page_renderer.hpp"
 
+// 【逐行批注】 引入头文件 <map>，为后续实现提供类型或接口声明。
 #include <map>
+// 【逐行批注】 引入头文件 <algorithm>，为后续实现提供类型或接口声明。
 #include <algorithm>
+// 【逐行批注】 引入头文件 <cmath>，为后续实现提供类型或接口声明。
 #include <cmath>
+// 【逐行批注】 引入头文件 <iomanip>，为后续实现提供类型或接口声明。
 #include <iomanip>
+// 【逐行批注】 引入头文件 <sstream>，为后续实现提供类型或接口声明。
 #include <sstream>
+// 【逐行批注】 引入头文件 <string>，为后续实现提供类型或接口声明。
 #include <string>
+// 【逐行批注】 引入头文件 <vector>，为后续实现提供类型或接口声明。
 #include <vector>
 
+// 【逐行批注】 引入头文件 <nlohmann/json.hpp>，为后续实现提供类型或接口声明。
 #include <nlohmann/json.hpp>
 
+// 【逐行批注】 声明或进入命名空间：namespace gangyi {。
 namespace gangyi {
+// 【逐行批注】 声明或进入命名空间：namespace {。
 namespace {
 
+// 【逐行批注】 计算右侧结果并写入 using script，更新当前运行状态。
 using script = std::string;
 
+// 【逐行批注】 定义函数 htmlEscape，执行该函数声明的职责。
 std::string htmlEscape(const std::string& value) {
+    // 【逐行批注】 执行当前声明或表达式：std::string result;。
     std::string result;
+    // 【逐行批注】 执行当前声明或表达式：result.reserve(value.size());。
     result.reserve(value.size());
+    // 【逐行批注】 按循环规则重复处理：for (const char character : value) {。
     for (const char character : value) {
+        // 【逐行批注】 根据表达式分支处理：switch (character) {。
         switch (character) {
+            // 【逐行批注】 声明 switch 的分支入口：case '&': result += "&amp;"; break;。
             case '&': result += "&amp;"; break;
+            // 【逐行批注】 声明 switch 的分支入口：case '<': result += "&lt;"; break;。
             case '<': result += "&lt;"; break;
+            // 【逐行批注】 声明 switch 的分支入口：case '>': result += "&gt;"; break;。
             case '>': result += "&gt;"; break;
+            // 【逐行批注】 声明 switch 的分支入口：case '"': result += "&quot;"; break;。
             case '"': result += "&quot;"; break;
+            // 【逐行批注】 声明 switch 的分支入口：case '\'': result += "&#39;"; break;。
             case '\'': result += "&#39;"; break;
+            // 【逐行批注】 声明 switch 的分支入口：default: result += character; break;。
             default: result += character; break;
+        // 【逐行批注】 结束当前代码块。
         }
+    // 【逐行批注】 结束当前代码块。
     }
+    // 【逐行批注】 结束当前函数并返回结果：return result;。
     return result;
+// 【逐行批注】 结束当前代码块。
 }
 
+// 【逐行批注】 定义函数 jsString，执行该函数声明的职责。
 std::string jsString(const std::string& value) {
+    // 【逐行批注】 结束当前函数并返回结果：return nlohmann::json(value).dump();。
     return nlohmann::json(value).dump();
+// 【逐行批注】 结束当前代码块。
 }
 
+// 【逐行批注】 定义函数 urlEncode，执行该函数声明的职责。
 std::string urlEncode(const std::string& value) {
+    // 【逐行批注】 执行当前声明或表达式：std::ostringstream encoded;。
     std::ostringstream encoded;
+    // 【逐行批注】 调用 setfill 完成本行所需操作：encoded << std::uppercase << std::hex << std::setfill('0');。
     encoded << std::uppercase << std::hex << std::setfill('0');
+    // 【逐行批注】 按循环规则重复处理：for (const unsigned char character : value) {。
     for (const unsigned char character : value) {
+        // 【逐行批注】 判断条件 ((character >= 'a' && character <= 'z') ||，成立时执行对应分支。
         if ((character >= 'a' && character <= 'z') ||
+            // 【逐行批注】 执行当前声明或表达式：(character >= 'A' && character <= 'Z') ||。
             (character >= 'A' && character <= 'Z') ||
+            // 【逐行批注】 执行当前声明或表达式：(character >= '0' && character <= '9') ||。
             (character >= '0' && character <= '9') ||
+            // 【逐行批注】 执行当前声明或表达式：character == '-' || character == '_' || character == '.' || character == '~') {。
             character == '-' || character == '_' || character == '.' || character == '~') {
+            // 【逐行批注】 执行当前声明或表达式：encoded << character;。
             encoded << character;
+        // 【逐行批注】 执行当前声明或表达式：} else {。
         } else {
+            // 【逐行批注】 调用 setw 完成本行所需操作：encoded << '%' << std::setw(2) << static_cast<int>(character) << std:…。
             encoded << '%' << std::setw(2) << static_cast<int>(character) << std::setw(0);
+        // 【逐行批注】 结束当前代码块。
         }
+    // 【逐行批注】 结束当前代码块。
     }
+    // 【逐行批注】 结束当前函数并返回结果：return encoded.str();。
     return encoded.str();
+// 【逐行批注】 结束当前代码块。
 }
 
+// 【逐行批注】 声明对象 document，并通过构造函数初始化其状态。
 std::string document(const std::string& title, const std::string& body, const std::string& script = {},
+                     // 【逐行批注】 计算右侧结果并写入 std::string& headExtra，更新当前运行状态。
                      const std::string& headExtra = {}, const std::string& bodyClassExtra = {},
+                     // 【逐行批注】 计算右侧结果并写入 std::string& bodyAttributes，更新当前运行状态。
                      const std::string& bodyAttributes = {}) {
+    // 【逐行批注】 结束当前函数并返回结果：return "<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"utf…。
     return "<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><meta name=\"theme-color\" content=\"#f6f8fc\"><title>" +
-        htmlEscape(title) + "</title><link rel=\"icon\" type=\"image/png\" href=\"/school-logo.png\"><link rel=\"stylesheet\" href=\"/styles.css\"><link rel=\"stylesheet\" href=\"/plan.css\"><link rel=\"stylesheet\" href=\"/dark.css\"><link rel=\"stylesheet\" href=\"/app-layout.css\"><script defer src=\"/app-layout.js\"></script><link rel=\"stylesheet\" href=\"/classroom.css\"><link rel=\"stylesheet\" href=\"/learning-flow.css\"><link rel=\"stylesheet\" href=\"/profile-radar.css\"><link rel=\"stylesheet\" href=\"/vendor/katex/katex.min.css\"><script defer src=\"/vendor/katex/katex.min.js\"></script><script defer src=\"/chat-render.js\"></script><script defer src=\"/profile-radar.js\"></script><script defer src=\"/dark.js\"></script><script defer src=\"/learning-agent.js\"></script><script defer src=\"/agent-shell.js\"></script><script defer src=\"/learning-flow.js\"></script><script defer src=\"/classroom.js\"></script>" + headExtra + "<link rel=\"stylesheet\" href=\"/clarity.css\"><script defer src=\"/clarity.js\"></script></head><body class=\"antialiased page-transition clarity-app" + bodyClassExtra + "\"" + bodyAttributes + ">" + body +
+        // 【逐行批注】 调用 htmlEscape 完成本行所需操作：htmlEscape(title) + "</title><link rel=\"icon\" type=\"image/png\" hr…。
+        htmlEscape(title) + "</title><link rel=\"icon\" type=\"image/png\" href=\"/school-logo.png\"><link rel=\"stylesheet\" href=\"/styles.css\"><link rel=\"stylesheet\" href=\"/plan.css\"><link rel=\"stylesheet\" href=\"/dark.css\"><link rel=\"stylesheet\" href=\"/app-layout.css\"><script defer src=\"/app-layout.js\"></script><link rel=\"stylesheet\" href=\"/classroom.css\"><link rel=\"stylesheet\" href=\"/learning-flow.css\"><link rel=\"stylesheet\" href=\"/profile-radar.css\"><link rel=\"stylesheet\" href=\"/agent-trace.css\"><link rel=\"stylesheet\" href=\"/vendor/katex/katex.min.css\"><script defer src=\"/vendor/katex/katex.min.js\"></script><script defer src=\"/chat-render.js\"></script><script defer src=\"/profile-radar.js\"></script><script defer src=\"/dark.js\"></script><script defer src=\"/learning-agent.js\"></script><script defer src=\"/agent-trace.js\"></script><script defer src=\"/agent-shell.js\"></script><script defer src=\"/learning-flow.js\"></script><script defer src=\"/classroom.js\"></script>" + headExtra + "<link rel=\"stylesheet\" href=\"/clarity.css\"><script defer src=\"/clarity.js\"></script></head><body class=\"antialiased page-transition clarity-app" + bodyClassExtra + "\"" + bodyAttributes + ">" + body +
+        // 【逐行批注】 执行当前声明或表达式："<footer class=\"dark-footer\"><span>钢一定制AI</span><span>让学习有路径，让进步看得见。</span><span>本…。
         "<footer class=\"dark-footer\"><span>钢一定制AI</span><span>让学习有路径，让进步看得见。</span><span>本机学习数据 · 私密可控</span></footer>" + script + "</body></html>";
+// 【逐行批注】 结束当前代码块。
 }
 
+// 【逐行批注】 定义函数 navLink，执行该函数声明的职责。
 std::string navLink(const std::string& href, const std::string& label, bool active) {
+    // 【逐行批注】 结束当前函数并返回结果：return std::string("<a class=\"dark-nav-link") + (active ? " is-activ…。
     return std::string("<a class=\"dark-nav-link") + (active ? " is-active" : "") +
+        // 【逐行批注】 计算右侧结果并写入 "\" href，更新当前运行状态。
         "\" href=\"" + href + "\"" + (active ? " aria-current=\"page\"" : "") + ">" + label + "</a>";
+// 【逐行批注】 结束当前代码块。
 }
 
+// 【逐行批注】 定义函数 headerShell，执行该函数声明的职责。
 std::string headerShell(const std::string& active) {
+    // 【逐行批注】 计算右侧结果并写入 auto is，更新当前运行状态。
     const auto is = [&](const std::string& key) { return active == key; };
+    // 【逐行批注】 计算右侧结果并写入 std::string links，更新当前运行状态。
     const std::string links = navLink("/", "首页", is("home")) +
+        // 【逐行批注】 调用 navLink、is 完成本行所需操作：navLink("/my-courses", "我的课程", is("my-courses")) +。
         navLink("/my-courses", "我的课程", is("my-courses")) +
+        // 【逐行批注】 调用 string、is 完成本行所需操作：std::string("<a data-current-course-link class=\"dark-nav-link") + (i…。
         std::string("<a data-current-course-link class=\"dark-nav-link") + (is("learn") ? " is-active" : "") +
+        // 【逐行批注】 计算右侧结果并写入 "\" href，更新当前运行状态。
         "\" href=\"/current-course\" title=\"查看当前课程\"" + (is("learn") ? " aria-current=\"page\"" : "") +
+        // 【逐行批注】 调用 navLink、is 完成本行所需操作：">当前课程</a>" + navLink("/ask", "AI 导师", is("ask")) + navLink("/my-ai",…。
         ">当前课程</a>" + navLink("/ask", "AI 导师", is("ask")) + navLink("/my-ai", "我的AI", is("my-ai"));
+    // 【逐行批注】 结束当前函数并返回结果：return R"HTML(<header class="site-header dark-header"><div class="dar…。
     return R"HTML(<header class="site-header dark-header"><div class="dark-nav-shell"><a class="dark-brand" href="/"><img class="dark-brand-mark" src="/school-logo.png" alt="柳州市钢一中学校徽"><span>钢一<b>定制AI</b></span></a><nav class="dark-nav-links" aria-label="主导航">)HTML" + links +
+        // 【逐行批注】 调用 HTML 完成本行所需操作：R"HTML(</nav><a class="dark-nav-cta" href="/my-ai/reports">我的画像 ↗</a>…。
         R"HTML(</nav><a class="dark-nav-cta" href="/my-ai/reports">我的画像 ↗</a><details class="dark-mobile-nav"><summary aria-label="打开菜单"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></summary><nav aria-label="移动导航">)HTML" + links +
+        // 【逐行批注】 调用 HTML 完成本行所需操作：R"HTML(</nav></details></div></header>)HTML";。
         R"HTML(</nav></details></div></header>)HTML";
+// 【逐行批注】 结束当前代码块。
 }
 
+// 【逐行批注】 定义函数 loadingSpinner，执行该函数声明的职责。
 std::string loadingSpinner(const std::string& title, const std::string& subtitle) {
+    // 【逐行批注】 结束当前函数并返回结果：return R"HTML(<div class="rounded-3xl border border-sky-100 bg-white …。
     return R"HTML(<div class="rounded-3xl border border-sky-100 bg-white p-8 text-center shadow-sm shadow-sky-900/5"><div class="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-sky-100 border-t-sky-600"></div><p class="mt-5 font-semibold text-slate-800">)HTML" +
+        // 【逐行批注】 调用 htmlEscape 完成本行所需操作：htmlEscape(title) +。
         htmlEscape(title) +
+        // 【逐行批注】 调用 HTML 完成本行所需操作：R"HTML(</p><p class="mt-2 text-sm text-slate-500">)HTML" +。
         R"HTML(</p><p class="mt-2 text-sm text-slate-500">)HTML" +
+        // 【逐行批注】 调用 htmlEscape 完成本行所需操作：htmlEscape(subtitle) +。
         htmlEscape(subtitle) +
+        // 【逐行批注】 调用 HTML 完成本行所需操作：R"HTML(</p></div>)HTML";。
         R"HTML(</p></div>)HTML";
+// 【逐行批注】 结束当前代码块。
 }
 
+// 【逐行批注】 执行当前声明或表达式：} // namespace。
 }  // namespace
 
+// 【逐行批注】 声明或进入命名空间：namespace {。
 namespace {
 
+// 【逐行批注】 定义函数 renderHomePageContent，执行该函数声明的职责。
 std::string renderHomePageContent(bool startup) {
+    // 【逐行批注】 计算右侧结果并写入 std::string body，更新当前运行状态。
     const std::string body = headerShell("home") + R"HTML(
 <main class="home-page">
   <section class="home-hero">
@@ -135,6 +213,7 @@ std::string renderPlanPage(const std::string& goal, const std::string& mode,
 <main class="plan-page min-h-screen bg-[#f5f9ff] text-slate-950">
   <section class="mx-auto w-full max-w-7xl px-4 py-7 sm:px-6 lg:px-8 lg:py-10">
     <div class="plan-heading"><div><p class="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">学习工作台 · 课程规划</p><h1 id="plan-title" class="mt-2 text-3xl font-bold tracking-tight sm:text-5xl">正在准备你的课程</h1><p id="plan-goal" class="mt-3 max-w-3xl text-base leading-7 text-slate-600"></p></div><div id="save-status" class="save-status" role="status">正在连接</div></div>
+    <section id="plan-agent-trace"></section>
     <section id="loading" class="mt-8">)HTML" + loadingSpinner("正在整理学习路线", "会先生成可执行的课程骨架，再补充课件、资源和项目。") + R"HTML(</section>
     <section id="failure" class="mt-8 hidden"></section>
     <section id="result" class="mt-8 hidden">
@@ -145,7 +224,12 @@ std::string renderPlanPage(const std::string& goal, const std::string& mode,
 
     const std::string script = R"HTML(<script>(()=>{
 let initialGoal=)HTML" + jsString(goal) + R"HTML(,initialMode=)HTML" + jsString(mode == "lite" ? "lite" : "deep") + R"HTML(,courseId=)HTML" + jsString(courseId) + R"HTML(,anonymousId=)HTML" + jsString(anonymousId) + R"HTML(;
-const $=id=>document.getElementById(id), loading=$('loading'),failure=$('failure'),result=$('result'),status=$('save-status'); let plan=null,renderMode=initialMode;
+const $=id=>document.getElementById(id), loading=$('loading'),failure=$('failure'),result=$('result'),status=$('save-status');
+// agent-trace.js 以 defer 加载，本内联脚本在解析期立即执行；轨迹必须在拿到首个任务后
+// 再按需创建，否则 window.GangyiTrace 仍为 undefined，规划页会永远没有执行轨迹。
+let plan=null,renderMode=initialMode,planTrace=null;
+const planTraceHost=$('plan-agent-trace');
+function paintTask(task){if(!planTrace&&planTraceHost&&window.GangyiTrace)planTrace=window.GangyiTrace.create(planTraceHost,{variant:'inline',eyebrow:'AI 课程规划执行过程',collapseWhenDone:true});planTrace?.update(task)}
 const esc=value=>{const d=document.createElement('div');d.textContent=value??'';return d.innerHTML}; const text=(v,f='暂无内容')=>esc(v||f); const arr=(v)=>Array.isArray(v)?v:[];
 const list=(items,fn)=>arr(items).length?arr(items).map(fn).join(''):'<p class="empty-note">暂无内容</p>';
 const card=(label,title,body,extra='')=>'<article class="plan-card '+extra+'"><p class="plan-kicker">'+text(label)+'</p><h2>'+text(title)+'</h2>'+body+'</article>';
@@ -164,7 +248,7 @@ async function generatedPlan(force){
  const q=new URLSearchParams(location.search);let requestId=q.get('requestId');
  if(force&&planTaskId&&!courseId){const existing=await request('/api/learning-agent?taskId='+encodeURIComponent(planTaskId));if(['failed','paused','superseded'].includes(existing.status))await request('/api/learning-agent/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:'retry',taskId:planTaskId})});else planTaskId='';}
  if(!planTaskId){requestId=(force?'':requestId)||crypto.randomUUID();q.set('requestId',requestId);history.replaceState({},'','?'+q);const task=await request('/api/generate-plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({goal:initialGoal,mode:initialMode,requestId})});planTaskId=task.id;q.set('taskId',planTaskId);history.replaceState({},'','?'+q);}
- while(true){const task=await request('/api/learning-agent?taskId='+encodeURIComponent(planTaskId));status.textContent=task.message||'真实 AI 正在规划并保存课程…';if(task.status==='ready'&&task.course){courseId=task.course.id;const data=await request('/api/courses/'+encodeURIComponent(courseId));history.replaceState({},'',task.course.href);localStorage.setItem('gangyi-last-course',JSON.stringify({id:courseId,title:task.course.title,href:task.course.href}));return data;}if(['failed','paused','superseded','cancelled','waiting_student'].includes(task.status))throw new Error(task.error||task.message||'AI 已暂停，输入和有效步骤已保存，可重试。');await new Promise(resolve=>setTimeout(resolve,800));}
+ while(true){const task=await request('/api/learning-agent?taskId='+encodeURIComponent(planTaskId));paintTask(task);status.textContent=task.message||'真实 AI 正在规划并保存课程…';if(task.status==='ready'&&task.course){courseId=task.course.id;const data=await request('/api/courses/'+encodeURIComponent(courseId));history.replaceState({},'',task.course.href);localStorage.setItem('gangyi-last-course',JSON.stringify({id:courseId,title:task.course.title,href:task.course.href}));return data;}if(['failed','paused','superseded','cancelled','waiting_student'].includes(task.status))throw new Error(task.error||task.message||'AI 已暂停，输入和有效步骤已保存，可重试。');await new Promise(resolve=>setTimeout(resolve,800));}
 }
 async function load(force=false){loading.classList.remove('hidden');failure.classList.add('hidden');status.textContent='正在加载';try{const data=courseId&&!force?await request('/api/courses/'+encodeURIComponent(courseId)):await generatedPlan(force);plan=data.snapshot.payload;initialGoal=data.course.goal;initialMode=data.course.mode;renderMode=data.course.mode==='lite'?'lite':'deep';if(!plan||!Array.isArray(plan.courseStructure)||!plan.courseStructure.length)throw new Error('AI 课程结构尚未完整保存');loading.classList.add('hidden');result.classList.remove('hidden');render();status.textContent='已恢复已保存课程';document.dispatchEvent(new CustomEvent('course-saved',{detail:{courseId,href:'/plan?courseId='+encodeURIComponent(courseId)}}));}catch(e){failureState(e)}}
 document.addEventListener('click',e=>{const b=e.target.closest('[data-slide]');if(b){document.querySelectorAll('[data-slide]').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');renderSlide(Number(b.dataset.slide))}});document.addEventListener('course-saved',e=>{if(e.detail?.href&&!courseId)location.replace(e.detail.href)});load();
@@ -178,6 +262,7 @@ std::string renderClassroomPage(const std::string& view) {
 <main class="lesson-page" data-lesson-view=")HTML" + htmlEscape(view) + R"HTML(">
   <div class="lesson-heading"><div><p class="uc-eyebrow">知识点 · )HTML" + label + R"HTML(</p><h1 id="lesson-title">正在读取课堂</h1><p id="lesson-purpose"></p></div><nav class="lesson-tabs" aria-label="课堂页面"><a data-lesson-link="learn">讲解</a><a data-lesson-link="practice">练习</a><a data-lesson-link="summary">小结</a></nav></div>
   <p id="page-status" role="status" aria-live="polite"></p>
+  <div id="classroom-agent-trace"></div>
   <p id="lesson-next-step" hidden></p>
   <div id="lesson-scroll" tabindex="0" role="region" aria-label="课堂消息">
     <section id="lesson-sections" aria-label="教学内容与对话"></section>
@@ -202,6 +287,7 @@ std::string renderAskPage(const std::string& question) {
     const std::string body = headerShell("ask") + R"HTML(
 <main class="min-h-screen bg-[#f5f9ff] text-slate-950"><section class="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:py-10">
   <header class="rounded-3xl border border-sky-100 bg-white p-6 shadow-sm shadow-sky-900/5 sm:p-8"><p class="text-sm font-semibold text-sky-700">AI 对话</p><h1 class="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">有什么问题，直接问我</h1><p class="mt-3 text-base leading-7 text-slate-600">由当前配置的 AI 模型直接回答，不经过课程生成链路。</p></header>
+  <div id="ask-agent-trace" class="mt-6"></div>
   <section id="ask-messages" class="mt-6 space-y-4 rounded-3xl border border-sky-100 bg-white p-4 shadow-sm shadow-sky-900/5 sm:p-6"><p id="ask-empty" class="rounded-2xl border border-dashed border-sky-200 bg-sky-50/60 p-8 text-center text-sm leading-6 text-slate-600">还没有问题。你可以点击示例，或输入学习中遇到的具体困难。</p></section>
   <section class="sticky bottom-0 mt-6 rounded-3xl border border-sky-100 bg-white p-4 shadow-lg shadow-sky-900/10 sm:p-5"><form id="ask-form" class="flex flex-col gap-3 sm:flex-row sm:items-end"><div class="flex-1"><label class="sr-only" for="ask-question">输入你的问题</label><textarea id="ask-question" required rows="3" class="min-h-24 w-full resize-y rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-base leading-7 text-slate-900 outline-none transition focus:border-sky-500 focus:bg-white focus:ring-4 focus:ring-sky-100" placeholder="请输入你的问题"></textarea></div><button id="ask-submit" class="inline-flex min-h-12 items-center justify-center rounded-xl bg-sky-700 px-6 text-sm font-semibold text-white transition hover:bg-sky-800" type="submit">发送</button></form></section>
 </section></main>)HTML";
