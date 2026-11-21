@@ -21,6 +21,11 @@
 /* 【逐行批注】 定义或补充当前界面样式：.clarity-app :is(.uc-shell,.phase-page,.plan-page>section,.preparation-page){max-width:11…。 */
 .clarity-app :is(.uc-shell,.phase-page,.plan-page>section,.preparation-page){max-width:1160px;margin:0 auto;padding:32px 28px 48px;min-width:0}.clarity-app :is(.uc-head,.uc-course-top,.uc-head-actions){display:flex;align-items:center;justify-content:space-between;gap:18px}.clarity-app .uc-head{margin-bottom:20px}.clarity-app .uc-head h1{margin:0}.clarity-app .uc-message{color:var(--gy-muted);font-size:13px}.clarity-app .uc-message:empty{display:none}.clarity-app :is(.uc-tabs,.lesson-tabs){display:flex;align-items:center;gap:20px;border-bottom:1px solid var(--gy-border);margin:18px 0 24px;padding-bottom:0;overflow-x:auto}.clarity-app :is(.uc-tabs button,.uc-tabs a,.lesson-tabs a){display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;padding:10px 3px 12px;background:transparent;color:var(--gy-muted);border:0;border-bottom:2px solid transparent;border-radius:0;font-size:14px}.clarity-app :is(.uc-tabs button[aria-selected=true],.lesson-tabs a[aria-current=page]){color:var(--gy-accent);border-bottom-color:var(--gy-accent);font-weight:600}.clarity-app .uc-course-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-bottom:22px}.clarity-app :is(.uc-card,.plan-card,.agent-card,.classroom-card){background:var(--gy-surface);color:var(--gy-text);border:1px solid var(--gy-border);border-radius:12px;box-shadow:none}.clarity-app .uc-course{margin:0;padding:23px}.clarity-app .uc-course h3{font-size:21px;margin:0 0 9px}.clarity-app :is(.uc-course-goal,.phase-goal,.phase-why,.classroom-card p){color:var(--gy-muted);font-size:14px;line-height:1.8}.clarity-app :is(.uc-course-meta,.uc-course-created){color:var(--gy-muted);font-size:12px}.clarity-app .uc-course-actions{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin-top:18px}.clarity-app :is(.uc-primary,.primary-action,.classroom-card button,.empty-course-actions a){display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px;padding:8px 14px;border:1px solid transparent;border-radius:7px;background:var(--gy-accent);color:#fff;font-size:13px;font-weight:500}.clarity-app :is(.uc-ghost,.secondary-action,.uc-head button,.uc-ghost-danger){display:inline-flex;align-items:center;min-height:38px;padding:8px 13px;border:1px solid var(--gy-border);border-radius:7px;background:var(--gy-surface);color:var(--gy-text);font-size:13px}.clarity-app .uc-ghost-danger{color:#a4373e}.clarity-app :is(.uc-bar,.ma-bar,.progress-track){background:#e1e8f4;border-radius:4px;height:4px;overflow:hidden}.clarity-app :is(.uc-bar i,.ma-bar i,.progress-track i){display:block;height:100%;background:var(--gy-accent)}.clarity-app :is(.uc-badge,.ma-pill,.stage-state,.save-status){color:var(--gy-accent);border-color:var(--gy-border);background:var(--gy-surface-alt);font-size:12px}.clarity-app :is(.uc-review-details,.course-more,.lesson-chat-panel){padding:16px 18px;margin-top:20px;border:1px solid var(--gy-border);border-radius:10px;background:var(--gy-surface);color:var(--gy-muted);font-size:14px}.clarity-app :is(.uc-review-details,.course-more)>summary{color:var(--gy-text)}.clarity-app .outline-row{display:flex;align-items:center;gap:20px;padding:20px 6px;border-bottom:1px solid var(--gy-border);color:var(--gy-text)}.clarity-app .outline-row>div{flex:1;min-width:0}.clarity-app .outline-row h3{margin:0 0 5px;font-size:19px}.clarity-app .outline-row p{margin:0;color:var(--gy-muted);font-size:14px}.clarity-app .outline-row :is(small,.stage-state){font-size:12px;color:var(--gy-muted)}.clarity-app .outline-number{color:var(--gy-accent)}.clarity-app .plan-page{background:var(--gy-bg)}.clarity-app :is(.plan-card,.agent-card){padding:22px}.clarity-app .progress-strip{background:var(--gy-surface-alt);color:var(--gy-text);border-color:var(--gy-border)}.clarity-app .progress-strip span{color:var(--gy-muted)}.clarity-app :is(.resource-item,.project-grid>div,.ai-plan-preview,.ai-plan-comparison>div,.question-materials,.ai-dialogue-bubble.is-teacher){background:var(--gy-surface);border:1px solid var(--gy-border);border-radius:8px;color:var(--gy-text);box-shadow:none}.clarity-app .question-title{color:var(--gy-text)!important}.clarity-app :is(.ai-dialogue-bubble.is-user,.agent-message.user){background:var(--gy-surface-alt);color:var(--gy-text)}.clarity-app :is(.ai-dialogue textarea,.lesson-page input,.lesson-page textarea,.preparation-page textarea){background:var(--gy-surface);border:1px solid var(--gy-border);color:var(--gy-text);border-radius:8px;padding:12px}.clarity-app :is(.agent-card p,.agent-card li,.plan-card p,.plan-card li){line-height:1.85}.clarity-app :is(.resource-item p,.ai-muted,.ai-supplement,.next-lesson-heading p,.preparation-heading>p){color:var(--gy-muted)}.clarity-app .next-lesson-page{color:var(--gy-text)}.clarity-app .next-lesson-heading button{background:var(--gy-accent);color:#fff}
 
+.clarity-app .uc-due-list li,
+.clarity-app .uc-due-list span { color:var(--gy-muted); }
+.clarity-app .uc-due-list a { gap:2px 10px; color:var(--gy-accent); }
+.clarity-app .uc-due-list a:is(:hover,:focus-visible) strong { text-decoration:underline; }
+.clarity-app .uc-due-list .uc-review-source { display:inline-block; font-size:12.5px; line-height:2; text-decoration:underline; }
 /* 课程目录可折叠，窄屏保留独立入口。 */
 /* 【逐行批注】 定义或补充当前界面样式：.clarity-app .course-directory{top:calc(var(--gy-header-height) + 16px);left:20px;bottom:…。 */
 .clarity-app .course-directory{top:calc(var(--gy-header-height) + 16px);left:20px;bottom:18px;width:230px;padding:53px 12px 17px;background:var(--gy-surface);border:1px solid var(--gy-border);border-radius:10px;box-shadow:none}.clarity-app .course-directory-heading{border-color:var(--gy-border)}.clarity-app .course-directory-heading p{display:none}.clarity-app .course-directory-heading h2{font-size:18px;color:var(--gy-text)}.clarity-app :is(.course-directory-heading a,.directory-stage-link){color:var(--gy-accent);font-size:12px}.clarity-app .course-directory-tree summary{color:var(--gy-text);font-size:13px}.clarity-app .course-directory-tree summary strong{font-size:13px}.clarity-app .course-directory-tree .is-active-stage>summary{background:var(--gy-surface-alt);color:var(--gy-text)}.clarity-app .course-directory-tree summary>span{font-family:inherit;font-size:12px;color:var(--gy-muted)}.clarity-app .directory-stage-progress{background:transparent;color:var(--gy-muted)}.clarity-app .course-directory-topic{color:var(--gy-muted);font-size:13px;border-radius:6px;margin-left:10px;padding:10px 8px}.clarity-app .course-directory-topic:hover{background:#f5f7fc}.clarity-app .course-directory-topic[aria-current=page]{color:var(--gy-accent);background:var(--gy-surface-alt);border-color:transparent;box-shadow:none}.clarity-app .course-directory-topic>span:first-child{color:var(--gy-accent);font-size:12px}.clarity-app .course-directory-foot{border-color:var(--gy-border)}.clarity-app .course-directory-foot :is(p,small){color:var(--gy-muted);font-size:12px}.clarity-app .course-directory-foot progress{accent-color:var(--gy-accent)}.clarity-app .course-directory-toggle{top:calc(var(--gy-header-height) + 28px);left:34px;font-size:12px;color:var(--gy-accent);background:var(--gy-surface-alt);border:1px solid var(--gy-border);border-radius:6px}.clarity-app.gy-course-view :is(.lesson-page,.phase-page,.plan-page){margin:0 26px 0 268px;max-width:none;min-width:0;width:auto}.clarity-app.gy-directory-collapsed :is(.lesson-page,.phase-page,.plan-page){margin:0 auto;max-width:1160px}.clarity-app.gy-directory-collapsed .course-directory-toggle{left:14px;top:calc(var(--gy-header-height) + 13px)}.clarity-app .course-context-navigation{color:var(--gy-muted);border-color:var(--gy-border);font-size:12px}.clarity-app .course-context-navigation a{color:var(--gy-accent)}.clarity-app .course-context-actions a{background:var(--gy-surface);border-color:var(--gy-border);color:var(--gy-accent);border-radius:6px}
@@ -156,3 +161,162 @@
 .clarity-app :is(.preparation-help,.preparation-milestones li){font-size:12px}
 /* 【逐行批注】 定义或补充当前界面样式：.clarity-app .preparation-preview-heading span{color:var(--gy-muted)}。 */
 .clarity-app .preparation-preview-heading span{color:var(--gy-muted)}
+
+/* 两种课堂共用本轮调整表单。 */
+.clarity-app .agent-round-dialog {
+  box-sizing: border-box;
+  width: min(440px, calc(100% - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 22px;
+  border: 1px solid var(--gy-border);
+  border-radius: 12px;
+  background: var(--gy-surface);
+  color: var(--gy-text);
+}
+.clarity-app .agent-round-dialog::backdrop { background: color-mix(in srgb, var(--gy-text) 40%, transparent); }
+.clarity-app .agent-round-dialog h2 { margin: 0; font-size: 20px; }
+.clarity-app .agent-round-dialog p { margin: 6px 0 16px; color: var(--gy-muted); line-height: 1.65; }
+.clarity-app .agent-round-dialog .agent-round-error { color: var(--gy-danger, #a4373e); }
+.clarity-app .agent-round-dialog label { display: grid; gap: 6px; margin: 12px 0; }
+.clarity-app .agent-round-dialog :is(textarea, input) {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--gy-border);
+  border-radius: 9px;
+  background: var(--gy-surface);
+  color: var(--gy-text);
+}
+.clarity-app .agent-round-dialog .agent-round-actions { display: flex; flex-wrap: wrap; justify-content: end; gap: 8px; margin-top: 18px; }
+.clarity-app .chat-section form[data-section] > [hidden] { display: none; }
+
+/* 复习依据按需展开，保留常态课堂的阅读空间。 */
+.clarity-app .agent-topic-evidence {
+  margin-top: 7px;
+  max-width: 65ch;
+  color: var(--gy-muted);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.clarity-app .agent-topic-evidence[open] {
+  max-height: min(200px, 26dvh);
+  overflow: auto;
+  padding-right: 8px;
+}
+.clarity-app .agent-topic-evidence summary { cursor: pointer; color: var(--gy-accent); padding: 3px 0; }
+.clarity-app .agent-topic-evidence p { margin: 6px 0; }
+.clarity-app .agent-topic-evidence ul { margin: 6px 0; padding-inline-start: 1.25em; }
+.clarity-app .agent-topic-evidence li + li { margin-top: 3px; }
+
+.clarity-app .home-learning-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin: -8px 0 16px;
+}
+.clarity-app .home-learning-links a,
+.clarity-app .ask-material a {
+  color: var(--gy-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.clarity-app .home-learning-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  font-size: 14px;
+}
+.clarity-app .ask-material {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 18px;
+  margin-top: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--gy-border);
+  border-radius: 9px;
+  background: var(--gy-surface-alt);
+  color: var(--gy-text);
+  font-size: 14px;
+}
+.clarity-app .ask-material p { margin: 0; overflow-wrap: anywhere; }
+.clarity-app .ask-material strong { margin-inline-end: 7px; }
+.clarity-app .ask-material div { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.clarity-app .ask-material ~ #ask-messages .chat-bubble-ai {
+  background: var(--gy-surface);
+  border-color: var(--gy-border);
+  color: var(--gy-text);
+}
+.clarity-app .ask-material ~ #ask-messages .chat-bubble-mine {
+  background: var(--gy-surface-alt);
+  border-color: var(--gy-border);
+  color: var(--gy-text);
+}
+.clarity-app .ask-material ~ #ask-messages .chat-body a,
+.clarity-app .ask-material ~ #ask-messages .chat-copy,
+.clarity-app .ask-material ~ .chat-toolbar .chat-copy {
+  color: var(--gy-accent);
+  border-color: var(--gy-border);
+}
+.clarity-app .yesterday-review { max-width: 920px; }
+.clarity-app .yesterday-review-list { display: grid; gap: 12px; margin-top: 20px; }
+.clarity-app .yesterday-review-list .uc-course {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 16px 20px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 20px;
+  border: 1px solid var(--gy-border);
+  border-radius: 10px;
+  background: var(--gy-surface);
+  text-align: left;
+}
+.clarity-app .yesterday-review-list :is(h2, p) { margin: 0; }
+.clarity-app .yesterday-review-list h2 { font-size: 19px; overflow-wrap: anywhere; }
+.clarity-app .yesterday-review-list p { color: var(--gy-muted); }
+.clarity-app .yesterday-review form { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0; }
+.clarity-app .yesterday-review .uc-head > a {
+  background: var(--gy-surface);
+  color: var(--gy-accent);
+  border: 1px solid var(--gy-border);
+}
+.clarity-app .yesterday-review form a { color: var(--gy-accent); text-decoration: underline; }
+.clarity-app .yesterday-review :is(.yesterday-review-error, .yesterday-review-empty) {
+  padding: 12px 16px;
+  border: 1px solid var(--gy-border);
+  border-radius: 9px;
+  background: var(--gy-surface-alt);
+}
+.clarity-app .library-curriculum-sources,
+.clarity-app .library-curriculum-pinned {
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+.clarity-app .library-curriculum-sources li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 12px 0;
+  border-block-start: 1px solid var(--gy-border);
+}
+.clarity-app .library-curriculum-sources li p { margin: 4px 0 0; }
+.clarity-app .library-curriculum-sources li > div:last-child { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.clarity-app .library-curriculum-pinned { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.clarity-app .library-curriculum-selection { color: var(--gy-accent); }
+.clarity-app #library-curriculum-grade {
+  margin-inline-start: 4px;
+  padding: 6px;
+  color: var(--gy-text);
+  background: var(--gy-surface);
+  border: 1px solid var(--gy-border);
+  border-radius: 7px;
+}

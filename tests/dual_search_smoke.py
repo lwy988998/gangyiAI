@@ -217,6 +217,11 @@ def main():
             assert row['status'] == 'partial' and row['providers'][0]['status'] == 'query_too_long'
             # 【逐行批注】 计算右侧结果并赋给 before，更新脚本状态。
             before = len(received)
+            for settings in ({'GANGYI_MONEY_REQUIRED': '1'}, {'GANGYI_MONEY_CONFIG': str(Path(folder) / 'round.json')}):
+                guarded, = run({'query': '人民币限制下没有缓存的双搜索'}, **settings)
+                assert guarded['attempts'] == 0 and guarded['resources'] == []
+                assert [part['status'] for part in guarded['providers']] == ['money_budget', 'money_budget']
+                assert len(received) == before
             # 【逐行批注】 计算右侧结果并赋给 row，更新脚本状态。
             row = run({'query': '预先取消', 'cancelAfterMs': 0})[0]
             # 【逐行批注】 校验关键条件，测试失败时立即报错：assert 'error' in row and len(received) == before。

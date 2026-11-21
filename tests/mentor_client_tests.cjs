@@ -54,6 +54,7 @@ async function fixture() {
       addActions:()=>node('actions')}),copyText:async()=>{}}};
   // 【逐行批注】 计算右侧结果并更新 vm.runInNewContext(source, {window,document:…，改变页面或请求状态。
   vm.runInNewContext(source, {window,document:{getElementById:node,createElement:()=>node(Math.random())},
+    URLSearchParams,
     // 【逐行批注】 计算右侧结果并更新 WebSocket:Socket,fetch:async()，改变页面或请求状态。
     WebSocket:Socket,fetch:async()=>({ok:true,json:async()=>({messages:[],suggestions:[]})}),
     // 【逐行批注】 调用 replaceState 执行页面交互或数据处理：location:{protocol:'http:',host:'fixture.invalid'},history:{replaceSt…。

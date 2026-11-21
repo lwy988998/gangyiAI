@@ -31,6 +31,15 @@
   const stop = document.getElementById('prepare-stop'), retry = document.getElementById('prepare-retry'), enter = document.getElementById('prepare-enter');
   // 【逐行批注】 声明前端变量 feedback，保存本行计算出的数据或对象。
   const feedback = document.getElementById('prepare-feedback'), input = document.getElementById('prepare-input');
+  const heading = document.querySelector('.preparation-heading');
+  const learningTools = window.GangyiWorkspace?.compactToolbar(heading?.querySelector('h1'));
+  if (learningTools) {
+    document.querySelector('.gy-learning-title').textContent = 'AI 备课';
+    learningTools.append(document.querySelector('.course-context-navigation'), enter,
+      document.querySelector('.preparation-back'),
+      learningTools.disclose('备课说明与执行过程', document.getElementById('prepare-course'), document.getElementById('prepare-trace')));
+    heading.remove();
+  }
   // 【逐行批注】 声明前端变量 badge，保存本行计算出的数据或对象。
   const badge = document.getElementById('prepare-badge'), errorBox = document.getElementById('prepare-error'), empty = document.getElementById('prepare-empty');
   // 【逐行批注】 声明前端变量 submitted，保存本行计算出的数据或对象。
@@ -283,6 +292,8 @@
     status.textContent = error.message; errorBox.textContent = error.message; errorBox.hidden = false;
     // 【逐行批注】 计算右侧结果并更新 badge.textContent，改变页面或请求状态。
     badge.textContent = current ? '需要处理' : '请求未提交'; stop.hidden = true; retry.hidden = false;
+    document.getElementById('prepare-preview-status').textContent = cards.size ? '已保留的内容' : '暂无课件预览';
+    if (!cards.size) empty.textContent = '课件预览尚未生成，可重试本次备课。';
     // 【逐行批注】 计算右侧结果并更新 feedLocalFailure(current ? '恢复本次备课' : '提交本次备…，改变页面或请求状态。
     feedLocalFailure(current ? '恢复本次备课' : '提交本次备课请求', error.message, openedAt, () => retry.click());
   // 【逐行批注】 结束当前前端代码块。

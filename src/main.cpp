@@ -54,6 +54,9 @@
 #include "deep_course.hpp"
 // 【逐行批注】 引入头文件 "independent_chat.hpp"，为后续实现提供类型或接口声明。
 #include "independent_chat.hpp"
+#include "exam_explanation.hpp"
+#include "exam_sources.hpp"
+#include "exam_page.hpp"
 // 【逐行批注】 引入头文件 "classroom_service.hpp"，为后续实现提供类型或接口声明。
 #include "classroom_service.hpp"
 // 【逐行批注】 引入头文件 "next_lesson.hpp"，为后续实现提供类型或接口声明。
@@ -113,6 +116,22 @@
 // 【逐行批注】 声明或进入命名空间：namespace {。
 namespace {
 
+// 试卷接口统一声明 JSON 类型，便于客户端可靠解析响应。
+std::string examRouteId(std::string id) {
+    // 历史试卷标识含时间戳，浏览器会编码其中的冒号，Crow 保留路径捕获的编码。
+    for (std::size_t offset = 0; (offset = id.find("%3", offset)) != std::string::npos; ++offset) {
+        if (offset + 2 < id.size() && (id[offset + 2] == 'A' || id[offset + 2] == 'a')) id.replace(offset, 3, ":");
+    }
+    return id;
+}
+
+crow::response examJsonResponse(int status, const std::string& body) {
+    crow::response response(status, body);
+    response.set_header("Content-Type", "application/json; charset=utf-8");
+    response.set_header("Cache-Control", "no-store");
+    return response;
+}
+
 // 【逐行批注】 定义函数 content_type_for，执行该函数声明的职责。
 std::string content_type_for(const std::filesystem::path& path) {
     // 【逐行批注】 计算右侧结果并写入 auto extension，更新当前运行状态。
@@ -122,7 +141,7 @@ std::string content_type_for(const std::filesystem::path& path) {
     // 【逐行批注】 判断条件 (extension == ".css") return "text/css; charset=utf-8";，成立时执行对应分支。
     if (extension == ".css") return "text/css; charset=utf-8";
     // 【逐行批注】 判断条件 (extension == ".js") return "application/javascript; charset=utf…，成立时执行对应分支。
-    if (extension == ".js") return "application/javascript; charset=utf-8";
+    if (extension == ".js" || extension == ".mjs") return "application/javascript; charset=utf-8";
     // 【逐行批注】 判断条件 (extension == ".json") return "application/json; charset=utf-8";，成立时执行对应分支。
     if (extension == ".json") return "application/json; charset=utf-8";
     // 【逐行批注】 判断条件 (extension == ".png") return "image/png";，成立时执行对应分支。
@@ -316,6 +335,37 @@ std::string todayDate() {
     // 【逐行批注】 结束当前函数并返回结果：return output.str();。
     return output.str();
 // 【逐行批注】 结束当前代码块。
+}
+
+nlohmann::json yesterdayReviewWindow() {
+    const auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local, &now);
+#else
+    localtime_r(&now, &local);
+#endif
+    local.tm_hour = local.tm_min = local.tm_sec = 0;
+    local.tm_isdst = -1;
+    const auto end = std::mktime(&local);
+    --local.tm_mday;
+    local.tm_hour = local.tm_min = local.tm_sec = 0;
+    local.tm_isdst = -1;
+    const auto start = std::mktime(&local);
+    const auto utc = [](std::time_t instant) {
+        std::tm stamp{};
+#ifdef _WIN32
+        gmtime_s(&stamp, &instant);
+#else
+        gmtime_r(&instant, &stamp);
+#endif
+        std::ostringstream output;
+        output << std::put_time(&stamp, "%Y-%m-%dT%H:%M:%SZ");
+        return output.str();
+    };
+    std::ostringstream date;
+    date << std::put_time(&local, "%Y-%m-%d");
+    return {{"date", date.str()}, {"startAt", utc(start)}, {"endAt", utc(end)}};
 }
 
 // 【逐行批注】 调用 mondayDate 完成本行所需操作：[[maybe_unused]] std::string mondayDate() {。
@@ -728,7 +778,10 @@ int main() {
                 // 【逐行批注】 结束当前代码块。
                 }
                 // 【逐行批注】 执行前一条件不成立时的分支。
-                else connection.readSnapshot([&]{value=section=="library" ? gangyi::libraryRead(connection,query) : gangyi::myAIRead(connection,section,query);});
+                else connection.readSnapshot([&] {
+                    if (section == "curriculum") value = gangyi::libraryCurriculumRead(connection, query.value("courseId", ""));
+                    else value = section == "library" ? gangyi::libraryRead(connection, query) : gangyi::myAIRead(connection, section, query);
+                });
             // 【逐行批注】 执行当前声明或表达式：}else{。
             }else{
                 // 【逐行批注】 调用 response 完成本行所需操作：if(req.body.size()>400000)return crow::response(413,"内容太大");。
@@ -752,7 +805,8 @@ int main() {
                     // 【逐行批注】 执行当前声明或表达式：});。
                     });
                 // 【逐行批注】 计算右侧结果并写入 }else value，更新当前运行状态。
-                }else value=section=="library" ? gangyi::libraryWrite(connection,body) : gangyi::myAIWrite(connection,section,body);
+                }else if (section == "curriculum") value = gangyi::libraryCurriculumWrite(connection, body);
+                else value=section=="library" ? gangyi::libraryWrite(connection,body) : gangyi::myAIWrite(connection,section,body);
             // 【逐行批注】 结束当前代码块。
             }
             // 【逐行批注】 声明对象 response，并通过构造函数初始化其状态。
@@ -970,6 +1024,27 @@ int main() {
             const std::string target = req.url_params.get("review") ? "practice" : view;
             // 【逐行批注】 计算右侧结果并写入 std::string courseId，更新当前运行状态。
             std::string courseId = scope.value("courseId", "");
+            const auto reviewId = scope.value("reviewId", "");
+            if (!reviewId.empty() && scope.value("lessonId", "").empty()) {
+                const auto review = gangyi::agentScheduledReview(db, localAgentAccess(db), courseId, reviewId);
+                if (!review.empty()) {
+                    if (review.contains("completedLessonId")) {
+                        crow::response response(302);
+                        response.set_header("Location", "/practice?lessonId=" +
+                            queryValue(review.at("completedLessonId").get<std::string>()));
+                        return response;
+                    }
+                    if (!review.at("available").get<bool>())
+                        return crow::response(409, "请在复习到期后从待复习清单打开。");
+                    crow::response response(302);
+                    const auto revision = review.value("basisRevision", "").substr(0, 16);
+                    response.set_header("Location", "/agent-prepare.html?courseId=" + queryValue(courseId) +
+                        "&review=0&reviewId=" + queryValue(reviewId) +
+                        "&requestId=" + queryValue("prepare-" + reviewId + "-" + review.at("basisStatus").get<std::string>() +
+                            (revision.empty() ? "" : "-" + revision)));
+                    return response;
+                }
+            }
             // 【逐行批注】 判断条件 (!scope.value("lessonId", "").empty())，成立时执行对应分支。
             if (!scope.value("lessonId", "").empty())
                 // 【逐行批注】 计算右侧结果并写入 courseId，更新当前运行状态。
@@ -1244,11 +1319,48 @@ int main() {
     });
 
     // 【逐行批注】 注册 HTTP 路由并绑定对应处理函数：CROW_ROUTE(app, "/ask")([](const crow::request& req) {。
-    CROW_ROUTE(app, "/ask")([](const crow::request& req) {
+    CROW_ROUTE(app, "/ask")([&db](const crow::request& req) {
         // 【逐行批注】 计算右侧结果并写入 char* question，更新当前运行状态。
         const char* question = req.url_params.get("question");
         // 【逐行批注】 声明对象 response，并通过构造函数初始化其状态。
-        crow::response response(gangyi::renderAskPage(question ? question : ""));
+        const auto* source = req.url_params.get("sourceId");
+        const auto* snapshot = req.url_params.get("snapshotId");
+        const auto* examQuestion = req.url_params.get("examQuestion");
+        nlohmann::json material;
+        int status = 200;
+        if (source || snapshot || examQuestion) {
+            std::string backHref = examQuestion ? "/exam-explanations" : "/my-ai/library";
+            try {
+                if (examQuestion && (source || snapshot)) throw std::invalid_argument("请只选择一份材料或一道试卷题");
+                const auto course = req.url_params.get("courseId") ? req.url_params.get("courseId") : "";
+                const auto ref = examQuestion ? nlohmann::json::parse(examQuestion) :
+                    nlohmann::json{{"sourceId", source ? source : ""}, {"snapshotId", snapshot ? snapshot : ""}};
+                if (examQuestion && ref.is_object() && ref.value("examId", nlohmann::json()).is_string() &&
+                    ref.at("examId").get_ref<const std::string&>().size() <= 160)
+                    backHref += "?id=" + queryValue(ref.at("examId").get<std::string>());
+                db.readSnapshot([&] {
+                    const auto access = localAgentAccess(db);
+                    if (*course && std::find(access.courseIds.begin(), access.courseIds.end(), course) == access.courseIds.end())
+                        throw std::invalid_argument("无权访问课程");
+                    if (examQuestion) {
+                        material = gangyi::examTeachingQuestion(db, ref);
+                        material["examQuestion"] = ref;
+                        material["conversationId"] = gangyi::examTeachingConversationId(access.scopeId, course, ref);
+                        material["backHref"] = backHref;
+                    } else {
+                        const auto prepared = gangyi::libraryTeachingMaterial(db, course, ref);
+                        material = ref; material["title"] = prepared.at("title");
+                        material["conversationId"] = gangyi::libraryTeachingConversationId(access.scopeId, course, ref);
+                    }
+                    material["courseId"] = course;
+                });
+            } catch (const std::exception&) {
+                status = 404;
+                material = {{"error", examQuestion ? "这道题无法继续使用。请回到试卷核对题干、页码和当前版本。" :
+                    "无法使用这份原文。请返回资料库打开一个可用的原文版本。"}, {"backHref", backHref}};
+            }
+        }
+        crow::response response(status, gangyi::renderAskPage(status == 200 && material.is_null() && question ? question : "", material));
         // 【逐行批注】 计算右侧结果并写入 response.set_header("Content-Type", "text/ht…，更新当前运行状态。
         response.set_header("Content-Type", "text/html; charset=utf-8");
         // 【逐行批注】 结束当前函数并返回结果：return response;。
@@ -1257,6 +1369,36 @@ int main() {
     });
 
     // 【逐行批注】 注册 HTTP 路由并绑定对应处理函数：CROW_ROUTE(app, "/current-course")([&db] {。
+    const auto reviewPage = [&db](int status, const std::string& error = "") {
+        auto view = yesterdayReviewWindow();
+        db.readSnapshot([&] { view["lessons"] = gangyi::agentReviewLessons(db, localAgentAccess(db), view); });
+        crow::response response(status, gangyi::renderYesterdayReviewPage(view, error));
+        response.set_header("Content-Type", "text/html; charset=utf-8");
+        response.set_header("Cache-Control", "no-store");
+        return response;
+    };
+    CROW_ROUTE(app, "/review-yesterday")([reviewPage] { return reviewPage(200); });
+    CROW_ROUTE(app, "/review-yesterday/start").methods(crow::HTTPMethod::POST)([&db, reviewPage](const crow::request& req) {
+        try {
+            const auto* id = req.url_params.get("lessonId");
+            const auto* date = req.url_params.get("date");
+            const auto window = yesterdayReviewWindow();
+            if (!id || !date || window.at("date") != date) throw std::invalid_argument("日期已变化，请重新选择要复习的课时");
+            const auto access = localAgentAccess(db);
+            const auto entries = gangyi::agentReviewLessons(db, access, window);
+            const auto entry = std::find_if(entries.begin(), entries.end(), [&](const auto& item) { return item.at("id") == id; });
+            if (entry == entries.end()) throw std::invalid_argument("这节课没有可用的昨日记录，请重新选择");
+            gangyi::agentSubmit(db, access, {{"type", "chat"}, {"courseId", entry->at("courseId")}, {"lessonId", id},
+                {"requestId", "review-yesterday:" + std::string(date) + ":" + id}, {"yesterdayReview", window},
+                {"text", "请带我复习昨天这节课。先用已有记录找到一个值得回顾的知识点，让我独立回忆或解一道针对题。"}},
+                gangyi::AgentSubmissionOrigin::yesterdayReview);
+            crow::response response(303);
+            response.set_header("Location", entry->at("href").get<std::string>());
+            response.set_header("Cache-Control", "no-store");
+            return response;
+        } catch (const std::exception& error) { return reviewPage(409, error.what()); }
+    });
+
     CROW_ROUTE(app, "/current-course")([&db] {
         // 【逐行批注】 判断条件 (const auto course = gangyi::currentCourseForIdentity(db)) {，成立时执行对应分支。
         if (const auto course = gangyi::currentCourseForIdentity(db)) {
@@ -1333,6 +1475,15 @@ int main() {
                         "&review=" + std::to_string(review.value("day", 0));
                     // 【逐行批注】 计算右侧结果并写入 std::string reviewId，更新当前运行状态。
                     const std::string reviewId = review.value("reviewId", std::string());
+                    std::string basis, sourceHref;
+                    if (review.contains("evidenceIds")) {
+                        const auto detail = gangyi::agentScheduledReview(db, localAgentAccess(db), c.id, reviewId);
+                        const auto state = detail.value("basisStatus", "");
+                        basis = state == "verified" ? "依据 " + std::to_string(detail.at("evidence").size()) + " 条历史作答" :
+                            state == "changed" ? "依据已更新，备课时重新核对" : "先摸底";
+                        if (state == "verified")
+                            sourceHref = "/learn?lessonId=" + queryValue(detail.at("lessonId").get<std::string>());
+                    }
                     // 【逐行批注】 判断条件 (!reviewId.empty()) reviewHref += "&reviewId=" + queryValue(revi…，成立时执行对应分支。
                     if (!reviewId.empty()) reviewHref += "&reviewId=" + queryValue(reviewId);
                     // 【逐行批注】 执行当前声明或表达式：dueReviews.push_back({{"course", title},。
@@ -1342,7 +1493,7 @@ int main() {
                         // 【逐行批注】 调用 string 完成本行所需操作：{"due", review.value("due", std::string())},。
                         {"due", review.value("due", std::string())},
                         // 【逐行批注】 执行当前声明或表达式：{"href", reviewHref}});。
-                        {"href", reviewHref}});
+                        {"href", reviewHref}, {"basis", basis}, {"sourceHref", sourceHref}});
                 // 【逐行批注】 结束当前代码块。
                 }
             // 【逐行批注】 执行当前声明或表达式：} catch (...) {}。
@@ -1506,10 +1657,13 @@ int main() {
         // 【逐行批注】 判断条件 (body.value("type", "") == "stop") {，成立时执行对应分支。
         if (body.value("type", "") == "stop") {
             // 停止生成后仍发送终态，让客户端解除等待；只有断开连接才终止投递。
-            // 【逐行批注】 执行当前声明或表达式：state->stopRequested = true;。
-            state->stopRequested = true;
-            // 【逐行批注】 调用 guard 完成本行所需操作：std::string taskId; { std::lock_guard<std::mutex> guard(state->mutex)…。
-            std::string taskId; { std::lock_guard<std::mutex> guard(state->mutex); taskId = state->taskId; }
+            std::string taskId;
+            {
+                std::lock_guard<std::mutex> guard(state->mutex);
+                if (!state->busy) return;
+                state->stopRequested = true;
+                taskId = state->taskId;
+            }
             // 【逐行批注】 判断条件 (!taskId.empty()) try { gangyi::Database db; db.open(config.data…，成立时执行对应分支。
             if (!taskId.empty()) try { gangyi::Database db; db.open(config.database_path);
                 // 【逐行批注】 调用 agentControl、localAgentAccess 完成本行所需操作：gangyi::agentControl(db, localAgentAccess(db), {{"command", "cancel"}…。
@@ -1520,12 +1674,16 @@ int main() {
             return;
         // 【逐行批注】 结束当前代码块。
         }
-        // 【逐行批注】 判断条件 (body.value("type", "") != "ask" || state->busy.exchange(true)) …，成立时执行对应分支。
-        if (body.value("type", "") != "ask" || state->busy.exchange(true)) return;
-        // 【逐行批注】 执行当前声明或表达式：state->cancelled = false; state->stopRequested = false; ++socketWorkerCount;。
-        state->cancelled = false; state->stopRequested = false; ++socketWorkerCount;
+        if (body.value("type", "") != "ask") return;
+        {
+            std::lock_guard<std::mutex> guard(state->mutex);
+            if (!state->connection || state->busy.exchange(true)) return;
+            state->stopRequested = false;
+        }
+        ++socketWorkerCount;
         // 【逐行批注】 调用 thread 完成本行所需操作：std::thread([state, body, classroom, &config, &socketWorkerCount] {。
         std::thread([state, body, classroom, &config, &socketWorkerCount] {
+            nlohmann::json terminal;
             // 【逐行批注】 开始可能抛出异常的保护代码块。
             try {
                 // 【逐行批注】 计算右侧结果并写入 gangyi::Database db; db.open(config.database…，更新当前运行状态。
@@ -1546,6 +1704,8 @@ int main() {
                         {"conversationId", body.value("conversationId", "general")}};
                     // 【逐行批注】 判断条件 (body.contains("lessonId")) event["lessonId"] = body.at("lessonI…，成立时执行对应分支。
                     if (body.contains("lessonId")) event["lessonId"] = body.at("lessonId");
+                    if (body.contains("material")) event["material"] = body.at("material");
+                    if (body.contains("examQuestion")) event["examQuestion"] = body.at("examQuestion");
                     // 【逐行批注】 判断条件 (body.contains("selection")) event["selection"] = body.at("selec…，成立时执行对应分支。
                     if (body.contains("selection")) event["selection"] = body.at("selection");
                 // 【逐行批注】 结束当前代码块。
@@ -1578,12 +1738,11 @@ int main() {
                     if (status != "pending" && status != "running") {
                         // 【逐行批注】 计算右侧结果并写入 bool valid，更新当前运行状态。
                         const bool valid = status == "ready" || status == "waiting_student";
-                        // 【逐行批注】 调用 send 完成本行所需操作：state->send({{"type", valid || status == "cancelled" ? "done" : "erro…。
-                        state->send({{"type", valid || status == "cancelled" ? "done" : "error"}, {"cancelled", status == "cancelled"},
+                        terminal = {{"type", valid || status == "cancelled" ? "done" : "error"}, {"cancelled", status == "cancelled"},
                             // 【逐行批注】 执行当前声明或表达式：{"message", task.value("error", task.value("message", "本次任务已停止，已有记录保留。"))},。
                             {"message", task.value("error", task.value("message", "本次任务已停止，已有记录保留。"))},
                             // 【逐行批注】 执行当前声明或表达式：{"model", task.value("model", "")}, {"taskId", taskId}, {"version", task.value("vers…。
-                            {"model", task.value("model", "")}, {"taskId", taskId}, {"version", task.value("version", 0)}, {"taskStatus", status}});
+                            {"model", task.value("model", "")}, {"taskId", taskId}, {"version", task.value("version", 0)}, {"taskStatus", status}};
                         // 【逐行批注】 跳出当前循环或分支。
                         break;
                     // 【逐行批注】 结束当前代码块。
@@ -1592,10 +1751,15 @@ int main() {
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 // 【逐行批注】 结束当前代码块。
                 }
-            // 【逐行批注】 调用 send 完成本行所需操作：} catch (const std::exception& error) { state->send({{"type", "error"…。
-            } catch (const std::exception& error) { state->send({{"type", "error"}, {"message", error.what()}}); }
-            // 【逐行批注】 执行当前声明或表达式：state->busy = false; --socketWorkerCount;。
-            state->busy = false; --socketWorkerCount;
+            } catch (const std::exception& error) { terminal = {{"type", "error"}, {"message", error.what()}}; }
+            {
+                // 先释放上一问，再提交终态。收到终态的客户端可以立即提交追问。
+                std::lock_guard<std::mutex> guard(state->mutex);
+                state->taskId.clear();
+                state->busy = false;
+                if (state->connection && !terminal.is_null()) state->connection->send_text(terminal.dump());
+            }
+            --socketWorkerCount;
         // 【逐行批注】 执行当前声明或表达式：}).detach();。
         }).detach();
     // 【逐行批注】 执行当前声明或表达式：};。
@@ -2445,6 +2609,149 @@ int main() {
         response.set_header("Content-Type", "text/html; charset=utf-8"); return response;
     // 【逐行批注】 执行当前声明或表达式：});。
     });
+    CROW_ROUTE(app, "/exam-explanations")([] {
+        crow::response response(gangyi::renderExamExplanationPage());
+        response.set_header("Content-Type", "text/html; charset=utf-8");
+        response.set_header("Cache-Control", "no-store");
+        return response;
+    });
+    CROW_ROUTE(app, "/api/exam-explanations")([databasePath = config.database_path](const crow::request&) {
+        try { gangyi::Database db; db.open(databasePath); return examJsonResponse(200, gangyi::examExplanationList(db).dump()); }
+        catch (const std::exception& error) { return examJsonResponse(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/exam-explanations").methods(crow::HTTPMethod::POST)([databasePath = config.database_path](const crow::request& req) {
+        try {
+            gangyi::Database db; db.open(databasePath);
+            const auto body = nlohmann::json::parse(req.body);
+            auto session = gangyi::examExplanationCreate(db, body);
+            if (session.value("status", "") != "recognizing" || !session.value("activeTaskId", "").empty() || !session.value("activeRequestId", "").empty())
+                return examJsonResponse(200, session.dump());
+            const auto requestId = "exam-recognize:" + session.at("id").get<std::string>();
+            session = gangyi::examExplanationReserveTask(db, session.at("id").get<std::string>(), requestId, "recognizing", std::string{});
+            if (!session.value("taskAccepted", true)) return examJsonResponse(200, session.dump());
+            auto task = gangyi::agentSubmit(db, localAgentAccess(db), {{"type", "exam_explanation"}, {"action", "recognize"},
+                {"examId", session.at("id")}, {"requestId", requestId},
+                {"text", "识别本套高中试卷。"}});
+            session = gangyi::examExplanationSetTask(db, session.at("id").get<std::string>(), task.value("id", ""), "recognizing", requestId);
+            session["task"] = task;
+            crow::response response(202, session.dump());
+            response.set_header("Content-Type", "application/json; charset=utf-8");
+            response.set_header("Cache-Control", "no-store");
+            return response;
+        } catch (const std::invalid_argument& error) { return examJsonResponse(400, nlohmann::json{{"error", error.what()}}.dump()); }
+          catch (const std::exception& error) { return examJsonResponse(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/exam-explanations/<string>").methods(crow::HTTPMethod::GET)([databasePath = config.database_path](const crow::request&, const std::string& routeId) {
+        const auto id = examRouteId(routeId);
+        try { gangyi::Database db; db.open(databasePath); return examJsonResponse(200, gangyi::examExplanationView(db, id).dump()); }
+        catch (const std::invalid_argument& error) { return examJsonResponse(404, nlohmann::json{{"error", error.what()}}.dump()); }
+        catch (const std::exception& error) { return examJsonResponse(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/exam-explanations/<string>").methods(crow::HTTPMethod::PATCH)([databasePath = config.database_path](const crow::request& req, const std::string& routeId) {
+        const auto id = examRouteId(routeId);
+        try { gangyi::Database db; db.open(databasePath); return examJsonResponse(200, gangyi::examExplanationUpdate(db, id, nlohmann::json::parse(req.body)).dump()); }
+        catch (const std::invalid_argument& error) { return examJsonResponse(400, nlohmann::json{{"error", error.what()}}.dump()); }
+        catch (const std::exception& error) { return examJsonResponse(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/exam-explanations/<string>/recognition-retries").methods(crow::HTTPMethod::POST)([databasePath = config.database_path](const crow::request& req, const std::string& routeId) {
+        const auto id = examRouteId(routeId);
+        try {
+            gangyi::Database db; db.open(databasePath);
+            const auto body = nlohmann::json::parse(req.body);
+            if (!body.contains("requestId") || !body.at("requestId").is_string())
+                throw std::invalid_argument("重试请求标识无效");
+            const auto requestId = body.at("requestId").get<std::string>();
+            auto session = gangyi::examExplanationRetryRecognition(db, id, requestId);
+            if (!session.value("taskAccepted", false))
+                return examJsonResponse(200, nlohmann::json{{"session", session}, {"duplicate", true}}.dump());
+            try {
+                const auto task = gangyi::agentSubmit(db, localAgentAccess(db), {{"type", "exam_explanation"},
+                    {"action", "recognize"}, {"examId", id}, {"requestId", requestId}, {"text", "继续识别未完成的试卷页面。"}});
+                session = gangyi::examExplanationSetTask(db, id, task.value("id", ""), "recognizing", requestId);
+                return examJsonResponse(202, nlohmann::json{{"session", session}, {"task", task}, {"duplicate", false}}.dump());
+            } catch (...) {
+                gangyi::examExplanationFailTask(db, id, requestId);
+                throw;
+            }
+        } catch (const std::invalid_argument& error) { return examJsonResponse(400, nlohmann::json{{"error", error.what()}}.dump()); }
+          catch (const std::exception& error) { return examJsonResponse(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/exam-explanations/<string>/sources").methods(crow::HTTPMethod::GET)([databasePath = config.database_path](const crow::request&, const std::string& routeId) {
+        const auto id = examRouteId(routeId);
+        try { gangyi::Database db; db.open(databasePath); return examJsonResponse(200, gangyi::examExplanationSources(db, id).dump()); }
+        catch (const std::invalid_argument& error) { return examJsonResponse(404, nlohmann::json{{"error", error.what()}}.dump()); }
+        catch (const std::exception& error) { return examJsonResponse(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/exam-explanations/<string>/source-snapshots").methods(crow::HTTPMethod::POST)([databasePath = config.database_path](const crow::request& req, const std::string& routeId) {
+        const auto id = examRouteId(routeId);
+        try {
+            const auto body = nlohmann::json::parse(req.body);
+            if (!body.contains("url") || !body.at("url").is_string()) throw std::invalid_argument("来源地址无效");
+            gangyi::Database db; db.open(databasePath);
+            return examJsonResponse(200, gangyi::examSourceRead(db, id, body.at("url").get<std::string>()).dump());
+        } catch (const std::invalid_argument& error) { return examJsonResponse(400, nlohmann::json{{"error", error.what()}}.dump()); }
+          catch (const std::exception& error) { return examJsonResponse(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/exam-explanations/<string>/source-snapshots/<string>").methods(crow::HTTPMethod::GET)([databasePath = config.database_path](const crow::request&, const std::string& routeId, const std::string& routeSnapshotId) {
+        const auto id = examRouteId(routeId);
+        const auto snapshotId = examRouteId(routeSnapshotId);
+        try { gangyi::Database db; db.open(databasePath); return examJsonResponse(200, gangyi::examSourceSnapshot(db, id, snapshotId).dump()); }
+        catch (const std::invalid_argument& error) { return examJsonResponse(404, nlohmann::json{{"error", error.what()}}.dump()); }
+        catch (const std::exception& error) { return examJsonResponse(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/exam-explanations/<string>/source-confirmations").methods(crow::HTTPMethod::GET)([databasePath = config.database_path](const crow::request&, const std::string& routeId) {
+        const auto id = examRouteId(routeId);
+        try { gangyi::Database db; db.open(databasePath); return examJsonResponse(200, gangyi::examSourceConfirmations(db, id).dump()); }
+        catch (const std::invalid_argument& error) { return examJsonResponse(404, nlohmann::json{{"error", error.what()}}.dump()); }
+        catch (const std::exception& error) { return examJsonResponse(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/exam-explanations/<string>/source-confirmations").methods(crow::HTTPMethod::POST)([databasePath = config.database_path](const crow::request& req, const std::string& routeId) {
+        const auto id = examRouteId(routeId);
+        try { gangyi::Database db; db.open(databasePath); return examJsonResponse(200, gangyi::examSourceConfirm(db, id, nlohmann::json::parse(req.body)).dump()); }
+        catch (const std::invalid_argument& error) { return examJsonResponse(400, nlohmann::json{{"error", error.what()}}.dump()); }
+        catch (const std::exception& error) { return examJsonResponse(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/exam-explanations/<string>/source-revocations").methods(crow::HTTPMethod::POST)([databasePath = config.database_path](const crow::request& req, const std::string& routeId) {
+        const auto id = examRouteId(routeId);
+        try { gangyi::Database db; db.open(databasePath); return examJsonResponse(200, gangyi::examSourceRevoke(db, id, nlohmann::json::parse(req.body)).dump()); }
+        catch (const std::invalid_argument& error) { return examJsonResponse(400, nlohmann::json{{"error", error.what()}}.dump()); }
+        catch (const std::exception& error) { return examJsonResponse(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/exam-explanations/<string>/messages").methods(crow::HTTPMethod::POST)([databasePath = config.database_path](const crow::request& req, const std::string& routeId) {
+        const auto id = examRouteId(routeId);
+        try {
+            gangyi::Database db; db.open(databasePath);
+            const auto body = nlohmann::json::parse(req.body);
+            const auto appended = gangyi::examExplanationAppendUserMessage(db, id, body);
+            if (appended.value("duplicate", false)) {
+                if (!appended.value("activeTaskId", "").empty())
+                    return examJsonResponse(202, nlohmann::json{{"chat", appended}, {"task", localAgentView(db, appended.at("activeTaskId").get<std::string>())}, {"duplicate", true}}.dump());
+                return examJsonResponse(200, nlohmann::json{{"chat", appended}, {"duplicate", true}}.dump());
+            }
+            const auto oldTask = appended.value("previousTaskId", "");
+            if (!oldTask.empty()) try { gangyi::agentControl(db, localAgentAccess(db), {{"command", "cancel"}, {"taskId", oldTask}}); } catch (...) {}
+            const auto requestId = body.at("requestId").get<std::string>();
+            const auto reserved = gangyi::examExplanationReserveTask(db, id, requestId, "ready", requestId);
+            if (!reserved.value("taskAccepted", false)) return examJsonResponse(409, nlohmann::json{{"error", "这条学习请求已被后续消息接替，请继续发送当前问题。"}}.dump());
+            const auto task = gangyi::agentSubmit(db, localAgentAccess(db), {{"type", "exam_explanation"}, {"action", "chat"},
+                {"examId", id}, {"requestId", requestId}, {"text", body.at("text")}});
+            const auto session = gangyi::examExplanationSetTask(db, id, task.value("id", ""), "ready", requestId);
+            if (!session.value("taskAccepted", false) && session.value("latestRequestId", "") != requestId)
+                try { gangyi::agentControl(db, localAgentAccess(db), {{"command", "cancel"}, {"taskId", task.value("id", "")}}); } catch (...) {}
+            return examJsonResponse(202, nlohmann::json{{"chat", session}, {"task", task}, {"duplicate", false}}.dump());
+        } catch (const std::invalid_argument& error) { return examJsonResponse(400, nlohmann::json{{"error", error.what()}}.dump()); }
+          catch (const std::exception& error) { return examJsonResponse(409, nlohmann::json{{"error", error.what()}}.dump()); }
+    });
+    CROW_ROUTE(app, "/api/exam-explanations/<string>/pages/<int>")([databasePath = config.database_path](const crow::request&, const std::string& routeId, int index) {
+        const auto id = examRouteId(routeId);
+        try { gangyi::Database db; db.open(databasePath); const auto image = gangyi::examExplanationPage(db, id, index); crow::response response(image.second); response.set_header("Content-Type", image.first); response.set_header("X-Content-Type-Options", "nosniff"); response.set_header("Cache-Control", "private, max-age=86400"); return response; }
+        catch (const std::exception&) { return crow::response(404, "试卷页面不存在"); }
+    });
+    CROW_ROUTE(app, "/api/exam-explanations/<string>/files/<int>")([databasePath = config.database_path](const crow::request&, const std::string& routeId, int index) {
+        const auto id = examRouteId(routeId);
+        try { gangyi::Database db; db.open(databasePath); const auto file = gangyi::examExplanationFile(db, id, index); crow::response response(file.second); response.set_header("Content-Type", file.first); response.set_header("X-Content-Type-Options", "nosniff"); response.set_header("Content-Disposition", "inline"); response.set_header("Cache-Control", "private, max-age=86400"); return response; }
+        catch (const std::exception&) { return crow::response(404, "试卷原始文件不存在"); }
+    });
     // 【逐行批注】 注册 HTTP 路由并绑定对应处理函数：CROW_ROUTE(app, "/api/deep-course")([databasePath = config.database_path](const crow…。
     CROW_ROUTE(app, "/api/deep-course")([databasePath = config.database_path](const crow::request& req) {
         // 【逐行批注】 开始可能抛出异常的保护代码块。
@@ -2464,6 +2771,14 @@ int main() {
         // 【逐行批注】 调用 response 完成本行所需操作：} catch (const std::exception& error) { return crow::response(409, nl…。
         } catch (const std::exception& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
     // 【逐行批注】 执行当前声明或表达式：});。
+    });
+    CROW_ROUTE(app, "/api/deep-course/component-draft").methods(crow::HTTPMethod::POST)([databasePath = config.database_path](const crow::request& req) {
+        try {
+            if (req.body.size() > 160000) return crow::response(413, nlohmann::json{{"error", "组件草稿过大"}}.dump());
+            gangyi::Database connection; connection.open(databasePath);
+            crow::response response(gangyi::deepCourseSaveComponentDraft(connection, localAgentAccess(connection), nlohmann::json::parse(req.body)).dump());
+            response.set_header("Content-Type", "application/json; charset=utf-8"); return response;
+        } catch (const std::exception& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
     });
     // 【逐行批注】 注册 HTTP 路由并绑定对应处理函数：CROW_ROUTE(app, "/api/deep-course/start").methods(crow::HTTPMethod::POST)([databaseP…。
     CROW_ROUTE(app, "/api/deep-course/start").methods(crow::HTTPMethod::POST)([databasePath = config.database_path](const crow::request& req) {

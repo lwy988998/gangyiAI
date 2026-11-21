@@ -1,5 +1,6 @@
 // 【逐行批注】 引入头文件 "search_client.hpp"，为后续实现提供类型或接口声明。
 #include "search_client.hpp"
+#include "ai_money_mode.hpp"
 
 // 【逐行批注】 引入头文件 <curl/curl.h>，为后续实现提供类型或接口声明。
 #include <curl/curl.h>
@@ -511,7 +512,7 @@ std::string detectDomain(const std::string& goal) {
 }
 
 // 【逐行批注】 声明数据结构或类型 HttpResult 及其成员接口。
-struct HttpResult { long status = 0; std::string body; CURLcode error = CURLE_OK; bool directRetry = false; int attempts = 0; };
+struct HttpResult { long status = 0; std::string body; CURLcode error = CURLE_OK; bool directRetry = false; int attempts = 0; bool budgetDenied = false; };
 
 // 【逐行批注】 定义函数 evaluationSearchAttempt，执行该函数声明的职责。
 bool evaluationSearchAttempt() {
@@ -604,6 +605,11 @@ HttpResult postJson(const std::string& url, const std::string& key, const json& 
     // 【逐行批注】 执行当前声明或表达式：HttpResult result;。
     HttpResult result;
     // 【逐行批注】 计算右侧结果并写入 CURL* curl，更新当前运行状态。
+    // 实验总账只覆盖聊天模型用量，按次计费的搜索不能单独发送。
+    if (aiMoneyBudgetGuarded()) {
+        result.budgetDenied = true;
+        return result;
+    }
     CURL* curl = curl_easy_init();
     // 【逐行批注】 判断条件 (!curl) { result.error = CURLE_FAILED_INIT; return result; }，成立时执行对应分支。
     if (!curl) { result.error = CURLE_FAILED_INIT; return result; }
@@ -1420,7 +1426,8 @@ ResourceQueryResult providerQueryOnce(const std::string& provider, const Resourc
     // 【逐行批注】 计算右侧结果并写入 result.attempts，更新当前运行状态。
     result.attempts = response.attempts;
     // 【逐行批注】 判断条件 (response.error == CURLE_ABORTED_BY_CALLBACK) result.status = "c…，成立时执行对应分支。
-    if (response.error == CURLE_ABORTED_BY_CALLBACK) result.status = "cancelled";
+    if (response.budgetDenied) result.status = "money_budget";
+    else if (response.error == CURLE_ABORTED_BY_CALLBACK) result.status = "cancelled";
     // 【逐行批注】 在前一条件不成立时继续判断：(response.error != CURLE_OK) result.status = "network_error";。
     else if (response.error != CURLE_OK) result.status = "network_error";
     // 【逐行批注】 在前一条件不成立时继续判断：(response.status < 200 || response.status >= 300) result.status …。
@@ -1776,6 +1783,10 @@ bool SearchClient::testBochaKey(const std::string& key, std::string* diagnostic)
         // 【逐行批注】 执行当前声明或表达式：{{"query", u8"高中数学知识点"}, {"count", 1}, {"summary", false}}, 8000);。
         {{"query", u8"高中数学知识点"}, {"count", 1}, {"summary", false}}, 8000);
     // 【逐行批注】 判断条件 (response.error != CURLE_OK) {，成立时执行对应分支。
+    if (response.budgetDenied) {
+        if (diagnostic) *diagnostic = "money_budget";
+        return false;
+    }
     if (response.error != CURLE_OK) {
         // 【逐行批注】 判断条件 (diagnostic) *diagnostic = "network_error:" + std::to_string(sta…，成立时执行对应分支。
         if (diagnostic) *diagnostic = "network_error:" + std::to_string(static_cast<int>(response.error));

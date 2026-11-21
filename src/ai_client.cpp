@@ -1,5 +1,7 @@
 // 【逐行批注】 引入头文件 "ai_client.hpp"，为后续实现提供类型或接口声明。
 #include "ai_client.hpp"
+#include "ai_money_budget.hpp"
+#include "ai_money_mode.hpp"
 // 【逐行批注】 引入头文件 "search_client.hpp"，为后续实现提供类型或接口声明。
 #include "search_client.hpp"
 
@@ -42,6 +44,22 @@ namespace {
 
 // 【逐行批注】 计算右侧结果并写入 using json，更新当前运行状态。
 using json = nlohmann::json;
+
+// 流式与非流式请求共享消息序列化，确保试卷等图片和文字一起发送。
+json serializeChatMessages(const std::vector<ChatMessage>& messages) {
+    json result = json::array();
+    for (const auto& message : messages) {
+        if (message.imageDataUrl.empty()) {
+            result.push_back({{"role", message.role}, {"content", message.content}});
+        } else {
+            result.push_back({{"role", message.role}, {"content", json::array({
+                {{"type", "text"}, {"text", message.content}},
+                {{"type", "image_url"}, {"image_url", {{"url", message.imageDataUrl}}}},
+            })}});
+        }
+    }
+    return result;
+}
 // 本地回调错误不属于服务商失败；先越过重试层，再在公共调用边界还原原异常。
 // 【逐行批注】 声明数据结构或类型 CallbackFailure 及其成员接口。
 struct CallbackFailure { std::exception_ptr error; };
@@ -576,27 +594,7 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
               // 【逐行批注】 执行当前声明或表达式：{"temperature", options.temperature}, {"max_tokens", options.maxTokens}};。
               {"temperature", options.temperature}, {"max_tokens", options.maxTokens}};
     // 【逐行批注】 计算右侧结果并写入 body["messages"]，更新当前运行状态。
-    body["messages"] = json::array();
-    // 【逐行批注】 按循环规则重复处理：for (const auto& message : options.messages) {。
-    for (const auto& message : options.messages) {
-        // 【逐行批注】 判断条件 (message.imageDataUrl.empty()) {，成立时执行对应分支。
-        if (message.imageDataUrl.empty()) {
-            // 【逐行批注】 执行当前声明或表达式：body["messages"].push_back({{"role", message.role}, {"content", message.content}});。
-            body["messages"].push_back({{"role", message.role}, {"content", message.content}});
-        // 【逐行批注】 执行当前声明或表达式：} else {。
-        } else {
-            // 【逐行批注】 调用 array 完成本行所需操作：body["messages"].push_back({{"role", message.role}, {"content", json:…。
-            body["messages"].push_back({{"role", message.role}, {"content", json::array({
-                // 【逐行批注】 执行当前声明或表达式：{{"type", "text"}, {"text", message.content}},。
-                {{"type", "text"}, {"text", message.content}},
-                // 【逐行批注】 执行当前声明或表达式：{{"type", "image_url"}, {"image_url", {{"url", message.imageDataUrl}}}},。
-                {{"type", "image_url"}, {"image_url", {{"url", message.imageDataUrl}}}},
-            // 【逐行批注】 执行当前声明或表达式：})}});。
-            })}});
-        // 【逐行批注】 结束当前代码块。
-        }
-    // 【逐行批注】 结束当前代码块。
-    }
+    body["messages"] = serializeChatMessages(options.messages);
     // 【逐行批注】 判断条件 (!options.responseFormat.empty()) body["response_format"] = {{"t…，成立时执行对应分支。
     if (!options.responseFormat.empty()) body["response_format"] = {{"type", options.responseFormat}};
 
@@ -654,12 +652,19 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
     CURLcode code = CURLE_ABORTED_BY_CALLBACK;
     // 【逐行批注】 执行当前声明或表达式：std::exception_ptr transferError;。
     std::exception_ptr transferError;
+    AIMoneyBudget money;
+    bool sent = false;
     // 【逐行批注】 开始可能抛出异常的保护代码块。
     try {
         // 【逐行批注】 调用 waitUntil、cooldownKey 完成本行所需操作：waitUntil(options, cooldownKey(endpoint, options));。
         waitUntil(options, cooldownKey(endpoint, options));
         // 【逐行批注】 判断条件 (!(options.cancelled && options.cancelled()) && (started = AIAct…，成立时执行对应分支。
-        if (!(options.cancelled && options.cancelled()) && (started = AIActivity::requestStarted(activityId, &receipt))) code = perform(curl, options.cancelled);
+        if (!(options.cancelled && options.cancelled())) {
+            money.reserve(chatEndpoint(endpoint.url), selectedModel, options, postBody);
+            if ((started = AIActivity::requestStarted(activityId, &receipt))) {
+                sent = true; code = perform(curl, options.cancelled);
+            }
+        }
     // 【逐行批注】 计算右侧结果并写入 } catch (...) { transferError，更新当前运行状态。
     } catch (...) { transferError = std::current_exception(); }
     // 【逐行批注】 计算右侧结果并写入 long status，更新当前运行状态。
@@ -673,6 +678,16 @@ AIResult request(const Endpoint& endpoint, const ChatOptions& options, int timeo
     // 【逐行批注】 调用 curl_slist_free_all 完成本行所需操作：curl_slist_free_all(headers);。
     curl_slist_free_all(headers);
     // 【逐行批注】 判断条件 (started) AIActivity::requestFinished(activityId,code==CURLE_ABO…，成立时执行对应分支。
+    // 费用先结算，正文解析或活动记录失败也不能丢失实际请求的计费。
+    json moneyUsage = nullptr; std::string moneyModel;
+    try {
+        const auto parsed = json::parse(response.content);
+        moneyUsage = parsed.value("usage", json()); moneyModel = parsed.value("model", "");
+    } catch (...) { /* 缺失用量保留预留，不能估作零费用。 */ }
+    try {
+        if (!sent) money.settle({{"prompt_tokens", 0}, {"completion_tokens", 0}, {"total_tokens", 0}}, true);
+        else money.settle(moneyUsage, code == CURLE_OK, moneyModel);
+    } catch (...) { transferError = std::current_exception(); }
     if (started) AIActivity::requestFinished(activityId,code==CURLE_ABORTED_BY_CALLBACK?"cancelled":"failed",nullptr,{},receipt);
     // 【逐行批注】 判断条件 (transferError) std::rethrow_exception(transferError);，成立时执行对应分支。
     if (transferError) std::rethrow_exception(transferError);
@@ -917,10 +932,7 @@ AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int
     if(options.requestTokenUsage&&!std::getenv("AI_DISABLE_STREAM_USAGE"))body["stream_options"]={{"include_usage",true}};
     // 【逐行批注】 判断条件 (!options.responseFormat.empty()) body["response_format"] = {{"t…，成立时执行对应分支。
     if (!options.responseFormat.empty()) body["response_format"] = {{"type", options.responseFormat}};
-    // 【逐行批注】 按循环规则重复处理：for (const auto& message : options.messages)。
-    for (const auto& message : options.messages)
-        // 【逐行批注】 执行当前声明或表达式：body["messages"].push_back({{"role", message.role}, {"content", message.content}});。
-        body["messages"].push_back({{"role", message.role}, {"content", message.content}});
+    body["messages"] = serializeChatMessages(options.messages);
     // 【逐行批注】 计算右侧结果并写入 std::string postBody，更新当前运行状态。
     const std::string postBody = body.dump();
     // 【逐行批注】 计算右侧结果并写入 std::string url，更新当前运行状态。
@@ -983,12 +995,19 @@ AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int
     CURLcode code = CURLE_ABORTED_BY_CALLBACK;
     // 【逐行批注】 执行当前声明或表达式：std::exception_ptr transferError;。
     std::exception_ptr transferError;
+    AIMoneyBudget money;
+    bool sent = false;
     // 【逐行批注】 开始可能抛出异常的保护代码块。
     try {
         // 【逐行批注】 调用 waitUntil、cooldownKey 完成本行所需操作：waitUntil(options, cooldownKey(endpoint, options));。
         waitUntil(options, cooldownKey(endpoint, options));
         // 【逐行批注】 判断条件 (!(options.cancelled && options.cancelled()) && (started = AIAct…，成立时执行对应分支。
-        if (!(options.cancelled && options.cancelled()) && (started = AIActivity::requestStarted(activityId, &receipt))) code = perform(curl, options.cancelled);
+        if (!(options.cancelled && options.cancelled())) {
+            money.reserve(url, model, options, postBody);
+            if ((started = AIActivity::requestStarted(activityId, &receipt))) {
+                sent = true; code = perform(curl, options.cancelled);
+            }
+        }
     // 【逐行批注】 计算右侧结果并写入 } catch (...) { transferError，更新当前运行状态。
     } catch (...) { transferError = std::current_exception(); }
     // 【逐行批注】 计算右侧结果并写入 long status，更新当前运行状态。
@@ -1008,6 +1027,10 @@ AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int
     curl_easy_cleanup(curl);
     // 【逐行批注】 调用 curl_slist_free_all 完成本行所需操作：curl_slist_free_all(headers);。
     curl_slist_free_all(headers);
+    try {
+        if (!sent) money.settle({{"prompt_tokens", 0}, {"completion_tokens", 0}, {"total_tokens", 0}}, true);
+        else money.settle(state.usage, code == CURLE_OK, state.model);
+    } catch (...) { transferError = std::current_exception(); }
     // 【逐行批注】 判断条件 (started) AIActivity::requestFinished(activityId,code==CURLE_ABO…，成立时执行对应分支。
     if (started) AIActivity::requestFinished(activityId,code==CURLE_ABORTED_BY_CALLBACK?"cancelled":"failed",state.usage,state.model,receipt);
     // 【逐行批注】 判断条件 (transferError) std::rethrow_exception(transferError);，成立时执行对应分支。
@@ -1049,6 +1072,8 @@ AIResult streamRequest(const Endpoint& endpoint, const ChatOptions& options, int
 ChatOptions prepareSearch(const ChatOptions& options, std::string& searchStatus, std::vector<std::string>& sources) {
     // 【逐行批注】 计算右侧结果并写入 ChatOptions prepared，更新当前运行状态。
     ChatOptions prepared = options;
+    if (!options.searchQuery.empty() && aiMoneyBudgetGuarded())
+        throw AIClientError("money_budget", "本轮10元预算未包含收费搜索，未发送搜索或模型请求");
     // 【逐行批注】 判断条件 (!options.searchQuery.empty()) {，成立时执行对应分支。
     if (!options.searchQuery.empty()) {
         // 【逐行批注】 开始可能抛出异常的保护代码块。

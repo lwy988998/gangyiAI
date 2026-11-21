@@ -1,8 +1,11 @@
 # 【逐行批注】 声明最低 CMake 版本要求：cmake_minimum_required(VERSION 3.20)。
 cmake_minimum_required(VERSION 3.20)
 
-# 【逐行批注】 声明项目名称、版本与编译语言：project(gangyiAI VERSION 5.7.1 LANGUAGES C CXX)。
-project(gangyiAI VERSION 5.7.1 LANGUAGES C CXX)
+# 【逐行批注】 声明项目名称、版本与编译语言：project(gangyiAI VERSION 5.7.2 LANGUAGES C CXX)。
+project(gangyiAI VERSION 5.7.2 LANGUAGES C CXX)
+
+# 提示词编译进程序，并以源码摘要追踪每次请求实际使用的模块。
+include(cmake/TeachingPrompts.cmake)
 
 # 【逐行批注】 根据构建条件选择配置：if(WIN32)。
 if(WIN32)
@@ -382,7 +385,7 @@ add_executable(gangyiAI src/my_ai_pages.cpp src/main.cpp src/db.cpp src/ai_clien
     # 【逐行批注】 执行 CMake 构建配置：src/progress_service.cpp src/profile_service.cpp src/phase_generator.cpp src/ask_generato…。
     src/progress_service.cpp src/profile_service.cpp src/phase_generator.cpp src/ask_generator.cpp src/learning_generator.cpp src/classroom_service.cpp src/image_goal_analyzer.cpp src/home_recommendations.cpp src/learning_flow.cpp src/next_lesson.cpp
     # 【逐行批注】 执行 CMake 构建配置：src/deep_course.cpp src/learning_agent.cpp src/learning_library.cpp src/library_io.cpp sr…。
-    src/deep_course.cpp src/learning_agent.cpp src/learning_library.cpp src/library_io.cpp src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/agent_curriculum.cpp src/my_ai.cpp src/my_ai_tools.cpp src/independent_chat.cpp
+    src/deep_course.cpp src/learning_agent.cpp src/learning_library.cpp src/library_io.cpp src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/agent_curriculum.cpp src/my_ai.cpp src/my_ai_tools.cpp src/independent_chat.cpp src/exam_explanation.cpp src/exam_sources.cpp src/exam_page.cpp
     # 【逐行批注】 执行 CMake 构建配置：${GANGYI_SERVICE_RESOURCE})。
     ${GANGYI_SERVICE_RESOURCE})
 
@@ -398,6 +401,7 @@ target_include_directories(gangyiAI PRIVATE
     ${GANGYI_CURL_INCLUDE}
 # 【逐行批注】 执行 CMake 构建配置：)。
 )
+target_link_libraries(gangyiAI PRIVATE gangyi-teaching-prompts)
 
 # 【逐行批注】 为构建目标链接依赖库：target_link_libraries(gangyiAI PRIVATE。
 target_link_libraries(gangyiAI PRIVATE
@@ -490,9 +494,44 @@ if(MINGW)
 endif()
 
 # 【逐行批注】 加载额外 CMake 配置：include(CTest)。
-include(CTest)
+# 交付源码不携带开发测试；缺少测试目录时仍可正常配置产品构建。
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/learning_agent_tests.cpp")
+    include(CTest)
+else()
+    set(BUILD_TESTING OFF)
+endif()
 # 【逐行批注】 根据构建条件选择配置：if(BUILD_TESTING)。
 if(BUILD_TESTING)
+    add_executable(model-evidence-tests tests/model_evidence_log_tests.cpp)
+    target_include_directories(model-evidence-tests PRIVATE include)
+    target_link_libraries(model-evidence-tests PRIVATE nlohmann_json::nlohmann_json)
+    add_test(NAME model-evidence COMMAND model-evidence-tests)
+    add_executable(review-interval-tests tests/review_interval_tests.cpp)
+    target_include_directories(review-interval-tests PRIVATE include)
+    target_link_libraries(review-interval-tests PRIVATE nlohmann_json::nlohmann_json)
+    add_test(NAME review-interval COMMAND review-interval-tests)
+    add_executable(interactive-labs-tests tests/interactive_labs_tests.cpp)
+    target_include_directories(interactive-labs-tests PRIVATE include)
+    target_link_libraries(interactive-labs-tests PRIVATE nlohmann_json::nlohmann_json)
+    add_test(NAME interactive-labs COMMAND interactive-labs-tests "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/interactive-labs-v1.json")
+    add_executable(teaching-policy-tests tests/teaching_policy_tests.cpp)
+    target_include_directories(teaching-policy-tests PRIVATE include)
+    target_link_libraries(teaching-policy-tests PRIVATE gangyi-teaching-prompts nlohmann_json::nlohmann_json)
+    add_test(NAME teaching-policy COMMAND teaching-policy-tests)
+    # vNext 的只读学习状态与离线评测不能依赖真实模型或个人档案。
+    add_executable(learning-state-tests tests/learning_state_tests.cpp)
+    target_include_directories(learning-state-tests PRIVATE include)
+    target_link_libraries(learning-state-tests PRIVATE nlohmann_json::nlohmann_json)
+    add_test(NAME learning-state COMMAND learning-state-tests)
+    add_executable(interactive-sets-tests tests/interactive_sets_tests.cpp)
+    target_include_directories(interactive-sets-tests PRIVATE include)
+    target_link_libraries(interactive-sets-tests PRIVATE nlohmann_json::nlohmann_json)
+    add_test(NAME interactive-sets COMMAND interactive-sets-tests)
+    add_executable(exact-calculation-tests tests/exact_calculation_tests.cpp)
+    target_include_directories(exact-calculation-tests PRIVATE include)
+    target_link_libraries(exact-calculation-tests PRIVATE nlohmann_json::nlohmann_json)
+    add_test(NAME exact-calculation COMMAND exact-calculation-tests)
+
     # 【逐行批注】 声明可执行程序目标：add_executable(next-lesson-tests tests/next_lesson_tests.cpp src/learning_generator.cpp。
     add_executable(next-lesson-tests tests/next_lesson_tests.cpp src/learning_generator.cpp
         # 【逐行批注】 执行 CMake 构建配置：src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp)。
@@ -542,7 +581,7 @@ if(BUILD_TESTING)
     # 【逐行批注】 注册自动化测试：add_test(NAME agent-stream COMMAND agent-stream-tests)。
     add_test(NAME agent-stream COMMAND agent-stream-tests)
     # 【逐行批注】 声明可执行程序目标：add_executable(learning-agent-tests tests/learning_agent_tests.cpp src/deep_course.cpp sr…。
-    add_executable(learning-agent-tests tests/learning_agent_tests.cpp src/deep_course.cpp src/learning_agent.cpp src/learning_library.cpp src/library_io.cpp src/independent_chat.cpp
+    add_executable(learning-agent-tests tests/learning_agent_tests.cpp src/deep_course.cpp src/learning_agent.cpp src/learning_library.cpp src/library_io.cpp src/independent_chat.cpp src/exam_explanation.cpp src/exam_sources.cpp
         # 【逐行批注】 执行 CMake 构建配置：src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.c…。
         src/agent_stream.cpp src/agent_preferences.cpp src/agent_lessons.cpp src/agent_profiles.cpp src/agent_curriculum.cpp src/my_ai.cpp src/my_ai_tools.cpp
         # 【逐行批注】 执行 CMake 构建配置：src/learning_flow.cpp src/next_lesson.cpp src/classroom_service.cpp src/learning_generato…。
@@ -551,6 +590,7 @@ if(BUILD_TESTING)
         src/course_service.cpp src/progress_service.cpp src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp)
     # 【逐行批注】 为构建目标设置头文件路径：target_include_directories(learning-agent-tests PRIVATE include ${GANGYI_CURL_INCLUDE})。
     target_include_directories(learning-agent-tests PRIVATE include ${GANGYI_CURL_INCLUDE})
+    target_link_libraries(learning-agent-tests PRIVATE gangyi-teaching-prompts)
     # 【逐行批注】 为构建目标链接依赖库：target_link_libraries(learning-agent-tests PRIVATE nlohmann_json::nlohmann_json。
     target_link_libraries(learning-agent-tests PRIVATE nlohmann_json::nlohmann_json
         # 【逐行批注】 执行 CMake 构建配置：${GANGYI_SQLITE_LIB} ${GANGYI_CURL_LINK} Threads::Threads)。
@@ -567,6 +607,10 @@ if(BUILD_TESTING)
     add_test(NAME deep-course COMMAND learning-agent-tests --deep-course-only)
     # 【逐行批注】 注册自动化测试：add_test(NAME learning-agent COMMAND learning-agent-tests)。
     add_test(NAME learning-agent COMMAND learning-agent-tests)
+    add_test(NAME component-activity-agent COMMAND learning-agent-tests --component-activity-only)
+    add_test(NAME exact-calculation-agent COMMAND learning-agent-tests --calculation-only)
+    add_test(NAME learning-mastery-agent COMMAND learning-agent-tests --mastery-only)
+    add_test(NAME teaching-preferences-agent COMMAND learning-agent-tests --teaching-preferences-only)
   # 【逐行批注】 注册自动化测试：add_test(NAME startup-reuse COMMAND learning-agent-tests --startup-reuse-only)。
   add_test(NAME startup-reuse COMMAND learning-agent-tests --startup-reuse-only)
     # 【逐行批注】 声明可执行程序目标：add_executable(socket-adaptor-tests tests/socket_adaptor_tests.cpp)。
@@ -620,6 +664,19 @@ if(BUILD_TESTING)
     # 【逐行批注】 注册自动化测试：add_test(NAME ai-client COMMAND ai-client-tests)。
     add_test(NAME ai-client COMMAND ai-client-tests)
 
+    # 人民币预算专项调用实际AIClient；夹具端点严格限制为本机。
+    add_executable(ai-money-budget-driver tests/ai_money_budget_driver.cpp
+        src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp)
+    target_include_directories(ai-money-budget-driver PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${GANGYI_CURL_INCLUDE})
+    target_link_libraries(ai-money-budget-driver PRIVATE nlohmann_json::nlohmann_json ${GANGYI_CURL_LINK} Threads::Threads)
+    if(WIN32)
+        target_compile_definitions(ai-money-budget-driver PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+        target_link_libraries(ai-money-budget-driver PRIVATE ws2_32)
+        if(MINGW)
+            target_link_options(ai-money-budget-driver PRIVATE -municode)
+        endif()
+    endif()
+
     # 【逐行批注】 声明可执行程序目标：add_executable(ai-content-generation-tests tests/ai_content_generation_tests.cpp。
     add_executable(ai-content-generation-tests tests/ai_content_generation_tests.cpp
         # 【逐行批注】 执行 CMake 构建配置：src/learning_generator.cpp src/phase_generator.cpp src/ai_client.cpp src/ai_activity.cpp …。
@@ -655,6 +712,11 @@ if(BUILD_TESTING)
     target_link_libraries(progress-service-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_SQLITE_LIB})
     # 【逐行批注】 注册自动化测试：add_test(NAME progress-service COMMAND progress-service-tests)。
     add_test(NAME progress-service COMMAND progress-service-tests)
+
+    add_executable(course-deletion-tests tests/course_deletion_tests.cpp src/db.cpp src/course_service.cpp)
+    target_include_directories(course-deletion-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_link_libraries(course-deletion-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_SQLITE_LIB})
+    add_test(NAME course-deletion COMMAND course-deletion-tests)
 
     # 【逐行批注】 声明可执行程序目标：add_executable(profile-service-tests tests/profile_service_tests.cpp src/db.cpp src/profi…。
     add_executable(profile-service-tests tests/profile_service_tests.cpp src/db.cpp src/profile_service.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp)
@@ -730,6 +792,24 @@ if(BUILD_TESTING)
     target_link_libraries(database-atomic-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_SQLITE_LIB})
     # 【逐行批注】 注册自动化测试：add_test(NAME database-atomic COMMAND database-atomic-tests)。
     add_test(NAME database-atomic COMMAND database-atomic-tests)
+    add_executable(exam-explanation-service-tests tests/exam_explanation_service_tests.cpp src/exam_explanation.cpp src/exam_sources.cpp src/library_io.cpp src/search_client.cpp src/db.cpp)
+    target_include_directories(exam-explanation-service-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${GANGYI_CURL_INCLUDE})
+    target_link_libraries(exam-explanation-service-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_SQLITE_LIB} ${GANGYI_CURL_LINK} Threads::Threads)
+    if(WIN32)
+        target_link_libraries(exam-explanation-service-tests PRIVATE ws2_32)
+    endif()
+    add_test(NAME exam-explanation-service COMMAND exam-explanation-service-tests)
+    add_executable(exam-sources-tests tests/exam_sources_tests.cpp src/exam_sources.cpp src/exam_explanation.cpp src/db.cpp src/library_io.cpp src/search_client.cpp)
+    target_include_directories(exam-sources-tests PRIVATE include ${GANGYI_CURL_INCLUDE})
+    target_link_libraries(exam-sources-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_SQLITE_LIB} ${GANGYI_CURL_LINK} Threads::Threads)
+    if(WIN32)
+        target_link_libraries(exam-sources-tests PRIVATE ws2_32)
+    endif()
+    add_test(NAME exam-sources COMMAND exam-sources-tests)
+    add_executable(exam-message-stream-tests tests/exam_message_stream_tests.cpp)
+    target_include_directories(exam-message-stream-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_link_libraries(exam-message-stream-tests PRIVATE nlohmann_json::nlohmann_json)
+    add_test(NAME exam-message-stream COMMAND exam-message-stream-tests)
     # 【逐行批注】 声明可执行程序目标：add_executable(shared-pointer-tests tests/shared_pointer_tests.cpp)。
     add_executable(shared-pointer-tests tests/shared_pointer_tests.cpp)
     # 【逐行批注】 注册自动化测试：add_test(NAME shared-pointer COMMAND shared-pointer-tests)。
@@ -742,10 +822,16 @@ if(BUILD_TESTING)
     find_program(GANGYI_NODE_EXECUTABLE NAMES node)
     # 【逐行批注】 根据构建条件选择配置：if(GANGYI_NODE_EXECUTABLE)。
     if(GANGYI_NODE_EXECUTABLE)
+        add_test(NAME interactive-labs-js COMMAND ${GANGYI_NODE_EXECUTABLE} --test ${CMAKE_CURRENT_SOURCE_DIR}/tests/interactive_labs_tests.cjs)
         # 【逐行批注】 注册自动化测试：add_test(NAME chat-links COMMAND ${GANGYI_NODE_EXECUTABLE}。
         add_test(NAME chat-links COMMAND ${GANGYI_NODE_EXECUTABLE}
             # 【逐行批注】 执行 CMake 构建配置：${CMAKE_CURRENT_SOURCE_DIR}/tests/chat_link_tests.cjs)。
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/chat_link_tests.cjs)
+        add_test(NAME chat-table COMMAND ${GANGYI_NODE_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/chat_table_tests.cjs)
+        add_test(NAME exam-import COMMAND ${GANGYI_NODE_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/exam_import_module_tests.cjs)
+        add_test(NAME exam-rich-output COMMAND ${GANGYI_NODE_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/exam_rich_output_tests.cjs)
+        add_test(NAME interactive-learning COMMAND ${GANGYI_NODE_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/interactive_learning_tests.cjs)
         # 【逐行批注】 注册自动化测试：add_test(NAME help-display COMMAND ${GANGYI_NODE_EXECUTABLE}。
         add_test(NAME help-display COMMAND ${GANGYI_NODE_EXECUTABLE}
             # 【逐行批注】 执行 CMake 构建配置：${CMAKE_CURRENT_SOURCE_DIR}/tests/help_display_smoke.js)。
@@ -778,6 +864,22 @@ if(BUILD_TESTING)
     endif()
     # 【逐行批注】 根据构建条件选择配置：if(Python3_Interpreter_FOUND)。
     if(Python3_Interpreter_FOUND)
+        # 开发评测测试不进入源码交付包；原生入口由独立构建脚本刷新。
+        add_test(NAME tutor-experiment COMMAND ${Python3_EXECUTABLE} -B -X utf8
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/tutor_experiment_tests.py -v)
+        add_test(NAME ai-money-budget COMMAND ${Python3_EXECUTABLE} -B -X utf8
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/ai_money_budget_tests.py $<TARGET_FILE:ai-money-budget-driver>)
+        set_tests_properties(ai-money-budget PROPERTIES TIMEOUT 90)
+        if(WIN32 AND EXISTS "${CMAKE_BINARY_DIR}/tutor-eval-driver.exe")
+            add_test(NAME tutor-experiment-native COMMAND ${Python3_EXECUTABLE} -B -X utf8
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/tutor_experiment_native_smoke.py
+                ${CMAKE_BINARY_DIR}/tutor-eval-driver.exe)
+            set_tests_properties(tutor-experiment-native PROPERTIES TIMEOUT 240)
+        endif()
+        add_test(NAME tutor-benchmark COMMAND ${Python3_EXECUTABLE} -B -X utf8
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/tutor_benchmark_tests.py -v)
+        add_test(NAME tutor-component-scenes COMMAND ${Python3_EXECUTABLE} -B -X utf8
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/tutor_component_scenes_tests.py -v)
         # 【逐行批注】 注册自动化测试：add_test(NAME release-publish COMMAND ${Python3_EXECUTABLE} -B -X utf8。
         add_test(NAME release-publish COMMAND ${Python3_EXECUTABLE} -B -X utf8
             # 【逐行批注】 执行 CMake 构建配置：${CMAKE_CURRENT_SOURCE_DIR}/tests/release_publish_tests.py -v)。
@@ -839,6 +941,9 @@ if(BUILD_TESTING)
         add_test(NAME learning-agent-api COMMAND ${Python3_EXECUTABLE}
             # 【逐行批注】 执行 CMake 构建配置：${CMAKE_CURRENT_SOURCE_DIR}/tests/learning_agent_api_smoke.py $<TARGET_FILE:gangyiAI>)。
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/learning_agent_api_smoke.py $<TARGET_FILE:gangyiAI>)
+        add_test(NAME learning-agent-recovery COMMAND ${Python3_EXECUTABLE} -X utf8
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/learning_agent_recovery_smoke.py $<TARGET_FILE:gangyiAI>)
+        set_tests_properties(learning-agent-recovery PROPERTIES TIMEOUT 180)
         # 【逐行批注】 注册自动化测试：add_test(NAME v560-revision-api COMMAND ${Python3_EXECUTABLE}。
         add_test(NAME v560-revision-api COMMAND ${Python3_EXECUTABLE}
             # 【逐行批注】 执行 CMake 构建配置：${CMAKE_CURRENT_SOURCE_DIR}/tests/v560_revision_api_smoke.py $<TARGET_FILE:gangyiAI>)。

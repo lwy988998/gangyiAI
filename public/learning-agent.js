@@ -184,7 +184,7 @@
   // 【逐行批注】 定义函数 watch，封装可复用的前端行为。
   function watch(taskId, handlers = {}) {
     // 【逐行批注】 声明前端变量 sequence，保存本行计算出的数据或对象。
-    let sequence = handlers.afterSeq || 0, socket, timer, socketTimer, stopped = false;
+    let sequence = handlers.afterSeq || 0, socket, timer, socketTimer, stopped = false, polling = false;
     // 【逐行批注】 声明前端变量 events，保存本行计算出的数据或对象。
     const events = new Set();
     // 【逐行批注】 声明前端变量 receive，保存本行计算出的数据或对象。
@@ -213,20 +213,31 @@
       handlers.onState?.(task);
       // 【逐行批注】 计算右侧结果并更新 flushExposure().catch(()，改变页面或请求状态。
       flushExposure().catch(() => { /* 下一次学生提交前再次保存已展示序号。 */ });
-      // 【逐行批注】 判断条件 (!['pending', 'running'].includes(task.status) && !(task.status …，成立时执行对应逻辑。
-      if (!['pending', 'running'].includes(task.status) && !(task.status === 'paused' && task.pauseReason === 'global')) { stopped = true; clearTimeout(timer); clearTimeout(socketTimer); socket?.close(); }
+      // 软件退出产生的暂停会在新进程接续，页面继续读取同一任务。
+      if (task.status === 'paused' && task.pauseReason === 'shutdown') {
+        schedulePoll(400);
+        return;
+      }
+      if (!['pending', 'running'].includes(task.status) && !(task.status === 'paused' && task.pauseReason === 'global')) {
+        stopped = true;
+        clearTimeout(timer);
+        clearTimeout(socketTimer);
+        socket?.close();
+      }
     // 【逐行批注】 执行当前前端表达式：};。
     };
-    // 【逐行批注】 定义函数 poll，封装可复用的前端行为。
+    function schedulePoll(delay) {
+      if (!stopped && !polling && !timer) timer = setTimeout(poll, delay);
+    }
     async function poll() {
-      // 【逐行批注】 判断条件 (stopped) return;，成立时执行对应逻辑。
+      timer = null;
       if (stopped) return;
+      polling = true;
       // 【逐行批注】 计算右侧结果并更新 try { state(await request(`/api/learning-age…，改变页面或请求状态。
       try { state(await request(`/api/learning-agent?taskId=${encodeURIComponent(taskId)}`)); }
       // 【逐行批注】 执行当前前端表达式：catch (error) { if(!stopped)handlers.onConnectionError?.(error.message); }。
       catch (error) { if(!stopped)handlers.onConnectionError?.(error.message); }
-      // 【逐行批注】 判断条件 (!stopped) timer = setTimeout(poll, 1200);，成立时执行对应逻辑。
-      if (!stopped) timer = setTimeout(poll, 1200);
+      finally { polling = false; schedulePoll(1200); }
     // 【逐行批注】 结束当前前端代码块。
     }
     // 【逐行批注】 计算右侧结果并更新 request(`/api/learning-agent?taskId，改变页面或请求状态。
@@ -234,7 +245,7 @@
       // 【逐行批注】 调用 state 执行页面交互或数据处理：state(task);。
       state(task);
       // 【逐行批注】 判断条件 (stopped) return;，成立时执行对应逻辑。
-      if (stopped) return;
+      if (stopped || timer) return;
       // 【逐行批注】 计算右侧结果并更新 socket，改变页面或请求状态。
       socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/learning-agent`);
       // 【逐行批注】 计算右侧结果并更新 socketTimer，改变页面或请求状态。
@@ -243,8 +254,7 @@
         if (stopped || socket?.readyState === WebSocket.OPEN) return;
         // 【逐行批注】 执行当前前端表达式：socket?.close();。
         socket?.close();
-        // 【逐行批注】 判断条件 (!timer) poll();，成立时执行对应逻辑。
-        if (!timer) poll();
+        schedulePoll(400);
       // 【逐行批注】 执行当前前端表达式：}, 15000);。
       }, 15000);
       // 【逐行批注】 为页面事件绑定处理逻辑：socket.addEventListener('open', () => { clearTimeout(socketTimer); if(stopped){socke…。
@@ -263,12 +273,11 @@
         } catch (_) { handlers.onConnectionError?.('实时连接暂时中断，已保存的内容仍可恢复。'); }
       // 【逐行批注】 执行当前前端表达式：});。
       });
-      // 【逐行批注】 为页面事件绑定处理逻辑：socket.addEventListener('close', () => { if (!stopped) timer = setTimeout(poll, 400)…。
-      socket.addEventListener('close', () => { if (!stopped) timer = setTimeout(poll, 400); });
+      socket.addEventListener('close', () => schedulePoll(400));
       // 【逐行批注】 为页面事件绑定处理逻辑：socket.addEventListener('error', () => socket.close());。
       socket.addEventListener('error', () => socket.close());
     // 【逐行批注】 计算右侧结果并更新 }).catch(error，改变页面或请求状态。
-    }).catch(error => { if(stopped)return; handlers.onConnectionError?.(error.message); timer = setTimeout(poll, 1200); });
+    }).catch(error => { if(stopped)return; handlers.onConnectionError?.(error.message); schedulePoll(1200); });
     // 【逐行批注】 结束当前函数并返回结果：return () => { stopped = true; clearTimeout(timer); clearTimeout(sock…。
     return () => { stopped = true; clearTimeout(timer); clearTimeout(socketTimer); socket?.close(); };
   // 【逐行批注】 结束当前前端代码块。
@@ -284,7 +293,128 @@
   // 【逐行批注】 声明前端变量 failureMessage，保存本行计算出的数据或对象。
   const failureMessage = task => task?.failure?.message || task?.error || 'AI 请求未完成，输入和已有有效结果已保留，可重试。';
   // 【逐行批注】 计算右侧结果并更新 window.GangyiAgent，改变页面或请求状态。
-  window.GangyiAgent = { request, watch, storage, id, richText, flushExposure, failureMessage, recordEvaluation,
+  function showRoundRevision(round, onConfirm) {
+    if (round?.status !== 'active' || document.querySelector('.agent-round-dialog')) return;
+    const previousFocus = document.activeElement;
+    const dialog = document.createElement('dialog');
+    dialog.className = 'agent-round-dialog';
+    dialog.setAttribute('aria-labelledby', 'agent-round-title');
+    dialog.innerHTML = `<form>
+      <h2 id="agent-round-title">调整本轮</h2>
+      <p>当前轮次和已发布的反馈会保留。调整后的目标与题数从新轮次开始。</p>
+      <label>学习目标 <textarea name="goal" rows="2" maxlength="200" required autofocus></textarea></label>
+      <label>题数 <input name="questionCount" type="number" min="1" max="20" step="1" required></label>
+      <p class="agent-round-error" role="alert" hidden></p>
+      <div class="agent-round-actions">
+        <button type="button" class="secondary-action">取消</button>
+        <button type="submit" class="primary-action">保存并开始新轮次</button>
+      </div>
+    </form>`;
+    const form = dialog.querySelector('form');
+    const goal = form.elements.namedItem('goal');
+    const questionCount = form.elements.namedItem('questionCount');
+    const feedback = form.querySelector('.agent-round-error');
+    const submit = form.querySelector('button[type=submit]');
+    goal.value = round.goal;
+    questionCount.value = round.questionCount;
+    goal.addEventListener('input', () => goal.setCustomValidity(''));
+    form.querySelector('button[type=button]').onclick = () => dialog.close();
+    form.onsubmit = async event => {
+      event.preventDefault();
+      const text = goal.value.trim();
+      if (!text) {
+        goal.setCustomValidity('请输入学习目标。');
+        goal.reportValidity();
+        return;
+      }
+      if (submit.disabled) return;
+      const count = questionCount.valueAsNumber;
+      submit.disabled = true;
+      form.setAttribute('aria-busy', 'true');
+      feedback.hidden = true;
+      try {
+        const result = await onConfirm({type:'teaching_request', requestType:'revise_round', text:`我把新一轮的目标改为「${text}」，共 ${count} 题。`,
+          roundRevision:{roundId:round.roundId, goal:text, questionCount:count}});
+        if (result === true) dialog.close();
+        else {
+          feedback.textContent = typeof result === 'string' ? result : '还没有收到保存确认，可以再试一次。';
+          feedback.hidden = false;
+        }
+      } catch (error) {
+        feedback.textContent = error.message || '本次调整未完成，可以再试一次。';
+        feedback.hidden = false;
+      } finally {
+        submit.disabled = false;
+        form.removeAttribute('aria-busy');
+      }
+    };
+    dialog.addEventListener('close', () => {
+      dialog.remove();
+      if (previousFocus?.isConnected && previousFocus.getClientRects().length) previousFocus.focus();
+    }, {once:true});
+    document.body.append(dialog);
+    dialog.showModal();
+  }
+
+  const topicEvidenceViews = new WeakMap();
+  function paintTopicEvidence(host, lesson) {
+    const evidence = lesson?.topicEvidence;
+    const attempts = Array.isArray(evidence?.recentAttempts) ? evidence.recentAttempts : [];
+    host.hidden = evidence?.status !== 'available' ||
+      (evidence.lessonCount < 2 && !attempts.some(item => item.lessonId !== lesson.id));
+    if (host.hidden) {
+      host.open = false;
+      if (host.firstChild) host.replaceChildren();
+      topicEvidenceViews.delete(host);
+      return;
+    }
+    const signature = JSON.stringify([lesson.id, evidence]);
+    if (topicEvidenceViews.get(host) === signature) return;
+    topicEvidenceViews.set(host, signature);
+    const restoreFocus = document.activeElement === host.firstElementChild;
+    const summary = document.createElement('summary');
+    summary.textContent = '本知识点的历史作答';
+    const counts = document.createElement('p');
+    counts.textContent = `${evidence.lessonCount} 节课 · ${evidence.evaluationCount} 次已发布评价 · ${evidence.independentFirstAttemptCount} 题独立首答`;
+    const list = document.createElement('ul');
+    list.setAttribute('aria-label', '最近作答');
+    for (const attempt of attempts.slice(-3).reverse()) {
+      const item = document.createElement('li');
+      const kind = [];
+      if (attempt.repeat) kind.push('同题复做');
+      if (attempt.needsClarification) kind.push('需要澄清');
+      else if (!attempt.supported) kind.push('评价依据待核对');
+      else if (attempt.independentFirstAttempt) kind.push('独立首答');
+      const help = {after_hint:'使用提示', after_example:'看过示范', help_unknown:'帮助情况待核对'}[attempt.helpMode];
+      if (help) kind.push(help);
+      if (!kind.length) kind.push('帮助情况待核对');
+      const origin = attempt.curriculum ? attempt.curriculum.edition + ' ' + attempt.curriculum.section :
+        (attempt.lessonId === lesson.id ? '本课' : '其他课时');
+      item.textContent = [attempt.at?.slice(0,10), origin, ...kind, attempt.diagnosisSummary].filter(Boolean).join(' · ');
+      list.append(item);
+    }
+    const scope = document.createElement('p');
+    scope.textContent = '课堂作答用于安排复习，延迟记忆和迁移能力需另外核对。';
+    host.replaceChildren(summary, counts, list, scope);
+    if (evidence.curriculum && attempts.some(attempt => attempt.curriculum)) {
+      const references = document.createElement('p');
+      references.append('教材对应依据 ');
+      const editions = new Map([evidence.curriculum, ...attempts.map(attempt => attempt.curriculum).filter(Boolean)]
+        .map(entry => [entry.edition, entry]));
+      for (const entry of editions.values()) {
+        const link = document.createElement('a');
+        link.href = entry.href;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = entry.edition + ' ' + entry.section;
+        references.append(link, ' ');
+      }
+      host.append(references);
+    }
+    if (restoreFocus) summary.focus({preventScroll:true});
+  }
+
+  window.GangyiAgent = { request, watch, storage, id, richText, flushExposure, failureMessage, recordEvaluation, showRoundRevision, paintTopicEvidence,
     // 【逐行批注】 调用 recordVisibleSection 执行页面交互或数据处理：recordVisibleSection(lessonId, section, node, viewport) {。
     recordVisibleSection(lessonId, section, node, viewport) {
       // 【逐行批注】 声明前端变量 state，保存本行计算出的数据或对象。

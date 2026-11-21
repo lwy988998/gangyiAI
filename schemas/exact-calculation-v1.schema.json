@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gangyiai:exact-calculation:v1",
+  "title": "精确有理数计算工具参数",
+  "description": "中间值范围、深度和节点数由C++执行时检查；模型不能提供代码、文件操作或成绩。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expression"],
+  "properties": {
+    "interactionId": {"type": "string", "minLength": 1},
+    "expression": {"$ref": "#/$defs/expression"}
+  },
+  "$defs": {
+    "integer": {"type": "integer", "minimum": -1000000000000, "maximum": 1000000000000},
+    "expression": {
+      "oneOf": [
+        {"$ref": "#/$defs/integer"},
+        {"type": "string", "minLength": 1, "maxLength": 22, "pattern": "^-?[0-9]+(?:\\.[0-9]{1,6})?$"},
+        {
+          "type": "object", "additionalProperties": false, "required": ["numerator", "denominator"],
+          "properties": {
+            "numerator": {"$ref": "#/$defs/integer"},
+            "denominator": {"allOf": [{"$ref": "#/$defs/integer"}, {"not": {"const": 0}}]}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false, "required": ["op", "left", "right"],
+          "properties": {
+            "op": {"enum": ["add", "subtract", "multiply", "divide"]},
+            "left": {"$ref": "#/$defs/expression"},
+            "right": {"$ref": "#/$defs/expression"}
+          }
+        }
+      ]
+    }
+  }
+}

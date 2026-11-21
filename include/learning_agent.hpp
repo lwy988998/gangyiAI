@@ -58,9 +58,9 @@ std::string agentLearnerFingerprint(Database& db, const AgentAccess& access);
 // 【逐行批注】 声明对象 agentContext，并通过构造函数初始化其状态。
 AgentJson agentContext(Database& db, const AgentAccess& access, const AgentJson& event);
 // 【逐行批注】 声明数据结构或类型 AgentSubmissionOrigin 及其成员接口。
-enum class AgentSubmissionOrigin { ordinary, manualScheduleReplan };
+enum class AgentSubmissionOrigin { ordinary, manualScheduleReplan, yesterdayReview };
 // 【逐行批注】 声明对象 agentSubmit，并通过构造函数初始化其状态。
-AgentJson agentSubmit(Database& db, const AgentAccess& access, const AgentJson& event,
+AgentJson agentSubmit(Database& db, const AgentAccess& access, AgentJson event,
                       // 【逐行批注】 计算右侧结果并写入 AgentSubmissionOrigin origin，更新当前运行状态。
                       AgentSubmissionOrigin origin = AgentSubmissionOrigin::ordinary);
 // 【逐行批注】 声明对象 agentView，并通过构造函数初始化其状态。
@@ -102,6 +102,8 @@ private:
     void processImpl(Database& db, const std::string& taskId, bool quantum);
     // 【逐行批注】 声明对象 processIndependentChat，并通过构造函数初始化其状态。
     void processIndependentChat(Database& db, AgentJson& task);
+    // 处理试卷讲解的识别、联网补充和自然语言教学对话。
+    void processExamExplanation(Database& db, AgentJson& task);
     // 【逐行批注】 声明对象 runWorker，并通过构造函数初始化其状态。
     void runWorker(int lane);
     // 【逐行批注】 声明对象 claimNext，并通过构造函数初始化其状态。

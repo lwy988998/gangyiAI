@@ -1,0 +1,13 @@
+{
+  "project": "JSXGraph",
+  "version": "1.14.3",
+  "repository": "https://github.com/jsxgraph/jsxgraph",
+  "ref": "0f8690fb1a060b167bfa6f05d5fb63cf0293845c",
+  "selectedLicense": "MIT",
+  "unmodifiedDistribution": true,
+  "files": {
+    "jsxgraphcore.js": "3b256219e90c83e183f253374ffcecab0cfbb1350a7b4252a69af134a684ee43",
+    "jsxgraph.css": "c82ee298a077701100fd99e85374b7e572ebe483fc287fd13cf72a6e5f86d64c",
+    "LICENSE.MIT": "43e325001487de7f09745fbe086b054bb1b70d4ab58060e87153849365b23ff1"
+  }
+}

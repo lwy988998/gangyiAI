@@ -1,5 +1,9 @@
 // 【逐行批注】 引入头文件 "deep_course.hpp"，为后续实现提供类型或接口声明。
 #include "deep_course.hpp"
+#include "interactive_capabilities.hpp"
+#include "interactive_sets.hpp"
+#include "interactive_labs.hpp"
+#include "component_activity.hpp"
 // 【逐行批注】 引入头文件 "agent_curriculum.hpp"，为后续实现提供类型或接口声明。
 #include "agent_curriculum.hpp"
 // 【逐行批注】 引入头文件 "agent_lessons.hpp"，为后续实现提供类型或接口声明。
@@ -522,6 +526,97 @@ Json publicContent(const Json& lesson) {
     return content;
 // 【逐行批注】 结束当前代码块。
 }
+
+Json submittedComponentRecovery(Database& db, const AgentAccess& access, const Json& lesson) {
+    Json recovered = Json::object();
+    if (!lesson.value("deepContent", Json()).is_object()) return recovered;
+    const auto& content = lesson.at("deepContent");
+    if (!content.value("version", Json()).is_number_integer() || !content.value("media", Json()).is_array()) return recovered;
+    const int version = content.at("version").get<int>();
+    const auto courseId = lesson.at("courseId").get<std::string>();
+    const auto lessonId = lesson.at("id").get<std::string>();
+    for (const auto& row : db.listInteractions()) {
+        if (row.kind != "chat-user" || !row.courseId || *row.courseId != courseId) continue;
+        const auto input = parsed(row.payload);
+        if (input.value("scopeId", "") != access.scopeId || input.value("lessonId", "") != lessonId) continue;
+        const auto activities = input.value("componentActivities", Json::object());
+        if (!activities.is_object()) continue;
+        for (const auto& entry : activities.items()) {
+            try {
+                const auto& activity = entry.value();
+                if (!activity.is_object() || activity.value("componentId", "") != entry.key() ||
+                    activity.value("lessonId", "") != lessonId || activity.value("inputSource", "") != "browser_report_validated" ||
+                    activity.value("contentVersion", Json()) != version ||
+                    !activity.value("events", Json()).is_array() || activity.at("events").empty()) continue;
+                const auto pageId = activity.value("contentId", "");
+                bool attached = false;
+                for (const auto* view : {"lecture", "slides"}) {
+                    const auto pages = content.value(view, Json::array());
+                    if (!pages.is_array()) continue;
+                    for (const auto& page : pages) {
+                        const auto ids = page.value("mediaIds", Json::array());
+                        if (page.value("id", "") == pageId && ids.is_array() &&
+                            std::find(ids.begin(), ids.end(), entry.key()) != ids.end()) attached = true;
+                    }
+                }
+                if (!attached) continue;
+                const auto& state = activity.at("events").back().at("state");
+                for (const auto& media : content.at("media")) {
+                    if (media.value("id", "") != entry.key()) continue;
+                    const auto type = media.value("type", "");
+                    if (type == "sets") checkedSetObservation(media, state, version);
+                    else if (isInteractiveLab(type)) checkedLabObservation(media, state, version);
+                    else break;
+                    recovered[entry.key()] = {{"contentVersion", version}, {"state", state},
+                                              {"source", "submitted_component_activity"}};
+                    break;
+                }
+            } catch (const std::exception&) {
+                // 已损坏或不再匹配的历史活动不能作为恢复状态。
+            }
+        }
+    }
+    return recovered;
+}
+
+std::string componentDraftId(const AgentAccess& access, const Json& lesson, const std::string& componentId) {
+    return "component-draft:" + resourceDigest(Json::array({access.scopeId, lesson.at("id"), componentId}).dump());
+}
+
+void validateComponentDraft(const Json& lesson, const Json& draft) {
+    const auto componentId = text(draft, "componentId", 100);
+    const auto state = draft.at("state"), trace = draft.at("trace");
+    if (!trace.value("events", Json()).is_array() || trace.at("events").empty())
+        throw std::invalid_argument("组件草稿没有可恢复的实际操作");
+    const Json event = {{"requestId", "component-draft"}, {"deepView", text(draft, "deepView", 16)},
+        {"contentId", text(draft, "contentId", 100)}, {"mediaState", {{componentId, state}}},
+        {"componentActivities", {{componentId, trace}}}};
+    checkedComponentActivities(lesson, event);
+}
+
+Json componentDrafts(Database& db, const AgentAccess& access, const Json& lesson) {
+    Json result = Json::object();
+    const auto content = lesson.value("deepContent", Json::object());
+    if (!content.value("media", Json()).is_array()) return result;
+    for (const auto& media : content.at("media")) {
+        if (!media.value("id", Json()).is_string()) continue;
+        const auto id = media.at("id").get<std::string>();
+        const auto row = db.getClassroomActivity(componentDraftId(access, lesson, id));
+        if (!row || row->kind != "agent-component-draft" || row->courseId != lesson.at("courseId")) continue;
+        try {
+            const auto draft = parsed(row->payload);
+            if (draft.value("scopeId", "") != access.scopeId || draft.value("lessonId", "") != lesson.at("id") ||
+                draft.value("componentId", "") != id || !draft.value("revision", Json()).is_number_integer() ||
+                draft.at("revision").get<int>() < 1) continue;
+            validateComponentDraft(lesson, draft);
+            result[id] = {{"revision", draft.at("revision")}, {"contentVersion", draft.at("trace").at("contentVersion")},
+                          {"state", draft.at("state")}, {"trace", draft.at("trace")}};
+        } catch (const std::exception&) {
+            // 已过期或损坏的草稿不能覆盖当前组件。
+        }
+    }
+    return result;
+}
 // 【逐行批注】 结束当前代码块。
 }
 
@@ -651,6 +746,12 @@ Json normalizeDeepContent(const Json& input) {
             // 【逐行批注】 结束当前代码块。
             }
         // 【逐行批注】 执行当前声明或表达式：} else if (type == "forces") {。
+        } else if (isInteractiveLab(type)) {
+            const auto lab = checkedLabConfig(source);
+            for (const auto& field : lab.items()) item[field.key()] = field.value();
+        } else if (type == "sets") {
+            const auto sets = checkedSetConfig(source);
+            for (const auto& field : sets.items()) item[field.key()] = field.value();
         } else if (type == "forces") {
             // 【逐行批注】 计算右侧结果并写入 item["mass"]，更新当前运行状态。
             item["mass"] = number(source, "mass", 1, .001, 100000); item["force"] = number(source, "force", 10, -100000, 100000); item["friction"] = number(source, "friction", 0, 0, 100000); item["gravity"] = number(source, "gravity", 9.8, 0, 1000);
@@ -791,13 +892,64 @@ Json deepCourseView(Database& db, const AgentAccess& access, const Json& scope) 
     // 【逐行批注】 计算右侧结果并写入 Json result，更新当前运行状态。
     Json result = {{"enabled", true}, {"status", lesson.empty() ? "unprepared" : lesson.value("status", "draft")}, {"course", {{"id", courseId}, {"title", course->title}, {"goal", course->goal}, {"pedagogy", "deep-v1"}}}, {"outline", agentOutline(db, access, courseId)}, {"lesson", nullptr}, {"content", nullptr}};
     // 【逐行批注】 判断条件 (!lesson.empty()) { result["lesson"] = agentLessonView(db, acces…，成立时执行对应分支。
-    if (!lesson.empty()) { result["lesson"] = agentLessonView(db, access, lesson.at("id")); result["content"] = publicContent(lesson); }
+    if (!lesson.empty()) {
+        result["lesson"] = agentLessonView(db, access, lesson.at("id"));
+        result["content"] = publicContent(lesson);
+        result["componentRecovery"] = submittedComponentRecovery(db, access, lesson);
+        result["componentDrafts"] = componentDrafts(db, access, lesson);
+    }
     // 页面在任务刚提交、尚未创建课时时也能按课程/知识点重新找到真实任务。
     // 【逐行批注】 计算右侧结果并写入 result["activeTask"]，更新当前运行状态。
     result["activeTask"] = agentDeepPreparationView(db, access, scope);
     // 【逐行批注】 结束当前函数并返回结果：return result;。
     return result;
 // 【逐行批注】 结束当前代码块。
+}
+
+Json deepCourseSaveComponentDraft(Database& db, const AgentAccess& access, const Json& body) {
+    if (!body.is_object() || body.dump().size() > 160000 || !body.value("expectedRevision", Json()).is_number_integer())
+        throw std::invalid_argument("组件草稿格式或版本无效");
+    const auto expected = body.at("expectedRevision").get<long long>();
+    if (expected < 0 || expected > 1000000) throw std::invalid_argument("组件草稿版本无效");
+    Json result;
+    db.transaction([&] {
+        const auto lesson = savedLesson(db, access, text(body, "lessonId", 100));
+        if (lesson.value("status", "") != "ready") throw std::invalid_argument("课时尚未准备好");
+        const auto componentId = text(body, "componentId", 100);
+        validateComponentDraft(lesson, body);
+        const auto id = componentDraftId(access, lesson, componentId);
+        const auto row = db.getClassroomActivity(id);
+        if (row && (row->kind != "agent-component-draft" || row->courseId != lesson.at("courseId")))
+            throw std::invalid_argument("组件草稿归属无效");
+        const auto previous = row ? parsed(row->payload) : Json::object();
+        const auto contentVersion = body.at("trace").at("contentVersion");
+        const bool current = previous.value("scopeId", "") == access.scopeId &&
+            previous.value("lessonId", "") == lesson.at("id") && previous.value("componentId", "") == componentId &&
+            previous.value("trace", Json::object()).value("contentVersion", Json()) == contentVersion;
+        const auto revision = current ? previous.value("revision", 0) : 0;
+        if (current && previous.value("state", Json()) == body.at("state") && previous.value("trace", Json()) == body.at("trace") &&
+            previous.value("deepView", "") == body.at("deepView") && previous.value("contentId", "") == body.at("contentId")) {
+            result = {{"revision", revision}, {"unchanged", true}};
+            return;
+        }
+        if (expected != revision) throw std::invalid_argument("组件探索已在其他窗口更新，本地草稿已保留，请刷新后核对。");
+        if (current && previous.at("trace").value("sessionId", "") == body.at("trace").value("sessionId", "")) {
+            const auto& oldTrace = previous.at("trace");
+            const auto& newTrace = body.at("trace");
+            if (newTrace.at("totalChanges").get<long long>() < oldTrace.at("totalChanges").get<long long>())
+                throw std::invalid_argument("组件探索轨迹不能回退");
+            for (const auto& oldEvent : oldTrace.at("events")) for (const auto& newEvent : newTrace.at("events"))
+                if (oldEvent.at("seq") == newEvent.at("seq") && oldEvent != newEvent)
+                    throw std::invalid_argument("已保存的组件探索轨迹不能更改");
+        }
+        const Json draft = {{"scopeId", access.scopeId}, {"lessonId", lesson.at("id")}, {"componentId", componentId},
+            {"deepView", body.at("deepView")}, {"contentId", body.at("contentId")}, {"state", body.at("state")},
+            {"trace", body.at("trace")}, {"revision", revision + 1}};
+        if (!db.upsert(ClassroomActivity{id, lesson.at("courseId"), "agent-component-draft", draft.dump(), libraryNow(), 0, 0}))
+            throw std::runtime_error("组件探索保存失败，本地草稿仍保留");
+        result = {{"revision", revision + 1}, {"unchanged", false}};
+    });
+    return result;
 }
 
 // 【逐行批注】 定义函数 deepCourseStart，执行该函数声明的职责。
@@ -938,8 +1090,25 @@ std::pair<std::string, std::string> deepCourseImage(Database& db, const AgentAcc
 
 // 【逐行批注】 定义函数 registerDeepCourseTools，执行该函数声明的职责。
 void registerDeepCourseTools(LearningAgent& agent) {
+    agent.registerTool("read_interactive_capabilities", {u8"读取实际注册组件的用途、合法默认配置、字段范围、资料限制和活动回传能力，无副作用。生成组件前若能力或参数不清楚，先读此工具；不能假设同一学科全部能力都已实现。参数types可选：最多10个类型名，省略返回全部。示例仅示范合法参数，不是预生成课程或题库。", true,
+        [](Database&, const Json& args, const Json&, const AIResult&) {
+            auto result = interactiveCapabilities();
+            if (args.contains("types")) {
+                if (!args.at("types").is_array() || args.at("types").empty() || args.at("types").size() > 10)
+                    throw std::invalid_argument("组件能力查询需要1至10个类型");
+                Json selected = Json::array(); std::set<std::string> seen;
+                for (const auto& type : args.at("types")) {
+                    if (!type.is_string() || !seen.insert(type.get<std::string>()).second) throw std::invalid_argument("组件类型须为不重复文字");
+                    bool found = false;
+                    for (const auto& item : result.at("components")) if (item.at("type") == type) { selected.push_back(item); found = true; }
+                    if (!found) throw std::invalid_argument("组件类型尚未注册");
+                }
+                result["components"] = selected;
+            }
+            return PreparedAgentTool{result,{}};
+        }});
     // 【逐行批注】 注册可由 AI 主控调用的工具：agent.registerTool("set_deep_content", {u8"保存当前深度课时的真实AI讲义、翻页课件与受控图示。参数 lessonId,con…。
-    agent.registerTool("set_deep_content", {u8"保存当前深度课时的真实AI讲义、翻页课件与受控图示。参数 lessonId,content:{lecture:[{sectionId,mediaIds:[]}],slides:[{id,title,sourceSectionIds:[],mediaIds:[]}],media:[{id,type,title,caption,...}]}。讲义的sectionId必须使用append_section返回的本课explanation板块ID，标题正文由程序读取已保存原文；课件sourceSectionIds引用本课已保存公开讲解或小结，正文由这些板块组合。先保存完整真实讲解再组织课件，不能假借私有题目或另一课时的板块。课件按教学需要组织而非切碎长文。图示类型及字段：timeline.events:[{label,text}]；flowchart.nodes:[{id,label}],edges:[{from,to,label}]；function.coefficients:[a,b,c]表示a*x²+b*x+c,xMin,xMax,parameter可选{name,min,max,step,value,coefficientIndex:0|1|2}；forces.mass(kg),force(N),friction(最大可抵消阻力N，静止起步的简化模型，不模拟速度位移)；image只使用search_lesson_images已保存的同一素材id，不能自造地址。未完成图示可写status:failed,error。题目及标准仍通过append_section保存，私有答案不能放入讲义或课件。重试保留已有成功媒体，完成后finish_lesson。", false,
+    agent.registerTool("set_deep_content", {u8"保存当前深度课时的真实AI讲义、翻页课件与受控图示。参数 lessonId,content:{lecture:[{sectionId,mediaIds:[]}],slides:[{id,title,sourceSectionIds:[],mediaIds:[]}],media:[{id,type,title,caption,...}]}。讲义的sectionId必须使用append_section返回的本课explanation板块ID，标题正文由程序读取已保存原文；课件sourceSectionIds引用本课已保存公开讲解或小结，正文由这些板块组合。先保存完整真实讲解再组织课件，不能假借私有题目或另一课时的板块。课件按教学需要组织而非切碎长文。图示类型及字段：cell_lab.cellType:plant|animal,selectedPart:membrane|cytoplasm|nucleus|mitochondrion，plant另有wall|chloroplast|vacuole，用于典型真核细胞结构功能探索，非比例图；history_lab.datasetId:apollo11,order:[launch,landing,return的一个排列],selectedEvent:三事件之一，使用NASA核对的日期，不能自造历史数据集或把时间先后当因果；climate_lab.datasetId:illustrative_north,month/compareMonth:1至12整数，仅自编教学数据，不冒充真实城市；annotation_lab.fragments:[2至16个本课原文片段，每项最多240字节，总计2400字节],marks:[同数量0至3整数，0未标注/1意象/2表达/3疑问]用于学生阅读标注，无唯一标准；annotation_lab可选mode:selection，原文为fragments直接拼接，selections:[{start,end,label:1至3,reason}]最多16条；start/end采用Unicode码点索引，含start不含end，reason最多480字节。该模式状态只提交selections，服务器从原文重新截取引文，允许交叠与不同解读，不自动评分；sentence_lab.fragments同上,roles:[同数量0至4整数，0未标注/1主语/2谓语动词/3宾语/4修饰或状语]用于句法分析；algorithm_lab.values:[2至8项0至99整数]，algorithm:bubble_sort(默认)|binary_search；默认排序的step为0至n*(n-1)/2；二分查找须提供升序values和target:0至99整数，step限实际查找路径内，重复值只返回本次命中索引；只接受步数状态，结果由程序重算，不执行任意代码；这六种组件仅在符合当前目标时选择，均为探索不评分。statistics_lab.values:[1至32项-100至100的数，步长0.5，重复项保留],varianceBasis:population(默认，除以n)|sample(除以n-1，n=1无定义)。探索平均数、中位数、众数、极差和方差，服务端重算并保留精确分数；所有值只出现一次时此处记为无众数；学生状态只含values、varianceBasis和版本。仅有限单变量描述统计，不进行总体推断或自动评分；equation_lab.left/right:[一次项系数,常数]，均为-20至20整数，默认[2,3]=[1,7]即2x+3=x+7；学生状态仅steps:[{op:add_x|add_constant|multiply|divide,value:-10至10整数}]和版本，最多12步，同乘同除必须非零。服务端从原方程重放并保留精确分数，每步分子分母限10^6，区分唯一解/无解/恒等式。不得替换原题、自报解或成绩，不支持非线性方程及不等式；vector_lab.vectorA/vectorB:[x,y]，坐标-10至10且步长0.5；scalar:-3至3且步长0.5；operation:add(默认)|subtract|scale_a。计算平面向量加减、实数倍、长度、数量积和夹角，含零向量时夹角及方向关系为null，不支持空间向量；状态只含两个向量、scalar和operation，不得自报计算结果或成绩；number_line.lower/upper:-20至20且步长0.5，lower为null代表负无穷，upper为null代表正无穷；lowerClosed/upperClosed为布尔值，无穷端必须false，有限左端默认开放、有限右端默认闭合；point:-20至20且步长0.5。左端不能大于右端，相等时两端都闭合才是单点，其他为空集；探索端点、开闭及观察点归属，不支持多区间运算；function_lab.coefficients:[a,b,c]（每个-10到10，步长0.5）,xMin/xMax（-20到20）只控制初始视窗，可选domain:{min,max}指定闭区间（-20到20且min<max），省略domain为全体实数；服务端按实际系数计算定义域内值域、零点和顶点，学生不能自报分析结果，用于常数/一次/二次函数探索；motion_lab.initialPositionM:-100至100米,initialVelocityMps:-20至20米每秒,accelerationMps2:-10至10米每二次方秒,timeSeconds:0至20秒，用于一维恒定加速度运动，允许速度变号，服务端计算位置、位移、路程、速度与速率；不使用摩擦、碰撞或变加速度推断；circuit_lab.mode:series|parallel,voltage:1到24整数V,r1/r2:1到100整数Ω用于理想两电阻直流实验；chemical_balance.reactionId:water|methane|iron_oxide,coefficients:[每项1到8整数，数量与物质数一致]用于原子守恒探索，water和iron_oxide有3项，methane有4项；这些实验仅探索不评分。sets.universe:[不重复文字元素，最多16个，每个最多64字节],setA:[全集内元素],setB:[全集内元素],operation:intersection|union|complement_a|complement_b|relations（可省略，默认intersection），用于交并补和子集/真子集/相等关系探索，补集必须相对universe，操作不评分；timeline.events:[{label,text}]；flowchart.nodes:[{id,label}],edges:[{from,to,label}]；function.coefficients:[a,b,c]表示a*x²+b*x+c,xMin,xMax,parameter可选{name,min,max,step,value,coefficientIndex:0|1|2}；forces.mass(kg),force(N),friction(最大可抵消阻力N，静止起步的简化模型，不模拟速度位移)；image只使用search_lesson_images已保存的同一素材id，不能自造地址。未完成图示可写status:failed,error。题目及标准仍通过append_section保存，私有答案不能放入讲义或课件。重试保留已有成功媒体，完成后finish_lesson。", false,
         // 【逐行批注】 执行当前声明或表达式：[](Database& db, const Json& args, const Json& task, const AIResult& source) {。
         [](Database& db, const Json& args, const Json& task, const AIResult& source) {
             // 【逐行批注】 计算右侧结果并写入 lesson，更新当前运行状态。
@@ -1118,14 +1287,14 @@ std::string deepCoursePrompt(Database& db, const Json& task) {
     // 【逐行批注】 判断条件 (planning) return u8"本次新建深度课程：支持任意领域目标，按领域真实对象和任务组织courseStructu…，成立时执行对应分支。
     if (planning) return u8"本次新建深度课程：支持任意领域目标，按领域真实对象和任务组织courseStructure。只先生成并保存阶段、知识点、学习目标和主线。调用create_course后以state=completed结束本次规划，不创建课时或生成讲义；图片和逐课课件在进入课时时按需生成。create_course 的mode须保留event.mode。";
     // 【逐行批注】 结束当前函数并返回结果：return u8"当前课程使用deep-v1深度课堂：主区域是已保存讲义／翻页课件，右侧是可收起的辅助答疑。课程主线保持，讲解和练习按真…。
-    return u8"当前课程使用deep-v1深度课堂：主区域是已保存讲义／翻页课件，右侧是可收起的辅助答疑。课程主线保持，讲解和练习按真实学习表现调整。备课时为指定topicId建立课时，使用append_section保存真实讲解与题目，用set_deep_content保存完整图文讲义及按需课件；finish_lesson前讲义必须已保存。讲义不泄露未作答题的私有标准，课件应有教学层次而非把长文本截断。按需要选择时间轴、流程图、函数参数或受力演示；不适用时用准确图文讲义，不强制每课都有媒体。需要真实图片时调用search_lesson_images并保存来源；图片失败保留讲义与单项重试状态，不让整课失败。已有内容直接复用，翻页、换视图和操作本地图示不生成评分。学生新作答仍先评价后讲解，纯答疑不评分。只重试素材时保留其余已保存内容。";
+    return u8"当前课程使用deep-v1深度课堂：主区域是已保存讲义／翻页课件，右侧是可收起的辅助答疑。课程主线保持，讲解和练习按真实学习表现调整。备课时为指定topicId建立课时，使用append_section保存真实讲解与题目，用set_deep_content保存完整图文讲义及按需课件；finish_lesson前讲义必须已保存。讲义不泄露未作答题的私有标准，课件应有教学层次而非把长文本截断。按需要选择已注册交互：function_lab函数图像、number_line数轴与区间、vector_lab平面向量、equation_lab一次方程同解变形、statistics_lab有限数据描述统计、motion_lab一维恒加速度运动、circuit_lab串并联、chemical_balance原子守恒配平、sets集合、cell_lab细胞结构、history_lab事件排序、climate_lab气候比较、annotation_lab阅读标注、sentence_lab句子结构、algorithm_lab冒泡排序或二分查找；旧时间轴与流程图仍是静态资料，不称为互动；不适用时用准确图文讲义，不强制每课都有媒体。需要真实图片时调用search_lesson_images并保存来源；图片失败保留讲义与单项重试状态，不让整课失败。已有内容直接复用，翻页、换视图和操作本地图示不生成评分。学生新作答仍先评价后讲解，纯答疑不评分。只重试素材时保留其余已保存内容。";
 // 【逐行批注】 结束当前代码块。
 }
 
 // 【逐行批注】 定义函数 renderDeepCoursePage，执行该函数声明的职责。
 std::string renderDeepCoursePage() {
     // 【逐行批注】 结束当前函数并返回结果：return R"HTML(<!doctype html><html lang="zh-CN"><head><meta charset="…。
-    return R"HTML(<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f5f7fc"><title>深度课堂 · 钢一定制AI</title><link rel="icon" href="/school-logo.png"><link rel="stylesheet" href="/vendor/katex/katex.min.css"><link rel="stylesheet" href="/deep-course.css"><link rel="stylesheet" href="/agent-trace.css"><link rel="stylesheet" href="/clarity.css"><script>try{if(sessionStorage.getItem('gy-classroom-fullscreen')==='1')document.documentElement.classList.add('gy-classroom-fullscreen')}catch(_){}</script><script defer src="/vendor/katex/katex.min.js"></script><script defer src="/chat-render.js"></script><script defer src="/learning-agent.js"></script><script defer src="/agent-trace.js"></script><script defer src="/agent-shell.js"></script><script defer src="/clarity.js"></script><script defer src="/deep-course.js"></script></head><body class="clarity-app"><header class="site-header dark-header"><div class="dark-nav-shell"><a class="dark-brand" href="/"><img class="dark-brand-mark" src="/school-logo.png" alt="柳州市钢一中学校徽"><span>钢一<b>定制AI</b></span></a><nav class="dark-nav-links" aria-label="主导航"><a class="dark-nav-link" href="/">首页</a><a class="dark-nav-link" href="/my-courses">我的课程</a><a class="dark-nav-link is-active" href="/current-course" aria-current="page">当前课程</a><a class="dark-nav-link" href="/ask">AI 导师</a><a class="dark-nav-link" href="/my-ai">我的AI</a></nav><a class="dark-nav-cta" href="/my-ai/reports">我的画像</a><details class="dark-mobile-nav"><summary aria-label="打开主导航">菜单</summary><nav aria-label="窄屏主导航"><a href="/">首页</a><a href="/my-courses">我的课程</a><a href="/current-course">当前课程</a><a href="/ask">AI 导师</a><a href="/my-ai">我的AI</a></nav></details></div></header><main id="deep-course-app" aria-label="深度课堂"><p role="status">正在读取已保存的课堂…</p></main></body></html>)HTML";
+    return R"HTML(<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f5f7fc"><title>深度课堂 · 钢一定制AI</title><link rel="icon" href="/school-logo.png"><link rel="stylesheet" href="/vendor/katex/katex.min.css"><link rel="stylesheet" href="/deep-course.css"><link rel="stylesheet" href="/agent-trace.css"><link rel="stylesheet" href="/clarity.css"><link rel="stylesheet" href="/workspace.css"><script src="/workspace.js"></script><script>try{if(sessionStorage.getItem('gy-classroom-fullscreen')==='1')document.documentElement.classList.add('gy-classroom-fullscreen')}catch(_){}</script><script defer src="/vendor/katex/katex.min.js"></script><script defer src="/chat-render.js"></script><script defer src="/learning-agent.js"></script><script defer src="/agent-trace.js"></script><script defer src="/agent-shell.js"></script><script defer src="/clarity.js"></script><link rel="stylesheet" href="/vendor/jsxgraph/jsxgraph.css"><script defer src="/vendor/jsxgraph/jsxgraphcore.js"></script><script defer src="/interactive-subjects.js"></script><script defer src="/interactive-vectors.js"></script><script defer src="/interactive-equations.js"></script><script defer src="/interactive-statistics.js"></script><script defer src="/interactive-labs.js"></script><script defer src="/interactive-learning.js"></script><script defer src="/deep-course.js"></script></head><body class="clarity-app"><header class="site-header dark-header"><div class="dark-nav-shell"><a class="dark-brand" href="/"><img class="dark-brand-mark" src="/school-logo.png" alt="柳州市钢一中学校徽"><span>钢一<b>定制AI</b></span></a><nav class="dark-nav-links" aria-label="主导航"><a class="dark-nav-link" href="/">首页</a><a class="dark-nav-link" href="/my-courses">我的课程</a><a class="dark-nav-link is-active" href="/current-course" aria-current="page">当前课程</a><a class="dark-nav-link" href="/ask">AI 导师</a><a class="dark-nav-link" href="/my-ai">我的AI</a></nav><a class="dark-nav-cta" href="/my-ai/reports">我的画像</a><details class="dark-mobile-nav"><summary aria-label="打开主导航">菜单</summary><nav aria-label="窄屏主导航"><a href="/">首页</a><a href="/my-courses">我的课程</a><a href="/current-course">当前课程</a><a href="/ask">AI 导师</a><a href="/my-ai">我的AI</a></nav></details></div></header><main id="deep-course-app" aria-label="深度课堂"><p role="status">正在读取已保存的课堂…</p></main></body></html>)HTML";
 // 【逐行批注】 结束当前代码块。
 }
 // 【逐行批注】 结束当前代码块。

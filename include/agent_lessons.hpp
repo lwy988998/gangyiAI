@@ -15,6 +15,12 @@ AgentJson agentSectionLocation(const AgentJson& lesson, const AgentJson& section
                               const AgentJson& originTask = AgentJson::object());
 // 【逐行批注】 声明对象 agentLessonView，并通过构造函数初始化其状态。
 AgentJson agentLessonView(Database& db, const AgentAccess& access, const std::string& lessonId);
+// 访问记录只证明学生打开过课时，不能充当掌握证据。
+AgentJson agentReviewLessons(Database& db, const AgentAccess& access, const AgentJson& window);
+// 只投影同档案、同课程、同知识点的正式评价与练习经历。
+AgentJson agentTopicEvidence(Database& db, const AgentAccess& access, const std::string& lessonId);
+AgentJson agentTopicEvidenceForPreparation(Database& db, const AgentAccess& access,
+                                           const std::string& courseId, const std::string& topicId);
 // 【逐行批注】 声明对象 agentEnterLesson，并通过构造函数初始化其状态。
 AgentJson agentEnterLesson(Database& db, const AgentAccess& access, const AgentJson& body);
 // 开课请求使用固定身份；原任务未完成时延后，完成后在原事务中接管首次讲解。
@@ -28,7 +34,7 @@ void agentAttachLessonTask(Database& db, const AgentAccess& access, const AgentJ
 void agentRecordLearnerEvent(Database& db, const AgentAccess& access, const AgentJson& event);
 // 完整教学回复成功后才提交暂存评价；中断与失败不会新增可靠证据。
 // 【逐行批注】 声明对象 finalizeAgentEvaluations，并通过构造函数初始化其状态。
-void finalizeAgentEvaluations(Database& db, const AgentJson& task);
+bool finalizeAgentEvaluations(Database& db, const AgentJson& task);
 // 仅记录浏览器实际展示过的公开事件，用于提示经历与中断恢复。
 // 【逐行批注】 声明对象 agentExposeTask，并通过构造函数初始化其状态。
 AgentJson agentExposeTask(Database& db, const AgentAccess& access, const AgentJson& body);

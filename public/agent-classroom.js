@@ -461,7 +461,23 @@
   }
   // 【逐行批注】 定义函数 render，封装可复用的前端行为。
   function render() {
+    api.paintTopicEvidence($('classroom-topic-evidence'), lesson);
+    const round = lesson.teachingRound;
+    const roundNode = $('classroom-teaching-round');
+    roundNode.hidden = !round;
+    const roundText = round ? `本轮目标：${round.goal} · 已反馈 ${round.feedbackCount}/${round.questionCount} 题` : '';
+    if (roundNode.textContent !== roundText) roundNode.textContent = roundText;
+    if (round && selectedQuestion && selectedQuestion !== round.pendingSectionId) selectQuestion('');
+    const preferences = lesson.teachingPreferences;
+    const preferenceNode = document.getElementById('classroom-teaching-preferences');
+    if (preferenceNode) {
+      const labels = [preferences?.explanation === 'simple' ? '简单讲解' : '',
+        ({slow:'慢一点',fast:'快一点'})[preferences?.pace] || '', preferences?.guidance === 'independent' ? '自己尝试' : ''].filter(Boolean);
+      preferenceNode.hidden = !preferences?.version;
+      preferenceNode.textContent = labels.length ? `本课：${labels.join(' · ')}` : '本课：按默认方式讲解';
+    }
     // 【逐行批注】 计算右侧结果并更新 mutate(()，改变页面或请求状态。
+    workspaceContext?.update(lesson.courseId);
     mutate(() => {
       // 【逐行批注】 计算右侧结果并更新 $('lesson-title').textContent，改变页面或请求状态。
       $('lesson-title').textContent = lesson.title; $('lesson-purpose').textContent = lesson.purpose;
@@ -671,13 +687,24 @@
   }
   // 【逐行批注】 定义函数 setDisabled，封装可复用的前端行为。
   function setDisabled() {
+    const revise = $('classroom-revise-round');
+    revise.hidden = lesson?.teachingRound?.status !== 'active';
+    revise.disabled = !loaded || sending || Boolean(admissionError);
+    for (const control of document.querySelectorAll('[data-teaching-preference]'))
+      control.disabled = !loaded || sending || Boolean(admissionError);
     // 【逐行批注】 声明前端变量 locked，保存本行计算出的数据或对象。
     const locked = !loaded || busy || sending || Boolean(admissionError);
     // 先恢复课时与草稿再开放输入；AI 处理中仍可继续编辑草稿。
     // 【逐行批注】 计算右侧结果并更新 input.disabled，改变页面或请求状态。
     input.disabled = !loaded;
     // 【逐行批注】 按循环规则遍历或重复处理：for (const control of scroll.querySelectorAll('form button, form input')) …。
-    for (const control of scroll.querySelectorAll('form button, form input')) control.disabled = locked;
+    for (const form of scroll.querySelectorAll('form[data-section]')) {
+      const historical = Boolean(lesson?.teachingRound && lesson.teachingRound.pendingSectionId !== form.dataset.section);
+      const options = form.querySelector('.agent-options');
+      form.hidden = historical && !options.childElementCount;
+      for (const node of form.children) if (node !== options) node.hidden = historical;
+      for (const control of form.elements) control.disabled = locked || historical;
+    }
     // 【逐行批注】 按循环规则遍历或重复处理：for (const id of ['lesson-send', 'teaching-hint', 'teaching-example', 'tea…。
     for (const id of ['lesson-send', 'teaching-hint', 'teaching-example', 'teaching-retry', 'explain-again', 'continue-teaching', 'finish-lesson']) $(id).disabled = locked;
   // 【逐行批注】 结束当前前端代码块。
@@ -693,7 +720,8 @@
       // 【逐行批注】 执行当前前端表达式：paused:'AI 已暂停，输入和已有结果保留', cancelled:'已停止本次回答；中断输出不作为正式评价', superseded:'学习记录已有更新，旧输出未应用'};。
       paused:'AI 已暂停，输入和已有结果保留', cancelled:'已停止本次回答；中断输出不作为正式评价', superseded:'学习记录已有更新，旧输出未应用'};
     // 【逐行批注】 计算右侧结果并更新 $('lesson-task-status').textContent，改变页面或请求状态。
-    $('lesson-task-status').textContent = task.paused ? labels.paused : task.status === 'failed' ? api.failureMessage(task) : labels[task.status] || task.status;
+    $('lesson-task-status').textContent = task.paused ? labels.paused : task.status === 'failed' ? api.failureMessage(task) :
+      task.localAction === 'independent_attempt' ? task.message : labels[task.status] || task.status;
     // 【逐行批注】 计算右侧结果并更新 $('lesson-stop').hidden，改变页面或请求状态。
     $('lesson-stop').hidden = !busy; $('lesson-retry').hidden = !['failed', 'cancelled', 'superseded'].includes(task.status); setDisabled();
     // 【逐行批注】 执行当前前端表达式：trace?.update(task);。
@@ -737,7 +765,7 @@
         // 【逐行批注】 执行当前前端表达式：trace?.event(event);。
         trace?.event(event);
         // 【逐行批注】 判断条件 (event.type === 'action') { refreshLesson(); return false; }，成立时执行对应逻辑。
-        if (event.type === 'action') { refreshLesson(); return false; }
+        if (event.type === 'action' || event.type === 'round_feedback') { refreshLesson(); return false; }
         // 【逐行批注】 判断条件 (event.type !== 'delta' || event.field !== 'message' || watching…，成立时执行对应逻辑。
         if (event.type !== 'delta' || event.field !== 'message' || watchingView !== activeView) return false;
         // 【逐行批注】 声明前端变量 key，保存本行计算出的数据或对象。
@@ -769,7 +797,7 @@
         // 【逐行批注】 判断条件 (!['pending', 'running'].includes(task.status)) {，成立时执行对应逻辑。
         if (!['pending', 'running'].includes(task.status)) {
           // 【逐行批注】 判断条件 (watchingView === activeView && task.message && ![...records.val…，成立时执行对应逻辑。
-          if (watchingView === activeView && task.message && ![...records.values()].some(record => record.taskId === taskId && record.role === 'assistant'))
+          if (!task.localAction && watchingView === activeView && task.message && ![...records.values()].some(record => record.taskId === taskId && record.role === 'assistant'))
             // 【逐行批注】 计算右侧结果并更新 mutate(()，改变页面或请求状态。
             mutate(() => root.append(putRecord(taskId + ':fallback', {type:'message', role:'assistant', taskId, text:task.message, optimistic:true})));
           // 【逐行批注】 按循环规则遍历或重复处理：for (const [key, record] of records) if (record.taskId === taskId && recor…。
@@ -824,7 +852,8 @@
       // 【逐行批注】 计算右侧结果并更新 lesson，改变页面或请求状态。
       lesson = saved; render(); const nextFocus = focus().responseSectionId || focus().interactionSectionId;
       // 【逐行批注】 判断条件 (nextFocus && nextFocus !== previousFocus && !input.value) selec…，成立时执行对应逻辑。
-      if (nextFocus && nextFocus !== previousFocus && !input.value) selectQuestion(nextFocus);
+      if (nextFocus && nextFocus !== previousFocus && !input.value &&
+          (!lesson.teachingRound || lesson.teachingRound.pendingSectionId === nextFocus)) selectQuestion(nextFocus);
       // 【逐行批注】 判断条件 (lesson.completed && !completed) document.dispatchEvent(new Cust…，成立时执行对应逻辑。
       if (lesson.completed && !completed) document.dispatchEvent(new CustomEvent('gangyi:lesson-finished'));
     // 【逐行批注】 计算右侧结果并更新 } catch (error) { $('lesson-task-status').te…，改变页面或请求状态。
@@ -836,7 +865,9 @@
   // 【逐行批注】 定义函数 sendEvent，封装可复用的前端行为。
   async function sendEvent(event, sourceDraft, choiceState) {
     // 【逐行批注】 判断条件 (admissionError || busy || sending) return;，成立时执行对应逻辑。
-    if (admissionError || busy || sending) return;
+    const replacesTeaching = event.type === 'teaching_request' &&
+      (Number.isInteger(event.teachingPreferenceVersion) || event.requestType === 'revise_round');
+    if (admissionError || (busy && !replacesTeaching) || sending) return;
     // 【逐行批注】 声明前端变量 startedAt，保存本行计算出的数据或对象。
     const startedAt = Date.now(), composer = $('lesson-chat-panel');
     // 点击后到服务端返回之间必须有可见文案，不能只把按钮灰掉。
@@ -845,7 +876,7 @@
     // 【逐行批注】 调用 setDisabled 执行页面交互或数据处理：composer.setAttribute('aria-busy', 'true'); setDisabled();。
     composer.setAttribute('aria-busy', 'true'); setDisabled();
     // 【逐行批注】 声明前端变量 scope，保存本行计算出的数据或对象。
-    const scope = event.type === 'question_answer' ? event.sectionId : event.type === 'lesson_finish_request' ? 'finish' : 'chat';
+    const scope = event.roundRevision?.roundId || (event.type === 'question_answer' ? event.sectionId : event.type === 'lesson_finish_request' ? 'finish' : 'chat');
     // 【逐行批注】 声明前端变量 pendingKey，保存本行计算出的数据或对象。
     const pendingKey = 'pending:' + lessonId + ':' + (scope === 'chat' ? scope + ':' + activeView : scope);
     // 【逐行批注】 计算右侧结果并更新 event，改变页面或请求状态。
@@ -855,7 +886,8 @@
       // 【逐行批注】 判断条件 (pending && pending.type === event.type && pending.text === even…，成立时执行对应逻辑。
       if (pending && pending.type === event.type && pending.text === event.text && pending.action === event.action &&
         // 【逐行批注】 执行当前前端表达式：pending.sectionId === event.sectionId && pending.sectionVersion === event.sectionVersion …。
-        pending.sectionId === event.sectionId && pending.sectionVersion === event.sectionVersion && pending.view === activeView) event = pending;
+        pending.sectionId === event.sectionId && pending.sectionVersion === event.sectionVersion && pending.view === activeView &&
+        pending.requestType === event.requestType && pending.teachingPreferenceVersion === event.teachingPreferenceVersion) event = pending;
     // 【逐行批注】 执行当前前端表达式：} catch (_) { /* 损坏缓存不改变本次输入。 * / }。
     } catch (_) { /* 损坏缓存不改变本次输入。 */ }
     // 【逐行批注】 执行当前前端表达式：api.storage.set(pendingKey, JSON.stringify(event));。
@@ -880,10 +912,12 @@
       if (choiceState && api.storage.get(choiceState.key) === choiceState.value) { api.storage.set(choiceState.key, '[]'); for (const choice of choiceState.form.querySelectorAll('input')) choice.checked = false; }
       // 【逐行批注】 计算右侧结果并更新 taskRevision++; lesson.teachingTaskId，改变页面或请求状态。
       taskRevision++; lesson.teachingTaskId = task.id; lesson.teachingTaskView = activeView; paintState(task); observe(task.id); refreshLesson();
+      return true;
     // 【逐行批注】 执行当前前端表达式：} catch (error) {。
     } catch (error) {
       // 【逐行批注】 计算右侧结果并更新 $('lesson-task-status').textContent，改变页面或请求状态。
       $('lesson-task-status').textContent = error.message;
+      if (event.requestType === 'revise_round') return error.message;
       // 【逐行批注】 计算右侧结果并更新 feedLocalFailure('提交课堂互动', error.message, st…，改变页面或请求状态。
       feedLocalFailure('提交课堂互动', error.message, startedAt, () => sendEvent(event, sourceDraft, choiceState));
     // 【逐行批注】 计算右侧结果并更新 } finally { sending，改变页面或请求状态。
@@ -892,6 +926,7 @@
   }
   // 【逐行批注】 定义函数 sendAnswer，封装可复用的前端行为。
   function sendAnswer(id, action) {
+    if (lesson.teachingRound && lesson.teachingRound.pendingSectionId !== id) return;
     // 【逐行批注】 声明前端变量 section，保存本行计算出的数据或对象。
     const section = sectionFor(id), form = nodes.get('section:' + id)?.querySelector('form'); if (!isQuestion(section)) return;
     // 【逐行批注】 声明前端变量 choices，保存本行计算出的数据或对象。
@@ -937,6 +972,14 @@
     sendEvent({type:'teaching_request',requestType,text,...(isQuestion(section)?{sectionId:section.id,sectionVersion:section.version}:{})});
   // 【逐行批注】 结束当前前端代码块。
   }
+  function requestTeachingPreference(requestType) {
+    const text = {simplify:'请把当前知识点讲简单一点。',slow_down:'请慢一点，每次只讲更小的一步。',speed_up:'请快一点，保留必要的条件和理解检查。',
+      give_example:'请用另一个例子帮助理解，先保留当前题目让我独立尝试。',independent_attempt:'我想自己尝试，请先等我作答或主动求助。',
+      resume_guidance:'请继续引导我学习当前内容。',reset_preferences:'请恢复本课默认的讲解方式。'}[requestType];
+    if (!text || !lesson) return;
+    saveDraft();
+    sendEvent({type:'teaching_request',requestType,text,teachingPreferenceVersion:lesson.teachingPreferences?.version||0});
+  }
   // 【逐行批注】 定义函数 load，封装可复用的前端行为。
   async function load() {
     // 【逐行批注】 执行当前前端表达式：document.body.classList.add('gy-chat-classroom');。
@@ -955,6 +998,7 @@
     try {
       // 【逐行批注】 判断条件 (!lesson.entered) await api.control({command:'enter_lesson', les…，成立时执行对应逻辑。
       if (!lesson.entered) await api.control({command:'enter_lesson', lessonId});
+      else api.control({command:'enter_lesson', lessonId}).catch(() => {});
       // 回看已保存卡片只读取原记录，普通讲解入口仍按原流程启动教学。
       // 【逐行批注】 判断条件 (activeView === 'learn' && !lesson.initialTeachingTaskId && !req…，成立时执行对应逻辑。
       if (activeView === 'learn' && !lesson.initialTeachingTaskId && !requestedSection) {
@@ -969,7 +1013,7 @@
     // 【逐行批注】 调用 CustomEvent 执行页面交互或数据处理：window.GangyiNavigation?.setContext(context); document.dispatchEvent(…。
     window.GangyiNavigation?.setContext(context); document.dispatchEvent(new CustomEvent('gangyi:lesson-context', {detail:context}));
     // 【逐行批注】 调用 element、URLSearchParams 执行页面交互或数据处理：if(!document.getElementById('lesson-library-link')){const link=elemen…。
-    if(!document.getElementById('lesson-library-link')){const link=element('a','本课资料 →','ma-link');link.id='lesson-library-link';link.href='/my-ai/library?'+new URLSearchParams({courseId:lesson.courseId});$('page-status').insertAdjacentElement('afterend',link);}
+    if(!document.getElementById('lesson-library-link')){const link=element('a','本课资料','ma-link');link.id='lesson-library-link';link.href='/my-ai/library?'+new URLSearchParams({courseId:lesson.courseId});if(learningTools)learningTools.append(link);else $('page-status').insertAdjacentElement('afterend',link);}
     // 【逐行批注】 调用 lessonHref 执行页面交互或数据处理：api.storage.set('current-lesson', JSON.stringify({lessonId, courseId:…。
     api.storage.set('current-lesson', JSON.stringify({lessonId, courseId:lesson.courseId, href:lessonHref('learn')}));
     // 【逐行批注】 声明前端变量 savedTarget，保存本行计算出的数据或对象。
@@ -1021,7 +1065,64 @@
   // 【逐行批注】 计算右侧结果并更新 $('teaching-retry').onclick，改变页面或请求状态。
   $('teaching-retry').onclick = () => requestTeaching('retry_question');
   // 【逐行批注】 计算右侧结果并更新 $('continue-teaching').onclick，改变页面或请求状态。
-  $('continue-teaching').onclick = () => sendTeaching('请结合本节实际反馈判断下一步；如果适合继续，请选择下一个教学焦点。');
+  $('continue-teaching').onclick = () => lesson.teachingPreferences?.guidance === 'independent' ? requestTeachingPreference('resume_guidance') :
+    sendTeaching('请结合本节实际反馈判断下一步；如果适合继续，请选择下一个教学焦点。');
+  // 复用已有课堂操作弹出层，设置只影响当前课时，不进入个人能力画像。
+  const preferenceStatus = element('p', '', 'agent-note'); preferenceStatus.id = 'classroom-teaching-preferences'; preferenceStatus.hidden = true;
+  $('lesson-purpose').insertAdjacentElement('afterend', preferenceStatus);
+  const roundStatus = element('p', '', 'agent-note');
+  roundStatus.id = 'classroom-teaching-round'; roundStatus.hidden = true; roundStatus.setAttribute('role', 'status');
+  $('lesson-purpose').insertAdjacentElement('afterend', roundStatus);
+  const topicEvidence = element('details', '', 'agent-topic-evidence');
+  topicEvidence.id = 'classroom-topic-evidence'; topicEvidence.hidden = true;
+  roundStatus.insertAdjacentElement('afterend', topicEvidence);
+  const contextButton = element('button', '本课上下文', 'gy-context-toggle secondary');
+  contextButton.type = 'button';
+  $('lesson-title').closest('.lesson-heading').append(contextButton);
+  const contextAside = element('aside');
+  contextAside.id = 'classroom-context';
+  contextAside.hidden = true;
+  $('lesson-title').closest('.lesson-page').after(contextAside);
+  const workspaceContext = window.GangyiWorkspace?.contextPanel(contextButton, contextAside,
+    [topicEvidence, preferenceStatus, $('classroom-agent-trace')],
+    open => document.body.classList.toggle('gy-workspace-context-open', open));
+  const reviseRound = element('button', '调整本轮', 'secondary');
+  reviseRound.type = 'button'; reviseRound.id = 'classroom-revise-round'; reviseRound.hidden = true;
+  reviseRound.onclick = () => {
+    if (learningTools) learningTools.close();
+    else $('classroom-more').hidePopover?.();
+    api.showRoundRevision(lesson?.teachingRound, event => sendEvent(event));
+  };
+  $('classroom-more').append(reviseRound);
+  const labsEntry=element('button','互动实验','secondary');labsEntry.type='button';
+  labsEntry.onclick=()=>{saveDraft();location.href='/interactive-labs.html';};$('classroom-more').append(labsEntry);
+  for (const [intent, label] of [['simplify','讲简单一点'],['slow_down','慢一点'],['speed_up','快一点'],['give_example','举个例子'],
+    ['independent_attempt','我想自己做'],['resume_guidance','继续讲解'],['reset_preferences','恢复默认讲法']]) {
+    const control = element('button', label, 'secondary'); control.type = 'button'; control.dataset.teachingPreference = intent;
+    control.onclick = () => {
+      if (learningTools) learningTools.close();
+      else $('classroom-more').hidePopover?.();
+      requestTeachingPreference(intent);
+    };
+    $('classroom-more').append(control);
+  }
+  const learningTools = window.GangyiWorkspace?.compactToolbar($('lesson-title'));
+  if (learningTools) {
+    const page = document.querySelector('.lesson-page');
+    const teaching = $('classroom-more');
+    teaching.removeAttribute('popover');
+    teaching.className = 'gy-learning-actions';
+    learningTools.append(
+      page.querySelector('.lesson-tabs'), page.querySelector('.course-context-navigation'),
+      document.querySelector('.course-directory-toggle'), document.querySelector('.course-directory-mobile'),
+      contextButton, $('continue-teaching'), $('composer-chat'), $('lesson-next-step'),
+      learningTools.disclose('课堂操作', teaching, $('finish-lesson'), $('prepare-next')),
+      learningTools.disclose('本课说明与教学过程', $('lesson-purpose'), preferenceStatus, topicEvidence, $('classroom-agent-trace'))
+    );
+    page.querySelector('.lesson-heading').remove();
+    page.querySelector('.clarity-more-trigger').remove();
+    $('lesson-chat-panel').querySelector('.composer-context').append(roundStatus);
+  }
   // 【逐行批注】 计算右侧结果并更新 $('lesson-stop').onclick，改变页面或请求状态。
   $('lesson-stop').onclick = () => controlWatchingTask('cancel');
   // 【逐行批注】 计算右侧结果并更新 $('lesson-retry').onclick，改变页面或请求状态。

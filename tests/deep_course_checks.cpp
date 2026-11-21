@@ -151,18 +151,22 @@ void runDeepPreparationProtocolChecks() {
             } else if (calls == 3) {
                 // 【逐行批注】 计算右侧结果并写入 lessonId，更新当前运行状态。
                 lessonId = returned.at(0).at("result").at("lessonId");
+                actions.push_back({{"id", "round"}, {"tool", "start_teaching_round"}, {"args", {{"lessonId", lessonId},
+                    {"goal", "解释系数变化"}, {"questionCount", 1}}}});
+            } else if (calls == 4) {
+                const auto roundId = returned.at(0).at("result").at("roundId");
                 // 【逐行批注】 执行当前声明或表达式：actions.push_back({{"id", "explain"}, {"tool", "append_section"}, {"args", {{"lesson…。
                 actions.push_back({{"id", "explain"}, {"tool", "append_section"}, {"args", {{"lessonId", lessonId},
                     // 【逐行批注】 执行当前声明或表达式：{"section", {{"kind", "explanation"}, {"title", "观察系数"}, {"body", "保持常数项与一次项不变，比较二次项…。
                     {"section", {{"kind", "explanation"}, {"title", "观察系数"}, {"body", "保持常数项与一次项不变，比较二次项系数。"}, {"helpType", "explanation"}}}}}});
                 // 【逐行批注】 执行当前声明或表达式：actions.push_back({{"id", "question"}, {"tool", "append_section"}, {"args", {{"lesso…。
-                actions.push_back({{"id", "question"}, {"tool", "append_section"}, {"args", {{"lessonId", lessonId},
+                actions.push_back({{"id", "question"}, {"tool", "append_section"}, {"args", {{"lessonId", lessonId}, {"roundId", roundId},
                     // 【逐行批注】 执行当前声明或表达式：{"section", {{"kind", "question"}, {"title", "试着解释"}, {"questionKind", "practice"}, …。
                     {"section", {{"kind", "question"}, {"title", "试着解释"}, {"questionKind", "practice"}, {"question", {{"question", "改变二次项系数后观察到了什么？"},
                         // 【逐行批注】 执行当前声明或表达式：{"type", "open"}, {"expectedAnswer", "备课私有答案"}, {"rubric", "备课私有标准"}}}}}}}});。
                         {"type", "open"}, {"expectedAnswer", "备课私有答案"}, {"rubric", "备课私有标准"}}}}}}}});
             // 【逐行批注】 执行当前声明或表达式：} else if (calls == 4) {。
-            } else if (calls == 4) {
+            } else if (calls == 5) {
                 // 【逐行批注】 计算右侧结果并写入 auto sectionId，更新当前运行状态。
                 const auto sectionId = returned.at(0).at("result").at("sectionId");
                 // 【逐行批注】 计算右侧结果并写入 teaching，更新当前运行状态。
@@ -174,7 +178,7 @@ void runDeepPreparationProtocolChecks() {
             // 【逐行批注】 执行当前声明或表达式：} else {。
             } else {
                 // 【逐行批注】 调用 assert 完成本行所需操作：assert(calls == 5 && returned.at(0).at("result").at("lectureCount") =…。
-                assert(calls == 5 && returned.at(0).at("result").at("lectureCount") == 1);
+                assert(calls == 6 && returned.at(0).at("result").at("lectureCount") == 1);
                 // 【逐行批注】 执行当前声明或表达式：actions.push_back({{"id", "finish"}, {"tool", "finish_lesson"}, {"args", {{"lessonId…。
                 actions.push_back({{"id", "finish"}, {"tool", "finish_lesson"}, {"args", {{"lessonId", lessonId}}}});
             // 【逐行批注】 结束当前代码块。
@@ -182,7 +186,7 @@ void runDeepPreparationProtocolChecks() {
         // 【逐行批注】 结束当前代码块。
         }
         // 【逐行批注】 计算右侧结果并写入 Json decision，更新当前运行状态。
-        const Json decision = {{"teaching", {{"helpType", "none"}}}, {"message", ""}, {"actions", actions}, {"state", calls == 5 ? "completed" : "continue"}};
+        const Json decision = {{"teaching", {{"helpType", "none"}}}, {"message", ""}, {"actions", actions}, {"state", calls == 6 ? "completed" : "continue"}};
         // 【逐行批注】 计算右侧结果并写入 gangyi::AIResult result; result.content，更新当前运行状态。
         gangyi::AIResult result; result.content = decision.dump(); result.model = "fixture-complete-deep-protocol"; result.finishReason = "stop"; return result;
     // 【逐行批注】 执行当前声明或表达式：});。
@@ -196,7 +200,7 @@ void runDeepPreparationProtocolChecks() {
     // 【逐行批注】 判断条件 (completed.at("status") != "ready") std::cerr << completed.dump(…，成立时执行对应分支。
     if (completed.at("status") != "ready") std::cerr << completed.dump(2) << '\n';
     // 【逐行批注】 调用 assert 完成本行所需操作：assert(completed.at("status") == "ready" && calls == 5);。
-    assert(completed.at("status") == "ready" && calls == 5);
+    assert(completed.at("status") == "ready" && calls == 6);
     // 【逐行批注】 计算右侧结果并写入 auto view，更新当前运行状态。
     const auto view = gangyi::deepCourseView(db, access, scope);
     // 【逐行批注】 调用 assert 完成本行所需操作：assert(view.at("lesson").at("id") == lessonId && view.at("lesson").at…。
@@ -428,6 +432,76 @@ void runDeepDraftRecoveryChecks() {
 // 【逐行批注】 结束当前代码块。
 }
 
+void runSubmittedComponentRecoveryChecks() {
+    using Json = nlohmann::json;
+    gangyi::Database db; db.open(":memory:"); db.migrate();
+    assert(db.insert(gangyi::Course{"recovery-course", {}, {}, "集合", "deep", "集合", {}, "ai", "active", "2026-11-20", "2026-11-20"}));
+    assert(db.insert(gangyi::Course{"other-course", {}, {}, "其他", "deep", "其他", {}, "ai", "active", "2026-11-20", "2026-11-20"}));
+    const Json outline = {{"pedagogy", "deep-v1"}, {"courseStructure", {{{"stage", "集合"}, {"topics", {"集合"}}}}}};
+    assert(db.insert(gangyi::CourseSnapshot{"recovery-outline", "recovery-course", 1, outline.dump(), "2026-11-20"}));
+    const Json media = {{"id", "sets"}, {"type", "sets"}, {"title", "集合"},
+        {"universe", {"1", "2"}}, {"setA", {"1"}}, {"setB", {"2"}}};
+    Json lesson = {{"id", "recovery-lesson"}, {"scopeId", "owner"}, {"courseId", "recovery-course"},
+        {"title", "集合"}, {"purpose", "探索集合"}, {"status", "ready"}, {"version", 1},
+        {"entered", true}, {"intent", "advance"}, {"updatedAt", "2026-11-20"}, {"sections", Json::array()},
+        {"deepContent", {{"version", 1}, {"lecture", {{{"id", "page"}, {"mediaIds", {"sets"}}}}},
+            {"slides", Json::array()}, {"media", Json::array({media})}}}};
+    assert(db.upsert(gangyi::ClassroomActivity{"recovery-lesson", "recovery-course", "agent-lesson", lesson.dump(), "2026-11-20", 0, 0}));
+    const gangyi::AgentAccess access{"owner", {"recovery-course"}};
+    const Json correct = {{"schemaVersion", 1}, {"contentVersion", 1}, {"setA", {"1"}}, {"setB", {"1", "2"}}};
+    const Json other = {{"schemaVersion", 1}, {"contentVersion", 1}, {"setA", {"1"}}, {"setB", {"2"}}};
+    const auto add = [&](const std::string& id, const std::string& course, const std::string& scope,
+                         const std::string& lessonId, const Json& state, int version, const std::string& page) {
+        const Json activity = {{"componentId", "sets"}, {"lessonId", lessonId}, {"inputSource", "browser_report_validated"},
+            {"contentVersion", version}, {"contentId", page}, {"events", {{{"state", state}}}}};
+        const Json input = {{"scopeId", scope}, {"lessonId", lessonId}, {"componentActivities", {{"sets", activity}}}};
+        assert(db.insert(gangyi::LearningInteraction{id, "chat-user", input.dump(), "2026-11-20", course, "fixture", {}}));
+    };
+    add("valid", "recovery-course", "owner", "recovery-lesson", correct, 1, "page");
+    add("other-scope", "recovery-course", "other", "recovery-lesson", other, 1, "page");
+    add("other-course", "other-course", "owner", "recovery-lesson", other, 1, "page");
+    add("other-lesson", "recovery-course", "owner", "other-lesson", other, 1, "page");
+    add("old-version", "recovery-course", "owner", "recovery-lesson", other, 2, "page");
+    add("wrong-page", "recovery-course", "owner", "recovery-lesson", other, 1, "missing");
+    auto corrupt = other; corrupt["score"] = 100;
+    add("corrupt", "recovery-course", "owner", "recovery-lesson", corrupt, 1, "page");
+    auto recovered = gangyi::deepCourseView(db, access, {{"lessonId", "recovery-lesson"}}).at("componentRecovery");
+    assert(recovered.at("sets").at("state") == correct);
+    add("latest-valid", "recovery-course", "owner", "recovery-lesson", other, 1, "page");
+    recovered = gangyi::deepCourseView(db, access, {{"lessonId", "recovery-lesson"}}).at("componentRecovery");
+    assert(recovered.at("sets").at("state") == other);
+    const auto revision = db.learningRevision();
+    const Json trace = {{"schemaVersion", 1}, {"contentVersion", 1}, {"sessionId", "draft-session"},
+        {"totalChanges", 1}, {"truncated", false}, {"events", {{{"seq", 1}, {"kind", "change"}, {"state", correct}}}}};
+    const Json draft = {{"lessonId", "recovery-lesson"}, {"componentId", "sets"}, {"deepView", "lecture"},
+        {"contentId", "page"}, {"expectedRevision", 0}, {"state", correct}, {"trace", trace}};
+    const auto first = gangyi::deepCourseSaveComponentDraft(db, access, draft);
+    assert(first.at("revision") == 1);
+    assert(gangyi::deepCourseSaveComponentDraft(db, access, draft).at("revision") == 1);
+    auto stale = draft; stale["state"] = other; stale["trace"]["totalChanges"] = 2;
+    stale["trace"]["events"].push_back({{"seq", 2}, {"kind", "change"}, {"state", other}});
+    rejects([&] { gangyi::deepCourseSaveComponentDraft(db, access, stale); });
+    auto next = stale; next["expectedRevision"] = 1;
+    assert(gangyi::deepCourseSaveComponentDraft(db, access, next).at("revision") == 2);
+    auto rewritten = next; rewritten["expectedRevision"] = 2; rewritten["trace"]["events"][0]["state"] = other;
+    rejects([&] { gangyi::deepCourseSaveComponentDraft(db, access, rewritten); });
+    auto invalidDraft = next; invalidDraft["expectedRevision"] = 2; invalidDraft["state"]["score"] = 100;
+    rejects([&] { gangyi::deepCourseSaveComponentDraft(db, access, invalidDraft); });
+    invalidDraft = next; invalidDraft["expectedRevision"] = 2; invalidDraft["contentId"] = "missing";
+    rejects([&] { gangyi::deepCourseSaveComponentDraft(db, access, invalidDraft); });
+    rejects([&] { gangyi::deepCourseSaveComponentDraft(db, {"other", {"recovery-course"}}, next); });
+    const auto drafts = gangyi::deepCourseView(db, access, {{"lessonId", "recovery-lesson"}}).at("componentDrafts");
+    assert(drafts.at("sets").at("revision") == 2 && drafts.at("sets").at("state") == other);
+    assert(drafts.at("sets").at("trace").at("events").back().at("state") == other);
+    lesson["deepContent"]["version"] = 2;
+    assert(db.upsert(gangyi::ClassroomActivity{"recovery-lesson", "recovery-course", "agent-lesson", lesson.dump(), "2026-11-20", 0, 0}));
+    assert(gangyi::deepCourseView(db, access, {{"lessonId", "recovery-lesson"}}).at("componentRecovery").empty());
+    assert(gangyi::deepCourseView(db, access, {{"lessonId", "recovery-lesson"}}).at("componentDrafts").empty());
+    rejects([&] { gangyi::deepCourseSaveComponentDraft(db, access, next); });
+    assert(db.learningRevision() == revision);
+    rejects([&] { gangyi::deepCourseView(db, {"other", {"recovery-course"}}, {{"lessonId", "recovery-lesson"}}); });
+}
+
 // 【逐行批注】 定义函数 runDeepCourseChecks，执行该函数声明的职责。
 void runDeepCourseChecks() {
     // 【逐行批注】 计算右侧结果并写入 auto fullscreenPage，更新当前运行状态。
@@ -442,6 +516,7 @@ void runDeepCourseChecks() {
     runDeepPreparationProtocolChecks();
     // 【逐行批注】 调用 runDeepDraftRecoveryChecks 完成本行所需操作：runDeepDraftRecoveryChecks();。
     runDeepDraftRecoveryChecks();
+    runSubmittedComponentRecoveryChecks();
     // 【逐行批注】 计算右侧结果并写入 auto normalized，更新当前运行状态。
     const auto normalized = gangyi::normalizeDeepContent(content());
     // 【逐行批注】 调用 assert 完成本行所需操作：assert(normalized.at("media").at(0).at("coefficients").size() == 3);。

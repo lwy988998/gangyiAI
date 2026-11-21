@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gangyiai.local/schemas/teaching-preferences-v1.schema.json",
+  "title": "当前课时教学偏好",
+  "description": "由程序根据学生明确请求更新；不代表学生能力，不修改原作答、提示经历或正式成绩。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "pace", "explanation", "guidance", "lastIntent"],
+  "properties": {
+    "version": {"type": "integer", "minimum": 0, "maximum": 1000000000},
+    "pace": {"enum": ["normal", "slow", "fast"]},
+    "explanation": {"enum": ["standard", "simple"]},
+    "guidance": {"enum": ["guided", "independent"]},
+    "lastIntent": {"enum": [null, "simplify", "slow_down", "speed_up", "give_example", "independent_attempt", "resume_guidance", "reset_preferences"]}
+  }
+}

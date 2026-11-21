@@ -11,7 +11,7 @@ from contextlib import closing
 # 【逐行批注】 导入后续逻辑需要的模块或符号：from playwright.sync_api import expect, sync_playwright。
 from playwright.sync_api import expect, sync_playwright
 # 【逐行批注】 导入后续逻辑需要的模块或符号：from classroom_v560_fixture import start_session。
-from classroom_v560_fixture import start_session
+from classroom_v560_fixture import launch_test_browser, open_learning_menu, start_session
 
 
 # 【逐行批注】 定义函数 main，封装可复用的处理步骤。
@@ -21,7 +21,7 @@ def main(executable):
         # 【逐行批注】 在受控上下文中执行资源操作：with sync_playwright() as playwright:。
         with sync_playwright() as playwright:
             # 【逐行批注】 计算右侧结果并赋给 browser，更新脚本状态。
-            browser = playwright.chromium.launch(headless=True)
+            browser = launch_test_browser(playwright)
             # 【逐行批注】 计算右侧结果并赋给 page，更新脚本状态。
             page = browser.new_page(viewport={'width':1440,'height':900})
             # 【逐行批注】 计算右侧结果并赋给 errors，更新脚本状态。
@@ -47,7 +47,7 @@ def main(executable):
                 # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(page.locator('#'+button)).to_be_enabled()。
                 expect(page.locator('#'+button)).to_be_enabled()
                 # 【逐行批注】 计算右侧结果并赋给 page.locator('[popovertarget，更新脚本状态。
-                page.locator('[popovertarget="classroom-more"]').click()
+                open_learning_menu(page, '课堂操作')
                 # 【逐行批注】 在受控上下文中执行资源操作：with page.expect_request(lambda req:req.url.endswith('/api/learning-agent/event…。
                 with page.expect_request(lambda req:req.url.endswith('/api/learning-agent/events')) as sent:
                     # 【逐行批注】 执行当前 Python 语句：page.locator('#'+button).click()。

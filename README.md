@@ -1,8 +1,8 @@
 # 钢一定制AI
 
-钢一定制AI 是面向柳州市钢一中学的 Windows 本机 AI 学习平台，当前源码版本为 **v5.7.1**。本版补充 AI 执行过程追踪、失败恢复和按课时保存的独立聊天，并继续改进深度课程。使用 C++17、Crow、SQLite、WebView2 和原生 HTML/CSS/JavaScript，课程与学习记录保存在本机，无需在线账号。
+钢一定制AI 是面向柳州市钢一中学的 Windows 本机 AI 学习平台，当前源码版本为 **v5.7.2**。本版精简学习页顶部、扩展课堂互动，并加入试卷讲解和课堂恢复改进。使用 C++17、Crow、SQLite、WebView2 和原生 HTML/CSS/JavaScript，课程与学习记录保存在本机，无需在线账号。
 
-快速规划承接现有教学逻辑；新深度课程支持任意领域的学习目标，先生成大纲，再逐课生成与保存内容。已有课程、作答、草稿、进度、资料库、画像、模型设置和密钥继续保留。需要联网时沿用两家同时搜索、合并去重和来源记录，分别显示请求、缓存和失败状态。本版暂不实现 PPT、PDF 或图片导出，也不新增付费图像生成服务。v5.7.1 改动和验收状态见 [版本说明](docs/releases/v5.7.1.md)。
+快速规划承接现有教学逻辑；新深度课程支持任意领域的学习目标，先生成大纲，再逐课生成与保存内容。已有课程、作答、草稿、进度、资料库、画像、模型设置和密钥继续保留。需要联网时沿用两家同时搜索、合并去重和来源记录，分别显示请求、缓存和失败状态。本版暂不实现 PPT、PDF 或图片导出，也不新增付费图像生成服务。v5.7.2 改动和验收状态见 [版本说明](docs/releases/v5.7.2.md)。
 
 ## 学习与 AI
 
@@ -29,7 +29,7 @@
 
 ## Windows 使用
 
-本地当前源码版本为 v5.7.1，尚未生成或公开本版安装包。最近的公开版本仍是 [v5.7.0 发布页](https://github.com/lwy988998/gangyiAI/releases/tag/v5.7.0)；该版学习增强试用版安装包为 `gangyiAI-learning-preview1-v5.7.0-x64.exe` 与同名 ZIP，免安装包完整解压后运行 `gangyiAI-launcher.exe`。v5.7.0 的 Windows/Linux、Sanitizer 和安装检查及同渠道升级核对结果见 [v5.7.0 源码树](https://github.com/lwy988998/gangyiAI/tree/v5.7.0) 和 [发布流水线](https://github.com/lwy988998/gangyiAI/actions/workflows/ci.yml)。
+请在 [v5.7.2 发布页](https://github.com/lwy988998/gangyiAI/releases/tag/v5.7.2) 获取学习增强试用版安装包 `gangyiAI-learning-preview1-v5.7.2-x64.exe` 或同名 ZIP。免安装包完整解压后运行 `gangyiAI-launcher.exe`。
 
 已安装“学习增强试用版”时，使用同渠道的新版本安装包原位升级，继续使用原试用档案；本次沿用既有安装和档案标识。升级前备份程序、学习档案和设置，并保留回退副本。正式版与试用版使用独立档案，安装其中一种不会自动合并另一种的数据。
 
@@ -37,10 +37,10 @@
 
 托盘提供日志、数据目录、诊断报告、数据库备份恢复及服务重启。服务异常后按限次退避策略恢复。免安装包不携带本机档案；程序需要 WebView2 Runtime，目前未进行代码签名。
 
-附件摘要以发布页的 [SHA256SUMS.txt](https://github.com/lwy988998/gangyiAI/releases/download/v5.7.0/SHA256SUMS.txt) 为准，校验命令：
+附件摘要以发布页的 [SHA256SUMS.txt](https://github.com/lwy988998/gangyiAI/releases/download/v5.7.2/SHA256SUMS.txt) 为准，校验命令：
 
 ```powershell
-Get-FileHash ./gangyiAI-learning-preview1-v5.7.0-x64.exe -Algorithm SHA256
+Get-FileHash ./gangyiAI-learning-preview1-v5.7.2-x64.exe -Algorithm SHA256
 ```
 
 ## 构建与验收

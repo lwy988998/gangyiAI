@@ -19,11 +19,28 @@ inline bool agentEfficiencyEnabled(const char* name) {
 // 【逐行批注】 结束当前代码块。
 }
 
-// 权限独立于目录说明。评分专用阶段仍由主控严格限制为原有的两个工具。
+// 权限独立于目录说明；评分阶段仅允许评价/分类和无副作用的精确计算。
 // 【逐行批注】 定义函数 agentToolAuthorized，执行该函数声明的职责。
 inline bool agentToolAuthorized(const std::string& name, const AgentJson& task) {
+    if (task.at("event").contains("yesterdayReview")) {
+        static const std::set<std::string> reviewTools = {"read_lesson", "calculate_exact", "append_section",
+            "select_teaching_focus", "start_teaching_round", "read_interactive_capabilities", "read_component_activity"};
+        return reviewTools.count(name) != 0;
+    }
+    if (task.at("event").contains("examQuestion")) return name == "calculate_exact";
+    if (task.at("event").contains("material"))
+        return name == "read_resource" || name == "calculate_exact";
+    if (name == "read_interactive_capabilities") return true;
+    if (name == "read_component_activity" && task.at("event").value("lessonId", "").empty()) return false;
     // 【逐行批注】 计算右侧结果并写入 auto type，更新当前运行状态。
     const auto type = task.at("event").value("type", "");
+    if (name == "start_teaching_round" && type == "prepare_next") return true;
+    if (name == "start_teaching_round" || name == "complete_teaching_round") {
+        const auto& event = task.at("event");
+        return !event.value("lessonId", "").empty() &&
+            (type == "lesson_start" || type == "chat" || type == "question_answer" || type == "teaching_request");
+    }
+    if (name == "save_learning_state" && task.at("event").value("lessonId", "").empty()) return false;
     // 【逐行批注】 判断条件 (type == "plan_course" && task.at("event").value("mode", "") == …，成立时执行对应分支。
     if (type == "plan_course" && task.at("event").value("mode", "") == "deep") {
         // 新模式规划只读取已有资料并保存新大纲，不能借旧课程上下文修改教学、进度或画像。
@@ -40,7 +57,7 @@ inline bool agentToolAuthorized(const std::string& name, const AgentJson& task) 
         // 【逐行批注】 执行当前声明或表达式：static const std::set<std::string> recoveryTools = {"read_context", "read_history", …。
         static const std::set<std::string> recoveryTools = {"read_context", "read_history", "read_outline", "read_lesson", "read_library",
             // 【逐行批注】 执行当前声明或表达式："read_resource", "search_resources", "describe_tools", "append_section", "set_deep_c…。
-            "read_resource", "search_resources", "describe_tools", "append_section", "set_deep_content", "search_lesson_images", "finish_lesson"};
+            "read_resource", "search_resources", "describe_tools", "start_teaching_round", "append_section", "set_deep_content", "search_lesson_images", "finish_lesson", "calculate_exact"};
         // 【逐行批注】 判断条件 (!recoveryTools.count(name)) return false;，成立时执行对应分支。
         if (!recoveryTools.count(name)) return false;
     // 【逐行批注】 结束当前代码块。
@@ -64,6 +81,7 @@ inline bool agentToolAuthorized(const std::string& name, const AgentJson& task) 
 
 // 【逐行批注】 定义函数 agentToolStage，执行该函数声明的职责。
 inline std::string agentToolStage(const AgentJson& task) {
+    if (task.at("event").contains("material") || task.at("event").contains("examQuestion")) return "material";
     // 【逐行批注】 计算右侧结果并写入 auto type，更新当前运行状态。
     const auto type = task.at("event").value("type", "");
     // 【逐行批注】 判断条件 (type == "assistant_chat") return "assistant";，成立时执行对应分支。
@@ -94,13 +112,14 @@ inline AgentJson agentToolCatalog(const std::map<std::string, AgentTool>& tools,
         // 【逐行批注】 执行当前声明或表达式：{"planning", {"create_course", "read_outline", "update_course_preview", "read_librar…。
         {"planning", {"create_course", "read_outline", "update_course_preview", "read_library", "search_resources", "read_resource", "select_resources"}},
         // 【逐行批注】 执行当前声明或表达式：{"preparation", {"read_outline", "read_lesson", "create_lesson", "append_section", "…。
-        {"preparation", {"read_outline", "read_lesson", "create_lesson", "append_section", "finish_lesson", "set_deep_content", "search_lesson_images", "read_library", "search_resources", "read_resource", "select_resources"}},
+        {"preparation", {"read_outline", "read_lesson", "create_lesson", "start_teaching_round", "append_section", "finish_lesson", "set_deep_content", "search_lesson_images", "read_library", "search_resources", "read_resource", "select_resources"}},
         // 【逐行批注】 执行当前声明或表达式：{"assessment", {"evaluate_answer", "classify_input"}},。
-        {"assessment", {"evaluate_answer", "classify_input"}},
+        {"assessment", {"evaluate_answer", "classify_input", "calculate_exact"}},
         // 【逐行批注】 执行当前声明或表达式：{"teaching", {"read_lesson", "append_section", "set_deep_content", "search_lesson_im…。
-        {"teaching", {"read_lesson", "append_section", "set_deep_content", "search_lesson_images", "select_teaching_focus", "complete_lesson", "read_resource", "schedule_review"}},
+        {"teaching", {"read_lesson", "start_teaching_round", "complete_teaching_round", "append_section", "set_deep_content", "search_lesson_images", "select_teaching_focus", "complete_lesson", "read_resource", "schedule_review", "save_learning_state"}},
         // 【逐行批注】 执行当前声明或表达式：{"research", {"read_library", "search_resources", "read_resource", "select_resources…。
         {"research", {"read_library", "search_resources", "read_resource", "select_resources"}},
+        {"material", {"read_resource", "calculate_exact"}},
         // 【逐行批注】 执行当前声明或表达式：{"background", {"read_profile_evidence", "update_profiles", "update_topic_mastery", …。
         {"background", {"read_profile_evidence", "update_profiles", "update_topic_mastery", "update_recommendations", "read_outline", "adjust_goal", "revise_outline", "adjust_schedule"}}
     // 【逐行批注】 执行当前声明或表达式：};。
@@ -116,7 +135,7 @@ inline AgentJson agentToolCatalog(const std::map<std::string, AgentTool>& tools,
         // 【逐行批注】 判断条件 (!agentToolAuthorized(name, task)) continue;，成立时执行对应分支。
         if (!agentToolAuthorized(name, task)) continue;
         // 【逐行批注】 计算右侧结果并写入 bool full，更新当前运行状态。
-        const bool full = !enabled || detailed.count(name) || name == "describe_tools" || name == "read_context" || name == "read_history";
+        const bool full = !enabled || detailed.count(name) || name == "describe_tools" || name == "read_context" || name == "read_history" || name == "calculate_exact" || name == "read_component_activity" || name == "read_interactive_capabilities";
         // 【逐行批注】 计算右侧结果并写入 description，更新当前运行状态。
         auto description = tool.description;
         // 【逐行批注】 判断条件 (!full) {，成立时执行对应分支。

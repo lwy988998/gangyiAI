@@ -18,6 +18,7 @@
 #include <iomanip>
 // 【逐行批注】 引入头文件 <limits>，为后续实现提供类型或接口声明。
 #include <limits>
+#include <map>
 // 【逐行批注】 引入头文件 <random>，为后续实现提供类型或接口声明。
 #include <random>
 // 【逐行批注】 引入头文件 <set>，为后续实现提供类型或接口声明。
@@ -367,6 +368,72 @@ Json myAIRead(Database& db,const std::string& section,const Json& query) {
         auto view=profileView(db);if(!subject.empty()){Json selected=Json::array();for(const auto& s:view.value("subjects",Json::array()))if(s.value("subject","")==subject)selected.push_back(s);view["subjects"]=selected;}
         // 【逐行批注】 计算右侧结果并写入 Json result，更新当前运行状态。
         Json result={{"profile",profile(db)},{"courses",courses},{"completed",completed},{"studySeconds",seconds},{"subjects",view.value("subjects",Json::array())},{"abilities",abilityProfileView(db)},{"topics",topics},{"evidence",evidence},{"history",history},{"time",time},{"version",db.learningRevision()},{"historyNote","历史学习时长和画像快照未补造；新统计从本次升级后积累。"}};
+        if (section == "reports") {
+            auto& reviews = result["completedReviews"] = Json::array();
+            std::map<std::string, const LearningInteraction*> inputs, latest;
+            for (const auto& record : learningRecords) {
+                if (record.kind == "chat-user") inputs[record.id] = &record;
+                if (record.kind != "practice") continue;
+                const auto value = Json::parse(record.payload, nullptr, false);
+                if (value.is_object() && value.value("source", "") == "ai" && value.value("interactionId", Json()).is_string())
+                    latest[value.at("interactionId")] = &record;
+            }
+            for (const auto& course : courses) for (const auto& row : db.listClassroomActivities(course.at("id"))) {
+                if (row.kind != "review") continue;
+                const auto review = Json::parse(row.payload, nullptr, false);
+                if (!review.is_object() || review.value("scopeId", "") != "local-profile" ||
+                    review.value("status", "") != "completed" || !review.value("completion", Json()).is_object()) continue;
+                const auto& completion = review.at("completion");
+                const auto when = completion.value("at", "");
+                const auto lessonId = completion.value("lessonId", "");
+                const auto selected = completion.value("evidence", Json::array());
+                if (when.empty() || !inDate(when) || lessonId.empty() || !selected.is_array() || selected.empty()) continue;
+                const auto lesson = db.getClassroomActivity(lessonId);
+                if (!lesson || lesson->kind != "agent-lesson" || lesson->courseId != row.courseId) continue;
+                const auto saved = Json::parse(lesson->payload, nullptr, false);
+                if (!saved.is_object() || saved.value("scopeId", "") != "local-profile" ||
+                    saved.value("scheduledReviewId", "") != row.id) continue;
+                bool matches = subject.empty();
+                Json currentIds = Json::array();
+                std::size_t changedCount = 0;
+                for (const auto& anchor : selected) {
+                    if (!anchor.is_object()) { ++changedCount; continue; }
+                    const auto id = anchor.value("id", "");
+                    matches = matches || belongsToSubject(id);
+                    const auto inputId = anchor.value("interactionId", "");
+                    const auto input = inputs.find(inputId), found = latest.find(inputId);
+                    if (input == inputs.end() || found == latest.end() ||
+                        input->second->courseId != row.courseId || found->second->courseId != row.courseId) {
+                        ++changedCount; continue;
+                    }
+                    matches = matches || found->second->subject == subject;
+                    const auto learner = Json::parse(input->second->payload, nullptr, false);
+                    const auto evaluation = Json::parse(found->second->payload, nullptr, false);
+                    const auto diagnosis = evaluation.value("diagnosis", Json::object());
+                    if (!learner.is_object() || learner.value("scopeId", "") != "local-profile" ||
+                        learner.value("lessonId", "") != lessonId || evaluation.value("status", "") != "valid" ||
+                        evaluation.value("credible", false) != true || !diagnosis.is_object() ||
+                        diagnosis.value("needsClarification", true)) {
+                        ++changedCount; continue;
+                    }
+                    const bool intervalEvidenceChanged =
+                        (anchor.contains("submittedAt") && anchor.at("submittedAt") != Json(input->second->createdAt)) ||
+                        (anchor.contains("evaluatedAt") && anchor.at("evaluatedAt") != evaluation.value("at", Json())) ||
+                        (anchor.contains("helpMode") && anchor.at("helpMode") != evaluation.value("helpMode", Json()));
+                    if (found->second->id != id || evaluation.value("score", Json()) != anchor.value("score", Json()) || intervalEvidenceChanged)
+                        ++changedCount;
+                    currentIds.push_back(found->second->id);
+                }
+                auto timing = completion.value("timing", Json{{"status", "not_requested"}, {"learningEffectVerified", false}});
+                timing["evidenceCurrent"] = changedCount == 0;
+                if (matches) reviews.push_back({{"id", row.id}, {"courseId", row.courseId}, {"courseTitle", course.at("title")},
+                    {"title", review.at("title")}, {"lessonId", lessonId}, {"completedAt", when},
+                    {"questionCount", selected.size()}, {"changedCount", changedCount}, {"evidenceIds", currentIds}, {"timing", timing}});
+            }
+            std::stable_sort(reviews.begin(), reviews.end(), [](const Json& a, const Json& b) {
+                return a.at("completedAt") > b.at("completedAt");
+            });
+        }
         
         // 【逐行批注】 计算右侧结果并写入 result["suggestions"]，更新当前运行状态。
         result["suggestions"]=Json::array();

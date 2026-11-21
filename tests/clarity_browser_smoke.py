@@ -82,6 +82,9 @@ def main():
                     page.evaluate('document.fonts.ready')
                     # 【逐行批注】 执行当前 Python 语句：page.wait_for_timeout(200)。
                     page.wait_for_timeout(200)
+                    compact = page.locator('.gy-learning-menu-toggle').count() == 1
+                    if compact:
+                        fixture.open_learning_menu(page, '全站导航与设置')
                     # 【逐行批注】 计算右侧结果并赋给 state，更新脚本状态。
                     state=page.evaluate('''() => {
                       const visible = el => {const r=el.getBoundingClientRect(),s=getComputedStyle(el);return r.width>0&&r.height>0&&s.visibility!=='hidden'&&s.display!=='none'};
@@ -89,7 +92,8 @@ def main():
                       const logo=Array.from(document.images).filter(visible).some(img=>/school-logo/.test(img.src)&&img.complete&&img.naturalWidth>0);
                       const header=document.querySelector('.site-header,.my-ai-top');
                       const sections=new Set(['/','/my-courses','/current-course','/ask','/my-ai']);
-                      const navigation=[...header.querySelectorAll('nav')].map(nav=>{
+                      const menus=header.querySelector('.gy-learning-menu-links') ? [header.querySelector('.gy-learning-menu-links')] : [...header.querySelectorAll('nav')];
+                      const navigation=menus.map(nav=>{
                         const links=[...nav.querySelectorAll('a')].map(link=>({link,
                           section:link.hasAttribute('data-current-course-link')?'/current-course':
                             sections.has(link.getAttribute('href'))?link.getAttribute('href'):null})).filter(item=>item.section);
@@ -121,6 +125,8 @@ def main():
                     if state['composer']:
                         # 【逐行批注】 校验关键条件，测试失败时立即报错：assert state['composer']['bottom'] <= height+2,f'课堂输入区在视口外：{name}@{width}'。
                         assert state['composer']['bottom'] <= height+2,f'课堂输入区在视口外：{name}@{width}'
+                    if compact:
+                        page.keyboard.press('Escape')
                     # 【逐行批注】 计算右侧结果并赋给 awaitable_name，更新脚本状态。
                     awaitable_name=f'{name}-{width}.png'
                     # 【逐行批注】 计算右侧结果并赋给 page.screenshot(path，更新脚本状态。
@@ -128,9 +134,7 @@ def main():
             # 【逐行批注】 计算右侧结果并赋给 page.goto(info['base']+'/learn?'+query,wait_…，更新脚本状态。
             page.goto(info['base']+'/learn?'+query,wait_until='domcontentloaded')
             # 【逐行批注】 计算右侧结果并赋给 trigger，更新脚本状态。
-            trigger=page.locator('[popovertarget="classroom-more"]')
-            # 【逐行批注】 执行当前 Python 语句：trigger.click()。
-            trigger.click()
+            fixture.open_learning_menu(page, '课堂操作')
             # 【逐行批注】 校验关键条件，测试失败时立即报错：assert page.locator('#classroom-more').is_visible(),'更多课堂操作未展开'。
             assert page.locator('#classroom-more').is_visible(),'更多课堂操作未展开'
             # 【逐行批注】 执行当前 Python 语句：page.keyboard.press('Escape')。

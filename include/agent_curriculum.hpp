@@ -10,6 +10,9 @@ namespace gangyi {
 void agentValidateOutline(Database& db, const std::string& courseId, const AgentJson& before, const AgentJson& after);
 // 【逐行批注】 声明对象 agentOutline，并通过构造函数初始化其状态。
 AgentJson agentOutline(Database& db, const AgentAccess& access, const std::string& courseId);
+// 旧复习记录返回空对象。新记录根据当前作答重新核对依据。
+AgentJson agentScheduledReview(Database& db, const AgentAccess& access, const std::string& courseId,
+                               const std::string& reviewId);
 // 历史课件只转换身份和展示结构，不调用模型或改写原始内容。
 // 【逐行批注】 声明对象 agentLegacyLesson，并通过构造函数初始化其状态。
 AgentJson agentLegacyLesson(Database& db, const AgentAccess& access, const AgentJson& scope);

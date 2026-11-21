@@ -12,6 +12,8 @@ bool deepCourseEnabled(Database& db, const std::string& courseId);
 // 只读取已保存内容；课程呈现类型由版本标记识别，历史 mode 不迁移。
 // 【逐行批注】 声明对象 deepCourseView，并通过构造函数初始化其状态。
 AgentJson deepCourseView(Database& db, const AgentAccess& access, const AgentJson& scope);
+// 组件草稿只恢复探索过程，不触发模型调用或生成正式成绩。
+AgentJson deepCourseSaveComponentDraft(Database& db, const AgentAccess& access, const AgentJson& body);
 // 【逐行批注】 声明对象 deepCourseStart，并通过构造函数初始化其状态。
 AgentJson deepCourseStart(Database& db, const AgentAccess& access, const AgentJson& scope);
 // 【逐行批注】 声明对象 deepCourseRetryMedia，并通过构造函数初始化其状态。

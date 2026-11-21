@@ -12,27 +12,36 @@ const source=fs.readFileSync(path.join(__dirname,'../public/learning-agent.js'),
 // 【逐行批注】 声明前端变量 drain，保存本行计算出的数据或对象。
 const drain=()=>new Promise(resolve=>setImmediate(resolve));
 // 【逐行批注】 定义函数 fixture，封装可复用的前端行为。
-function fixture(){
+function fixture(nextTask){
   // 【逐行批注】 声明前端变量 resolve，保存本行计算出的数据或对象。
   let resolve,reject;const pending=new Promise((yes,no)=>{resolve=yes;reject=no});
   // 【逐行批注】 声明前端变量 result，保存本行计算出的数据或对象。
   const result={states:0,events:0,errors:0,requests:0,timers:0,sockets:[]};
   // 【逐行批注】 声明前端变量 activeTimers，保存本行计算出的数据或对象。
-  const activeTimers=new Set(); let timerId=0;
+  const activeTimers=new Map(); let timerId=0;
   // 【逐行批注】 为页面事件绑定处理逻辑：class Socket{constructor(){this.listeners={};result.sockets.push(this)}addEventListe…。
   class Socket{constructor(){this.listeners={};result.sockets.push(this)}addEventListener(name,callback){this.listeners[name]=callback}send(){}close(){this.closed=true}}
   // 【逐行批注】 声明前端变量 window，保存本行计算出的数据或对象。
   const window={addEventListener(){}};
   // 【逐行批注】 计算右侧结果并更新 vm.runInNewContext(source,{window,fetch:()，改变页面或请求状态。
-  vm.runInNewContext(source,{window,fetch:()=>{result.requests++;return pending},WebSocket:Socket,AbortController,
+  vm.runInNewContext(source,{window,fetch:()=>{
+    result.requests++;
+    return nextTask && result.requests === 2 ? Promise.resolve({ok:true,json:async()=>nextTask}) : pending;
+  },WebSocket:Socket,AbortController,
     // 【逐行批注】 计算右侧结果并更新 setTimeout:()，改变页面或请求状态。
-    setTimeout:()=>{const id=++timerId;activeTimers.add(id);result.timers=activeTimers.size;return id},
+    setTimeout:callback=>{const id=++timerId;activeTimers.set(id,callback);result.timers=activeTimers.size;return id},
     // 【逐行批注】 计算右侧结果并更新 clearTimeout:id，改变页面或请求状态。
     clearTimeout:id=>{activeTimers.delete(id);result.timers=activeTimers.size},location:{protocol:'http:',host:'fixture.invalid'}});
   // 【逐行批注】 声明前端变量 close，保存本行计算出的数据或对象。
   const close=window.GangyiAgent.watch('fixture-task',{onState(){result.states++},onEvent(){result.events++;return true},onConnectionError(){result.errors++}});
   // 【逐行批注】 结束当前函数并返回结果：return {resolve,reject,result,close};。
-  return {resolve,reject,result,close};
+  const fireNextTimer=()=>{
+    const [id,callback]=activeTimers.entries().next().value;
+    activeTimers.delete(id);
+    result.timers=activeTimers.size;
+    callback();
+  };
+  return {resolve,reject,result,close,fireNextTimer};
 // 【逐行批注】 结束当前前端代码块。
 }
 // 【逐行批注】 定义函数 main，封装可复用的前端行为。
@@ -127,8 +136,32 @@ async function main(){
     await drain();assert.equal(f.result.states,2,'恢复后仍接收任务状态');assert.equal(f.result.events,1,'恢复后仍接收教学回复');f.close();
   // 【逐行批注】 结束当前前端代码块。
   }
-  // 【逐行批注】 执行当前前端表达式：console.log('订阅取消及全局恢复时序：迟到事件被隔离，暂停后仍能恢复接收教学回复。');。
-  console.log('订阅取消及全局恢复时序：迟到事件被隔离，暂停后仍能恢复接收教学回复。');
+  {
+    const f=fixture({status:'waiting_student',events:[{seq:2,type:'ready'}]});
+    f.resolve({ok:true,json:async()=>({status:'running',events:[]})});
+    await drain();
+    const socket=f.result.sockets[0];
+    socket.listeners.open();
+    socket.listeners.message({data:JSON.stringify({type:'state',task:{status:'paused',pauseReason:'shutdown',events:[]}})});
+    socket.listeners.close();
+    assert.equal(f.result.timers,1,'软件退出后的暂停仍需轮询，断线不能安排第二个轮询');
+    f.fireNextTimer();
+    await drain();
+    assert.equal(f.result.states,3,'无需刷新即可收到重启后的终态');
+    assert.equal(f.result.events,1);
+    assert.equal(f.result.timers,0,'收到最终状态后停止轮询');
+    f.close();
+  }
+  {
+    const f=fixture();
+    f.resolve({ok:true,json:async()=>({status:'paused',pauseReason:'user',events:[]})});
+    await drain();
+    assert.equal(f.result.states,1);
+    assert.equal(f.result.timers,0,'用户主动暂停保持原样');
+    assert.equal(f.result.sockets.length,0);
+    f.close();
+  }
+  console.log('订阅取消、主动暂停与软件退出后的恢复时序通过。');
 // 【逐行批注】 结束当前前端代码块。
 }
 // 【逐行批注】 计算右侧结果并更新 main().catch(error，改变页面或请求状态。

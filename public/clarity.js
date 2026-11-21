@@ -77,7 +77,7 @@
   // 【逐行批注】 声明前端变量 headerSlot，保存本行计算出的数据或对象。
   const headerSlot = navigationShell || (header?.classList.contains('my-ai-top') ? header : null);
   // 【逐行批注】 判断条件 (activity && headerSlot) {，成立时执行对应逻辑。
-  if (activity && headerSlot) {
+  if (activity && headerSlot && !headerSlot.querySelector('.gy-learning-menu')) {
     // 【逐行批注】 声明前端变量 actions，保存本行计算出的数据或对象。
     const actions = document.createElement('div');
     // 【逐行批注】 计算右侧结果并更新 actions.className，改变页面或请求状态。

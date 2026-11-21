@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gangyiai.local/schemas/learning-state-proposal-v1.schema.json",
+  "title": "本课理解状态提议",
+  "description": "程序还会核验课时权限、正式评价、原话、独立性及依据版本；结构合法不代表诊断正确。文字长度在后端另按UTF-8字节限制。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["lessonId", "status", "reason", "uncertainty", "evidenceIds", "nextAction"],
+  "properties": {
+    "lessonId": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "status": {"enum": ["UNKNOWN", "NOT_STARTED", "LEARNING", "PARTIAL", "MISUNDERSTOOD", "PRACTICING", "PROVISIONAL_MASTERY", "VERIFIED_MASTERY"]},
+    "reason": {"type": "string", "minLength": 1, "maxLength": 4000, "pattern": "\\S"},
+    "uncertainty": {"type": "string", "minLength": 1, "maxLength": 4000, "pattern": "\\S"},
+    "evidenceIds": {"type": "array", "maxItems": 200, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "nextAction": {"enum": ["explain", "ask", "hint", "practice", "review", "advance", "pause"]}
+  }
+}

@@ -1,4 +1,4 @@
-﻿# 【逐行批注】 声明脚本参数，控制本次构建或测试行为。
+# 【逐行批注】 声明脚本参数，控制本次构建或测试行为。
 param([Parameter(Mandatory=$true)][string]$BuildDir, [string]$OutputName = 'teaching-eval-driver.exe', [string]$BaselineRoot)
 # 【逐行批注】 执行命令并将结果保存到 $ErrorActionPreference。
 $ErrorActionPreference = 'Stop'
@@ -12,6 +12,15 @@ $protectedRoot = [IO.Path]::GetFullPath((Join-Path $repo 'verification\v564-base
 if ($destination.StartsWith($protectedRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw '禁止向冻结目录写入新入口。' }
 # 【逐行批注】 执行命令并将结果保存到 $headers。
 $headers = Join-Path $repo 'include'
+
+# 先冻结输入并刷新链接对象；构建结束再次核对，避免凭据绑定到中途改变的源码。
+if (-not $BaselineRoot) {
+    & python -B -X utf8 (Join-Path $repo 'scripts/tutor_build_identity.py') capture --snapshot ($destination + '.inputs.json')
+    if ($LASTEXITCODE -ne 0) { throw '构建输入冻结失败。' }
+    & cmake --build $BuildDir --target learning-agent-tests --parallel 3
+    if ($LASTEXITCODE -ne 0) { throw '教学主控对象刷新失败。' }
+}
+
 # 【逐行批注】 执行命令并将结果保存到 $sqlite。
 $sqlite = Join-Path $BuildDir 'libsqlite3_amalgamation.a'
 # 【逐行批注】 判断条件 ($BaselineRoot) {，成立时执行对应流程。
@@ -49,7 +58,9 @@ if (-not $objects) { throw '请先完成 learning-agent-tests 构建。' }
 # 【逐行批注】 执行命令并将结果保存到 $curl。
 $curl = Get-ChildItem -LiteralPath (Join-Path $repo 'third_party\curl') -Directory | Select-Object -First 1
 # 【逐行批注】 执行命令并将结果保存到 $argsList。
-$argsList = @('-std=c++17','-O2','-D_GLIBCXX_ATOMIC_WORD_BUILTINS=1','-I', $headers,'-I',(Join-Path $repo 'third_party\json-3.11.3\include'),'-I',(Join-Path $curl.FullName 'include'), (Join-Path $repo 'tests\teaching_eval_driver.cpp'))
+$argsList = @('-municode','-std=c++17','-O2','-D_GLIBCXX_ATOMIC_WORD_BUILTINS=1','-I', $headers,'-I',(Join-Path $repo 'third_party\json-3.11.3\include'),'-I',(Join-Path $curl.FullName 'include'), (Join-Path $repo 'tests\teaching_eval_driver.cpp'))
+# 当前主控依赖构建生成的提示模块；使用同一构建目录，避免编译入口时漏头文件。
+if (-not $BaselineRoot) { $argsList += @('-I', (Join-Path $BuildDir 'generated')) }
 # 【逐行批注】 执行命令并将结果保存到 $argsList +。
 $argsList += $objects.FullName
 # 【逐行批注】 执行命令并将结果保存到 $argsList +。
@@ -73,4 +84,9 @@ if (-not (Test-Path -LiteralPath $curlTarget) -or
     # 【逐行批注】 执行当前 PowerShell 构建或测试命令：Copy-Item -LiteralPath $curlSource -Destination $BuildDir -Force。
     Copy-Item -LiteralPath $curlSource -Destination $BuildDir -Force
 # 【逐行批注】 开始或结束当前脚本代码块。
+}
+
+if (-not $BaselineRoot) {
+    & python -B -X utf8 (Join-Path $repo 'scripts/tutor_build_identity.py') stamp --snapshot ($destination + '.inputs.json') --driver $destination --build-dir $BuildDir
+    if ($LASTEXITCODE -ne 0) { throw '评测入口构建身份核对失败。' }
 }

@@ -175,6 +175,9 @@ if (-not $SkipDependencies) {
 
 # 【逐行批注】 执行命令并将结果保存到 $cmakeArgs。
 $cmakeArgs = @('-S', $repoRoot, '-B', $buildDir, '-G', $Generator, '-DCMAKE_BUILD_TYPE=Release')
+# 开发仓库继续跑完整回归；纯源码交付包不携带测试，不将“未执行”写成“通过”。
+$hasDevelopmentTests = Test-Path -LiteralPath (Join-Path $repoRoot 'tests\learning_agent_tests.cpp')
+$cmakeArgs += "-DBUILD_TESTING=$(if ($hasDevelopmentTests) { 'ON' } else { 'OFF' })"
 # 【逐行批注】 执行命令并将结果保存到 $curlCa。
 $curlCa = Get-ChildItem -LiteralPath (Join-Path $thirdParty 'curl') -Filter 'curl-ca-bundle.crt' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
 # 【逐行批注】 判断条件 ($curlCa) { $cmakeArgs += "-DCMAKE_TLS_CAINFO=$($curlCa.FullName…，成立时执行对应流程。
@@ -198,9 +201,13 @@ cmake --build $buildDir --parallel 4
 # 【逐行批注】 判断条件 ($LASTEXITCODE -ne 0) { throw 'C++ 编译失败' }，成立时执行对应流程。
 if ($LASTEXITCODE -ne 0) { throw 'C++ 编译失败' }
 # 【逐行批注】 执行当前 PowerShell 构建或测试命令：ctest --test-dir $buildDir --output-on-failure。
-ctest --test-dir $buildDir --output-on-failure
+if ($hasDevelopmentTests) {
+    ctest --test-dir $buildDir --output-on-failure
+    if ($LASTEXITCODE -ne 0) { throw 'C++ 测试失败' }
+} else {
+    Write-Host '本源码包不包含开发测试，当前仅构建产品；开发验证结果请查对应验收记录。'
+}
 # 【逐行批注】 判断条件 ($LASTEXITCODE -ne 0) { throw 'C++ 测试失败' }，成立时执行对应流程。
-if ($LASTEXITCODE -ne 0) { throw 'C++ 测试失败' }
 
 # 【逐行批注】 执行命令并将结果保存到 $launcher。
 $launcher = Join-Path $buildDir 'gangyiAI-launcher.exe'
@@ -276,7 +283,7 @@ $publicDist = Join-Path $distDir 'public'
 # 【逐行批注】 执行当前 PowerShell 构建或测试命令：New-Item -ItemType Directory -Force -Path $publicDist | Out-Null。
 New-Item -ItemType Directory -Force -Path $publicDist | Out-Null
 # 【逐行批注】 逐个处理集合中的元素：foreach ($asset in @('clarity.css', 'clarity.js', 'deep-course.css', 'deep-cour…。
-foreach ($asset in @('clarity.css', 'clarity.js', 'deep-course.css', 'deep-course.js', 'library.css', 'library.js', 'my-ai.css', 'my-ai.js', 'my-ai-study.js', 'styles.css', 'plan.css', 'dark.css', 'dark.js', 'app-layout.css', 'app-layout.js', 'profile-radar.js', 'profile-radar.css', 'startup.css', 'startup.js', 'ask.js', 'classroom.js', 'classroom.css', 'learning-flow.js', 'learning-flow.css', 'learning-agent.js', 'agent-trace.css', 'agent-trace.js', 'agent-shell.js', 'agent-classroom.html', 'agent-classroom.js', 'agent-classroom.css', 'agent-prepare.html', 'agent-prepare.js', 'chat-render.js', 'user-center.js', 'school-logo.png', 'campus-background.jpg')) {
+foreach ($asset in @('exam-import.css', 'exam-import.js', 'exam-page.css', 'exam-page.js', 'exam-rich-output.css', 'exam-rich-output.js', 'clarity.css', 'clarity.js', 'workspace.css', 'workspace.js', 'deep-course.css', 'deep-course.js', 'interactive-learning.js', 'interactive-subjects.js', 'interactive-vectors.js', 'interactive-equations.js', 'interactive-statistics.js', 'interactive-labs.js', 'interactive-labs.html', 'interactive-labs-page.js', 'interactive-labs-page.css', 'library.css', 'library.js', 'my-ai.css', 'my-ai.js', 'my-ai-study.js', 'styles.css', 'plan.css', 'dark.css', 'dark.js', 'app-layout.css', 'app-layout.js', 'profile-radar.js', 'profile-radar.css', 'startup.css', 'startup.js', 'ask.js', 'classroom.js', 'classroom.css', 'learning-flow.js', 'learning-flow.css', 'study-intent.js', 'learning-agent.js', 'agent-trace.css', 'agent-trace.js', 'agent-shell.js', 'agent-classroom.html', 'agent-classroom.js', 'agent-classroom.css', 'agent-prepare.html', 'agent-prepare.js', 'chat-render.js', 'user-center.js', 'school-logo.png', 'campus-background.jpg')) {
     # 【逐行批注】 执行当前 PowerShell 构建或测试命令：Copy-Item -LiteralPath (Join-Path $repoRoot "public\$asset") -Destination $publicDist。
     Copy-Item -LiteralPath (Join-Path $repoRoot "public\$asset") -Destination $publicDist
 # 【逐行批注】 开始或结束当前脚本代码块。
@@ -291,7 +298,11 @@ $requiredFiles = @(
     # 【逐行批注】 执行当前 PowerShell 构建或测试命令：'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll',。
     'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll',
     # 【逐行批注】 执行当前 PowerShell 构建或测试命令：'public\clarity.css', 'public\clarity.js', 'public\deep-course.css', 'public\deep-course.…。
-    'public\clarity.css', 'public\clarity.js', 'public\deep-course.css', 'public\deep-course.js',
+    'public\exam-import.css', 'public\exam-import.js', 'public\exam-page.css', 'public\exam-page.js', 'public\exam-rich-output.css', 'public\exam-rich-output.js', 'public\vendor\pdfjs\pdf.min.mjs', 'public\vendor\pdfjs\pdf.worker.min.mjs',
+    'public\clarity.css', 'public\clarity.js', 'public\deep-course.css', 'public\deep-course.js', 'public\study-intent.js',
+    'public\workspace.css', 'public\workspace.js',
+    # 缺失交互引擎时阻止打包，避免安装后只剩静态讲义。
+    'public\interactive-learning.js', 'public\interactive-subjects.js', 'public\interactive-vectors.js', 'public\interactive-equations.js', 'public\interactive-statistics.js', 'public\interactive-labs.js', 'public\vendor\jsxgraph\jsxgraphcore.js', 'public\vendor\jsxgraph\LICENSE.MIT',
     # 【逐行批注】 执行当前 PowerShell 构建或测试命令：'public\my-ai.css', 'public\my-ai.js', 'public\my-ai-study.js', 'public\vendor\echarts\ec…。
     'public\my-ai.css', 'public\my-ai.js', 'public\my-ai-study.js', 'public\vendor\echarts\echarts.min.js', 'public\styles.css', 'public\dark.css', 'public\dark.js', 'public\startup.css', 'public\startup.js', 'public\ask.js',
     # 【逐行批注】 执行当前 PowerShell 构建或测试命令：'public\app-layout.js', 'public\app-layout.css', 'public\profile-radar.js', 'public\profi…。

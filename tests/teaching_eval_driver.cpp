@@ -8,6 +8,9 @@
 #include "question_evidence.hpp"
 // 【逐行批注】 引入头文件 "teaching_evidence.hpp"，为后续实现提供类型或接口声明。
 #include "teaching_evidence.hpp"
+#include "deep_course.hpp"
+#include "interactive_capabilities.hpp"
+#include "component_activity.hpp"
 // 【逐行批注】 引入头文件 "search_client.hpp"，为后续实现提供类型或接口声明。
 #include "search_client.hpp"
 // 【逐行批注】 引入头文件 <curl/curl.h>，为后续实现提供类型或接口声明。
@@ -43,30 +46,81 @@
 
 // 【逐行批注】 计算右侧结果并写入 using Json，更新当前运行状态。
 using Json = nlohmann::json;
-// 【逐行批注】 执行当前声明或表达式：std::atomic_bool evaluationSearchBlocked{false};。
+
+#ifdef _WIN32
+// Windows命令行和环境路径统一转为UTF-8；不能把系统代码页字节交给u8path或SQLite。
+std::string evaluationUtf8(const std::wstring& value) {
+    if (value.empty()) return {};
+    const auto size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
+    if (size <= 0) throw std::runtime_error("Windows字符串无法转为UTF-8");
+    std::string output(size, '\0');
+    WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()), output.data(), size, nullptr, nullptr);
+    return output;
+}
+const char* evaluationEnv(const char* name) {
+    static thread_local std::map<std::string, std::string> values;
+    const std::wstring wideName(name, name + std::string(name).size());
+    const auto size = GetEnvironmentVariableW(wideName.c_str(), nullptr, 0);
+    if (!size) return nullptr;
+    std::wstring wideValue(size, L'\0');
+    const auto length = GetEnvironmentVariableW(wideName.c_str(), wideValue.data(), size);
+    if (!length || length >= size) return nullptr;
+    wideValue.resize(length); values[name] = evaluationUtf8(wideValue);
+    return values[name].c_str();
+}
+#else
+const char* evaluationEnv(const char* name) { return std::getenv(name); }
+#endif
+
+// 持续记录搜索和授权拒绝，主控不得把发送前中止误记为成功。
 std::atomic_bool evaluationSearchBlocked{false};
-// 【逐行批注】 调用 __real_curl_easy_perform 完成本行所需操作：extern "C" CURLcode __real_curl_easy_perform(CURL* handle);。
+std::atomic_bool evaluationAuthorizationBlocked{false};
+void validateEvaluationAuthorization(const std::string& endpoint);
+bool localEvaluationEndpoint(const std::string& url);
+// 与产品chatEndpoint保持相同规则：去掉全部尾斜杠，接受完整聊天地址。
+std::string evaluationChatEndpoint(std::string endpoint) {
+    while (!endpoint.empty() && endpoint.back() == '/') endpoint.pop_back();
+    const std::string suffix = "/chat/completions";
+    if (endpoint.size() >= suffix.size() && endpoint.compare(endpoint.size()-suffix.size(), suffix.size(), suffix) == 0) return endpoint;
+    return endpoint + suffix;
+}
 extern "C" CURLcode __real_curl_easy_perform(CURL* handle);
 // 【逐行批注】 调用 __wrap_curl_easy_perform 完成本行所需操作：extern "C" CURLcode __wrap_curl_easy_perform(CURL* handle) {。
 extern "C" CURLcode __wrap_curl_easy_perform(CURL* handle) {
     // 【逐行批注】 计算右侧结果并写入 auto mode，更新当前运行状态。
-    const auto mode = std::getenv("GANGYI_EVAL_MODE");
+    const auto mode = evaluationEnv("GANGYI_EVAL_MODE");
     // 【逐行批注】 判断条件 (mode && std::string(mode) == "live") {，成立时执行对应分支。
     if (mode && std::string(mode) == "live") {
         // 【逐行批注】 计算右侧结果并写入 char* url，更新当前运行状态。
         char* url = nullptr; curl_easy_getinfo(handle, CURLINFO_EFFECTIVE_URL, &url);
         // 【逐行批注】 计算右侧结果并写入 std::string address，更新当前运行状态。
         const std::string address = url ? url : "";
-        // 【逐行批注】 判断条件 (address.find("/tools/search") != std::string::npos || address.f…，成立时执行对应分支。
         if (address.find("/tools/search") != std::string::npos || address.find("/web-search") != std::string::npos) {
             // 两版教学都使用冻结资料；搜索另行验收，不能暗中绕过次数预算。
             // 【逐行批注】 计算右侧结果并写入 evaluationSearchBlocked，更新当前运行状态。
             evaluationSearchBlocked = true; return CURLE_ABORTED_BY_CALLBACK;
         // 【逐行批注】 结束当前代码块。
         }
+        try {
+            const auto endpoint = evaluationEnv("AI_BASE_URL");
+            validateEvaluationAuthorization(endpoint ? endpoint : "");
+            if (evaluationAuthorizationBlocked) return CURLE_ABORTED_BY_CALLBACK;
+            if (address != evaluationChatEndpoint(endpoint ? endpoint : ""))
+                throw std::runtime_error("非授权模型端点");
+        } catch (...) {
+            evaluationAuthorizationBlocked = true; return CURLE_ABORTED_BY_CALLBACK;
+        }
+        // 【逐行批注】 判断条件 (address.find("/tools/search") != std::string::npos || address.f…，成立时执行对应分支。
+
     // 【逐行批注】 结束当前代码块。
     }
     // 【逐行批注】 结束当前函数并返回结果：return __real_curl_easy_perform(handle);。
+    if (!mode || std::string(mode) != "live") {
+        char* url = nullptr; curl_easy_getinfo(handle, CURLINFO_EFFECTIVE_URL, &url);
+        if (!localEvaluationEndpoint(url ? url : "")) return CURLE_ABORTED_BY_CALLBACK;
+        curl_easy_setopt(handle, CURLOPT_FOLLOWLOCATION, 0L);
+        curl_easy_setopt(handle, CURLOPT_PROXY, "");
+    }
     return __real_curl_easy_perform(handle);
 // 【逐行批注】 结束当前代码块。
 }
@@ -94,15 +148,15 @@ bool localEvaluationEndpoint(const std::string& url) {
 // 【逐行批注】 定义函数 validateEvaluationAuthorization，执行该函数声明的职责。
 void validateEvaluationAuthorization(const std::string& endpoint) {
     // 【逐行批注】 计算右侧结果并写入 auto mode，更新当前运行状态。
-    const auto mode = std::getenv("GANGYI_EVAL_MODE");
+    const auto mode = evaluationEnv("GANGYI_EVAL_MODE");
     // 【逐行批注】 判断条件 ((!mode || std::string(mode) != "live") && localEvaluationEndpoi…，成立时执行对应分支。
     if ((!mode || std::string(mode) != "live") && localEvaluationEndpoint(endpoint)) return;
     // 【逐行批注】 计算右侧结果并写入 auto path，更新当前运行状态。
-    const auto path = std::getenv("GANGYI_EVAL_DECISION_FILE");
+    const auto path = evaluationEnv("GANGYI_EVAL_DECISION_FILE");
     // 【逐行批注】 计算右侧结果并写入 auto budgetPath，更新当前运行状态。
-    const auto budgetPath = std::getenv("GANGYI_EVAL_BUDGET_FILE");
+    const auto budgetPath = evaluationEnv("GANGYI_EVAL_BUDGET_FILE");
     // 【逐行批注】 计算右侧结果并写入 auto model，更新当前运行状态。
-    const auto model = std::getenv("AI_MODEL");
+    const auto model = evaluationEnv("AI_MODEL");
     // 【逐行批注】 计算右侧结果并写入 auto denied，更新当前运行状态。
     const auto denied = [] { throw gangyi::AIClientError("eval_authorization", "本轮授权、冻结配置或累计预算不匹配，未发送请求"); };
     // 【逐行批注】 判断条件 (!mode || std::string(mode) != "live" || !path || !budgetPath ||…，成立时执行对应分支。
@@ -150,180 +204,254 @@ void validateEvaluationAuthorization(const std::string& endpoint) {
         // 【逐行批注】 调用 denied 完成本行所需操作：budget.at("reservedTokens").get<long long>() < frozen.at("reservedTok…。
         budget.at("reservedTokens").get<long long>() < frozen.at("reservedTokens").get<long long>()) denied();
 // 【逐行批注】 结束当前代码块。
+    if (budget.contains("limitRequests")) {
+        const auto safe = [](const Json& v) { return v.is_number_integer() &&
+            (v.is_number_unsigned() ? v.get<unsigned long long>() <= 9007199254740991ULL : v.get<long long>() >= 0); };
+        for (const auto* field : {"limitRequests", "httpRequests", "reservedRequests"}) if (!safe(budget.at(field))) denied();
+        if (budget.at("limitRequests") != approved.at("limitRequests") || budget.at("limitRequests").get<unsigned long long>() == 0 ||
+            budget.at("httpRequests").get<unsigned long long>() + budget.at("reservedRequests").get<unsigned long long>() > budget.at("limitRequests").get<unsigned long long>()) denied();
+    }
+    if (evaluationEnv("GANGYI_TUTOR_EXPERIMENT")) {
+        // 当前执行器在每次原生模型回调前重新校验授权及冻结材料，不只依赖启动时的Python检查。
+        const auto expected = evaluationEnv("GANGYI_TUTOR_AUTH_SHA256");
+        if (!expected || gangyi::resourceDigest(read(path)) != expected) denied();
+        for (const auto* field : {"approvedBy", "approvedAt", "approvalNote"})
+            if (!approved.contains(field) || !approved.at(field).is_string() || approved.at(field).get<std::string>().empty()) denied();
+        for (const auto& pair : {std::make_pair("manifestPath", "manifestSha256"), std::make_pair("configurationPath", "configurationSha256")})
+            if (gangyi::resourceDigest(read(approved.at(pair.first).get<std::string>())) != approved.at(pair.second)) denied();
+        if (!approved.at("frozenFiles").is_array() || approved.at("frozenFiles").empty()) denied();
+        for (const auto& item : approved.at("frozenFiles"))
+            if (gangyi::resourceDigest(read(item.at("path").get<std::string>())) != item.at("sha256")) denied();
+    }
+
 }
 // 仅开发验收使用：请求前预留输入字节上界、输出及全部SDK故障/兼容重试，未知用量不退款。
 // 【逐行批注】 声明数据结构或类型 EvaluationBudget 及其成员接口。
 class EvaluationBudget {
-    // 【逐行批注】 计算右侧结果并写入 inline static bool storageFailed_，更新当前运行状态。
     inline static bool storageFailed_ = false;
-    // 【逐行批注】 计算右侧结果并写入 std::filesystem::path file_; std::size_t res…，更新当前运行状态。
-    std::filesystem::path file_; std::size_t reservation_ = 0, requestUpper_ = 0;
-    // 【逐行批注】 执行当前声明或表达式：std::map<std::string, std::string> previous_;。
+    inline static std::map<std::string, Json> observedBudgets_;
+    static constexpr std::size_t maximum_ = 9007199254740991ULL;
+    std::filesystem::path file_;
+    std::size_t reservation_ = 0, requestUpper_ = 0, reservedRequests_ = 0;
     std::map<std::string, std::string> previous_;
-    // 【逐行批注】 定义函数 read，执行该函数声明的职责。
-    Json read() const { std::ifstream input(file_); Json value; input >> value; return value; }
-    // 【逐行批注】 定义函数 write，执行该函数声明的职责。
-    void write(const Json& value) const {
-        // 锁覆盖临时写入和原子提交；任何失败均保留旧文件，并使整个驱动拒绝后续请求。
-        // 【逐行批注】 计算右侧结果并写入 temporary，更新当前运行状态。
-        auto temporary = file_; temporary += ".tmp";
-        // 【逐行批注】 开始可能抛出异常的保护代码块。
+    static std::size_t count(const Json& value) {
+        if (!value.is_number_integer() || (value.is_number_unsigned() ?
+            value.get<unsigned long long>() > maximum_ : value.get<long long>() < 0))
+            throw gangyi::AIClientError("eval_budget", "预算或用量必须为安全范围内的非负整数");
+        const auto result = value.get<unsigned long long>();
+        if (result > maximum_) throw gangyi::AIClientError("eval_budget", "预算数字超出安全范围");
+        return static_cast<std::size_t>(result);
+    }
+    static std::size_t add(std::size_t a, std::size_t b) {
+        if (a > maximum_ || b > maximum_ - a) throw gangyi::AIClientError("eval_budget", "预算数字溢出");
+        return a + b;
+    }
+    static std::size_t multiply(std::size_t a, std::size_t b) {
+        if (a && b > maximum_ / a) throw gangyi::AIClientError("eval_budget", "预算数字溢出");
+        return a * b;
+    }
+    Json read() const {
         try {
-            // 【逐行批注】 声明对象 output，并通过构造函数初始化其状态。
-            std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-            // 【逐行批注】 判断条件 (!output) throw std::runtime_error("预算临时文件无法打开");，成立时执行对应分支。
-            if (!output) throw std::runtime_error("预算临时文件无法打开");
-            // 【逐行批注】 执行当前声明或表达式：output << value.dump(2); output.flush();。
-            output << value.dump(2); output.flush();
-            // 【逐行批注】 判断条件 (!output) throw std::runtime_error("预算临时文件写入失败");，成立时执行对应分支。
-            if (!output) throw std::runtime_error("预算临时文件写入失败");
-            // 【逐行批注】 执行当前声明或表达式：output.close();。
-            output.close();
-            // 【逐行批注】 判断条件 (!output) throw std::runtime_error("预算临时文件关闭失败");，成立时执行对应分支。
-            if (!output) throw std::runtime_error("预算临时文件关闭失败");
-// 【逐行批注】 处理条件编译指令：#ifdef _WIN32。
-#ifdef _WIN32
-            // 【逐行批注】 判断条件 (!MoveFileExW(temporary.c_str(), file_.c_str(), MOVEFILE_REPLACE…，成立时执行对应分支。
-            if (!MoveFileExW(temporary.c_str(), file_.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-                // 【逐行批注】 检测到错误情形时抛出异常：throw std::runtime_error("预算原子提交失败");。
-                throw std::runtime_error("预算原子提交失败");
-// 【逐行批注】 处理条件编译指令：#else。
-#else
-            // 【逐行批注】 调用 rename 完成本行所需操作：std::filesystem::rename(temporary, file_);。
-            std::filesystem::rename(temporary, file_);
-// 【逐行批注】 处理条件编译指令：#endif。
-#endif
-        // 【逐行批注】 执行当前声明或表达式：} catch (...) {。
-        } catch (...) {
-            // 【逐行批注】 计算右侧结果并写入 storageFailed_，更新当前运行状态。
-            storageFailed_ = true;
-            // 【逐行批注】 检测到错误情形时抛出异常：throw gangyi::AIClientError("eval_budget_storage", "预算保存失败，停止全部后续请求");。
-            throw gangyi::AIClientError("eval_budget_storage", "预算保存失败，停止全部后续请求");
-        // 【逐行批注】 结束当前代码块。
-        }
-    // 【逐行批注】 结束当前代码块。
-    }
-    // 【逐行批注】 声明数据结构或类型 Lock 及其成员接口。
-    struct Lock {
-// 【逐行批注】 处理条件编译指令：#ifdef _WIN32。
-#ifdef _WIN32
-        // 【逐行批注】 计算右侧结果并写入 HANDLE handle，更新当前运行状态。
-        HANDLE handle = INVALID_HANDLE_VALUE;
-        // 【逐行批注】 定义函数 Lock，执行该函数声明的职责。
-        explicit Lock(const std::filesystem::path& file) {
-            // 【逐行批注】 计算右侧结果并写入 auto lockFile，更新当前运行状态。
-            const auto lockFile = file.wstring()+L".lock";
-            // 【逐行批注】 按循环规则重复处理：for (int attempt=0;attempt<3000;++attempt) {。
-            for (int attempt=0;attempt<3000;++attempt) {
-                // 【逐行批注】 计算右侧结果并写入 handle，更新当前运行状态。
-                handle=CreateFileW(lockFile.c_str(),GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
-                // 【逐行批注】 判断条件 (handle!=INVALID_HANDLE_VALUE) return;，成立时执行对应分支。
-                if (handle!=INVALID_HANDLE_VALUE) return;
-                // 【逐行批注】 调用 Sleep 完成本行所需操作：Sleep(10);。
-                Sleep(10);
-            // 【逐行批注】 结束当前代码块。
+            std::ifstream input(file_); Json value; input >> value;
+            for (const auto* field : {"limitTokens", "usedTokens", "reservedTokens"}) count(value.at(field));
+            for (const auto* field : {"httpRequests", "reservedRequests", "unknownUsageRequests", "limitRequests"})
+                if (value.contains(field)) count(value.at(field));
+            if (count(value.at("limitTokens")) == 0 || value.value("unexpectedUsage", false) ||
+                add(count(value.at("usedTokens")), count(value.at("reservedTokens"))) > count(value.at("limitTokens")))
+                throw std::runtime_error("Token预算已耗尽或异常");
+            if (value.contains("limitRequests") && (count(value.at("limitRequests")) == 0 ||
+                add(count(value.at("httpRequests")), count(value.at("reservedRequests"))) > count(value.at("limitRequests"))))
+                throw std::runtime_error("HTTP预算已耗尽或异常");
+            const auto key = file_.u8string();
+            if (observedBudgets_.count(key)) {
+                const auto& previous = observedBudgets_.at(key);
+                for (const auto* field : {"usedTokens", "httpRequests", "unknownUsageRequests", "reservedTokens", "reservedRequests"})
+                    if (count(value.value(field, Json(0))) < count(previous.value(field, Json(0))))
+                        throw std::runtime_error("预算水位被回滚");
+                for (const auto* field : {"limitTokens", "limitRequests"})
+                    if (value.value(field, Json()) != previous.value(field, Json())) throw std::runtime_error("预算上限被修改");
             }
-            // 【逐行批注】 检测到错误情形时抛出异常：throw std::runtime_error("验收用量锁暂不可用，未调用模型");。
-            throw std::runtime_error("验收用量锁暂不可用，未调用模型");
-        // 【逐行批注】 结束当前代码块。
+            return value;
+        } catch (...) {
+            storageFailed_ = true;
+            throw gangyi::AIClientError("eval_budget_storage", "预算账本不可用，停止全部后续请求");
         }
-        // 【逐行批注】 调用 Lock、CloseHandle 完成本行所需操作：~Lock() { if(handle!=INVALID_HANDLE_VALUE)CloseHandle(handle); }。
-        ~Lock() { if(handle!=INVALID_HANDLE_VALUE)CloseHandle(handle); }
-// 【逐行批注】 处理条件编译指令：#else。
+    }
+    void write(const Json& value) const {
+        // 预留与结算均原子提交；任何写盘失败都保留旧账本并停止之后的调用。
+        auto temporary = file_; temporary += ".tmp";
+        try {
+            std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+            if (!output) throw std::runtime_error("预算临时文件无法打开");
+            output << value.dump(2); output.flush(); output.close();
+            if (!output) throw std::runtime_error("预算临时文件写入失败");
+#ifdef _WIN32
+            if (!MoveFileExW(temporary.c_str(), file_.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+                throw std::runtime_error("预算原子提交失败");
 #else
-        // 【逐行批注】 定义函数 Lock，执行该函数声明的职责。
-        explicit Lock(const std::filesystem::path&) { throw std::runtime_error("预算验收入口仅用于本机Windows"); }
-// 【逐行批注】 处理条件编译指令：#endif。
+            std::filesystem::rename(temporary, file_);
 #endif
-    // 【逐行批注】 执行当前声明或表达式：};。
+            observedBudgets_[file_.u8string()] = value;
+        } catch (...) {
+            storageFailed_ = true;
+            throw gangyi::AIClientError("eval_budget_storage", "预算保存失败，停止全部后续请求");
+        }
+    }
+    struct Lock {
+#ifdef _WIN32
+        HANDLE handle = INVALID_HANDLE_VALUE;
+        explicit Lock(const std::filesystem::path& file) {
+            const auto lockFile = file.wstring() + L".lock";
+            for (int attempt = 0; attempt < 3000; ++attempt) {
+                handle = CreateFileW(lockFile.c_str(), GENERIC_READ|GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+                if (handle != INVALID_HANDLE_VALUE) return;
+                Sleep(10);
+            }
+            throw std::runtime_error("验收用量锁暂不可用，未调用模型");
+        }
+        ~Lock() { if (handle != INVALID_HANDLE_VALUE) CloseHandle(handle); }
+#else
+        explicit Lock(const std::filesystem::path&) { throw std::runtime_error("预算验收入口仅用于本机Windows"); }
+#endif
     };
-// 【逐行批注】 执行当前声明或表达式：public:。
 public:
-    // 【逐行批注】 定义函数 storageFailed，执行该函数声明的职责。
     static bool storageFailed() { return storageFailed_; }
-    // 【逐行批注】 调用 EvaluationBudget 完成本行所需操作：EvaluationBudget(gangyi::Database& db, const gangyi::ChatOptions& opt…。
     EvaluationBudget(gangyi::Database& db, const gangyi::ChatOptions& options) {
-        // 【逐行批注】 判断条件 (storageFailed_) throw gangyi::AIClientError("eval_budget_storag…，成立时执行对应分支。
-        if (storageFailed_) throw gangyi::AIClientError("eval_budget_storage", "预算保存已失败，禁止继续请求");
-        // 【逐行批注】 计算右侧结果并写入 auto path，更新当前运行状态。
-        const auto path=std::getenv("GANGYI_EVAL_BUDGET_FILE"); if(!path||!*path)return;
-        // 【逐行批注】 计算右侧结果并写入 file_，更新当前运行状态。
-        file_=std::filesystem::u8path(path);
-        // 【逐行批注】 计算右侧结果并写入 requestUpper_，更新当前运行状态。
-        requestUpper_=static_cast<std::size_t>(options.maxTokens)+1024;
-        // 【逐行批注】 按循环规则重复处理：for(const auto& message:options.messages)requestUpper_+=message.content.si…。
-        for(const auto& message:options.messages)requestUpper_+=message.content.size()+64;
-        // 【逐行批注】 计算右侧结果并写入 int attempts，更新当前运行状态。
+        if (storageFailed_) throw gangyi::AIClientError("eval_budget_storage", "预算已失败，禁止继续请求");
+        const auto path = evaluationEnv("GANGYI_EVAL_BUDGET_FILE"); if (!path || !*path) return;
+        file_ = std::filesystem::u8path(path);
+        if (options.maxTokens <= 0) throw gangyi::AIClientError("eval_budget", "输出上限无效");
+        requestUpper_ = add(static_cast<std::size_t>(options.maxTokens), 1024);
+        for (const auto& message : options.messages) {
+            if (!message.imageDataUrl.empty()) throw gangyi::AIClientError("eval_budget", "当前预算只支持文字，不估算图像额度");
+            requestUpper_ = add(requestUpper_, add(message.content.size(), 64));
+        }
         int attempts = options.maxAttempts;
-        // 【逐行批注】 判断条件 (attempts <= 0) {，成立时执行对应分支。
         if (attempts <= 0) {
-            // 【逐行批注】 计算右侧结果并写入 attempts，更新当前运行状态。
             attempts = 2;
-            // 【逐行批注】 开始可能抛出异常的保护代码块。
-            try { if (const auto setting = std::getenv("AI_RETRY_ATTEMPTS")) attempts = std::stoi(setting); } catch (...) {}
-        // 【逐行批注】 结束当前代码块。
+            if (const auto setting = evaluationEnv("AI_RETRY_ATTEMPTS")) {
+                std::size_t end = 0; attempts = std::stoi(setting, &end);
+                if (end != std::string(setting).size()) throw gangyi::AIClientError("eval_budget", "重试设置无效");
+            }
         }
-        // 【逐行批注】 判断条件 (attempts < 1 || attempts > 100) throw gangyi::AIClientError("ev…，成立时执行对应分支。
-        if (attempts < 1 || attempts > 100) throw gangyi::AIClientError("eval_budget", "SDK重试次数不在验收预算支持范围，未调用模型");
-        // 【逐行批注】 计算右侧结果并写入 reservation_，更新当前运行状态。
-        reservation_=requestUpper_*static_cast<std::size_t>(attempts+1);
-        // 【逐行批注】 声明对象 lock，并通过构造函数初始化其状态。
-        Lock lock(file_); auto value=read();
-        // 【逐行批注】 执行当前声明或表达式：if(value.value("usedTokens",0ULL)+value.value("reservedTokens",0ULL)+reservation_>va…。
-        if(value.value("usedTokens",0ULL)+value.value("reservedTokens",0ULL)+reservation_>value.at("limitTokens").get<std::size_t>())
-            // 【逐行批注】 检测到错误情形时抛出异常：throw gangyi::AIClientError("eval_budget","验收Token预算不足以预留下一次请求，未调用模型"…。
-            throw gangyi::AIClientError("eval_budget","验收Token预算不足以预留下一次请求，未调用模型");
-        // 【逐行批注】 计算右侧结果并写入 value["reservedTokens"]，更新当前运行状态。
-        value["reservedTokens"]=value.value("reservedTokens",0ULL)+reservation_; write(value);
-        // 【逐行批注】 按循环规则重复处理：for(const auto& row:db.myAIRecords("usage"))previous_[row.id]=row.payload;。
-        for(const auto& row:db.myAIRecords("usage"))previous_[row.id]=row.payload;
-    // 【逐行批注】 结束当前代码块。
+        if (attempts < 1 || attempts > 100) throw gangyi::AIClientError("eval_budget", "SDK重试次数超出预算支持范围");
+        reservation_ = multiply(requestUpper_, static_cast<std::size_t>(attempts + 1));
+        for (const auto& row : db.myAIRecords("usage")) previous_[row.id] = row.payload;
+        Lock lock(file_); auto value = read();
+        const auto tokens = add(count(value.at("usedTokens")), count(value.at("reservedTokens")));
+        if (reservation_ > count(value.at("limitTokens")) - tokens)
+            throw gangyi::AIClientError("eval_budget", "Token预算不足以预留下一次请求");
+        if (value.contains("limitRequests")) {
+            // 覆盖实际HTTP重试与一次用量参数兼容重试，不把回调数量当HTTP次数。
+            reservedRequests_ = static_cast<std::size_t>(attempts + 1);
+            const auto requests = add(count(value.at("httpRequests")), count(value.at("reservedRequests")));
+            if (reservedRequests_ > count(value.at("limitRequests")) - requests)
+                throw gangyi::AIClientError("eval_budget", "HTTP预算不足以预留重试");
+            value["reservedRequests"] = add(count(value.at("reservedRequests")), reservedRequests_);
+        }
+        value["reservedTokens"] = add(count(value.at("reservedTokens")), reservation_); write(value);
     }
-    // 【逐行批注】 定义函数 settle，执行该函数声明的职责。
     void settle(gangyi::Database& db) {
-        // 【逐行批注】 执行当前声明或表达式：if(file_.empty()||reservation_==0)return;。
-        if(file_.empty()||reservation_==0)return;
-        // 【逐行批注】 计算右侧结果并写入 std::size_t tokens，更新当前运行状态。
-        std::size_t tokens=0,unknown=0,requests=0;
-        // 【逐行批注】 按循环规则重复处理：for(const auto& row:db.myAIRecords("usage"))if(!previous_.count(row.id)||p…。
-        for(const auto& row:db.myAIRecords("usage"))if(!previous_.count(row.id)||previous_.at(row.id)!=row.payload) {
-            // 【逐行批注】 计算右侧结果并写入 auto value，更新当前运行状态。
-            const auto value=Json::parse(row.payload); ++requests;
-            // 【逐行批注】 调用 Json 完成本行所需操作：if(value.value("tokens",Json()).is_object()&&value.at("tokens").value…。
-            if(value.value("tokens",Json()).is_object()&&value.at("tokens").value("total_tokens",Json()).is_number())
-                // 【逐行批注】 计算右侧结果并写入 tokens+，更新当前运行状态。
-                tokens+=value.at("tokens").at("total_tokens").get<std::size_t>();
-            // 【逐行批注】 执行前一条件不成立时的分支。
-            else ++unknown;
-        // 【逐行批注】 结束当前代码块。
+        if (file_.empty() || reservation_ == 0) return;
+        try {
+            std::size_t tokens = 0, unknown = 0, requests = 0;
+            for (const auto& row : db.myAIRecords("usage")) if (!previous_.count(row.id) || previous_.at(row.id) != row.payload) {
+                const auto value = Json::parse(row.payload); ++requests;
+                const auto usage = value.value("tokens", Json());
+                if (usage.is_object() && usage.contains("total_tokens") && !usage.at("total_tokens").is_null())
+                    tokens = add(tokens, count(usage.at("total_tokens")));
+                else ++unknown;
+            }
+            Lock lock(file_); auto value = read();
+            const auto held = count(value.at("reservedTokens"));
+            if (held < reservation_ || (reservedRequests_ && count(value.at("reservedRequests")) < reservedRequests_))
+                throw std::runtime_error("请求预留被修改");
+            // 没有可靠HTTP记录时保留全部预留，未知Token用量也不退款。
+            value["reservedTokens"] = add(held - reservation_, requests == 0 ? reservation_ : multiply(unknown, requestUpper_));
+            value["usedTokens"] = add(count(value.at("usedTokens")), tokens);
+            value["httpRequests"] = add(count(value.value("httpRequests", Json(0))), requests);
+            if (reservedRequests_)
+                value["reservedRequests"] = count(value.at("reservedRequests")) - reservedRequests_ + (requests == 0 ? reservedRequests_ : 0);
+            value["unknownUsageRequests"] = add(count(value.value("unknownUsageRequests", Json(0))), unknown);
+            if (add(tokens, multiply(unknown, requestUpper_)) > reservation_ || (reservedRequests_ && requests > reservedRequests_))
+                value["unexpectedUsage"] = true;
+            write(value); reservation_ = 0;
+        } catch (...) {
+            storageFailed_ = true;
+            throw gangyi::AIClientError("eval_budget_storage", "预算无法可靠结算，保留预留并停止后续请求");
         }
-        // 【逐行批注】 声明对象 lock，并通过构造函数初始化其状态。
-        Lock lock(file_); auto value=read();
-        // 【逐行批注】 计算右侧结果并写入 value["reservedTokens"]，更新当前运行状态。
-        value["reservedTokens"]=value.value("reservedTokens",0ULL)-reservation_+(requests==0?reservation_:unknown*requestUpper_);
-        // 【逐行批注】 计算右侧结果并写入 value["usedTokens"]，更新当前运行状态。
-        value["usedTokens"]=value.value("usedTokens",0ULL)+tokens;
-        // 【逐行批注】 计算右侧结果并写入 value["httpRequests"]，更新当前运行状态。
-        value["httpRequests"]=value.value("httpRequests",0ULL)+requests;
-        // 【逐行批注】 计算右侧结果并写入 value["unknownUsageRequests"]，更新当前运行状态。
-        value["unknownUsageRequests"]=value.value("unknownUsageRequests",0ULL)+unknown;
-        // 【逐行批注】 执行当前声明或表达式：if(tokens+unknown*requestUpper_>reservation_)value["unexpectedUsage"]=true;。
-        if(tokens+unknown*requestUpper_>reservation_)value["unexpectedUsage"]=true;
-        // 【逐行批注】 计算右侧结果并写入 write(value); reservation_，更新当前运行状态。
-        write(value); reservation_=0;
-    // 【逐行批注】 结束当前代码块。
     }
-// 【逐行批注】 执行当前声明或表达式：};。
 };
+// 只构造有明确合成来源的组件材料；校验与计算直接调用产品实现。
+Json evaluationComponentSetup(const Json& test) {
+    const auto fixtures = test.value("componentFixtures", Json::array());
+    if (!fixtures.is_array() || fixtures.size() > 8) throw std::invalid_argument("合成组件材料须为至多8项的列表");
+    Json media = Json::array(), ids = Json::array(), states = Json::object(), traces = Json::object();
+    std::set<std::string> unique;
+    for (const auto& fixture : fixtures) {
+        const auto id = fixture.at("id").get<std::string>();
+        if (id.empty() || id.size() > 100 || !unique.insert(id).second) throw std::invalid_argument("合成组件身份为空或重复");
+        auto config = fixture.at("config");
+        if (!config.is_object()) throw std::invalid_argument("合成组件配置无效");
+        const auto type = config.value("type", "");
+        if (type != "sets" && !gangyi::isInteractiveLab(type)) throw std::invalid_argument("合成材料须使用已注册交互，静态图示不能计为操作");
+        config["id"] = id; config["title"] = "工程合成组件材料，非学生实际操作";
+        media.push_back(config); ids.push_back(id);
+        const auto& sequence = fixture.at("states");
+        if (!sequence.is_array() || sequence.empty() || sequence.size() > 20) throw std::invalid_argument("合成组件状态须为1至20项");
+        Json events = Json::array(); int seq = 0;
+        for (const auto& state : sequence) events.push_back({{"seq",++seq},{"kind","change"},{"state",state}});
+        states[id] = sequence.back();
+        traces[id] = {{"schemaVersion",1},{"contentVersion",1},{"sessionId","synthetic-evaluation"},
+            {"totalChanges",seq},{"truncated",false},{"events",events}};
+    }
+    if (fixtures.empty()) return Json::object();
+    const auto content = gangyi::normalizeDeepContent({{"lecture",{{{"id","evaluation-components"},
+        {"title","合成操作证据"},{"body","以下配置和操作由工程人员编写，不是真实学生证据。"},
+        {"sectionId","concept"},{"mediaIds",ids}}}},{"slides",Json::array()},{"media",media}});
+    const Json event = {{"requestId","evaluation-preflight"},{"deepView","lecture"},
+        {"contentId","evaluation-components"},{"mediaState",states},{"componentActivities",traces}};
+    const auto checked = gangyi::checkedComponentActivities({{"id","eval-lesson"},{"deepContent",content}}, event);
+    return {{"content",content},{"event",event},{"validatedActivities",checked},
+        {"evidenceSource","synthetic_fixture"},{"studentActivityVerified",false}};
+}
+
 // 开发验收入口直接调用现有 C++ 主控；不进入安装包。评分标准只来自隔离用例。
 // 【逐行批注】 定义函数 main，执行该函数声明的职责。
+#ifdef _WIN32
+int wmain(int argc, wchar_t** wideArgv) {
+    std::vector<std::string> arguments;
+    for (int index = 0; index < argc; ++index) arguments.push_back(evaluationUtf8(wideArgv[index]));
+    std::vector<char*> pointers;
+    for (auto& argument : arguments) pointers.push_back(argument.data());
+    char** argv = pointers.data();
+#else
 int main(int argc, char** argv) {
+#endif
     // 【逐行批注】 开始可能抛出异常的保护代码块。
     try {
+        if (argc == 2 && std::string(argv[1]) == "--interactive-capabilities") {
+            std::cout << gangyi::interactiveCapabilities().dump(2) << std::endl; return 0;
+        }
+        if (argc == 3 && std::string(argv[1]) == "--inspect-component-fixtures") {
+            std::ifstream input(std::filesystem::u8path(argv[2])); Json source; input >> source;
+            Json rows = Json::array(); bool valid = true;
+            for (const auto& test : source.at("cases")) {
+                try { rows.push_back({{"caseId",test.at("id")},{"valid",true},{"setup",evaluationComponentSetup(test)}}); }
+                catch (const std::exception& error) {
+                    valid = false; rows.push_back({{"caseId",test.value("id", "")},{"valid",false},{"error",error.what()}});
+                }
+            }
+            std::cout << Json{{"valid",valid},{"httpRequests",0},{"cases",rows}}.dump(2) << std::endl;
+            return valid ? 0 : 1;
+        }
         // 【逐行批注】 判断条件 (argc == 2 && std::string(argv[1]) == "--check-live-authorizatio…，成立时执行对应分支。
+        if (argc == 3 && std::string(argv[1]) == "--normalize-evaluation-endpoint") {
+            std::cout << evaluationChatEndpoint(argv[2]); return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--check-live-authorization") {
             // 【逐行批注】 计算右侧结果并写入 auto endpoint，更新当前运行状态。
-            const auto endpoint = std::getenv("AI_BASE_URL");
+            const auto endpoint = evaluationEnv("AI_BASE_URL");
             // 【逐行批注】 调用 validateEvaluationAuthorization 完成本行所需操作：validateEvaluationAuthorization(endpoint ? endpoint : "");。
             validateEvaluationAuthorization(endpoint ? endpoint : "");
             // 【逐行批注】 执行当前声明或表达式：std::cout << "{\"authorized\":true,\"httpRequests\":0}" << std::endl; return 0;。
@@ -416,13 +544,19 @@ int main(int argc, char** argv) {
         // 【逐行批注】 计算右侧结果并写入 std::string lessonId，更新当前运行状态。
         const std::string lessonId = "eval-lesson", courseId = "eval-course";
         // 【逐行批注】 计算右侧结果并写入 bool resumeExisting，更新当前运行状态。
-        const bool resumeExisting = std::getenv("GANGYI_EVAL_RESUME") && db.getClassroomActivity(lessonId).has_value();
+        const bool resumeExisting = evaluationEnv("GANGYI_EVAL_RESUME") && db.getClassroomActivity(lessonId).has_value();
         // 【逐行批注】 判断条件 (!resumeExisting) {，成立时执行对应分支。
         if (!resumeExisting) {
         // 【逐行批注】 执行当前声明或表达式：db.insert(gangyi::Course{courseId, access.scopeId, {}, test.at("title"), "deep", tes…。
         db.insert(gangyi::Course{courseId, access.scopeId, {}, test.at("title"), "deep", test.at("title"),
             // 【逐行批注】 执行当前声明或表达式：{}, "ai", "active", "2026-10-13", "2026-10-13"});。
             {}, "ai", "active", "2026-10-13", "2026-10-13"});
+        if (test.contains("subject")) {
+            // 学科来自合成评测材料的显式元数据，不从问题文本猜测或覆盖真实课程。
+            auto outline = Json{{"subject", test.at("subject")}};
+            if (!test.value("componentFixtures", Json::array()).empty()) outline["pedagogy"] = "deep-v1";
+            db.insert(gangyi::CourseSnapshot{"eval-outline", courseId, 1, outline.dump(), "2026-11-17"});
+        }
         // 两版从同一已保存来源复制固定原文，避免资料变化影响同协议对照。
         // 【逐行批注】 判断条件 (test.value("libraryDatabase", Json()).is_string()) {，成立时执行对应分支。
         if (test.value("libraryDatabase", Json()).is_string()) {
@@ -479,6 +613,8 @@ int main(int argc, char** argv) {
             // 【逐行批注】 执行当前声明或表达式：{"sourceLearningVersion", db.learningRevision()}, {"teachingFocus", {{"practiceSecti…。
             {"sourceLearningVersion", db.learningRevision()}, {"teachingFocus", {{"practiceSectionId", "question-0"}}}};
         // 【逐行批注】 执行当前声明或表达式：db.upsert(gangyi::ClassroomActivity{lessonId, courseId, "agent-lesson", lesson.dump(…。
+        const auto componentSetup = evaluationComponentSetup(test);
+        if (!componentSetup.empty()) lesson["deepContent"] = componentSetup.at("content");
         db.upsert(gangyi::ClassroomActivity{lessonId, courseId, "agent-lesson", lesson.dump(), "2026-10-13", 0, 0});
         // 【逐行批注】 调用 agentExposeTask 完成本行所需操作：gangyi::agentExposeTask(db, access, {{"lessonId", lessonId}, {"sectio…。
         gangyi::agentExposeTask(db, access, {{"lessonId", lessonId}, {"sections", {{{"id", "concept"}, {"version", 1}}}}});
@@ -486,6 +622,15 @@ int main(int argc, char** argv) {
         }
         // 【逐行批注】 计算右侧结果并写入 auto runStarted，更新当前运行状态。
         const auto runStarted = std::chrono::steady_clock::now();
+        auto responsePath = std::filesystem::u8path(argv[3]); responsePath += ".responses.jsonl";
+        if (std::filesystem::exists(responsePath) && !resumeExisting) throw std::runtime_error("原始回复记录已存在，拒绝覆盖");
+        std::ofstream responseJournal(responsePath, std::ios::binary | std::ios::app);
+        if (!responseJournal) throw std::runtime_error("无法创建原始模型回复记录");
+        bool responseStorageFailed = false;
+        const auto recordResponse = [&](Json value) {
+            responseJournal << value.dump() << '\n'; responseJournal.flush();
+            if (!responseJournal) { responseStorageFailed = true; throw std::runtime_error("原始回复保存失败，停止后续请求"); }
+        };
         // 【逐行批注】 计算右侧结果并写入 Json usage，更新当前运行状态。
         Json usage = Json::array(), promptAudit = Json::array();
         // 【逐行批注】 判断条件 (resumeExisting) for (const auto& row : db.myAIRecords("usage"))…，成立时执行对应分支。
@@ -502,10 +647,13 @@ int main(int argc, char** argv) {
         }
         // 【逐行批注】 定义函数 agent，执行该函数声明的职责。
         gangyi::LearningAgent agent(argv[2], [&](const gangyi::ChatOptions& options, const std::function<bool(const std::string&)>& sink) {
+            if (responseStorageFailed) throw std::runtime_error("原始回复记录已失败，不能继续实验");
             // 【逐行批注】 判断条件 (evaluationSearchBlocked) throw gangyi::AIClientError("eval_sear…，成立时执行对应分支。
             if (evaluationSearchBlocked) throw gangyi::AIClientError("eval_search_mode", "教学对照要求冻结资料；出现新搜索，停止后续模型请求");
             // 【逐行批注】 计算右侧结果并写入 Json prompt，更新当前运行状态。
             Json prompt = {{"purpose", options.activity.purpose}, {"inputBytes", 0}};
+            prompt["temperature"] = options.temperature; prompt["maxTokens"] = options.maxTokens;
+            prompt["timeoutMs"] = options.timeoutMs; prompt["requestModel"] = options.model;
             // 【逐行批注】 计算右侧结果并写入 Json messages，更新当前运行状态。
             Json messages = Json::array(); std::size_t bytes = 0;
             // 【逐行批注】 按循环规则重复处理：for (const auto& message : options.messages) {。
@@ -596,27 +744,27 @@ int main(int argc, char** argv) {
             }
             // 【逐行批注】 计算右侧结果并写入 auto start，更新当前运行状态。
             const auto start = std::chrono::steady_clock::now();
-            // 【逐行批注】 判断条件 (const auto limit=std::getenv("GANGYI_EVAL_MAX_CALLS"))，成立时执行对应分支。
-            if (const auto limit=std::getenv("GANGYI_EVAL_MAX_CALLS"))
+            // 【逐行批注】 判断条件 (const auto limit=evaluationEnv("GANGYI_EVAL_MAX_CALLS"))，成立时执行对应分支。
+            if (const auto limit=evaluationEnv("GANGYI_EVAL_MAX_CALLS"))
                 // 【逐行批注】 判断条件 (usage.size()>=static_cast<std::size_t>(std::stoul(limit)))，成立时执行对应分支。
                 if (usage.size()>=static_cast<std::size_t>(std::stoul(limit)))
                     // 【逐行批注】 检测到错误情形时抛出异常：throw gangyi::AIClientError("eval_call_limit","本次协议复核的请求次数已用完，未继续调用模型…。
                     throw gangyi::AIClientError("eval_call_limit","本次协议复核的请求次数已用完，未继续调用模型");
             // 【逐行批注】 计算右侧结果并写入 requestOptions，更新当前运行状态。
             auto requestOptions=options;
-            // 【逐行批注】 判断条件 (const auto limit=std::getenv("GANGYI_EVAL_MAX_OUTPUT_TOKENS"))，成立时执行对应分支。
-            if (const auto limit=std::getenv("GANGYI_EVAL_MAX_OUTPUT_TOKENS"))
+            // 【逐行批注】 判断条件 (const auto limit=evaluationEnv("GANGYI_EVAL_MAX_OUTPUT_TOKENS"))，成立时执行对应分支。
+            if (const auto limit=evaluationEnv("GANGYI_EVAL_MAX_OUTPUT_TOKENS"))
                 // 【逐行批注】 计算右侧结果并写入 requestOptions.maxTokens，更新当前运行状态。
                 requestOptions.maxTokens=std::min(options.maxTokens,std::stoi(limit));
             // 原生发送点独立校验本轮授权，不能只靠 Python 或环境开关放行。
             // 【逐行批注】 计算右侧结果并写入 std::string endpoint，更新当前运行状态。
-            const std::string endpoint = std::getenv("AI_BASE_URL") ? std::getenv("AI_BASE_URL") : "";
+            const std::string endpoint = evaluationEnv("AI_BASE_URL") ? evaluationEnv("AI_BASE_URL") : "";
             // 【逐行批注】 调用 validateEvaluationAuthorization 完成本行所需操作：validateEvaluationAuthorization(endpoint);。
             validateEvaluationAuthorization(endpoint);
-            // 【逐行批注】 判断条件 (const auto mode = std::getenv("GANGYI_EVAL_MODE"); mode && std:…，成立时执行对应分支。
-            if (const auto mode = std::getenv("GANGYI_EVAL_MODE"); mode && std::string(mode) == "live" &&
-                // 【逐行批注】 调用 getenv 完成本行所需操作：(std::getenv("GANGYI_EVAL_MAX_OUTPUT_TOKENS") || options.maxTokens !=…。
-                (std::getenv("GANGYI_EVAL_MAX_OUTPUT_TOKENS") || options.maxTokens != requestOptions.maxTokens))
+            // 【逐行批注】 判断条件 (const auto mode = evaluationEnv("GANGYI_EVAL_MODE"); mode && std:…，成立时执行对应分支。
+            if (const auto mode = evaluationEnv("GANGYI_EVAL_MODE"); mode && std::string(mode) == "live" &&
+                // 【逐行批注】 调用 getenv 完成本行所需操作：(evaluationEnv("GANGYI_EVAL_MAX_OUTPUT_TOKENS") || options.maxTokens !=…。
+                (evaluationEnv("GANGYI_EVAL_MAX_OUTPUT_TOKENS") || options.maxTokens != requestOptions.maxTokens))
                 // 【逐行批注】 检测到错误情形时抛出异常：throw gangyi::AIClientError("eval_authorization", "真实对照禁止缩减产品输出上限");。
                 throw gangyi::AIClientError("eval_authorization", "真实对照禁止缩减产品输出上限");
             // 【逐行批注】 执行当前声明或表达式：gangyi::AIClient client; gangyi::AIResult response;。
@@ -624,12 +772,20 @@ int main(int argc, char** argv) {
             // 【逐行批注】 声明对象 budget，并通过构造函数初始化其状态。
             EvaluationBudget budget(db,requestOptions);
             // 【逐行批注】 开始可能抛出异常的保护代码块。
-            try { response = client.chatStream(requestOptions, sink); }
+            std::string partial;
+            const auto capture = [&](const std::string& chunk) {
+                recordResponse({{"kind", "chunk"}, {"text", chunk}, {"promptSha256", gangyi::resourceDigest(messages.dump())}});
+                partial += chunk; return sink(chunk);
+            };
+            try { response = client.chatStream(requestOptions, capture); }
             // 【逐行批注】 捕获并处理异常：catch (...) { budget.settle(db); usage.push_back({{"model", options.m…。
-            catch (...) { budget.settle(db); usage.push_back({{"model", options.model}, {"tokenUsage", nullptr}, {"failed", true},
+            catch (...) { recordResponse({{"rawResponse", partial}, {"partial", true}, {"completed", false},
+                {"promptSha256", gangyi::resourceDigest(messages.dump())}}); budget.settle(db); usage.push_back({{"model", options.model}, {"tokenUsage", nullptr}, {"failed", true},
                 // 【逐行批注】 调用 now 完成本行所需操作：{"durationMs", std::chrono::duration_cast<std::chrono::milliseconds>(…。
                 {"durationMs", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-start).count()}}); throw; }
             // 【逐行批注】 执行当前声明或表达式：budget.settle(db);。
+            recordResponse({{"rawResponse", response.content}, {"partial", false}, {"completed", true}, {"model", response.model},
+                {"usage", response.tokenUsage}, {"promptSha256", gangyi::resourceDigest(messages.dump())}});
             budget.settle(db);
             // 【逐行批注】 执行当前声明或表达式：usage.push_back({{"model", response.model}, {"tokenUsage", response.tokenUsage},。
             usage.push_back({{"model", response.model}, {"tokenUsage", response.tokenUsage},
@@ -658,8 +814,10 @@ int main(int argc, char** argv) {
             }
             // 【逐行批注】 计算右侧结果并写入 Json result，更新当前运行状态。
             const Json result = {{"caseId", test.at("id")}, {"turns", turns}, {"interactions", interactions}, {"usage", usage},
+                {"syntheticComponentEvidence",evaluationComponentSetup(test)},
                 // 【逐行批注】 执行当前声明或表达式：{"httpRequests", httpRequests}, {"httpRequestCount", httpRequests.size()}, {"promptA…。
                 {"httpRequests", httpRequests}, {"httpRequestCount", httpRequests.size()}, {"promptAudit", promptAudit},
+                {"rawResponsesPath", responsePath.u8string()}, {"experimentCaseSha256", gangyi::resourceDigest(test.dump())},
                 // 【逐行批注】 调用 now 完成本行所需操作：{"externalElapsedMs", std::chrono::duration_cast<std::chrono::millise…。
                 {"externalElapsedMs", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-runStarted).count()},
                 // 【逐行批注】 执行当前声明或表达式：{"externalTimingBoundary", "单调时钟：初始化隔离材料后至检查点前，含process与动作保存，不含人类等待；并非产品内任务指标"},。
@@ -740,6 +898,8 @@ int main(int argc, char** argv) {
             // 主控会将回调异常保存为任务失败；另用专用退出码阻止Python把旧预算当作新结算。
             // 【逐行批注】 判断条件 (EvaluationBudget::storageFailed()) throw std::runtime_error("预算…，成立时执行对应分支。
             if (EvaluationBudget::storageFailed()) throw std::runtime_error("预算保存失败，不能继续验收");
+            if (responseStorageFailed) throw std::runtime_error("原始模型回复无法保存，不能继续验收");
+            if (evaluationAuthorizationBlocked) throw std::runtime_error("实际HTTP发送前授权失效，已停止验收");
             // 【逐行批注】 判断条件 (evaluationSearchBlocked) throw std::runtime_error("教学对照出现未冻结的新搜…，成立时执行对应分支。
             if (evaluationSearchBlocked) throw std::runtime_error("教学对照出现未冻结的新搜索，已在发送前阻止，不能作为完整验收");
             // 【逐行批注】 计算右侧结果并写入 auto externalProcessMs，更新当前运行状态。

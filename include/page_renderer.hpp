@@ -41,12 +41,14 @@ std::string renderLearnPage(const std::string& courseId, const std::string& goal
                             // 【逐行批注】 计算右侧结果并写入 std::string& forceLearn，更新当前运行状态。
                             const std::string& forceLearn = {}, const std::string& retry = {});
 // 【逐行批注】 声明对象 renderAskPage，并通过构造函数初始化其状态。
-std::string renderAskPage(const std::string& question = {});
+std::string renderAskPage(const std::string& question = {}, const nlohmann::json& material = nullptr);
+std::string renderYesterdayReviewPage(const nlohmann::json& review, const std::string& error = {});
 // 备课任务页仅订阅真实生成过程，完整保存后再进入课堂。
 // 【逐行批注】 声明对象 renderMyCoursesPage，并通过构造函数初始化其状态。
 std::string renderMyCoursesPage(const nlohmann::json& data = {});
 // 【逐行批注】 声明对象 renderCurrentCourseEmptyPage，并通过构造函数初始化其状态。
 std::string renderCurrentCourseEmptyPage(bool hasCourses = false);
+std::string renderExamExplanationPage();
 
 // 【逐行批注】 执行当前声明或表达式：} // namespace gangyi。
 }  // namespace gangyi

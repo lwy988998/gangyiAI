@@ -225,6 +225,26 @@ void html(const std::string& bytes, const Json& input, const std::filesystem::pa
         // 【逐行批注】 计算右侧结果并写入 "; const url，更新当前运行状态。
         "; const url=" + input.at("url").dump() + R"JS(;
         const original = new DOMParser().parseFromString(raw, 'text/html');
+        // 人教 B 版目录的主要内容是静态标题和链接。通用正文提取会误选浏览器兼容提示。
+        if(url==='https://www.pep.com.cn/gzsxb/') {
+          const edition=original.querySelector('h1.text1');
+          const volumes=[...original.querySelectorAll('h1.xw_gradeBut > span')];
+          const volumeIndex=volumes.findIndex(node=>node.textContent.trim()==='必修第一册');
+          if(edition && volumeIndex>=0) {
+            const volume=volumes[volumeIndex];
+            const next=volumes[volumeIndex+1];
+            const chapters=[...original.querySelectorAll('h4 a[rel]')].filter(node=>
+              (volume.compareDocumentPosition(node)&Node.DOCUMENT_POSITION_FOLLOWING) &&
+              (!next || (node.compareDocumentPosition(next)&Node.DOCUMENT_POSITION_FOLLOWING)));
+            if(chapters.length) {
+              const segments=[edition,volume,...chapters.slice(0,20)].map((node,index)=>
+                ({id:'s'+(index+1),text:node.textContent.trim().slice(0,300)}));
+              deliver(JSON.stringify({status:'partial',kind:'html',title:segments[0].text,segments,tracks:[],
+                coverage:'提取同步教学目录中必修第一册的标题和章节名称'}));
+              return;
+            }
+          }
+        }
         // 数学语义和辅助文本不能拼成连续数字；优先保留原网页的LaTeX，其次转换可辨认的MathML。
         let formulaMissing=false;
         const mathText=node=>{

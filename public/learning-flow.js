@@ -567,7 +567,8 @@
     // 【逐行批注】 计算右侧结果并更新 fullText.style.whiteSpace，改变页面或请求状态。
     fullText.style.whiteSpace='pre-wrap';fullDetail.append(element('summary','展开 AI 完整说明'),fullText);fullDetail.hidden=true;
     // 【逐行批注】 计算右侧结果并更新 link.href，改变页面或请求状态。
-    link.href = '/my-courses#weekly-plan'; link.className = 'ai-next-action'; box.append(detail, fullDetail, link); home.querySelector('.home-intro').after(box);
+    link.href = '/my-courses#weekly-plan'; link.className = 'ai-next-action'; box.append(detail, fullDetail, link);
+    (home.querySelector('.clarity-home-primary') || home.querySelector('.home-intro')).after(box);
     // 【逐行批注】 定义函数 load，封装可复用的前端行为。
     async function load() {
       // 【逐行批注】 执行当前前端表达式：try {。

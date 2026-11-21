@@ -28,8 +28,35 @@
 #include <chrono>
 // 【逐行批注】 计算右侧结果并写入 using Json，更新当前运行状态。
 using Json = nlohmann::json;
+
+// 相同评价标识和分数下，帮助程度更正仍须让旧复习依据失效。
+void runReviewTimingReportChecks() {
+    for (const std::string help : {"independent", "hint"}) {
+        gangyi::Database db; db.open(":memory:"); db.migrate();
+        assert(db.insert(gangyi::Course{"interval-course", {}, {}, "集合", "lite", "集合复习", {}, "ai", "active", "2026-11-19", "2026-11-19"}));
+        const Json learner = {{"scopeId", "local-profile"}, {"lessonId", "interval-lesson"}, {"text", "包含关系"}};
+        const Json evaluation = {{"source", "ai"}, {"status", "valid"}, {"credible", true}, {"score", 70},
+            {"interactionId", "interval-input"}, {"response", "包含关系"}, {"helpMode", help},
+            {"at", "2026-11-19T01:02:00Z"}, {"diagnosis", {{"needsClarification", false}}}};
+        assert(db.insert(gangyi::LearningInteraction{"interval-input", "chat-user", learner.dump(), "2026-11-19T01:01:00Z", "interval-course", {}, {}}));
+        assert(db.insert(gangyi::LearningInteraction{"interval-eval", "practice", evaluation.dump(), "2026-11-19T01:02:00Z", "interval-course", {}, {}}));
+        const Json lesson = {{"scopeId", "local-profile"}, {"scheduledReviewId", "interval-review"}};
+        assert(db.upsert(gangyi::ClassroomActivity{"interval-lesson", "interval-course", "agent-lesson", lesson.dump(), "2026-11-19", 0, 0}));
+        const Json anchor = {{"id", "interval-eval"}, {"interactionId", "interval-input"}, {"score", 70},
+            {"helpMode", "independent"}, {"submittedAt", "2026-11-19T01:01:00Z"}, {"evaluatedAt", "2026-11-19T01:02:00Z"}};
+        const Json review = {{"scopeId", "local-profile"}, {"status", "completed"}, {"title", "集合复习"},
+            {"completion", {{"lessonId", "interval-lesson"}, {"at", "2026-11-19T01:03:00Z"}, {"evidence", {anchor}},
+                {"timing", {{"status", "delay_met"}, {"learningEffectVerified", false}}}}}};
+        assert(db.upsert(gangyi::ClassroomActivity{"interval-review", "interval-course", "review", review.dump(), "2026-11-19", 0, 0}));
+        const auto result = gangyi::myAIRead(db, "reports", {{"courseId", "interval-course"}}).at("completedReviews");
+        assert(result.size() == 1);
+        assert(result[0].at("changedCount") == (help == "independent" ? 0 : 1));
+        assert(result[0].at("timing").at("evidenceCurrent") == (help == "independent"));
+    }
+}
 // 【逐行批注】 定义函数 main，执行该函数声明的职责。
 int main() {
+    runReviewTimingReportChecks();
     // 【逐行批注】 执行当前声明或表达式：gangyi::Database db; db.open(":memory:"); db.migrate();。
     gangyi::Database db; db.open(":memory:"); db.migrate();
     // 【逐行批注】 计算右侧结果并写入 profile，更新当前运行状态。

@@ -18,6 +18,7 @@ import tempfile
 import time
 # 【逐行批注】 导入后续逻辑需要的模块或符号：from contextlib import closing。
 from contextlib import closing
+from datetime import date
 # 【逐行批注】 导入后续逻辑需要的模块或符号：from concurrent.futures import ThreadPoolExecutor。
 from concurrent.futures import ThreadPoolExecutor
 # 【逐行批注】 导入后续逻辑需要的模块或符号：from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer。
@@ -104,8 +105,17 @@ class ProtocolAI(BaseHTTPRequestHandler):
             lesson = next((item['result']['lessonId'] for item in results if 'lessonId' in item['result']), None)
             # 【逐行批注】 判断条件 not lesson:，成立时执行对应分支。
             if not lesson:
+                review_args = {}
+                if review := context.get('scheduledReview'):
+                    assert review['available'] and review['courseId'] == event['courseId']
+                    assert review['basisStatus'] in ('verified', 'changed')
+                    assert bool(review['evidence']) == (review['basisStatus'] == 'verified')
+                    review_args = {'intent': 'review'}
+                    if review['topicId']:
+                        review_args['topicId'] = review['topicId']
                 # 【逐行批注】 计算右侧结果并赋给 actions，更新脚本状态。
-                actions = [dict(id='create', tool='create_lesson', args=dict(courseId=event['courseId'], title='自主课堂', purpose='对比概念'))]
+                actions = [dict(id='create', tool='create_lesson', args=dict(courseId=event['courseId'], title='自主课堂',
+                    purpose='对比概念', **review_args))]
                 # 【逐行批注】 计算右侧结果并赋给 state，更新脚本状态。
                 state = 'continue'
             # 【逐行批注】 当前一条件不成立时继续判断：not any('sectionId' in item['result'] for item in results):。
@@ -161,7 +171,18 @@ class ProtocolAI(BaseHTTPRequestHandler):
                 # 【逐行批注】 计算右侧结果并赋给 slides，更新脚本状态。
                 slides=[dict(title='概念路线', content='先比较变化'), dict(title='巩固路线', content='根据实际回答调整')], reason='模型自主选择两页路线说明'))]
         # 【逐行批注】 当前一条件不成立时继续判断：event['type'] == 'question_answer':。
+        elif event['type'] == 'lesson_finish_request':
+            assert context.get('lessonContext', {}).get('scheduledReviewId')
+            if any('每道复习题须先发布有效评价' in item['content'] for item in request['messages'][2:]):
+                message, state = '请完成尚未发布评价的复习题。', 'waiting_student'
+            else:
+                actions = [dict(id='complete-review', tool='complete_lesson',
+                                args=dict(lessonId=event['lessonId'], reason='根据本次复习作答和正式评价检查'))]
         elif event['type'] == 'question_answer':
+            if event['requestId'] == 'review-ungraded-revision':
+                self.send_response(401)
+                self.end_headers()
+                return
             # 【逐行批注】 计算右侧结果并赋给 inputs，更新脚本状态。
             inputs = event.get('batchAnswers', [event])
             # 【逐行批注】 遍历数据并重复执行循环体：for index, item in enumerate(inputs):。
@@ -303,7 +324,8 @@ def main(executable):
                 # 【逐行批注】 执行当前 Python 语句：time.sleep(.03)。
                 time.sleep(.03)
             # 【逐行批注】 在错误情形抛出异常：raise AssertionError('主控任务未结束')。
-            raise AssertionError('主控任务未结束')
+            raise AssertionError(('主控任务未结束', {key: value.get(key) for key in
+                                  ('status', 'error', 'failure', 'retry', 'activity')}))
         # 【逐行批注】 定义函数 submit，封装可复用的处理步骤。
         def submit(event, expected='ready'):
             # 【逐行批注】 执行当前 Python 语句：nonlocal serial。
@@ -531,6 +553,82 @@ def main(executable):
                 reviews = [json.loads(row[0]) for row in db.execute("SELECT payload FROM ClassroomActivity WHERE kind='review'")]
                 # 【逐行批注】 校验关键条件，测试失败时立即报错：assert len(reviews) == 1 and reviews[0]['due'] == '2099-01-05'。
                 assert len(reviews) == 1 and reviews[0]['due'] == '2099-01-05'
+            future_review = dict(type='prepare_next', courseId=course, reviewId=reviews[0]['id'], day=0,
+                                 requestId='early-scheduled-review')
+            assert api('/api/learning-agent/events', future_review, 409)
+            origin_lesson = api('/api/learning-agent/lesson?lessonId=' + lesson)
+            latest_evaluation = origin_lesson['learningState']['evidence']['evaluationIds'][-1]
+            review_args = dict(courseId=course, title='回查化合价作答', due=date.today().isoformat(),
+                               reason='核对最近的正式回答', lessonId=lesson, minimumDelaySeconds=86400)
+            for bad_delay in [True, 0, 4294967297]:
+                submit(dict(type='acceptance_tool', tool='schedule_review',
+                            args=dict(review_args, minimumDelaySeconds=bad_delay)), 'failed')
+            submit(dict(type='acceptance_tool', tool='schedule_review',
+                        args=dict(review_args, due='2000-01-01')), 'failed')
+            submit(dict(type='acceptance_tool', tool='schedule_review',
+                        args=dict(review_args, evidenceIds=['未保存的评价'])), 'failed')
+            tool('schedule_review', dict(review_args, evidenceIds=[latest_evaluation]))
+            items = api('/api/classroom/reviews?courseId=' + course)['items']
+            scheduled = next(item for item in items if item['title'] == review_args['title'])
+            assert scheduled['evidenceIds'] == [latest_evaluation]
+            review_id = scheduled['reviewId']
+            review_path = f'/learn?courseId={course}&review=0&reviewId={review_id}'
+            with urlopen(base + review_path) as response:
+                assert '/agent-prepare.html?' in response.url and 'prepare-' + review_id + '-verified' in response.url
+            browser_output = os.environ.get('GANGYI_REVIEW_BROWSER_REPORT')
+            if browser_output:
+                from playwright.sync_api import expect, sync_playwright
+
+                report = Path(browser_output)
+                snapshots = []
+                destinations = []
+                with sync_playwright() as driver:
+                    browser = driver.chromium.launch(channel='msedge', headless=True)
+                    for width, height in [(1280, 720), (390, 844)]:
+                        page = browser.new_page(viewport=dict(width=width, height=height))
+                        errors = []
+                        page.on('pageerror', lambda error: errors.append(str(error)))
+                        page.goto(base + '/my-courses')
+                        page.get_by_text('待复习清单', exact=True).click()
+                        link = page.get_by_role('link', name='回查化合价作答', exact=False)
+                        expect(link).to_contain_text('依据 1 条历史作答')
+                        panel = page.locator('.uc-review-details')
+                        expect(panel.get_by_role('link', name='回看原课')).to_have_attribute('href', '/learn?lessonId=' + lesson)
+                        panel.screenshot(path=report.with_name(f'scheduled-review-{width}.png'))
+                        link.focus()
+                        page.keyboard.press('Enter')
+                        page.wait_for_url('**/practice?lessonId=**', timeout=30000)
+                        assert f'reviewId={review_id}' in page.url and not errors, errors
+                        destinations.append(page.url)
+                        snapshots.append(dict(width=width, height=height, classroom=page.url.split('?')[0].split('/')[-1]))
+                        page.close()
+                    browser.close()
+                assert len(set(destinations)) == 1
+                report.write_text(json.dumps(dict(views=snapshots, reusedClassroom=True, paidModelRequests=0)), encoding='utf-8')
+            opening = dict(type='prepare_next', courseId=course, reviewId=review_id, day=0,
+                           requestId='open-scheduled-review', navigate=True)
+            prepared_review = submit(opening)
+            assert api('/api/learning-agent/events', opening, 202)['id'] == prepared_review['id']
+            with closing(sqlite3.connect(database)) as db:
+                row = json.loads(db.execute('SELECT payload FROM ClassroomActivity WHERE id=?',
+                    (prepared_review['lesson']['id'],)).fetchone()[0])
+                assert row['intent'] == 'review' and row['scheduledReviewId'] == review_id
+                prior_score, = db.execute('SELECT payload FROM LearningInteraction WHERE id=?',
+                    (latest_evaluation,)).fetchone()
+                corrected = json.loads(prior_score)
+                corrected['score'] = (corrected['score'] + 1) % 101
+                db.execute('UPDATE LearningInteraction SET payload=? WHERE id=?',
+                    (json.dumps(corrected), latest_evaluation))
+                db.commit()
+            try:
+                with urlopen(base + review_path) as response:
+                    assert 'prepare-' + review_id + '-changed' in response.url
+                api('/api/learning-agent/control', dict(command='enter_lesson', lessonId=prepared_review['lesson']['id']), 409)
+                submit(dict(opening, requestId='open-scheduled-review-after-correction'))
+            finally:
+                with closing(sqlite3.connect(database)) as db:
+                    db.execute('UPDATE LearningInteraction SET payload=? WHERE id=?', (prior_score, latest_evaluation))
+                    db.commit()
             # 【逐行批注】 计算右侧结果并赋给 chat，更新脚本状态。
             chat = submit(dict(type='chat', courseId=course, lessonId=lesson, text='请用日常例子解释'), 'ready')
             # 【逐行批注】 计算右侧结果并赋给 api('/api/learn/exposure', dict(taskId，更新脚本状态。
@@ -539,6 +637,9 @@ def main(executable):
             restored = api('/api/learning-agent/lesson?lessonId=' + lesson)
             # 【逐行批注】 校验关键条件，测试失败时立即报错：assert [item['role'] for item in restored['dialog']] == ['user', 'assistant']。
             assert [item['role'] for item in restored['dialog']] == ['user', 'assistant']
+            # 普通交流会更新全局学习版本，复习依据未变时仍可进入已备课时。
+            review_lesson = prepared_review['lesson']['id']
+            api('/api/learning-agent/control', dict(command='enter_lesson', lessonId=review_lesson))
             # 批量兼容入口区分漏答和不会；同一请求重放不会新增输入或评价。
             # 【逐行批注】 计算右侧结果并赋给 batch，更新脚本状态。
             batch = dict(courseId=course, lessonId=lesson, kind='quiz', answers=[None], requestId='batch-omitted')
@@ -688,6 +789,95 @@ def main(executable):
             # 【逐行批注】 校验关键条件，测试失败时立即报错：assert next(item for item in api('/api/profile')['abilities'] if item['id'] == …。
             assert next(item for item in api('/api/profile')['abilities'] if item['id'] == 'expression')['score'] == 74
             # 【逐行批注】 计算右侧结果并赋给 failed，更新脚本状态。
+            review_page = '/api/learning-agent/lesson?lessonId=' + review_lesson
+            close_review = dict(type='lesson_finish_request', courseId=course, lessonId=review_lesson,
+                                text='检查本次复习是否完成')
+            submit(dict(close_review), 'waiting_student')
+            assert not api(review_page).get('completed', False)
+            assert any(item['reviewId'] == review_id for item in api('/api/classroom/reviews?courseId=' + course)['items'])
+            report_path = '/api/my-ai/reports?courseId=' + course
+            assert api(report_path)['completedReviews'] == []
+            review_questions = [section for section in api(review_page)['sections'] if section['kind'] == 'question']
+            original_progress = api(report_path)['completed']
+            for index, question in enumerate(review_questions):
+                submit(dict(type='question_answer', courseId=course, lessonId=review_lesson,
+                            sectionId=question['id'], sectionVersion=question['version'], text='化合价升高'), 'waiting_student')
+                if index == 0:
+                    submit(dict(close_review), 'waiting_student')
+            latest_answer = dict(type='question_answer', courseId=course, lessonId=review_lesson,
+                                 sectionId=review_questions[-1]['id'], sectionVersion=review_questions[-1]['version'])
+            submit(dict(latest_answer, requestId='review-ungraded-revision', text='我想重新核对化合价变化'), 'failed')
+            submit(dict(close_review), 'waiting_student')
+            submit(dict(latest_answer, text='我重新确认化合价升高'), 'waiting_student')
+            submit(dict(close_review))
+            submit(dict(close_review))
+            assert api(review_page)['completed']
+            assert all(item['reviewId'] != review_id for item in api('/api/classroom/reviews?courseId=' + course)['items'])
+            with urlopen(base + review_path) as response:
+                assert '/practice?lessonId=' + review_lesson in response.url
+            report = api(report_path)
+            recorded, = report['completedReviews']
+            assert report['completed'] == original_progress
+            assert recorded['id'] == review_id and recorded['lessonId'] == review_lesson
+            assert recorded['questionCount'] == len(review_questions) == len(recorded['evidenceIds'])
+            assert recorded['changedCount'] == 0
+            assert recorded['timing']['status'] == 'too_early'
+            assert recorded['timing']['minimumDelaySeconds'] == 86400
+            assert recorded['timing']['minimumElapsedSeconds'] < 86400
+            assert recorded['timing']['learningEffectVerified'] is False
+            assert api(report_path + '&from=2099-01-01')['completedReviews'] == []
+            evidence_id = recorded['evidenceIds'][0]
+            assert evidence_id in {item['id'] for item in report['evidence']}
+            if browser_output:
+                with sync_playwright() as driver:
+                    browser = driver.chromium.launch(channel='msedge', headless=True)
+                    page = browser.new_page(viewport=dict(width=390, height=844))
+                    errors = []
+                    page.on('pageerror', lambda error: errors.append(str(error)))
+                    page.goto(base + '/my-ai/reports?courseId=' + course)
+                    card = page.locator('.ma-card').filter(has=page.get_by_role('heading', name='已完成复习'))
+                    expect(card.get_by_role('link', name='回看复习')).to_be_visible()
+                    expect(card).to_contain_text('本次提前复习')
+                    expect(card).to_contain_text('完成复习不代表已验证长期记忆')
+                    link = card.get_by_role('link', name='第 1 条评价')
+                    expect(link).to_have_attribute('href', f'/my-ai/reports?courseId={course}&evidenceId={evidence_id}#evidence')
+                    card.screenshot(path=Path(browser_output).with_name(Path(browser_output).stem + '-completed-390.png'))
+                    link.focus()
+                    page.keyboard.press('Enter')
+                    expect(page.locator('#evidence')).to_contain_text('化合价升高')
+                    assert not errors, errors
+                    browser.close()
+            with closing(sqlite3.connect(database)) as db:
+                db.execute('DELETE FROM LearningInteraction WHERE id=?', (evidence_id,))
+                db.commit()
+            revised, = api(report_path)['completedReviews']
+            assert revised['changedCount'] == 1 and evidence_id not in revised['evidenceIds']
+            assert revised['timing']['evidenceCurrent'] is False
+            # 秒级间隔只验真实服务时间的协议；不会修改历史时间，也不作为长期效果样本。
+            anchor = api('/api/learning-agent/lesson?lessonId=' + lesson)['learningState']['evidence']['evaluationIds'][-1]
+            tool('schedule_review', dict(review_args, title='秒级协议验证',
+                minimumDelaySeconds=2, evidenceIds=[anchor]))
+            short_id = next(item['reviewId'] for item in api('/api/classroom/reviews?courseId=' + course)['items'] if item['title'] == '秒级协议验证')
+            second_review = submit(dict(type='prepare_next', courseId=course, reviewId=short_id, day=0, navigate=True))
+            second_lesson = second_review['lesson']['id']
+            api('/api/learning-agent/control', dict(command='enter_lesson', lessonId=second_lesson))
+            time.sleep(2.1)
+            for question in api('/api/learning-agent/lesson?lessonId=' + second_lesson)['sections']:
+                if question['kind'] == 'question':
+                    submit(dict(type='question_answer', courseId=course, lessonId=second_lesson,
+                        sectionId=question['id'], sectionVersion=question['version'], text='化合价升高'), 'waiting_student')
+            submit(dict(type='lesson_finish_request', courseId=course, lessonId=second_lesson, text='检查本次复习是否完成'))
+            timed = next(item for item in api(report_path)['completedReviews'] if item['id'] == short_id)
+            assert timed['timing']['status'] == 'delay_met' and timed['timing']['minimumElapsedSeconds'] >= 2
+            assert timed['timing']['learningEffectVerified'] is False
+            delay_checks = dict(earlyReview=recorded['timing'], afterEvaluationDeletion=revised['timing'],
+                actualShortInterval=timed['timing'], historicalTimesModified=False, paidModelRequests=0,
+                realLearningEffectEvaluated=False)
+            if browser_output:
+                saved_report = json.loads(Path(browser_output).read_text(encoding='utf-8'))
+                saved_report['delayChecks'] = delay_checks
+                Path(browser_output).write_text(json.dumps(saved_report, ensure_ascii=False, indent=2), encoding='utf-8')
+            print(json.dumps(delay_checks, ensure_ascii=False), flush=True)
             failed = submit(dict(type='acceptance_fail'), 'failed')
             # 【逐行批注】 校验关键条件，测试失败时立即报错：assert failed['calls'] == 3。
             assert failed['calls'] == 3

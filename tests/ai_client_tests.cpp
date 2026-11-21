@@ -370,6 +370,44 @@ void expectUsage(const nlohmann::json& reported, const nlohmann::json& expected)
 // 【逐行批注】 结束当前代码块。
 }
 
+// 通过本地 HTTP 服务器核对实际请求：多页图像和普通消息在两种调用方式中保持一致。
+void expectMultimodalRequests() {
+    using Json = nlohmann::json;
+    const std::string firstImage = "data:image/png;base64,iVBORw0KGgo=";
+    const std::string secondImage = "data:image/jpeg;base64,/9j/4AAQ";
+    Json previousMessages;
+    for (const bool stream : {false, true}) {
+        const std::string body = stream
+            ? "data: {\"choices\":[{\"delta\":{\"content\":\"已收到\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+            : R"({"choices":[{"message":{"content":"已收到"},"finish_reason":"stop"}]})";
+        MockServer server(response(200, body));
+        auto client = clientFor(server);
+        gangyi::ChatOptions options;
+        options.messages = {{"system", "按原卷逐题识别", ""},
+                            {"user", "第 1 页：含引号 \"与换行\n", firstImage},
+                            {"user", "第 2 页", secondImage},
+                            {"user", "补充说明", ""}};
+        const auto result = stream ? client.chatStream(options, [](const std::string&) { return true; }) : client.chat(options);
+        server.wait();
+        expect(result.content == "已收到" && server.requestCount() == 1, "模拟服务必须实际接收一次请求并返回结果");
+        const auto request = server.request();
+        const auto bodyOffset = request.find("\r\n\r\n");
+        expect(bodyOffset != std::string::npos, "请求缺少 HTTP 消息体");
+        const auto payload = Json::parse(request.substr(bodyOffset + 4));
+        const auto& messages = payload.at("messages");
+        expect(messages.size() == 4 && messages[0].at("content") == "按原卷逐题识别" &&
+               messages[3].at("content") == "补充说明", "纯文本消息和顺序必须保持不变");
+        expect(messages[1].at("content")[0].at("text") == "第 1 页：含引号 \"与换行\n" &&
+               messages[1].at("content")[1].at("type") == "image_url" &&
+               messages[1].at("content")[1].at("image_url").at("url") == firstImage &&
+               messages[2].at("content")[0].at("text") == "第 2 页" &&
+               messages[2].at("content")[1].at("image_url").at("url") == secondImage,
+               "试卷每页图像必须以正确顺序实际发送到模型接口");
+        if (stream) expect(messages == previousMessages && payload.value("stream", false), "流式与普通请求必须发送相同图文消息");
+        else previousMessages = messages;
+    }
+}
+
 // 【逐行批注】 定义函数 expectError，执行该函数声明的职责。
 void expectError(const char* expectedType, MockServer& server, int timeoutMs = 1000) {
     // 【逐行批注】 开始可能抛出异常的保护代码块。
@@ -409,15 +447,14 @@ int main(int argc, char** argv) {
     if (WSAStartup(MAKEWORD(2, 2), &data) != 0) return 2;
 // 【逐行批注】 处理条件编译指令：#endif。
 #endif
+    expectMultimodalRequests();
     // 【逐行批注】 开始当前代码块。
     {
         // 【逐行批注】 计算右侧结果并写入 auto parsed，更新当前运行状态。
         const auto parsed = gangyi::parseAIJson(
             // 【逐行批注】 执行当前声明或表达式：R"(分析中可能会提到示例 {x: 1}，最终结果如下：```json。
             R"(分析中可能会提到示例 {x: 1}，最终结果如下：```json
-// 【逐行批注】 执行当前声明或表达式：{"goal":"掌握函数单调性","summary":"完成定义与题型练习"}。
 {"goal":"掌握函数单调性","summary":"完成定义与题型练习"}
-// 【逐行批注】 执行当前声明或表达式：```)"。
 ```)"
         // 【逐行批注】 执行当前声明或表达式：);。
         );

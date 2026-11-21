@@ -7,15 +7,15 @@ namespace gangyi {
 // 【逐行批注】 处理条件编译指令：#ifdef GANGYI_OFFLINE_CANDIDATE。
 #ifdef GANGYI_OFFLINE_CANDIDATE
 // 【逐行批注】 计算右侧结果并写入 inline constexpr const char* kVersion，更新当前运行状态。
-inline constexpr const char* kVersion = "v5.7.1 离线候选";
+inline constexpr const char* kVersion = "v5.7.2 离线候选";
 // 【逐行批注】 处理条件编译指令：#elif defined(GANGYI_TEACHING_PREVIEW)。
 #elif defined(GANGYI_TEACHING_PREVIEW)
 // 【逐行批注】 计算右侧结果并写入 inline constexpr const char* kVersion，更新当前运行状态。
-inline constexpr const char* kVersion = "v5.7.1 教学试用1";
+inline constexpr const char* kVersion = "v5.7.2 教学试用1";
 // 【逐行批注】 处理条件编译指令：#else。
 #else
 // 【逐行批注】 计算右侧结果并写入 inline constexpr const char* kVersion，更新当前运行状态。
-inline constexpr const char* kVersion = "v5.7.1";
+inline constexpr const char* kVersion = "v5.7.2";
 // 【逐行批注】 处理条件编译指令：#endif。
 #endif
 

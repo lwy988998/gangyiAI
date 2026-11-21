@@ -189,6 +189,8 @@ public:
     // 在独立连接中一次提交完整课堂/评价；异常时恢复原有版本。
     // 【逐行批注】 声明对象 transaction，并通过构造函数初始化其状态。
     void transaction(const std::function<void()>& action);
+    // 可独立使用或嵌入已有事务；失败时只回退本次原子操作。
+    void savepoint(const std::function<void()>& action);
     // 多次关联读取使用同一数据库快照，避免混合建课前后的权限与任务状态。
     // 【逐行批注】 声明对象 readSnapshot，并通过构造函数初始化其状态。
     void readSnapshot(const std::function<void()>& action);
@@ -222,6 +224,7 @@ public:
     bool appendAgentRunEvent(const std::string& taskId, int seq, const std::string& payload, const std::string& createdAt);
     // 【逐行批注】 声明对象 agentRunEvents，并通过构造函数初始化其状态。
     std::vector<std::string> agentRunEvents(const std::string& taskId, int afterSeq = 0, int limit = 500) const;
+    std::optional<std::string> agentRunEvent(const std::string& taskId, int seq) const;
     // 单次查询读取关联状态，避免后台评价完成时混合新旧版本。
     // 【逐行批注】 声明对象 classroomPayloadSnapshot，并通过构造函数初始化其状态。
     std::vector<std::string> classroomPayloadSnapshot(const std::vector<std::string>& keys) const;
@@ -257,6 +260,7 @@ public:
     void setProfileMeta(const std::string& key, const std::string& value);
     // 【逐行批注】 声明对象 myAIRecord，并通过构造函数初始化其状态。
     std::optional<MyAIRecord> myAIRecord(const std::string& id) const;
+    bool myAIRecordExists(const std::string& id, const std::string& kind) const;
     // 【逐行批注】 声明对象 myAIRecords，并通过构造函数初始化其状态。
     std::vector<MyAIRecord> myAIRecords(const std::string& kind) const;
     // 上下文失效签名只读取版本列，不装载记忆或对话正文。

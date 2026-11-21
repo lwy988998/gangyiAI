@@ -9,6 +9,7 @@
 #include <sqlite3.h>
 // 【逐行批注】 引入头文件 <algorithm>，为后续实现提供类型或接口声明。
 #include <algorithm>
+#include <atomic>
 // 【逐行批注】 引入头文件 <filesystem>，为后续实现提供类型或接口声明。
 #include <filesystem>
 // 【逐行批注】 引入头文件 <iomanip>，为后续实现提供类型或接口声明。
@@ -32,6 +33,14 @@ void exec(sqlite3* db, const char* sql) { char* error = nullptr; const int rc = 
 std::string id() { static thread_local std::mt19937_64 rng(std::random_device{}()); std::ostringstream out; out << std::hex << std::setfill('0'); for (int i = 0; i < 2; ++i) out << std::setw(16) << rng(); return out.str(); }
 // 【逐行批注】 声明数据结构或类型 Stmt 及其成员接口。
 struct Stmt { sqlite3_stmt* p = nullptr; sqlite3* db; Stmt(sqlite3* d, const char* sql) : db(d) { check(sqlite3_prepare_v2(db, sql, -1, &p, nullptr), db, "prepare"); } ~Stmt() { sqlite3_finalize(p); } };
+// SQLite 的连接互斥量可重入；跨整个事务持有，避免同连接的另一请求混入保存点。
+struct ConnectionGuard {
+    sqlite3_mutex* mutex;
+    explicit ConnectionGuard(sqlite3* db) : mutex(sqlite3_db_mutex(db)) { sqlite3_mutex_enter(mutex); }
+    ~ConnectionGuard() { sqlite3_mutex_leave(mutex); }
+    ConnectionGuard(const ConnectionGuard&) = delete;
+    ConnectionGuard& operator=(const ConnectionGuard&) = delete;
+};
 // 【逐行批注】 定义函数 text，执行该函数声明的职责。
 void text(Stmt& s, int n, const std::string& v) { check(sqlite3_bind_text(s.p, n, v.c_str(), -1, SQLITE_TRANSIENT), s.db, "bind"); }
 // 【逐行批注】 定义函数 opt，执行该函数声明的职责。
@@ -79,6 +88,12 @@ std::optional<MyAIRecord> Database::myAIRecord(const std::string& key) const {
     return MyAIRecord{str(s.p,0),str(s.p,1),str(s.p,2),str(s.p,3),sqlite3_column_int(s.p,4)};
 // 【逐行批注】 结束当前代码块。
 }
+bool Database::myAIRecordExists(const std::string& id, const std::string& kind) const {
+    Stmt statement(db_, "SELECT 1 FROM MyAIRecord WHERE id=? AND kind=?");
+    text(statement, 1, id);
+    text(statement, 2, kind);
+    return sqlite3_step(statement.p) == SQLITE_ROW;
+}
 // 【逐行批注】 定义函数 Database::myAIRecords，执行该函数声明的职责。
 std::vector<MyAIRecord> Database::myAIRecords(const std::string& kind) const {
     // 【逐行批注】 调用 s、text 完成本行所需操作：std::vector<MyAIRecord> result; Stmt s(db_, "SELECT id,kind,payload,u…。
@@ -123,6 +138,7 @@ std::string Database::myAIContextVersions(const std::string& chatId) const {
 }
 // 【逐行批注】 定义函数 Database::readSnapshot，执行该函数声明的职责。
 void Database::readSnapshot(const std::function<void()>& action) {
+    ConnectionGuard guard(db_);
     // 【逐行批注】 调用 exec 完成本行所需操作：exec(db_, "BEGIN");。
     exec(db_, "BEGIN");
     // 【逐行批注】 开始可能抛出异常的保护代码块。
@@ -133,6 +149,7 @@ void Database::readSnapshot(const std::function<void()>& action) {
 }
 // 【逐行批注】 定义函数 Database::transaction，执行该函数声明的职责。
 void Database::transaction(const std::function<void()>& action) {
+    ConnectionGuard guard(db_);
     // 【逐行批注】 调用 exec 完成本行所需操作：exec(db_, "BEGIN IMMEDIATE");。
     exec(db_, "BEGIN IMMEDIATE");
     // 【逐行批注】 开始可能抛出异常的保护代码块。
@@ -151,7 +168,24 @@ void Database::transaction(const std::function<void()>& action) {
     }
 // 【逐行批注】 结束当前代码块。
 }
-// 【逐行批注】 定义函数 Database::learningRevision，执行该函数声明的职责。
+// 保存点既可作为独立原子单元，也可嵌入同线程已有的写事务。
+void Database::savepoint(const std::function<void()>& action) {
+    ConnectionGuard guard(db_);
+    static std::atomic<unsigned long long> sequence{0};
+    const auto name = "gangyi_operation_" + std::to_string(++sequence);
+    exec(db_, ("SAVEPOINT " + name).c_str());
+    try {
+        action();
+        exec(db_, ("RELEASE SAVEPOINT " + name).c_str());
+    } catch (...) {
+        // 嵌入确认事务时不能提交或撤销调用者的其它步骤。
+        const int rolledBack = sqlite3_exec(db_, ("ROLLBACK TO SAVEPOINT " + name).c_str(), nullptr, nullptr, nullptr);
+        if (rolledBack == SQLITE_OK)
+            sqlite3_exec(db_, ("RELEASE SAVEPOINT " + name).c_str(), nullptr, nullptr, nullptr);
+        throw;
+    }
+}
+
 int Database::learningRevision() const {
     // 【逐行批注】 计算右侧结果并写入 auto value，更新当前运行状态。
     const auto value = profileMeta("learning-revision");
@@ -732,6 +766,14 @@ std::vector<std::string> Database::agentRunEvents(const std::string& taskId, int
     return result;
 // 【逐行批注】 结束当前代码块。
 }
+std::optional<std::string> Database::agentRunEvent(const std::string& taskId, int seq) const {
+    if (taskId.empty() || seq <= 0) return std::nullopt;
+    Stmt s(db_, "SELECT payload FROM AgentRunEvent WHERE taskId=? AND seq=?");
+    text(s, 1, taskId); integer(s, 2, seq);
+    if (sqlite3_step(s.p) != SQLITE_ROW) return std::nullopt;
+    return str(s.p, 0);
+}
+
 // 【逐行批注】 调用 independentChatSession 完成本行所需操作：std::optional<IndependentChatSession> Database::independentChatSessio…。
 std::optional<IndependentChatSession> Database::independentChatSession(
     // 【逐行批注】 执行当前声明或表达式：const std::string& lessonId) const {。

@@ -65,6 +65,152 @@ gangyi::AIResult output(const Json& value, const std::function<bool(const std::s
 }
 // 【逐行批注】 声明对象 runLibraryChecks，并通过构造函数初始化其状态。
 void runLibraryChecks();
+
+void runReadOnlyFailureBudgetChecks(const std::filesystem::path& path) {
+    // 真实模型实验复现：坏 JSON 与使用新动作标识的普通读课交替出现，不能无限刷新重试次数。
+    gangyi::Database db; db.open(path.string()); db.migrate();
+    const gangyi::AgentAccess access{"readonly-failure-budget", {}};
+    int calls = 0, reads = 0;
+    gangyi::LearningAgent agent(path.string(), [&](const auto&, const auto& sink) {
+        ++calls;
+        if (calls < 7 && calls % 2 == 1) {
+            const std::string malformed = R"({"teaching":{"helpType":"none"},"message":"","actions":[]},"state":"continue"})";
+            sink(malformed);
+            gangyi::AIResult result; result.content = malformed;
+            result.model = "fixture-malformed-then-read"; result.finishReason = "stop";
+            return result;
+        }
+        if (calls < 7)
+            return output({{"message", ""}, {"actions", Json::array({{
+                {"id", "new-read-id-" + std::to_string(calls)}, {"tool", "read_failure_fixture"},
+                {"args", Json::object()}}})}, {"state", "continue"}}, sink);
+        return output({{"message", "不应抵达的后续响应"}, {"actions", Json::array()}, {"state", "completed"}}, sink);
+    });
+    agent.registerTool("read_failure_fixture", {"读取同一快照，不产生新教学成果", true,
+        [&](auto&, const auto&, const auto&, const auto&) {
+            ++reads;
+            return gangyi::PreparedAgentTool{{{"snapshot", "unchanged"}}, {}};
+        }});
+    const auto task = gangyi::agentSubmit(db, access, {{"type", "inspect"}, {"requestId", "readonly-failure-repro"}});
+    // 真实产品按量子调度；错误预算必须跨量子保存，不能只在一次函数调用内生效。
+    for (int step = 0; step < 8; ++step) {
+        agent.processQuantum(db, task.at("id"));
+        if (gangyi::agentView(db, access, task.at("id")).at("status") == "failed") break;
+    }
+    const auto final = gangyi::agentView(db, access, task.at("id"));
+    assert(final.at("status") == "failed");
+    assert(final.at("failure").at("kind") == "structure");
+    assert(final.at("failure").at("attempt") == 3);
+    assert(calls == 5 && reads == 2);
+}
+
+void runDraftRoundChecks(const std::filesystem::path& path) {
+    gangyi::Database db; db.open(path.string()); db.migrate();
+    assert(db.insert(gangyi::Course{"round-course", "round-profile", {}, "集合关系", "deep", "集合关系",
+        {}, "ai", "active", "2026-11-20", "2026-11-20"}));
+    assert(db.insert(gangyi::CourseSnapshot{"round-snapshot", "round-course", 1,
+        Json{{"pedagogy", "deep-v1"}, {"courseStructure", {{{"stage", "集合"}, {"topics", {"子集"}}}}}}.dump(),
+        "2026-11-20"}));
+    const gangyi::AgentAccess access{"round-profile", {"round-course"}};
+    const auto task = gangyi::agentSubmit(db, access, {{"type", "prepare_next"}, {"courseId", "round-course"},
+        {"requestId", "draft-round"}, {"text", "两题，逐题反馈"}});
+    std::string lessonId, roundId;
+    int calls = 0;
+    const auto question = [] (const std::string& title) {
+        return Json{{"kind", "question"}, {"title", title}, {"questionKind", "practice"},
+            {"question", {{"question", title + "的判断"}, {"type", "open"},
+                {"expectedAnswer", "虚构标准"}, {"rubric", "虚构评分依据"}}}};
+    };
+    gangyi::LearningAgent agent(path.string(), [&](const gangyi::ChatOptions& options, const auto& sink) {
+        ++calls;
+        Json actions = Json::array();
+        if (calls == 1) actions.push_back({{"id", "create"}, {"tool", "create_lesson"}, {"args", {
+            {"courseId", "round-course"}, {"title", "集合判断"}, {"purpose", "区分子集"}}}});
+        if (calls == 2) {
+            lessonId = Json::parse(options.messages.back().content).at("toolResults")[0]["result"]["lessonId"].get<std::string>();
+            actions.push_back({{"id", "before-round"}, {"tool", "append_section"}, {"args", {
+                {"lessonId", lessonId}, {"section", question("未声明轮次的题")}}}});
+        }
+        if (calls == 3) actions.push_back({{"id", "begin"}, {"tool", "start_teaching_round"}, {"args", {
+            {"lessonId", lessonId}, {"goal", "判断集合关系"}, {"questionCount", 2}}}});
+        if (calls == 4) {
+            roundId = Json::parse(options.messages.back().content).at("toolResults")[0]["result"]["roundId"].get<std::string>();
+            actions.push_back({{"id", "question-one"}, {"tool", "append_section"}, {"args", {
+                {"lessonId", lessonId}, {"section", question("第一题")}}}});
+        }
+        if (calls == 5) actions.push_back({{"id", "too-early"}, {"tool", "append_section"}, {"args", {
+            {"lessonId", lessonId}, {"roundId", "wrong-round"}, {"section", question("错误轮次的题")}}}});
+        if (calls == 6) actions.push_back({{"id", "still-early"}, {"tool", "append_section"}, {"args", {
+            {"lessonId", lessonId}, {"section", question("提前的第二题")}}}});
+        return output({{"message", calls == 7 ? "等待第一题作答。" : ""}, {"actions", actions},
+            {"state", calls == 7 ? "waiting_student" : "continue"}}, sink);
+    });
+    gangyi::registerAgentLessonTools(agent);
+    for (int step = 0; step < 8; ++step) {
+        agent.processQuantum(db, task.at("id"));
+        if (gangyi::agentView(db, access, task.at("id")).at("status") != "pending") break;
+    }
+    const auto lesson = Json::parse(db.getClassroomActivity(lessonId)->payload);
+    assert(calls == 7 && lesson.at("roundProtocolVersion") == 1);
+    assert(lesson.at("sections").size() == 1 && lesson.at("sections")[0]["title"] == "第一题");
+    assert(lesson.at("teachingRound").at("roundId") == roundId);
+    assert(lesson.at("teachingRound").at("questionCount") == 2);
+    assert(lesson.at("teachingRound").at("pendingSectionId") == lesson.at("sections")[0]["id"]);
+    assert(lesson.at("teachingRound").at("questionIds").size() == 1);
+    const auto unauthorized = gangyi::agentSubmit(db, access, {{"type", "prepare_next"}, {"courseId", "round-course"},
+        {"requestId", "different-preparation"}, {"text", "尝试修改其他草稿"}});
+    gangyi::LearningAgent other(path.string(), [&](const auto&, const auto& sink) {
+        return output({{"message", ""}, {"actions", {{{"id", "foreign"}, {"tool", "start_teaching_round"},
+            {"args", {{"lessonId", lessonId}, {"goal", "越权"}, {"questionCount", 1}}}}}},
+            {"state", "continue"}}, sink);
+    });
+    gangyi::registerAgentLessonTools(other);
+    other.process(db, unauthorized.at("id"));
+    assert(gangyi::agentView(db, access, unauthorized.at("id")).at("status") == "failed");
+    assert(Json::parse(db.getClassroomActivity(lessonId)->payload).at("teachingRound") == lesson.at("teachingRound"));
+}
+
+void runDuplicateEvaluationChecks(const std::filesystem::path& path) {
+    gangyi::Database db; db.open(path.string()); db.migrate();
+    assert(db.insert(gangyi::Course{"evaluation-course", "evaluation-profile", {}, "集合", "lite", "集合",
+        {}, "ai", "active", "2026-11-20", "2026-11-20"}));
+    const Json answer = {{"scopeId", "evaluation-profile"}, {"type", "question_answer"}, {"action", "answer"},
+        {"requestId", "answer-request"}, {"text", "我把相等说成真子集"}, {"questionId", "question-one"},
+        {"questionSnapshot", {{"question", "相等的集合是否互为真子集？"}, {"type", "open"},
+            {"expectedAnswer", "不是"}, {"rubric", "说明两集合相等"}}}};
+    assert(db.insert(gangyi::LearningInteraction{"answer-one", "chat-user", answer.dump(),
+        "2026-11-20", "evaluation-course", "fixture", {}}));
+    const gangyi::AgentAccess access{"evaluation-profile", {"evaluation-course"}};
+    const auto task = gangyi::agentSubmit(db, access, {{"type", "assess"}, {"requestId", "duplicate-evaluation"}});
+    int calls = 0;
+    gangyi::LearningAgent agent(path.string(), [&](const auto&, const auto& sink) {
+        ++calls;
+        Json actions = Json::array();
+        if (calls <= 2) {
+            const Json diagnosis = {{"summary", "混淆相等与真子集"}, {"evidence", {"相等说成真子集"}},
+                {"teachingDirection", "比较是否相等"}, {"needsClarification", false}};
+            const Json args = {{"interactionId", "answer-one"}, {"score", calls == 1 ? 10 : 90}, {"credible", true},
+                {"feedback", "相等时不是真子集。"}, {"feedbackHelpType", "explanation"},
+                {"reason", "依据实际作答"}, {"uncertainty", "只检查本题"}, {"diagnosis", diagnosis}};
+            actions.push_back({{"id", "evaluation-" + std::to_string(calls)}, {"tool", "evaluate_answer"}, {"args", args}});
+        }
+        return output({{"message", calls == 3 ? "已保存针对本题的反馈。" : ""}, {"actions", actions},
+            {"state", calls == 3 ? "waiting_student" : "continue"}}, sink);
+    });
+    gangyi::registerAgentLessonTools(agent);
+    for (int step = 0; step < 5; ++step) {
+        agent.processQuantum(db, task.at("id"));
+        if (gangyi::agentView(db, access, task.at("id")).at("status") != "pending") break;
+    }
+    assert(calls == 3 && gangyi::agentView(db, access, task.at("id")).at("status") == "waiting_student");
+    int staged = 0, published = 0;
+    for (const auto& row : db.listClassroomActivities("evaluation-course")) if (row.kind == "agent-evaluation") {
+        ++staged;
+        const auto value = Json::parse(row.payload);
+        if (value.value("published", false)) { ++published; assert(value.at("score") == 10); }
+    }
+    assert(staged == 1 && published == 1);
+}
 // 【逐行批注】 声明对象 runDeepCourseChecks，并通过构造函数初始化其状态。
 void runDeepCourseChecks();
 // schema 7 及更早版本没有事件归档表、事件序号和任务重试字段。升级必须无损保留旧课程、
@@ -356,6 +502,9 @@ void runIndependentChatChecks(const std::string& path) {
         {"text", "已经展示过的正文"}};
     // 【逐行批注】 调用 assert 完成本行所需操作：assert(db.appendAgentRunEvent("archived-exposure-task", 5, archivedDe…。
     assert(db.appendAgentRunEvent("archived-exposure-task", 5, archivedDelta.dump(), "2026-10-30"));
+    // 较新的归档事件不能代替要核对的早期正文；非正文序号仍必须拒绝。
+    const Json laterActivity = {{"seq", 10}, {"type", "activity"}, {"activity", {{"title", "后续处理"}}}};
+    assert(db.appendAgentRunEvent("archived-exposure-task", 10, laterActivity.dump(), "2026-10-30"));
     // 【逐行批注】 计算右侧结果并写入 auto exposure，更新当前运行状态。
     const auto exposure = agentExposeTask(db, access, {{"taskId", "archived-exposure-task"},
         // 【逐行批注】 执行当前声明或表达式：{"seq", 20}, {"displayedSequences", {5}}});。
@@ -364,6 +513,10 @@ void runIndependentChatChecks(const std::string& path) {
     assert(std::find(exposure["displayedSequences"].begin(), exposure["displayedSequences"].end(), 5) !=
         // 【逐行批注】 执行当前声明或表达式：exposure["displayedSequences"].end());。
         exposure["displayedSequences"].end());
+    bool deniedActivity = false;
+    try { agentExposeTask(db, access, {{"taskId", "archived-exposure-task"}, {"seq", 20}, {"displayedSequences", {10}}}); }
+    catch (const std::invalid_argument&) { deniedActivity = true; }
+    assert(deniedActivity);
 // 【逐行批注】 结束当前代码块。
 }
 // 【逐行批注】 引入头文件 "teaching_evidence_checks.hpp"，为后续实现提供类型或接口声明。
@@ -374,6 +527,7 @@ void runIndependentChatChecks(const std::string& path) {
 #include "demonstrated_question_checks.hpp"
 // 【逐行批注】 引入头文件 "agent_efficiency_checks.hpp"，为后续实现提供类型或接口声明。
 #include "agent_efficiency_checks.hpp"
+#include "component_activity_checks.hpp"
 // 【逐行批注】 引入头文件 "agent_quantum_checks.hpp"，为后续实现提供类型或接口声明。
 #include "agent_quantum_checks.hpp"
 // 【逐行批注】 引入头文件 "startup_reuse_checks.hpp"，为后续实现提供类型或接口声明。
@@ -382,6 +536,9 @@ void runIndependentChatChecks(const std::string& path) {
 #include "section_navigation_checks.hpp"
 // 【逐行批注】 引入头文件 "lesson_start_binding_checks.hpp"，为后续实现提供类型或接口声明。
 #include "lesson_start_binding_checks.hpp"
+#include "exact_calculation_agent_checks.hpp"
+#include "learning_mastery_agent_checks.hpp"
+#include "teaching_preferences_agent_checks.hpp"
 // 【逐行批注】 定义函数 main，执行该函数声明的职责。
 int main(int argc, char** argv) {
 // 【逐行批注】 处理条件编译指令：#ifdef _WIN32。
@@ -398,7 +555,71 @@ int main(int argc, char** argv) {
     setenv("GANGYI_AI_RETRY_BASE_MS", "1", 1);
 // 【逐行批注】 处理条件编译指令：#endif。
 #endif
+    if (argc == 2 && std::string(argv[1]) == "--readonly-failure-only") {
+        const auto root = std::filesystem::temp_directory_path() /
+            ("gangyi-readonly-failure-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        std::filesystem::create_directories(root);
+        runReadOnlyFailureBudgetChecks(root / "fixture.db");
+        std::filesystem::remove_all(root);
+        std::cout << "只读动作不会重置结构错误次数；真实模型请求为零。\n";
+        return 0;
+    }
+    if (argc == 2 && std::string(argv[1]) == "--draft-round-only") {
+        const auto root = std::filesystem::temp_directory_path() /
+            ("gangyi-draft-round-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        std::filesystem::create_directories(root);
+        runDraftRoundChecks(root / "fixture.db");
+        std::filesystem::remove_all(root);
+        std::cout << "深度备课先声明轮次、逐题推进及草稿权限检查通过。\n";
+        return 0;
+    }
+    if (argc == 2 && std::string(argv[1]) == "--evaluation-idempotency-only") {
+        const auto root = std::filesystem::temp_directory_path() /
+            ("gangyi-evaluation-once-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        std::filesystem::create_directories(root);
+        runDuplicateEvaluationChecks(root / "fixture.db");
+        std::filesystem::remove_all(root);
+        std::cout << "同次任务中的单次作答只产生一份评价。\n";
+        return 0;
+    }
+    if (argc == 2 && std::string(argv[1]) == "--component-activity-only") {
+        const auto root = std::filesystem::temp_directory_path() /
+            ("gangyi-component-activity-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        std::filesystem::create_directories(root);
+        runComponentActivityToolChecks(root / "fixture.db");
+        std::filesystem::remove_all(root);
+        std::cout << "组件活动工具分页与权限检查通过；真实模型请求为零。\n";
+        return 0;
+    }
     // 【逐行批注】 判断条件 (argc == 2 && std::string(argv[1]) == "--deep-course-only") {，成立时执行对应分支。
+    if (argc == 2 && std::string(argv[1]) == "--teaching-preferences-only") {
+        const auto root = std::filesystem::temp_directory_path() /
+            ("gangyi-teaching-preferences-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        std::filesystem::create_directories(root);
+        runTeachingPreferencesAgentChecks(root / "fixture.db");
+        std::filesystem::remove_all(root);
+        std::cout << "教学意图、零模型独立尝试、并发和SQLite恢复检查通过；付费请求0。\n";
+        return 0;
+    }
+    if (argc == 2 && std::string(argv[1]) == "--mastery-only") {
+        const auto root = std::filesystem::temp_directory_path() /
+            ("gangyi-mastery-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        std::filesystem::create_directories(root);
+        runLearningMasteryAgentChecks(root / "fixture.db");
+        runTopicEvidenceChecks(root / "topic-fixture.db");
+        std::filesystem::remove_all(root);
+        std::cout << "八态理解判断、证据去重、跨档案隔离及重启失效检查通过；付费请求0。\n";
+        return 0;
+    }
+    if (argc == 2 && std::string(argv[1]) == "--calculation-only") {
+        const auto root = std::filesystem::temp_directory_path() /
+            ("gangyi-calculation-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        std::filesystem::create_directories(root);
+        runExactCalculationAgentChecks(root / "fixture.db");
+        std::filesystem::remove_all(root);
+        std::cout << "先计算后评价、暂停恢复、幂等与非法输入隔离检查通过；付费请求0。\n";
+        return 0;
+    }
     if (argc == 2 && std::string(argv[1]) == "--deep-course-only") {
         // 【逐行批注】 调用 runDeepCourseChecks 完成本行所需操作：runDeepCourseChecks(); return 0;。
         runDeepCourseChecks(); return 0;
@@ -1643,6 +1864,11 @@ int main(int argc, char** argv) {
     runDemonstratedQuestionChecks(root / "demonstrated-question.db");
     // 【逐行批注】 调用 runAgentEfficiencyChecks 完成本行所需操作：runAgentEfficiencyChecks(root / "efficiency.db");。
     runAgentEfficiencyChecks(root / "efficiency.db");
+    runReadOnlyFailureBudgetChecks(root / "readonly-failure-budget.db");
+    runDraftRoundChecks(root / "draft-round.db");
+    runDuplicateEvaluationChecks(root / "duplicate-evaluation.db");
+    runComponentActivityChecks();
+    runComponentActivityToolChecks(root / "component-activity.db");
     // 【逐行批注】 调用 runAgentQuantumChecks 完成本行所需操作：runAgentQuantumChecks(root / "quantum.db");。
     runAgentQuantumChecks(root / "quantum.db");
     // 【逐行批注】 调用 runSectionNavigationChecks 完成本行所需操作：runSectionNavigationChecks(root / "section-navigation.db");。

@@ -632,50 +632,40 @@ void rememberCurrentCourse(Database& db, const std::string& courseId) {
 
 // 【逐行批注】 声明对象 deleteCourseForIdentity，并通过构造函数初始化其状态。
 bool deleteCourseForIdentity(Database& db, const std::string& courseId, const std::string& userId,
-                             // 【逐行批注】 执行当前声明或表达式：const std::string& anonymousId) {。
                              const std::string& anonymousId) {
-    // 【逐行批注】 开始可能抛出异常的保护代码块。
+    bool deleted = false;
     try {
-        // 【逐行批注】 计算右侧结果并写入 auto course，更新当前运行状态。
-        const auto course = db.getCourse(courseId);
-        // 【逐行批注】 判断条件 (!course || course->status != "active") return false;，成立时执行对应分支。
-        if (!course || course->status != "active") return false;
-        // 【逐行批注】 计算右侧结果并写入 bool ownedByUser，更新当前运行状态。
-        const bool ownedByUser = !userId.empty() && course->userId && *course->userId == userId;
-        // 【逐行批注】 计算右侧结果并写入 bool ownedByAnonymous，更新当前运行状态。
-        const bool ownedByAnonymous = !anonymousId.empty() && course->anonymousId && *course->anonymousId == anonymousId;
-        // 【逐行批注】 判断条件 (!ownedByUser && !ownedByAnonymous && (!userId.empty() || !anony…，成立时执行对应分支。
-        if (!ownedByUser && !ownedByAnonymous && (!userId.empty() || !anonymousId.empty())) return false;
-
-        // 【逐行批注】 按循环规则重复处理：for (const auto& item : db.findSnapshotsByCourseId(courseId)) db.deleteCou…。
-        for (const auto& item : db.findSnapshotsByCourseId(courseId)) db.deleteCourseSnapshot(item.id);
-        // 【逐行批注】 按循环规则重复处理：for (const auto& item : db.listTaskProgress()) if (item.courseId.value_or(…。
-        for (const auto& item : db.listTaskProgress()) if (item.courseId.value_or("") == courseId) db.deleteTaskProgress(item.id);
-        // 【逐行批注】 按循环规则重复处理：for (const auto& item : db.listLearningStepProgress()) if (item.courseId.v…。
-        for (const auto& item : db.listLearningStepProgress()) if (item.courseId.value_or("") == courseId) db.deleteLearningStepProgress(item.id);
-        // 【逐行批注】 按循环规则重复处理：for (const auto& item : db.listLearningCardProgress()) if (item.courseId.v…。
-        for (const auto& item : db.listLearningCardProgress()) if (item.courseId.value_or("") == courseId) db.deleteLearningCardProgress(item.id);
-        // 【逐行批注】 按循环规则重复处理：for (const auto& item : db.listLearningSessions()) if (item.courseId.value…。
-        for (const auto& item : db.listLearningSessions()) if (item.courseId.value_or("") == courseId) db.deleteLearningSession(item.id);
-        // 【逐行批注】 执行当前声明或表达式：db.deleteInteractionsForCourse(courseId);。
-        db.deleteInteractionsForCourse(courseId);
-        // 【逐行批注】 执行当前声明或表达式：db.deleteClassroomData(courseId);。
-        db.deleteClassroomData(courseId);
-        // 【逐行批注】 执行当前声明或表达式：db.deleteTopicMasteryForCourse(courseId);。
-        db.deleteTopicMasteryForCourse(courseId);
-        // 【逐行批注】 计算右侧结果并写入 bool deleted，更新当前运行状态。
-        const bool deleted = db.deleteCourse(courseId);
-        // 【逐行批注】 判断条件 (deleted) { db.markProfileDirty(); db.markLearningDirty(); }，成立时执行对应分支。
-        if (deleted) { db.markProfileDirty(); db.markLearningDirty(); }
-        // 【逐行批注】 结束当前函数并返回结果：return deleted;。
+        // 保存点覆盖权限读取与所有清理；直接删除和管家确认的外层事务均可调用。
+        db.savepoint([&] {
+            const auto course = db.getCourse(courseId);
+            if (!course || course->status != "active") return;
+            const bool ownedByUser = !userId.empty() && course->userId && *course->userId == userId;
+            const bool ownedByAnonymous = !anonymousId.empty() && course->anonymousId && *course->anonymousId == anonymousId;
+            if (!ownedByUser && !ownedByAnonymous && (!userId.empty() || !anonymousId.empty())) return;
+            const auto remove = [](bool changed) {
+                if (!changed) throw std::runtime_error("课程记录已变化，删除未完成");
+            };
+            if (const auto progress = db.findProgressByCourseId(courseId)) remove(db.deleteCourseProgress(progress->id));
+            for (const auto& item : db.findSnapshotsByCourseId(courseId)) remove(db.deleteCourseSnapshot(item.id));
+            for (const auto& item : db.listTaskProgress())
+                if (item.courseId.value_or("") == courseId) remove(db.deleteTaskProgress(item.id));
+            for (const auto& item : db.listLearningStepProgress())
+                if (item.courseId.value_or("") == courseId) remove(db.deleteLearningStepProgress(item.id));
+            for (const auto& item : db.listLearningCardProgress())
+                if (item.courseId.value_or("") == courseId) remove(db.deleteLearningCardProgress(item.id));
+            for (const auto& item : db.listLearningSessions())
+                if (item.courseId.value_or("") == courseId) remove(db.deleteLearningSession(item.id));
+            db.deleteInteractionsForCourse(courseId);
+            db.deleteClassroomData(courseId);
+            db.deleteTopicMasteryForCourse(courseId);
+            remove(db.deleteCourse(courseId));
+            db.markProfileDirty(); db.markLearningDirty();
+            deleted = true;
+        });
         return deleted;
-    // 【逐行批注】 执行当前声明或表达式：} catch (...) {。
     } catch (...) {
-        // 【逐行批注】 结束当前函数并返回结果：return false;。
         return false;
-    // 【逐行批注】 结束当前代码块。
     }
-// 【逐行批注】 结束当前代码块。
 }
 
 // 【逐行批注】 执行当前声明或表达式：} // namespace gangyi。

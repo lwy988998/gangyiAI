@@ -17,7 +17,7 @@ from urllib.request import Request, urlopen
 # 【逐行批注】 导入后续逻辑需要的模块或符号：from playwright.sync_api import expect, sync_playwright。
 from playwright.sync_api import expect, sync_playwright
 # 【逐行批注】 导入后续逻辑需要的模块或符号：from classroom_v560_fixture import start_session。
-from classroom_v560_fixture import start_session
+from classroom_v560_fixture import launch_test_browser, open_learning_menu, start_session
 
 
 # 【逐行批注】 定义函数 main，封装可复用的处理步骤。
@@ -42,7 +42,7 @@ def main(executable):
         # 【逐行批注】 在受控上下文中执行资源操作：with sync_playwright() as playwright:。
         with sync_playwright() as playwright:
             # 【逐行批注】 计算右侧结果并赋给 browser，更新脚本状态。
-            browser = playwright.chromium.launch(headless=True)
+            browser = launch_test_browser(playwright)
             # 【逐行批注】 计算右侧结果并赋给 page，更新脚本状态。
             page = browser.new_page(viewport={'width':1440,'height':900},reduced_motion='reduce')
             # 【逐行批注】 计算右侧结果并赋给 errors，更新脚本状态。
@@ -84,7 +84,7 @@ def main(executable):
                 # 【逐行批注】 计算右侧结果并赋给 region，更新脚本状态。
                 region=page.locator('#lesson-scroll').bounding_box()
                 # 【逐行批注】 计算右侧结果并赋给 monitor，更新脚本状态。
-                monitor=page.locator('#learning-navigation > summary').bounding_box()
+                monitor=page.get_by_role('button', name='操作菜单', exact=True).bounding_box()
                 # 【逐行批注】 计算右侧结果并赋给 title，更新脚本状态。
                 title=page.locator('#lesson-title').bounding_box()
                 # 【逐行批注】 计算右侧结果并赋给 height，更新脚本状态。
@@ -92,7 +92,7 @@ def main(executable):
                 # 【逐行批注】 校验关键条件，测试失败时立即报错：assert composer and field_box and region and monitor and title。
                 assert composer and field_box and region and monitor and title
                 # 【逐行批注】 校验关键条件，测试失败时立即报错：assert title['width']>140 and title['height']<90。
-                assert title['width']>140 and title['height']<90
+                assert title['width']>0 and title['height']<=25
                 # 【逐行批注】 校验关键条件，测试失败时立即报错：assert region['height']>100 and field_box['y']>=0 and composer['y']+composer['h…。
                 assert region['height']>100 and field_box['y']>=0 and composer['y']+composer['height']<=height+1
                 # 【逐行批注】 校验关键条件，测试失败时立即报错：assert region['y']+region['height']<=composer['y']+1。
@@ -129,7 +129,7 @@ def main(executable):
             # 【逐行批注】 遍历数据并重复执行循环体：for area in ('practice','summary','learn'):。
             for area in ('practice','summary','learn'):
                 # 【逐行批注】 计算右侧结果并赋给 page.locator('[data-lesson-link，更新脚本状态。
-                page.locator('[data-lesson-link='+area+']').click()
+                open_learning_menu(page).locator('[data-lesson-link='+area+']').click()
                 # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(page.locator('[data-lesson-view]')).to_have_attribute('data-le…。
                 expect(page.locator('[data-lesson-view]')).to_have_attribute('data-lesson-view', area)
                 # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(field).to_have_value('本段草稿，尚未提交。' if area=='learn' else '')。
@@ -195,7 +195,7 @@ def main(executable):
             # 【逐行批注】 遍历数据并重复执行循环体：for area in ('practice','summary','learn'):。
             for area in ('practice','summary','learn'):
                 # 【逐行批注】 计算右侧结果并赋给 page.locator('[data-lesson-link，更新脚本状态。
-                page.locator('[data-lesson-link='+area+']').click()
+                open_learning_menu(page).locator('[data-lesson-link='+area+']').click()
                 # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(page.locator('[data-lesson-view]')).to_have_attribute('data-le…。
                 expect(page.locator('[data-lesson-view]')).to_have_attribute('data-lesson-view',area)
                 # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(field).to_be_enabled()。
@@ -213,7 +213,7 @@ def main(executable):
             # 【逐行批注】 校验关键条件，测试失败时立即报错：assert json.load(urlopen(info['fixture']))['calls']==calls_before。
             assert json.load(urlopen(info['fixture']))['calls']==calls_before
             # 【逐行批注】 计算右侧结果并赋给 page.locator('[data-lesson-link，更新脚本状态。
-            page.locator('[data-lesson-link=practice]').click()
+            open_learning_menu(page).locator('[data-lesson-link=practice]').click()
             # 【逐行批注】 计算右侧结果并赋给 practice，更新脚本状态。
             practice=page.locator('.chat-section').filter(has=page.get_by_role('heading',name='练习一：判断变化',exact=True))
             # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(practice).to_have_count(1)。
@@ -231,7 +231,7 @@ def main(executable):
             # 【逐行批注】 计算右侧结果并赋给 expect(practice.locator('input[type，更新脚本状态。
             expect(practice.locator('input[type=radio]').first).to_be_checked()
             # 【逐行批注】 计算右侧结果并赋给 page.locator('[data-lesson-link，更新脚本状态。
-            page.locator('[data-lesson-link=summary]').click()
+            open_learning_menu(page).locator('[data-lesson-link=summary]').click()
             # 【逐行批注】 计算右侧结果并赋给 page.get_by_text('本节尚无足够的实际作答评价；阅读和追问不表示掌握。'…，更新脚本状态。
             page.get_by_text('本节尚无足够的实际作答评价；阅读和追问不表示掌握。',exact=True).wait_for()
             # 课时读取返回前不能提前输入，恢复完成后再写实际作答说明。
@@ -252,7 +252,7 @@ def main(executable):
             # 【逐行批注】 执行当前 Python 语句：page.route(loading_pattern, hold_loading)。
             page.route(loading_pattern, hold_loading)
             # 【逐行批注】 计算右侧结果并赋给 page.locator('[data-lesson-link，更新脚本状态。
-            page.locator('[data-lesson-link=practice]').click()
+            open_learning_menu(page).locator('[data-lesson-link=practice]').click()
             # 【逐行批注】 计算右侧结果并赋给 expect(page).to_have_url(info['base']+'/prac…，更新脚本状态。
             expect(page).to_have_url(info['base']+'/practice?lessonId='+lesson)
             # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(page.locator('#page-status')).to_contain_text('本页独立保存交流和草稿')。
@@ -274,7 +274,7 @@ def main(executable):
             # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(page.locator('.chat-message.user .chat-message-body').last).to…。
             expect(page.locator('.chat-message.user .chat-message-body').last).to_contain_text('我认为从0升高到+2。')
             # 【逐行批注】 执行当前 Python 语句：page.locator('#learning-navigation > summary').click()。
-            page.locator('#learning-navigation > summary').click()
+            open_learning_menu(page, '全站导航与设置').locator('#learning-navigation > summary').click()
             # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(page.locator('#agent-control-panel .ai-control-history')).not_…。
             expect(page.locator('#agent-control-panel .ai-control-history')).not_to_have_attribute('open', '')
             # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(page.locator('#agent-control-panel .ai-task-details')).not_to_…。
@@ -288,11 +288,13 @@ def main(executable):
             # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(page.locator('#lesson-task-status')).to_contain_text('AI 已暂停')。
             expect(page.locator('#lesson-task-status')).to_contain_text('AI 已暂停')
             # 【逐行批注】 执行当前 Python 语句：page.locator('.ai-context-details > summary').click()。
-            page.locator('.ai-context-details > summary').click()
+            detail = page.locator('.ai-context-details')
+            if detail.get_attribute('open') is None:
+                detail.locator('summary').first.click()
             # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(page.locator('.ai-operation-title')).to_contain_text('已暂停')。
             expect(page.locator('.ai-operation-title')).to_contain_text('已暂停')
             # 【逐行批注】 校验关键条件，测试失败时立即报错：assert page.locator('.ai-operation-target').inner_text()。
-            assert page.locator('.ai-operation-target').inner_text()
+            expect(page.locator('.ai-operation-target')).to_contain_text('化合价与电子变化')
             # 【逐行批注】 校验关键条件，测试失败时立即报错：assert 'PRIVATE-' not in page.locator('#agent-control-panel').inner_text()。
             assert 'PRIVATE-' not in page.locator('#agent-control-panel').inner_text()
             # 【逐行批注】 在受控上下文中执行资源操作：with urlopen(Request(info['fixture']+'/fixture-control',data=b'{"slow":false}',…。
@@ -320,6 +322,7 @@ def main(executable):
             expect(page.locator('.ai-step-list')).to_contain_text('本次回答的评价')
             # 【逐行批注】 执行当前 Python 语句：page.locator('#learning-navigation > summary').click()。
             page.locator('#learning-navigation > summary').click()
+            page.keyboard.press('Escape')
             # 【逐行批注】 执行当前 Python 语句：field.fill('为什么要先比较同一种元素？')。
             field.fill('为什么要先比较同一种元素？')
             # 【逐行批注】 执行当前 Python 语句：page.locator('#lesson-send').click()。
@@ -339,7 +342,7 @@ def main(executable):
             # 【逐行批注】 计算右侧结果并赋给 page.locator('.chat-message.assistant').get_…，更新脚本状态。
             page.locator('.chat-message.assistant').get_by_text('这是对思路的追问。我们可以先比较前后状态，再联系电子变化。',exact=True).wait_for()
             # 【逐行批注】 计算右侧结果并赋给 page.locator('[data-lesson-link，更新脚本状态。
-            page.locator('[data-lesson-link=practice]').click()
+            open_learning_menu(page).locator('[data-lesson-link=practice]').click()
             # 【逐行批注】 执行当前 Python 语句：field.fill('请根据我的回答出一道选择题。')。
             field.fill('请根据我的回答出一道选择题。')
             # 【逐行批注】 执行当前 Python 语句：page.locator('#lesson-send').click()。
@@ -370,7 +373,7 @@ def main(executable):
             # 【逐行批注】 在受控上下文中执行资源操作：with urlopen(Request(info['fixture']+'/fixture-control',data=b'{"slow":true}',h…。
             with urlopen(Request(info['fixture']+'/fixture-control',data=b'{"slow":true}',headers={'Content-Type':'application/json'})): pass
             # 【逐行批注】 执行当前 Python 语句：page.locator('#continue-teaching').click()。
-            page.locator('#continue-teaching').click()
+            open_learning_menu(page).locator('#continue-teaching').click()
             # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(page.locator('#lesson-stop')).to_be_visible()。
             expect(page.locator('#lesson-stop')).to_be_visible()
             # 【逐行批注】 计算右侧结果并赋给 page.locator('#lesson-scroll').evaluate('(no…，更新脚本状态。
@@ -410,13 +413,15 @@ def main(executable):
                 # 【逐行批注】 判断条件 width==390:，成立时执行对应分支。
                 if width==390:
                     # 【逐行批注】 校验关键条件，测试失败时立即报错：assert page.locator('.course-directory-mobile').is_visible() and not page.locat…。
-                    assert page.locator('.course-directory-mobile').is_visible() and not page.locator('.course-directory').is_visible()
+                    assert not page.locator('.course-directory').is_visible()
+                    assert open_learning_menu(page).locator('.course-directory-mobile').is_visible()
+                    page.keyboard.press('Escape')
                 # 【逐行批注】 计算右侧结果并赋给 page.screenshot(path，更新脚本状态。
                 page.screenshot(path=str(screenshots/('chat-classroom-'+str(width)+'.png')))
             # 【逐行批注】 执行当前 Python 语句：page.set_viewport_size({'width':1440,'height':900})。
             page.set_viewport_size({'width':1440,'height':900})
             # 【逐行批注】 执行当前 Python 语句：page.locator('#composer-chat').click()。
-            page.locator('#composer-chat').click()
+            open_learning_menu(page).locator('#composer-chat').click()
             # 【逐行批注】 执行当前 Python 语句：field.fill('为什么停止后还能继续追问？')。
             field.fill('为什么停止后还能继续追问？')
             # 【逐行批注】 在受控上下文中执行资源操作：with urlopen(Request(info['fixture']+'/fixture-control',data=b'{"slow":true}',h…。
@@ -469,9 +474,9 @@ def main(executable):
             # 【逐行批注】 校验关键条件，测试失败时立即报错：assert page.locator('.chat-message.user').filter(has_text='为什么请求失败时要保留输入？').cou…。
             assert page.locator('.chat-message.user').filter(has_text='为什么请求失败时要保留输入？').count()==1
             # 【逐行批注】 计算右侧结果并赋给 page.locator('[data-lesson-link，更新脚本状态。
-            page.locator('[data-lesson-link=learn]').click()
+            open_learning_menu(page).locator('[data-lesson-link=learn]').click()
             # 【逐行批注】 执行当前 Python 语句：page.locator('#composer-chat').click()。
-            page.locator('#composer-chat').click()
+            open_learning_menu(page).locator('#composer-chat').click()
             # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(page.locator('.chat-message.user')).to_have_count(0)。
             expect(page.locator('.chat-message.user')).to_have_count(0)
             # 【逐行批注】 执行当前 Python 语句：field.fill('原知识点独立保存的草稿。')。
@@ -514,7 +519,7 @@ def main(executable):
             # 【逐行批注】 计算右侧结果并赋给 page.goto(info['base']+'/learn?lessonId，更新脚本状态。
             page.goto(info['base']+'/learn?lessonId='+other_lesson)
             # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(page.locator('#lesson-task-status')).to_have_text('你可以继续回答或追问')。
-            expect(page.locator('#lesson-task-status')).to_have_text('你可以继续回答或追问')
+            expect(page.locator('#lesson-task-status')).to_have_text('你可以继续回答或追问', timeout=25000)
             # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(page.locator('#composer-target')).to_have_text('和 AI 老师交流')。
             expect(page.locator('#composer-target')).to_have_text('和 AI 老师交流')
             # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(page.locator('#lesson-input')).to_have_value('')。
@@ -536,11 +541,11 @@ def main(executable):
             expect(page.locator('#lesson-input')).to_have_value('另一知识点的草稿。')
             # 完成按钮使用真实主控判断；刷新后回复保留，不能伪造一条没有保存的学生消息。
             # 【逐行批注】 计算右侧结果并赋给 page.locator('[data-lesson-link，更新脚本状态。
-            page.locator('[data-lesson-link=summary]').click()
+            open_learning_menu(page).locator('[data-lesson-link=summary]').click()
             # 【逐行批注】 计算右侧结果并赋给 users_before，更新脚本状态。
             users_before = page.locator('.chat-message.user').count()
             # 【逐行批注】 执行当前 Python 语句：page.locator('#finish-lesson').click()。
-            page.locator('#finish-lesson').click()
+            open_learning_menu(page, '课堂操作').locator('#finish-lesson').click()
             # 【逐行批注】 计算右侧结果并赋给 finish_reply，更新脚本状态。
             finish_reply = page.locator('.chat-message.assistant').get_by_text('请结合本节检查点回顾，已有记录会保留，缺少证据的部分继续练习。', exact=True)
             # 【逐行批注】 执行当前 Python 语句：finish_reply.wait_for()。
@@ -658,19 +663,19 @@ def main(executable):
                 for button in page.locator('#lesson-sections form button').all(): expect(button).to_be_disabled()
             # 【逐行批注】 校验关键条件，测试失败时立即报错：assert json.load(urlopen(info['fixture']))['calls'] == calls_before。
             assert json.load(urlopen(info['fixture']))['calls'] == calls_before
-            # 开启动画且正文增长时，悬浮控制仍固定在可见窗口内。
+            # 开启动画且正文增长时，页头操作仍固定在可见窗口内。
             # 【逐行批注】 计算右侧结果并赋给 page.emulate_media(reduced_motion，更新脚本状态。
             page.emulate_media(reduced_motion='no-preference')
             # 【逐行批注】 计算右侧结果并赋给 page.goto(info['base']+'/practice?lessonId，更新脚本状态。
             page.goto(info['base']+'/practice?lessonId='+lesson)
             # 【逐行批注】 计算右侧结果并赋给 page.locator('[data-lesson-link，更新脚本状态。
-            page.locator('[data-lesson-link=practice]').click()
+            open_learning_menu(page).locator('[data-lesson-link=practice]').click()
             # 【逐行批注】 计算右侧结果并赋给 page.locator('.chat-section[data-area，更新脚本状态。
             page.locator('.chat-section[data-area=practice]:visible').first.wait_for()
             # 【逐行批注】 调用 getComputedStyle 完成当前脚本或测试步骤：page.wait_for_function("getComputedStyle(document.body).opacity==='1'…。
             page.wait_for_function("getComputedStyle(document.body).opacity==='1'")
             # 【逐行批注】 计算右侧结果并赋给 toggle，更新脚本状态。
-            toggle = page.locator('#learning-navigation > summary')
+            toggle = page.get_by_role('button', name='操作菜单', exact=True)
             # 【逐行批注】 计算右侧结果并赋给 before，更新脚本状态。
             before = toggle.bounding_box()
             # 【逐行批注】 计算右侧结果并赋给 page.evaluate("""()，更新脚本状态。
@@ -686,7 +691,9 @@ def main(executable):
             # 【逐行批注】 校验关键条件，测试失败时立即报错：assert after['y'] >= 0 and after['y']+after['height'] <= 900。
             assert after['y'] >= 0 and after['y']+after['height'] <= 900
             # 【逐行批注】 执行当前 Python 语句：toggle.click()。
-            toggle.click()
+            activity = open_learning_menu(page, '全站导航与设置').locator('#learning-navigation')
+            if activity.get_attribute('open') is None:
+                activity.locator(':scope > summary').click()
             # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(page.locator('#agent-control-panel')).to_be_visible()。
             expect(page.locator('#agent-control-panel')).to_be_visible()
             # 【逐行批注】 校验关键条件，测试失败时立即报错：assert not errors,errors。

@@ -110,6 +110,16 @@ inline void runAgentEfficiencyChecks(const std::filesystem::path& path) {
     const auto researchProjection = agentPromptContext(researchContext, false);
     // 【逐行批注】 计算右侧结果并写入 Json researchTask，更新当前运行状态。
     const Json researchTask = {{"event", researchContext.at("event")}};
+    const std::string capabilityDescription = "组件能力。参数 types 可选。";
+    const std::map<std::string, AgentTool> capabilityTools = {
+        {"read_interactive_capabilities", {capabilityDescription, true, {}}},
+        {"read_component_activity", {capabilityDescription, true, {}}}
+    };
+    for (const auto* type : {"plan_course", "prepare_next", "chat"}) {
+        const Json task = {{"event", {{"type", type}, {"lessonId", "lesson"}}}};
+        for (const auto& tool : agentToolCatalog(capabilityTools, task))
+            assert(tool.at("description") == capabilityDescription);
+    }
     // 【逐行批注】 调用 assert、agentToolAuthorized 完成本行所需操作：assert(!agentToolAuthorized("read_outline", researchTask));。
     assert(!agentToolAuthorized("read_outline", researchTask));
     // 【逐行批注】 调用 assert 完成本行所需操作：assert(researchProjection.at("contextAvailability").at("outlineTool")…。

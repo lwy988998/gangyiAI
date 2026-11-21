@@ -7,6 +7,14 @@
   const messages = $('ask-messages'), input = $('ask-question'), submit = $('ask-submit');
   // 【逐行批注】 声明前端变量 chat，保存本行计算出的数据或对象。
   const chat = window.GangyiChat;
+  const attached = $('ask-material')?.dataset;
+  const conversationId = attached?.conversationId || 'general';
+  const conversationUrl = '/api/conversations/' + encodeURIComponent(conversationId);
+  const materialContext = attached?.examQuestion ? {
+    courseId: attached.courseId, examQuestion: JSON.parse(attached.examQuestion)
+  } : attached?.sourceId ? {
+    courseId: attached.courseId, material: { sourceId: attached.sourceId, snapshotId: attached.snapshotId }
+  } : {};
   // 【逐行批注】 声明前端变量 socket，保存本行计算出的数据或对象。
   let socket = null, ready = false, knownHistory = false, historyMessages = [], lastQuestion = '';
   // 【逐行批注】 声明前端变量 trace，保存本行计算出的数据或对象。
@@ -30,9 +38,35 @@
   messages.before(toolbar);
   // 【逐行批注】 声明前端变量 clear，保存本行计算出的数据或对象。
   const clear = $('ask-clear'), stop = $('ask-stop');
+  if (attached) clear.textContent = attached.examQuestion ? '清除本题对话' : '清除本资料对话';
   // 自动滚动到最新回答时，停止入口仍与输入框相邻。
   // 【逐行批注】 执行当前前端表达式：$('ask-form').append(stop);。
   $('ask-form').append(stop);
+  let retryButton;
+  const learningTools = window.GangyiWorkspace?.compactToolbar(document.querySelector('main header h1'));
+  if (learningTools) {
+    const main = document.querySelector('main');
+    const intro = main.querySelector('header');
+    const materialName = $('ask-material')?.querySelector('p span')?.textContent;
+    document.querySelector('.gy-learning-title').textContent = materialName ? 'AI 导师 · ' + materialName : 'AI 导师';
+    $('ask-empty').textContent = '可以贴上题干、写出你的思路，或说说你卡在哪一步。';
+    main.classList.add('gy-ask-workspace');
+    messages.tabIndex = 0;
+    messages.setAttribute('aria-label', '导师对话');
+    if (attached && attached.unavailable !== 'true') {
+      learningTools.append(learningTools.disclose('当前学习材料', $('ask-material')));
+    }
+    learningTools.append(clear, learningTools.disclose('导师说明与执行过程', intro.lastElementChild, $('ask-agent-trace')));
+    intro.remove();
+    toolbar.remove();
+    retryButton = document.createElement('button');
+    retryButton.type = 'button';
+    retryButton.className = 'chat-copy';
+    retryButton.textContent = '重试回答';
+    retryButton.hidden = true;
+    retryButton.addEventListener('click', () => retryLast());
+    $('ask-form').append(retryButton);
+  }
   // 【逐行批注】 计算右侧结果并更新 submit.disabled，改变页面或请求状态。
   submit.disabled = true; clear.disabled = true;
 
@@ -199,7 +233,7 @@
       // 【逐行批注】 执行当前前端表达式：historyMessages.push({ role: 'user', content: question }, { role: 'assistant', content: a…。
       historyMessages.push({ role: 'user', content: question }, { role: 'assistant', content: answer });
       // 【逐行批注】 执行当前前端表达式：history.replaceState({}, '', '/ask');。
-      history.replaceState({}, '', '/ask');
+      if (!attached) history.replaceState({}, '', '/ask');
     // 【逐行批注】 执行当前前端表达式：});。
     });
   // 【逐行批注】 结束当前前端代码块。
@@ -209,8 +243,12 @@
   function ask(question, options = {}) {
     // 【逐行批注】 计算右侧结果并更新 question，改变页面或请求状态。
     question = String(question || '').trim();
-    // 【逐行批注】 判断条件 (!question || !ready || socket) return;，成立时执行对应逻辑。
+    // 已在生成时保持当前请求，等结束后再接受新的意图。
     if (!question || !ready || socket) return;
+    if (!attached && window.GangyiStudyIntent?.yesterday(question)) {
+      location.assign('/review-yesterday');
+      return;
+    }
     // 【逐行批注】 计算右侧结果并更新 lastQuestion，改变页面或请求状态。
     lastQuestion = question;
     // 从失败步骤重试时复用同一条提问气泡，不重复追加历史。
@@ -221,7 +259,7 @@
     // 【逐行批注】 调用 busy 执行页面交互或数据处理：busy(true);。
     busy(true);
     // 【逐行批注】 声明前端变量 view，保存本行计算出的数据或对象。
-    const view = chat.createAssistantView(messages, { scrollRoot: window });
+    const view = chat.createAssistantView(messages, { scrollRoot: learningTools ? messages : window });
     // 【逐行批注】 声明前端变量 finished，保存本行计算出的数据或对象。
     let finished = false, received = 0, lastProgressPaint = 0;
     // 【逐行批注】 声明前端变量 live，保存本行计算出的数据或对象。
@@ -230,7 +268,11 @@
       calls:1, activity:{title:'连接 AI 导师',detail:'问题已提交，正在建立流式连接。',state:'started',at:new Date().toISOString()}, events:[]};
     // 变值才写：状态与阶段变化立即更新，计时和接收进度由轨迹组件自行刷新。
     // 【逐行批注】 声明前端变量 paint，保存本行计算出的数据或对象。
-    const paint = () => { live.updatedAt = new Date().toISOString(); trace?.update(live); };
+    const paint = () => {
+      live.updatedAt = new Date().toISOString();
+      trace?.update(live);
+      if (retryButton) retryButton.hidden = live.status !== 'failed';
+    };
     // 【逐行批注】 调用 paint 执行页面交互或数据处理：paint();。
     paint();
     // 【逐行批注】 声明前端变量 connection，保存本行计算出的数据或对象。
@@ -240,6 +282,7 @@
     // 【逐行批注】 计算右侧结果并更新 connection.onopen，改变页面或请求状态。
     connection.onopen = () => { live.status='running';live.activity={title:'接收 AI 导师回复',detail:'回答会逐字显示；连接中断时会明确提示。',state:'started',at:new Date().toISOString()};paint();connection.send(JSON.stringify({ type: 'ask', question,
       // 【逐行批注】 执行当前前端表达式：...(knownHistory ? { messages: historyMessages.slice(-8) } : {}) }));。
+      ...materialContext,
       ...(knownHistory ? { messages: historyMessages.slice(-8) } : {}) }));
     // 【逐行批注】 执行当前前端表达式：};。
     };
@@ -349,13 +392,13 @@
   // 【逐行批注】 为页面事件绑定处理逻辑：clear.addEventListener('click', async () => {。
   clear.addEventListener('click', async () => {
     // 【逐行批注】 判断条件 (socket || !ready || !confirm('确定清除此电脑上的 AI 对话记录吗？')) return;，成立时执行对应逻辑。
-    if (socket || !ready || !confirm('确定清除此电脑上的 AI 对话记录吗？')) return;
+    if (socket || !ready || !confirm(attached ? '确定清除当前学习对话吗？' : '确定清除此电脑上的 AI 对话记录吗？')) return;
     // 【逐行批注】 计算右侧结果并更新 ready，改变页面或请求状态。
     ready = false; busy(false); clear.disabled = true;
     // 【逐行批注】 执行当前前端表达式：try {。
     try {
       // 【逐行批注】 声明前端变量 response，保存本行计算出的数据或对象。
-      const response = await fetch('/api/conversations/general', { method: 'DELETE' });
+      const response = await fetch(conversationUrl, { method: 'DELETE' });
       // 【逐行批注】 判断条件 (!response.ok) throw new Error('清除失败，请重试。');，成立时执行对应逻辑。
       if (!response.ok) throw new Error('清除失败，请重试。');
       // 【逐行批注】 计算右侧结果并更新 historyMessages，改变页面或请求状态。
@@ -371,10 +414,15 @@
 
   // 【逐行批注】 定义函数 load，封装可复用的前端行为。
   async function load() {
+    if (attached?.unavailable) {
+      input.disabled = true;
+      return;
+    }
+    if (attached) input.placeholder = attached.examQuestion ? '例如：我看不懂题目的条件，请给我一点提示' : '例如：先讲清这份资料的重点，再解释我看不懂的地方';
     // 【逐行批注】 执行当前前端表达式：try {。
     try {
       // 【逐行批注】 声明前端变量 response，保存本行计算出的数据或对象。
-      const response = await fetch('/api/conversations/general');
+      const response = await fetch(conversationUrl);
       // 【逐行批注】 判断条件 (!response.ok) throw new Error('历史记录读取失败，提问时将由服务端读取。');，成立时执行对应逻辑。
       if (!response.ok) throw new Error('历史记录读取失败，提问时将由服务端读取。');
       // 【逐行批注】 声明前端变量 data，保存本行计算出的数据或对象。
@@ -397,6 +445,10 @@
     busy(false);
     // 【逐行批注】 声明前端变量 initial，保存本行计算出的数据或对象。
     const initial = window.gangyiInitialQuestion?.trim();
+    if (!initial && !attached) {
+      const draft = new URLSearchParams(location.search).get('draft');
+      if (draft) input.value = draft;
+    }
     // 【逐行批注】 判断条件 (initial && historyMessages.at(-2)?.content !== initial) ask(ini…，成立时执行对应逻辑。
     if (initial && historyMessages.at(-2)?.content !== initial) ask(initial);
   // 【逐行批注】 结束当前前端代码块。

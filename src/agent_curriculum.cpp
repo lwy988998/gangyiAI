@@ -10,6 +10,8 @@
 #include "question_evidence.hpp"
 // 【逐行批注】 引入头文件 "progress_service.hpp"，为后续实现提供类型或接口声明。
 #include "progress_service.hpp"
+#include "library_io.hpp"
+#include "review_interval.hpp"
 // 【逐行批注】 引入头文件 <algorithm>，为后续实现提供类型或接口声明。
 #include <algorithm>
 // 【逐行批注】 引入头文件 <chrono>，为后续实现提供类型或接口声明。
@@ -172,6 +174,147 @@ Json agentOutline(Database& db, const AgentAccess& access, const std::string& co
     // 【逐行批注】 调用 courseFor、normalizeOutline、parse、latest 完成本行所需操作：courseFor(db, access, courseId); return normalizeOutline(parse(latest…。
     courseFor(db, access, courseId); return normalizeOutline(parse(latest(db, courseId).payload), courseId);
 // 【逐行批注】 结束当前代码块。
+}
+
+namespace {
+std::string reviewDate() {
+    const auto clock = std::time(nullptr);
+    std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local, &clock);
+#else
+    localtime_r(&clock, &local);
+#endif
+    std::ostringstream result;
+    result << std::put_time(&local, "%Y-%m-%d");
+    return result.str();
+}
+
+Json reviewAttempts(const Json& lesson) {
+    const auto& history = lesson.at("topicEvidence");
+    if (history.value("status", "") == "available") return history.at("recentAttempts");
+    const auto evidence = lesson.at("learningState").at("evidence");
+    const auto supported = evidence.at("evaluationIds").get<std::set<std::string>>();
+    Json attempts = Json::array();
+    const auto& evaluations = lesson.at("evaluations");
+    std::set<std::string> seen;
+    for (auto item = evaluations.rbegin(); item != evaluations.rend() && attempts.size() < 12; ++item) {
+        if (!seen.insert(item->at("interactionId")).second) continue;
+        const auto evaluationId = item->at("id").get<std::string>();
+        const auto& diagnosis = item->value("diagnosis", Json::object());
+        const bool needsClarification = diagnosis.is_object() && diagnosis.value("needsClarification", false);
+        if (!supported.count(evaluationId) && !needsClarification) continue;
+        Json attempt = {{"evaluationId", evaluationId}, {"lessonId", lesson.at("id")},
+            {"supported", supported.count(evaluationId) != 0}, {"needsClarification", needsClarification}};
+        for (const auto* field : {"at", "score", "helpMode"})
+            if (item->contains(field)) attempt[field] = item->at(field);
+        if (diagnosis.is_object() && diagnosis.value("summary", "").size() <= 800)
+            attempt["diagnosisSummary"] = diagnosis.value("summary", "");
+        attempts.push_back(std::move(attempt));
+    }
+    std::reverse(attempts.begin(), attempts.end());
+    return attempts;
+}
+
+Json selectedReviewAttempts(const Json& attempts, const Json& ids) {
+    if (!ids.is_array() || ids.size() > 12) throw std::invalid_argument("复习依据须为至多十二条评价标识");
+    std::set<std::string> seen;
+    Json selected = Json::array();
+    for (const auto& id : ids) {
+        if (!id.is_string() || !seen.insert(id.get<std::string>()).second)
+            throw std::invalid_argument("复习评价标识无效或重复");
+        const auto found = std::find_if(attempts.begin(), attempts.end(), [&](const auto& attempt) {
+            return attempt.at("evaluationId") == id &&
+                (attempt.value("supported", false) || attempt.value("needsClarification", false));
+        });
+        if (found == attempts.end()) throw std::invalid_argument("复习依据不在当前课时的已核对评价中");
+        selected.push_back(*found);
+    }
+    return selected;
+}
+
+Json reviewCompletionEvidence(Database& db, const AgentAccess& access, const Json& savedLesson) {
+    const auto lesson = agentLessonView(db, access, savedLesson.at("id"));
+    const auto round = savedLesson.value("teachingRound", Json::object());
+    const auto roundQuestions = round.value("questionIds", Json::array());
+    if (!round.empty() && round.value("status", "") != "completed")
+        throw std::invalid_argument("请先结束复习轮次");
+    const auto supported = lesson.at("learningState").at("evidence").at("evaluationIds").get<std::set<std::string>>();
+    std::map<std::string, const Json*> evaluations;
+    for (const auto& evaluation : lesson.at("evaluations"))
+        evaluations[evaluation.at("interactionId")] = &evaluation;
+    std::map<std::string, std::string> latestInputs;
+    std::map<std::string, std::string> submittedTimes;
+    for (const auto& record : db.listInteractions()) {
+        if (record.kind != "chat-user" || record.courseId != savedLesson.at("courseId").get<std::string>()) continue;
+        const auto input = parse(record.payload);
+        if (input.value("scopeId", "") != access.scopeId || input.value("lessonId", "") != savedLesson.at("id") ||
+            input.value("type", "") != "question_answer" || !input.value("sectionId", Json()).is_string()) continue;
+        const auto action = input.value("action", "answer");
+        if ((action == "answer" || action == "unknown") &&
+            db.profileMeta("agent-input-classification:" + record.id).empty())
+            { latestInputs[input.at("sectionId")] = record.id; submittedTimes[record.id] = record.createdAt; }
+    }
+    Json evidence = Json::array();
+    for (const auto& section : lesson.at("sections")) {
+        if (section.value("kind", "") != "question") continue;
+        if (!round.empty() && std::find(roundQuestions.begin(), roundQuestions.end(), section.at("questionId")) == roundQuestions.end())
+            continue;
+        const auto latest = latestInputs.find(section.at("id"));
+        const auto found = latest == latestInputs.end() ? evaluations.end() : evaluations.find(latest->second);
+        if (found == evaluations.end() || !supported.count(found->second->at("id")) ||
+            found->second->value("status", "") != "valid" ||
+            found->second->at("questionId") != section.at("questionId"))
+            throw std::invalid_argument("每道复习题须先发布有效评价");
+        const auto& entry = *found->second;
+        evidence.push_back({{"id", entry.at("id")}, {"interactionId", entry.at("interactionId")},
+                            {"score", entry.at("score")}, {"submittedAt", submittedTimes.at(entry.at("interactionId"))},
+                            {"evaluatedAt", entry.value("at", "")}, {"helpMode", entry.value("helpMode", "unknown")}});
+    }
+    if (evidence.empty() || (!round.empty() && evidence.size() != roundQuestions.size()))
+        throw std::invalid_argument("复习课时缺少已评价的题目");
+    return evidence;
+}
+}
+
+Json agentScheduledReview(Database& db, const AgentAccess& access, const std::string& courseId,
+                          const std::string& reviewId) {
+    const auto row = db.getClassroomActivity(reviewId);
+    if (!row || row->kind != "review") return Json::object();
+    const auto review = parse(row->payload);
+    if (!review.contains("evidenceIds")) return Json::object();
+    if (row->courseId != courseId) throw std::invalid_argument("复习任务所属课程不匹配");
+    courseFor(db, access, courseId);
+    if (review.value("scopeId", "") != access.scopeId) throw std::invalid_argument("无权访问复习依据");
+    Json result = {{"id", row->id}, {"courseId", courseId}, {"title", review.at("title")}, {"due", review.at("due")},
+        {"available", review.at("status") == "pending" && review.at("due").get<std::string>() <= reviewDate()},
+        {"lessonId", review.value("lessonId", "")}, {"topicId", review.value("topicId", "")},
+        {"basisStatus", "insufficient"}, {"evidence", Json::array()}};
+    if (review.contains("minimumDelaySeconds")) {
+        result["minimumDelaySeconds"] = review.at("minimumDelaySeconds");
+        result["scheduledAt"] = review.value("scheduledAt", "");
+    }
+    if (review.at("status") == "completed" && review.value("completion", Json()).is_object()) {
+        result["completedLessonId"] = review.at("completion").at("lessonId");
+        result["reviewTiming"] = review.at("completion").value("timing", Json{{"status", "not_requested"}, {"learningEffectVerified", false}});
+        return result;
+    }
+    if (review.at("evidenceIds").empty()) return result;
+    result["basisStatus"] = "changed";
+    try {
+        const auto lesson = agentLessonView(db, access, review.at("lessonId"));
+        const auto attempts = reviewAttempts(lesson);
+        const auto revision = libraryDigest(attempts.dump());
+        result["basisRevision"] = revision;
+        if (revision == review.at("evidenceRevision")) {
+            result["evidence"] = selectedReviewAttempts(attempts, review.at("evidenceIds"));
+            result["basisStatus"] = "verified";
+            result["reason"] = review.at("reason");
+        }
+    } catch (const std::invalid_argument&) {
+        // 课时或原依据已失效，后续备课重新读取当前知识点。
+    }
+    return result;
 }
 // 【逐行批注】 定义函数 agentValidateOutline，执行该函数声明的职责。
 void agentValidateOutline(Database& db, const std::string& courseId, const Json& before, const Json& after) {
@@ -664,7 +807,7 @@ void registerAgentCurriculumTools(LearningAgent& agent) {
         // 【逐行批注】 执行当前声明或表达式：}});。
         }});
     // 【逐行批注】 注册可由 AI 主控调用的工具：agent.registerTool("complete_lesson", {"AI 根据真实互动决定本课完成，不使用固定通过率。参数 lessonId,reason；…。
-    agent.registerTool("complete_lesson", {"AI 根据真实互动决定本课完成，不使用固定通过率。参数 lessonId,reason；只有实际进入的课时可完成。独立巩固课不增加原大纲的完成数。", false,
+    agent.registerTool("complete_lesson", {"AI 根据真实互动决定本课完成，不使用固定通过率。参数 lessonId,reason；只有实际进入的课时可完成。到期复习课须先发布本轮每题的有效评价，再保存对应复习任务的完成状态。独立巩固课不增加原大纲的完成数。", false,
         // 【逐行批注】 执行当前声明或表达式：[](Database& db, const Json& args, const Json& task, const AIResult& source) {。
         [](Database& db, const Json& args, const Json& task, const AIResult& source) {
             // 【逐行批注】 计算右侧结果并写入 auto lessonId，更新当前运行状态。
@@ -675,14 +818,53 @@ void registerAgentCurriculumTools(LearningAgent& agent) {
             auto lesson = parse(row->payload); courseFor(db, accessFor(task), row->courseId);
             // 【逐行批注】 判断条件 (lesson.at("scopeId") != task.at("scopeId") || !lesson.value("en…，成立时执行对应分支。
             if (lesson.at("scopeId") != task.at("scopeId") || !lesson.value("entered", false)) throw std::invalid_argument("课时尚未实际进入");
+            if (lesson.value("teachingRound", Json::object()).value("status", "") == "active")
+                throw std::invalid_argument("先完成当前教学轮次，再保存课时完成状态");
+            const auto access = accessFor(task);
+            std::optional<ClassroomActivity> reviewRow;
+            Json review;
+            Json result = {{"completed", true}, {"lessonId", lessonId}};
+            const auto reviewId = lesson.value("scheduledReviewId", "");
+            if (!reviewId.empty()) {
+                if (task.at("event").value("lessonId", "") != lessonId)
+                    throw std::invalid_argument("请在本次复习课时内确认完成情况");
+                reviewRow = db.getClassroomActivity(reviewId);
+                if (!reviewRow || reviewRow->kind != "review" || reviewRow->courseId != row->courseId)
+                    throw std::invalid_argument("本次复习任务已失效");
+                review = parse(reviewRow->payload);
+                if (review.value("scopeId", "") != access.scopeId || review.value("topicId", "") != lesson.value("topicId", ""))
+                    throw std::invalid_argument("复习任务与当前课时不匹配");
+                if (review.at("status") == "completed" && review.at("completion").at("lessonId") == lessonId)
+                    return PreparedAgentTool{{{"completed", true}, {"lessonId", lessonId}, {"reviewId", reviewId},
+                        {"reviewTiming", review.at("completion").value("timing", Json{{"status", "not_requested"}, {"learningEffectVerified", false}})}}, {}};
+                if (review.at("status") != "pending" || review.at("due").get<std::string>() > reviewDate())
+                    throw std::invalid_argument("本次复习已由其他课时完成或尚未到期");
+                review["status"] = "completed";
+                review["completion"] = {{"lessonId", lessonId}, {"at", now()},
+                    {"evidence", reviewCompletionEvidence(db, access, lesson)}};
+                review["completion"]["timing"] = reviewIntervalTiming(review, review.at("completion").at("evidence"), review.at("completion").at("at"));
+                result["reviewTiming"] = review.at("completion").at("timing");
+                result["reviewId"] = reviewId;
+            }
             // 【逐行批注】 计算右侧结果并写入 text(args, "reason"); lesson["completed"]，更新当前运行状态。
             text(args, "reason"); lesson["completed"] = true; lesson["completionReason"] = args.at("reason"); lesson["completionModel"] = source.model;
             // 【逐行批注】 结束当前函数并返回结果：return PreparedAgentTool{{{"completed", true}, {"lessonId", lessonId}…。
-            return PreparedAgentTool{{{"completed", true}, {"lessonId", lessonId}}, [row, lesson](Database& connection) {
+            return PreparedAgentTool{result, [row, lesson, reviewRow, review, access](Database& connection) {
                 // 【逐行批注】 计算右侧结果并写入 auto current，更新当前运行状态。
                 const auto current = connection.getClassroomActivity(row->id);
                 // 【逐行批注】 判断条件 (!current || current->payload != row->payload) throw std::invali…，成立时执行对应分支。
                 if (!current || current->payload != row->payload) throw std::invalid_argument("课时已有后续修改");
+                if (reviewRow) {
+                    const auto saved = connection.getClassroomActivity(reviewRow->id);
+                    if (!saved || saved->payload != reviewRow->payload ||
+                        reviewCompletionEvidence(connection, access, lesson) != review.at("completion").at("evidence"))
+                        throw std::invalid_argument("复习状态或评价已变化，请重新核对");
+                    auto completed = *reviewRow;
+                    completed.payload = review.dump();
+                    completed.updatedAt = now();
+                    if (!connection.upsert(completed)) throw std::runtime_error("复习完成状态保存失败");
+                    connection.markLearningDirty();
+                }
                 // 【逐行批注】 判断条件 (!connection.upsert(ClassroomActivity{row->id, row->courseId, ro…，成立时执行对应分支。
                 if (!connection.upsert(ClassroomActivity{row->id, row->courseId, row->kind, lesson.dump(), now(), row->phaseIndex, row->topicIndex})) throw std::runtime_error("课时完成保存失败");
                 // 【逐行批注】 判断条件 (lesson.contains("legacySessionId") || lesson.value("intent", ""…，成立时执行对应分支。
@@ -752,12 +934,12 @@ void registerAgentCurriculumTools(LearningAgent& agent) {
                 }};
         // 【逐行批注】 执行当前声明或表达式：}});。
         }});
-    // 【逐行批注】 注册可由 AI 主控调用的工具：agent.registerTool("schedule_review", {"由 AI 根据真实证据决定复习时间。参数 courseId,title,due:YYYY…。
-    agent.registerTool("schedule_review", {"由 AI 根据真实证据决定复习时间。参数 courseId,title,due:YYYY-MM-DD,reason,lessonId可选,phaseIndex/topicIndex可选。没有固定复习间隔，不自动生成替代题。", false,
+    agent.registerTool("schedule_review", {"安排复习。参数 courseId,title,due:YYYY-MM-DD,reason,lessonId可选,evidenceIds可选。依据历史表现安排时须提供原 lessonId 和相关已发布评价 ID，可引用待澄清的作答。没有可用评价时省略 evidenceIds，用于复习摸底。日期由你决定。可选minimumDelaySeconds:1至31536000整数；从服务端安排时刻起计最短间隔，按实际提交时间核对。提前练习可以完成，但不计达到约定间隔；达到间隔也不证明长期掌握。", false,
         // 【逐行批注】 执行当前声明或表达式：[](Database& db, const Json& args, const Json& task, const AIResult& source) {。
         [](Database& db, const Json& args, const Json& task, const AIResult& source) {
             // 【逐行批注】 计算右侧结果并写入 auto course，更新当前运行状态。
-            const auto course = courseFor(db, accessFor(task), text(args, "courseId"));
+            const auto access = accessFor(task);
+            const auto course = courseFor(db, access, text(args, "courseId"));
             // 【逐行批注】 计算右侧结果并写入 auto due，更新当前运行状态。
             const auto due = text(args, "due"); std::tm date{}; std::istringstream input(due); input >> std::get_time(&date, "%Y-%m-%d");
             // 【逐行批注】 判断条件 (input.fail() || due.size() != 10) throw std::invalid_argument("…，成立时执行对应分支。
@@ -766,20 +948,38 @@ void registerAgentCurriculumTools(LearningAgent& agent) {
             date.tm_hour = 12; std::mktime(&date); std::ostringstream normalized; normalized << std::put_time(&date, "%Y-%m-%d");
             // 【逐行批注】 判断条件 (normalized.str() != due) throw std::invalid_argument("复习日期不存在");，成立时执行对应分支。
             if (normalized.str() != due) throw std::invalid_argument("复习日期不存在");
-            // 【逐行批注】 判断条件 (args.value("lessonId", "") != "" && agentLessonView(db, accessF…，成立时执行对应分支。
-            if (args.value("lessonId", "") != "" && agentLessonView(db, accessFor(task), args.at("lessonId")).at("courseId") != course.id)
-                // 【逐行批注】 检测到错误情形时抛出异常：throw std::invalid_argument("复习课时所属课程不匹配");。
-                throw std::invalid_argument("复习课时所属课程不匹配");
+            if (due < reviewDate()) throw std::invalid_argument("复习日期须为今天或之后");
+            const auto lessonId = args.value("lessonId", "");
+            const auto evidenceIds = args.value("evidenceIds", Json::array());
+            Json lesson = Json::object(), attempts = Json::array();
+            if (!lessonId.empty()) {
+                lesson = agentLessonView(db, access, lessonId);
+                if (lesson.at("courseId") != course.id || !lesson.value("entered", false))
+                    throw std::invalid_argument("复习来源须为本课程已进入的课时");
+                attempts = reviewAttempts(lesson);
+            }
+            const auto selected = selectedReviewAttempts(attempts, evidenceIds);
             // 【逐行批注】 计算右侧结果并写入 auto reviewId，更新当前运行状态。
             const auto reviewId = id("review");
             // 【逐行批注】 计算右侧结果并写入 Json value，更新当前运行状态。
-            const Json value = {{"id", reviewId}, {"courseId", course.id}, {"title", text(args, "title")}, {"due", due},
+            Json value = {{"id", reviewId}, {"courseId", course.id}, {"scopeId", access.scopeId},
+                {"title", text(args, "title")}, {"due", due},
                 // 【逐行批注】 调用 text 完成本行所需操作：{"reason", text(args, "reason")}, {"day", 0}, {"status", "pending"}, …。
                 {"reason", text(args, "reason")}, {"day", 0}, {"status", "pending"}, {"phaseIndex", args.value("phaseIndex", 0)},
                 // 【逐行批注】 执行当前声明或表达式：{"topicIndex", args.value("topicIndex", 0)}, {"lessonId", args.value("lessonId", "")…。
-                {"topicIndex", args.value("topicIndex", 0)}, {"lessonId", args.value("lessonId", "")}, {"model", source.model}};
+                {"topicIndex", args.value("topicIndex", 0)}, {"lessonId", lessonId}, {"model", source.model},
+                {"topicId", lesson.value("topicId", "")}, {"evidenceIds", evidenceIds},
+                {"evidenceRevision", libraryDigest(attempts.dump())}};
+            value["scheduledAt"] = now();
+            if (args.contains("minimumDelaySeconds")) value["minimumDelaySeconds"] = checkedReviewDelay(args.at("minimumDelaySeconds"));
             // 【逐行批注】 结束当前函数并返回结果：return PreparedAgentTool{{{"reviewId", reviewId}, {"due", due}}, [val…。
-            return PreparedAgentTool{{{"reviewId", reviewId}, {"due", due}}, [value, reviewId, course](Database& connection) {
+            return PreparedAgentTool{{{"reviewId", reviewId}, {"due", due},
+                {"scheduledAt", value.at("scheduledAt")}, {"minimumDelaySeconds", value.value("minimumDelaySeconds", Json())},
+                {"basisStatus", selected.empty() ? "insufficient" : "verified"}},
+                [value, reviewId, course, access](Database& connection) {
+                if (!value.at("evidenceIds").empty() &&
+                    libraryDigest(reviewAttempts(agentLessonView(connection, access, value.at("lessonId"))).dump()) != value.at("evidenceRevision"))
+                    throw std::invalid_argument("作答记录已更新，请重新核对复习依据");
                 // 【逐行批注】 判断条件 (!connection.upsert(ClassroomActivity{reviewId, course.id, "revi…，成立时执行对应分支。
                 if (!connection.upsert(ClassroomActivity{reviewId, course.id, "review", value.dump(), now(), value.at("phaseIndex"), value.at("topicIndex")})) throw std::runtime_error("复习安排保存失败");
             // 【逐行批注】 执行当前声明或表达式：}};。

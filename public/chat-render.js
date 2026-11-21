@@ -217,6 +217,56 @@
   // 【逐行批注】 结束当前前端代码块。
   }
 
+  // 按未转义的竖线拆分表格，保留行内代码和链接里的竖线。
+  function tableCells(line) {
+    const text = String(line).trim();
+    const cells = [];
+    let cell = '';
+    let codeTicks = 0;
+    let bracketDepth = 0;
+    let linkDepth = 0;
+    let separators = 0;
+    for (let index = 0; index < text.length; index++) {
+      const ch = text[index];
+      if (ch === '\\' && text[index + 1] === '|') { cell += '|'; index++; continue; }
+      if (ch === '`') {
+        let end = index + 1;
+        while (text[end] === '`') end++;
+        const count = end - index;
+        if (!codeTicks) codeTicks = count;
+        else if (codeTicks === count) codeTicks = 0;
+        cell += text.slice(index, end);
+        index = end - 1;
+        continue;
+      }
+      if (!codeTicks) {
+        if (ch === '[') bracketDepth++;
+        else if (ch === ']' && bracketDepth) bracketDepth--;
+        else if (ch === '(' && !bracketDepth && (linkDepth || text[index - 1] === ']')) linkDepth++;
+        else if (ch === ')' && linkDepth) linkDepth--;
+        if (ch === '|' && !bracketDepth && !linkDepth) {
+          cells.push(cell.trim()); cell = ''; separators++; continue;
+        }
+      }
+      cell += ch;
+    }
+    cells.push(cell.trim());
+    if (text.startsWith('|')) cells.shift();
+    if (text.endsWith('|') && !text.endsWith('\\|') && !codeTicks && !linkDepth) cells.pop();
+    return {cells, separators};
+  }
+
+  // 表头和分隔线必须列数一致，避免把普通文字误判为表格。
+  function tableHeader(lines, index) {
+    if (index + 1 >= lines.length) return null;
+    const header = tableCells(lines[index]);
+    const separator = tableCells(lines[index + 1]);
+    if (!header.separators || header.cells.length === 0 || header.cells.length !== separator.cells.length ||
+        !separator.cells.every(cell => /^:?-{3,}:?$/.test(cell))) return null;
+    return {header: header.cells, alignment: separator.cells.map(cell =>
+      cell.startsWith(':') && cell.endsWith(':') ? 'center' : cell.endsWith(':') ? 'right' : 'left')};
+  }
+
   // 【逐行批注】 定义函数 renderBlocks，封装可复用的前端行为。
   function renderBlocks(text, store, depth) {
     // 【逐行批注】 声明前端变量 lines，保存本行计算出的数据或对象。
@@ -233,6 +283,23 @@
       if (!line.trim()) { index++; continue; }
       // 【逐行批注】 判断条件 (isToken(line.trim(), 'C')) { out.push(restore(line.trim(), stor…，成立时执行对应逻辑。
       if (isToken(line.trim(), 'C')) { out.push(restore(line.trim(), store)); index++; continue; }
+      const table = tableHeader(lines, index);
+      if (table) {
+        const cellHtml = (tag, cell, column) => '<' + tag + ' style="text-align:' + table.alignment[column] + '">' +
+          inline(cell || '', store) + '</' + tag + '>';
+        const headings = table.header.map((cell, column) => cellHtml('th', cell, column)).join('');
+        const rows = [];
+        index += 2;
+        while (index < lines.length && lines[index].trim()) {
+          const row = tableCells(lines[index]);
+          if (!row.separators || BLOCK_START.test(lines[index]) || LIST_ITEM.test(lines[index])) break;
+          rows.push('<tr>' + table.header.map((_cell, column) => cellHtml('td', row.cells[column], column)).join('') + '</tr>');
+          index++;
+        }
+        out.push('<div class="chat-table" style="overflow-x:auto;max-width:100%"><table><thead><tr>' + headings +
+          '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>');
+        continue;
+      }
       // 【逐行批注】 声明前端变量 heading，保存本行计算出的数据或对象。
       const heading = /^(#{1,6})\s+(.*)$/.exec(line);
       // 【逐行批注】 判断条件 (heading) {，成立时执行对应逻辑。
@@ -284,7 +351,7 @@
       // 【逐行批注】 声明前端变量 paragraph，保存本行计算出的数据或对象。
       const paragraph = [];
       // 【逐行批注】 在条件成立期间循环处理：while (index < lines.length && lines[index].trim() && !BLOCK_START.test(li…。
-      while (index < lines.length && lines[index].trim() && !BLOCK_START.test(lines[index]) &&
+      while (index < lines.length && lines[index].trim() && !BLOCK_START.test(lines[index]) && !tableHeader(lines, index) &&
              // 【逐行批注】 调用 isToken 执行页面交互或数据处理：!LIST_ITEM.test(lines[index]) && !isToken(lines[index].trim(), 'C')) {。
              !LIST_ITEM.test(lines[index]) && !isToken(lines[index].trim(), 'C')) {
         // 【逐行批注】 执行当前前端表达式：paragraph.push(lines[index]);。

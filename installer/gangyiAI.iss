@@ -1,7 +1,7 @@
 ; 【逐行批注】 执行安装器预处理定义或条件：#ifndef MyAppVersion。
 #ifndef MyAppVersion
-  ; 【逐行批注】 执行安装器预处理定义或条件：#define MyAppVersion "5.7.1"。
-  #define MyAppVersion "5.7.1"
+  ; 【逐行批注】 执行安装器预处理定义或条件：#define MyAppVersion "5.7.2"。
+  #define MyAppVersion "5.7.2"
 ; 【逐行批注】 执行安装器预处理定义或条件：#endif。
 #endif
 ; 【逐行批注】 执行安装器预处理定义或条件：#ifndef PayloadDir。

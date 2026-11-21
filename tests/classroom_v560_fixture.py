@@ -28,6 +28,26 @@ from threading import Thread
 from urllib.request import Request, urlopen
 
 
+def open_learning_menu(page, section=None):
+    """从正式页头打开学习操作，并按需展开其中的分组。"""
+    panel = page.locator('#learning-workspace-menu')
+    if not panel.is_visible():
+        page.get_by_role('button', name='操作菜单', exact=True).click()
+    if section:
+        summary = panel.get_by_text(section, exact=True)
+        if not summary.evaluate('(element) => element.parentElement.open'):
+            summary.click()
+    return panel
+
+
+def launch_test_browser(playwright):
+    """Windows 可直接复用已安装的 Edge。"""
+    chromium = playwright.chromium
+    if os.name == 'nt' and not Path(chromium.executable_path).is_file():
+        return chromium.launch(channel='msedge', headless=True)
+    return chromium.launch(headless=True)
+
+
 # 【逐行批注】 定义类 FixtureAI，组织相关数据与行为。
 class FixtureAI(BaseHTTPRequestHandler):
     # 【逐行批注】 计算右侧结果并赋给 calls，更新脚本状态。
@@ -100,9 +120,32 @@ class FixtureAI(BaseHTTPRequestHandler):
             # 【逐行批注】 结束当前函数并返回结果：return。
             return
         # 【逐行批注】 计算右侧结果并赋给 context，更新脚本状态。
+        system_prompt = request['messages'][0]['content']
+        if '试卷识别器' in system_prompt:
+            assert 'pageIndexes' in system_prompt
+            if len(request['messages']) == 2:
+                questions = [dict(id='q-practice', number='3', stem='另一个批次的题目',
+                                  pageIndex=0, recognitionConfidence=.9)]
+            else:
+                questions = [
+                    dict(id='q-practice', number='1', stem='识别原题',
+                         materials=['共同材料'], pageIndex=0, pageIndexes=[0, 1],
+                         subquestions=['第一个小问', dict(text='未校正的小问', referenceAnswer='PRIVATE-EXAM-KEY')],
+                         referenceAnswer='PRIVATE-EXAM-KEY', handwrittenAnswer='PRIVATE-HANDWRITING',
+                         recognitionConfidence=.9),
+                    dict(id='q-uncertain', number='2', stem='可能有误的题干', pageIndex=2, recognitionConfidence=.4),
+                ]
+            self.send_decision(dict(title='隔离试卷', questions=questions))
+            return
+        if '试卷讲解老师' in system_prompt:
+            self.send_decision(dict(message='试卷已识别，请先核对原卷页和小问。',
+                                    artifacts=[], currentQuestionId='q-practice', state='continue'))
+            return
         context = json.loads(request['messages'][1]['content'])
         # 【逐行批注】 计算右侧结果并赋给 event，更新脚本状态。
         event = context['event']
+        expected_curriculum = {'核对课程教材来源': 'pep-a-sets-logic',
+                               '核对课程人教 B 版教材来源': 'pep-b-sets-logic'}.get(event.get('text'))
         # 【逐行批注】 调用 type 完成当前脚本或测试步骤：type(self).calls.append(event['requestId'])。
         type(self).calls.append(event['requestId'])
         # 【逐行批注】 计算右侧结果并赋给 results，更新脚本状态。
@@ -178,7 +221,71 @@ class FixtureAI(BaseHTTPRequestHandler):
                 # 【逐行批注】 计算右侧结果并赋给 actions，更新脚本状态。
                 actions = [dict(id='finish', tool='finish_lesson', args=dict(lessonId=lesson))]
         # 【逐行批注】 当前一条件不成立时继续判断：event['type'] in ('lesson_start', 'chat'):。
+        elif event['type'] == 'library_research' and event.get('sourceId'):
+            if not results:
+                actions = [dict(id='verify-official-original', tool='read_resource', args=dict(sourceId=event['sourceId']))]
+                state, message = 'continue', ''
+            else:
+                message = '原文读取步骤已回传。'
+        elif event['type'] == 'chat' and expected_curriculum:
+            curriculum = context['savedLibrary']['curriculum']
+            assert curriculum['chapter']['id'] == expected_curriculum and curriculum['grade'] == '高一'
+            assert {source['role'] for source in curriculum['sources']} == {'standard', 'publisherCatalog'}
+            assert all(source['status'] == 'verified' for source in curriculum['sources'])
+            publisher = next(source for source in curriculum['sources'] if source['role'] == 'publisherCatalog')
+            assert publisher['url'] == ('https://www.pep.com.cn/gzsxb/' if expected_curriculum == 'pep-b-sets-logic'
+                                        else 'https://www.pep.com.cn/xw/zt/px/2019/shuxue/')
+            if not results:
+                actions = [dict(id='read-pinned-publisher', tool='read_resource', args=dict(sourceId=publisher['sourceId']))]
+                state, message, curriculum_decision = 'continue', '', {}
+            else:
+                saved = next(item['result']['snapshot'] for item in results if 'snapshot' in item['result'])
+                assert saved['id'] == publisher['snapshotId']
+                message = '以课程标准说明范围，并按出版社目录找到相应章节。'
+                curriculum_decision = dict(materialOrigin='source_based', citations=[
+                    {key: source[key] for key in ('sourceId', 'snapshotId', 'segmentId')} for source in curriculum['sources']])
+        elif event['type'] == 'chat' and 'examQuestion' in event:
+            exam = context['examQuestion']
+            assert not any(secret in json.dumps(context) for secret in ['PRIVATE-EXAM-KEY', 'PRIVATE-HANDWRITING'])
+            assert 'savedLibrary' not in context and 'dataUrl' not in json.dumps(exam)
+            guide = request['messages'][0]['content']
+            assert '"name":"calculate_exact"' in guide and '"name":"create_course"' not in guide and '"name":"read_resource"' not in guide
+            points = ', '.join(part['text'] for part in exam['subquestions'])
+            history = next((item['text'] for item in context['materialConversation'] if item['role'] == 'user'), '')
+            message = f'{exam["stem"]}｜{points}'
+            if history:
+                message += '｜前次提问：' + history
+        elif event['type'] == 'chat' and 'material' in event:
+            system_prompt = request['messages'][0]['content']
+            assert '"name":"read_resource"' in system_prompt and 'nextOffset' in system_prompt
+            assert '"name":"create_course"' not in system_prompt and '"name":"search_resources"' not in system_prompt
+            selected, = context['savedLibrary']['sources']
+            original = selected['snapshot']['segments'][0]
+            assert selected['snapshotId'] == event['material']['snapshotId']
+            assert selected['id'] == event['material']['sourceId']
+            history = context['materialConversation']
+            message = original['text']
+            if history:
+                message += ' 前次提问：' + next(item['text'] for item in history if item['role'] == 'user')
+            read = next((item['result'] for item in results if 'snapshot' in item['result']), None)
+            if '读取后半部分' in event['text'] and read is None:
+                actions = [dict(id='read-fixed-version', tool='read_resource', args=dict(sourceId=selected['id'], offset=1))]
+                state, message = 'continue', ''
+            elif read is not None:
+                assert read['snapshot']['id'] == selected['snapshotId']
+                original = read['snapshot']['segments'][0]
+                message = original['text']
+            ref = dict(event['material'], segmentId=original['id'])
+            if '伪造新版引用' in event['text']:
+                ref.update(snapshotId='snap-latest', segmentId='latest-one')
+            material_decision = dict(materialOrigin='source_based', citations=[ref]) if message else {}
         elif event['type'] in ('lesson_start', 'chat'):
+            if 'yesterdayReview' in event:
+                source = context['yesterdayReview']
+                assert source['date'] == event['yesterdayReview']['date']
+                assert source['visits'] == 1 and source['exchanges'] == 2
+                assert context['lessonContext']['id'] == event['lessonId']
+                assert '"name":"create_course"' not in system_prompt and '"name":"evaluate_answer"' not in system_prompt
             # 【逐行批注】 计算右侧结果并赋给 lesson，更新脚本状态。
             lesson = next((item['result'] for item in results if 'sections' in item['result']), None)
             # 【逐行批注】 判断条件 not lesson:，成立时执行对应分支。
@@ -201,6 +308,8 @@ class FixtureAI(BaseHTTPRequestHandler):
                 actions = [dict(id='focus', tool='select_teaching_focus', args=dict(lessonId=lesson['id'], sectionId=explanations[index]['id'], interactionSectionId=interactions[index]['id'], practiceSectionId=practices[0]['id']))]
                 # 【逐行批注】 计算右侧结果并赋给 message，更新脚本状态。
                 message = '请围绕当前段说说你的思路；我会根据你的反馈再决定下一步。'
+                if 'yesterdayReview' in event:
+                    message = '复习昨天这节课，先独立回忆怎么比较同一种元素的化合价。'
                 # 【逐行批注】 计算右侧结果并赋给 state，更新脚本状态。
                 state = 'waiting_student'
         # 【逐行批注】 当前一条件不成立时继续判断：event['type'] == 'question_answer':。
@@ -292,7 +401,15 @@ class FixtureAI(BaseHTTPRequestHandler):
         # 【逐行批注】 计算右侧结果并赋给 help_type，更新脚本状态。
         help_type = event.get('requestType') if event.get('requestType') in ('hint','worked_example') else 'explanation'
         # 【逐行批注】 计算右侧结果并赋给 value，更新脚本状态。
-        value = json.dumps(dict(teaching=dict(helpType=help_type), message=message, actions=actions, state=state), ensure_ascii=False)
+        decision = dict(teaching=dict(helpType=help_type), message=message, actions=actions, state=state)
+        if event['type'] == 'chat' and 'material' in event:
+            decision.update(material_decision)
+        if event['type'] == 'chat' and expected_curriculum:
+            decision.update(curriculum_decision)
+        self.send_decision(decision)
+
+    def send_decision(self, decision):
+        value = json.dumps(decision, ensure_ascii=False)
         # 【逐行批注】 执行当前 Python 语句：self.send_response(200)。
         self.send_response(200)
         # 【逐行批注】 执行当前 Python 语句：self.send_header('Content-Type', 'text/event-stream')。
@@ -348,6 +465,8 @@ def start_session(executable=None):
         # 【逐行批注】 计算右侧结果并赋给 env，更新脚本状态。
         env = dict(os.environ, DATABASE_PATH=str(database), PORT=str(port), HOST='127.0.0.1', AI_BASE_URL=f'http://127.0.0.1:{ai.server_port}/v1', AI_API_KEY='fictional-fixture-key', AI_MODEL='fixture-v560', GANGYI_LAUNCH_SESSION_ID='v560-ui-isolated')
         # 【逐行批注】 计算右侧结果并赋给 process，更新脚本状态。
+        env.update(BOCHA_API_KEY='', DEEPSEEK_SEARCH_API_KEY='', DEEPSEEK_API_KEY='',
+                   BOCHA_BASE_URL=env['AI_BASE_URL'], DEEPSEEK_SEARCH_BASE_URL=env['AI_BASE_URL'])
         process = subprocess.Popen([str(Path(executable).resolve() if executable else repo / 'build-windows/gangyiAI.exe')], cwd=repo, env=env, stdout=log, stderr=log, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
         # 【逐行批注】 定义函数 api，封装可复用的处理步骤。
         def api(path, value=None):

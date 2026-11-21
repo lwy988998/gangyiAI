@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gangyiai:interactive-sets:v1",
+  "title": "集合运算与关系组件 v1",
+  "description": "受控集合交并补与关系探索；未指定操作时兼容原交集组件。生产端另校验元素归属与UTF-8字节上限。",
+  "type": "object",
+  "required": ["schemaVersion", "id", "type", "title", "status", "universe", "setA", "setB"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {"const": 1, "type": "integer"},
+    "id": {"type": "string", "minLength": 1, "maxLength": 100},
+    "type": {"const": "sets"},
+    "title": {"type": "string", "minLength": 1, "maxLength": 500},
+    "caption": {"type": "string"},
+    "status": {"const": "ready"},
+    "operation": {"type": "string", "enum": ["intersection", "union", "complement_a", "complement_b", "relations"]},
+    "universe": {"$ref": "#/$defs/nonemptyMembers"},
+    "setA": {"$ref": "#/$defs/members"},
+    "setB": {"$ref": "#/$defs/members"}
+  },
+  "$defs": {
+    "members": {
+      "type": "array", "maxItems": 16, "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "\\S"}
+    },
+    "nonemptyMembers": {"allOf": [{"$ref": "#/$defs/members"}, {"minItems": 1}]}
+  }
+}

@@ -295,14 +295,21 @@
     let data=await api(null,{id:params.get('id'),...(params.get('snapshotId')?{snapshotId:params.get('snapshotId')}:{}),courseId:params.get('courseId')||''});
     // 【逐行批注】 声明前端变量 snapshot，保存本行计算出的数据或对象。
     const snapshot=data.snapshot;
+    const basis=data.curriculumSource;
+    const curriculumInfo=basis?'<p class="ma-note">'+esc(basis.title)+' · '+esc(basis.coverage)+'</p>':'';
+    const studyLink=snapshot?.segments?.length && !data.excluded && data.choice?.state!=='excluded'
+      ? '<a class="ma-button" href="/ask?'+new URLSearchParams({sourceId:data.id,snapshotId:snapshot.id,courseId:params.get('courseId')||''})+'">围绕这份资料学</a>' : '';
     // 【逐行批注】 计算右侧结果并更新 root.innerHTML，改变页面或请求状态。
-    root.innerHTML='<a class="ma-link" href="/my-ai/library?'+new URLSearchParams({courseId:params.get('courseId')||''})+'">← 返回资料列表</a>'+
+    root.innerHTML='<a class="ma-link" href="/my-ai/library?'+new URLSearchParams({
+      courseId:params.get('courseId')||'', chapterId:params.get('chapterId')||''
+    })+'">← 返回资料列表</a>'+
       // 【逐行批注】 调用 esc、provenance 执行页面交互或数据处理：'<article class="ma-card"><h2>'+esc(data.title)+'</h2><p>'+esc(data.d…。
       '<article class="ma-card"><h2>'+esc(data.title)+'</h2><p>'+esc(data.description||'')+'</p><p class="ma-note">'+esc(data.source)+' · '+esc(readLabels[data.readStatus]||data.readStatus)+' · 检索：'+esc(provenance(data))+'</p>'+
       // 【逐行批注】 调用 esc、date 执行页面交互或数据处理：'<p class="ma-note">发布：'+esc(date(snapshot?.publishedAt??data.publish…。
       '<p class="ma-note">发布：'+esc(date(snapshot?.publishedAt??data.publishedAt))+' · 原文更新：'+esc(date(snapshot?.sourceUpdatedAt??data.sourceUpdatedAt))+' · 本次核验：'+esc(date(snapshot?.checkedAt??data.lastCheckedAt))+'</p>'+
       // 【逐行批注】 调用 esc 执行页面交互或数据处理：'<p class="ma-note">'+esc(data.coverage||'尚未读取原文，搜索摘要不作为全文依据')+'</p>'+。
       '<p class="ma-note">'+esc(data.coverage||'尚未读取原文，搜索摘要不作为全文依据')+'</p>'+
+      curriculumInfo+
       // 【逐行批注】 调用 esc 执行页面交互或数据处理：(data.readReason?'<p class="ma-note">上次读取：'+esc(data.readReason)+'</p…。
       (data.readReason?'<p class="ma-note">上次读取：'+esc(data.readReason)+'</p>':'')+
       // 【逐行批注】 调用 esc 执行页面交互或数据处理：'<div class="ma-actions"><a class="ma-button secondary" href="'+esc(d…。
@@ -310,7 +317,7 @@
       // 【逐行批注】 调用 button 执行页面交互或数据处理：button(data.favorite?'取消收藏':'收藏','favorite')+button(data.excluded?'允许…。
       button(data.favorite?'取消收藏':'收藏','favorite')+button(data.excluded?'允许使用':'排除此资料','exclude')+
       // 【逐行批注】 调用 button 执行页面交互或数据处理：button(snapshot?'更新原文':'读取原文','read')+button('选为教学资料','select')+'</di…。
-      button(snapshot?'更新原文':'读取原文','read')+button('选为教学资料','select')+'</div></article>'+
+      button(snapshot?'更新原文':'读取原文','read')+button('选为教学资料','select')+studyLink+'</div></article>'+
       // 【逐行批注】 执行当前前端表达式：'<article class="ma-card" id="library-task"></article>'+。
       '<article class="ma-card" id="library-task"></article>'+
       // 【逐行批注】 执行当前前端表达式：'<article class="ma-card"><h2>保存的原文依据</h2>'+。
@@ -346,6 +353,68 @@
   // 【逐行批注】 结束当前前端代码块。
   }
   // 【逐行批注】 定义函数 initialize，封装可复用的前端行为。
+  let curriculumRequest = 0;
+  async function showCurriculum(previewId = '') {
+    const host=byId('library-curriculum');
+    if(!host)return;
+    const selectedCourse=courseId();
+    const requestId=++curriculumRequest;
+    const path='/api/my-ai/curriculum';
+    let data;
+    try{data=await request(path+'?'+new URLSearchParams({courseId:selectedCourse}));}
+    catch(error){if(requestId===curriculumRequest)host.textContent=error.message;return;}
+    if(requestId!==curriculumRequest || courseId()!==selectedCourse || !data.chapter || !Array.isArray(data.chapters))return;
+    const choices=data.chapters, selection=data.selection;
+    const active = choices.find(choice=>choice.chapter.id===previewId) || data;
+    host.innerHTML='<h2>课程标准与教材</h2><div class="ma-field"><label for="library-curriculum-edition">教材版本</label>'+
+      '<select id="library-curriculum-edition">'+choices.map(({chapter})=>
+        '<option value="'+esc(chapter.id)+'">'+esc(chapter.edition)+'</option>').join('')+
+      '</select></div><div data-curriculum-details></div>';
+    const edition=byId('library-curriculum-edition');
+    const details=host.querySelector('[data-curriculum-details]');
+    edition.value=active.chapter.id;
+    const render=({chapter,sources:entries}, draftGrade)=>{
+      const labels={verified:'已核对',unverified:'待核对原文',missing:'待添加',excluded:'已排除'};
+      const verified=entries.every(source=>source.status==='verified');
+      const sources=entries.map((source,index)=>{
+        const loc=source.page?'查看第 '+source.page+' 页':source.status==='verified'?'查看目录段落':'打开资料记录';
+        const action=source.href?'<a class="ma-link" href="'+esc(source.href)+'">'+esc(loc)+'</a>':
+          '<button type="button" class="ma-button secondary" data-add-curriculum="'+index+'">添加来源</button>';
+        return '<li><div><strong>'+esc(source.title)+'</strong><p class="ma-note">'+esc(source.coverage)+'</p></div>'+
+          '<div><span class="library-read-state">'+esc(labels[source.status])+'</span>'+action+'</div></li>';
+      }).join('');
+      const hasSelection=Boolean(selection.chapterId);
+      const gradeLabel=selection.grade?' · '+esc(selection.grade):'';
+      const selected=hasSelection?'<p class="library-curriculum-selection">'+
+        (selection.status==='verified'?'本课已选用'+gradeLabel:'已选依据暂不可用，请核对资料状态')+
+        ' · '+esc(selection.chapter?.edition||'')+'</p><ul class="library-curriculum-pinned">'+(selection.sources||[]).filter(source=>source.href).map(source=>
+          '<li><a class="ma-link" href="'+esc(source.href)+'">'+esc(source.page?'本课固定的标准第 '+source.page+' 页':source.status==='verified'?'本课固定的出版社目录':'查看当前资料状态')+'</a></li>').join('')+'</ul>':'';
+      const controls=selectedCourse?'<div class="ma-actions"><label>年级 <select id="library-curriculum-grade"><option value="">暂不指定</option>'+
+        ['高一','高二','高三'].map(grade=>'<option'+(draftGrade===grade?' selected':'')+'>'+grade+'</option>').join('')+'</select></label>'+
+        '<button type="button" class="ma-button" data-save-curriculum '+(verified?'':'disabled')+'>'+(hasSelection?'更新本课依据':'用作本课依据')+'</button>'+
+        (hasSelection?'<button type="button" class="ma-button secondary" data-clear-curriculum>取消本课选用</button>':'')+
+        '</div>':'<p class="ma-note">选择关联课程后，可以将已核对的版本和章节用于该课程。</p>';
+      details.innerHTML='<p><strong>'+esc(chapter.stage+' · '+chapter.subject)+'</strong></p>'+
+        '<p>'+esc(chapter.title)+'</p><p class="ma-note">'+esc(chapter.editionBasis)+'</p><ul class="library-curriculum-sources">'+sources+'</ul>'+selected+controls;
+      details.querySelectorAll('[data-add-curriculum]').forEach(button=>button.onclick=action(async()=>{
+        const source=entries[Number(button.dataset.addCurriculum)];
+        const saved=await api({url:source.url,title:source.title,courseId:selectedCourse});
+        location.href='/my-ai/library?'+new URLSearchParams({id:saved.id,courseId:selectedCourse,chapterId:chapter.id});
+      }));
+      const change=async(clear)=>{
+        await request(path,{courseId:selectedCourse,version:selection.version,chapterId:clear?'':chapter.id,
+          grade:clear?'':byId('library-curriculum-grade').value});
+        if (requestId===curriculumRequest) await showCurriculum(chapter.id);
+      };
+      const save=details.querySelector('[data-save-curriculum]');
+      const clear=details.querySelector('[data-clear-curriculum]');
+      if(save)save.onclick=action(()=>change(false));
+      if(clear)clear.onclick=action(()=>change(true));
+    };
+    edition.onchange=()=>render(choices.find(choice=>choice.chapter.id===edition.value), byId('library-curriculum-grade')?.value);
+    render(active, selection.grade);
+  }
+
   async function initialize(){
     // 【逐行批注】 声明前端变量 fromChat，保存本行计算出的数据或对象。
     const fromChat=params.get('fromChat')||sessionStorage.getItem('my-ai-return-chat');if(fromChat){const link=document.getElementById('return-chat');link.href='/my-ai/chat?id='+encodeURIComponent(fromChat);link.hidden=false;}
@@ -363,6 +432,7 @@
       '<button class="ma-button" type="submit">让AI搜索与核验</button></form></article>'+
       // 【逐行批注】 执行当前前端表达式：'<article class="ma-card" id="library-task"></article>'+。
       '<article class="ma-card" id="library-task"></article>'+
+      '<article class="ma-card" id="library-curriculum"><h2>课程标准与教材</h2><p class="ma-note">正在读取本机教材依据…</p></article>'+
       // 【逐行批注】 执行当前前端表达式：'<article class="ma-card"><h2>资料列表</h2><div class="library-filters"><input id="library-se…。
       '<article class="ma-card"><h2>资料列表</h2><div class="library-filters"><input id="library-search" aria-label="搜索已保存资料" placeholder="搜索已保存的资料与正文"><select id="library-filter" aria-label="资料筛选"><option value="all">全部</option><option value="favorites">已收藏</option><option value="read">正文可读</option><option value="excluded">已排除</option></select></div><p class="ma-note" id="library-usage"></p>'+
       // 【逐行批注】 执行当前前端表达式：'<form id="library-url-form" class="library-add-url"><input id="library-url" type="url" r…。
@@ -414,7 +484,9 @@
     // 【逐行批注】 执行当前前端表达式：};。
     };
     // 【逐行批注】 计算右侧结果并更新 document.getElementById('library-course').on…，改变页面或请求状态。
-    document.getElementById('library-course').onchange=list;document.getElementById('library-filter').onchange=list;
+    document.getElementById('library-course').onchange=()=>Promise.all([list(),showCurriculum()]);
+    document.getElementById('library-filter').onchange=list;
+    void showCurriculum(params.get('chapterId')||'');
     // 【逐行批注】 声明前端变量 timer，保存本行计算出的数据或对象。
     let timer;document.getElementById('library-search').oninput=()=>{clearTimeout(timer);timer=setTimeout(()=>list().catch(e=>note(e.message,true)),250);};
     // 【逐行批注】 调用 paintLastTask 执行页面交互或数据处理：paintLastTask();。

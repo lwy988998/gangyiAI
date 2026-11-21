@@ -193,6 +193,20 @@
       card('课程进度',data.courses.length?data.courses.map(c=>'<div class="ma-row"><h3>'+escape(c.title)+'</h3><div class="ma-bar"><i style="width:'+Math.max(0,Math.min(100,c.percent))+'%"></i></div><p class="ma-note">'+c.completed+' / '+c.total+' 节 · '+c.percent+'%</p><a class="ma-link" href="/plan?courseId='+encodeURIComponent(c.id)+'">进入课程 →</a></div>').join(''):empty('当前没有课程。'))+
       // 【逐行批注】 计算右侧结果并更新 card('知识点掌握度',data.topics.length?data.topics…，改变页面或请求状态。
       card('知识点掌握度',data.topics.length?data.topics.map(t=>'<div class="ma-row"><h3>'+escape(t.topic)+' · '+score(t.score)+'</h3><p>'+escape(t.rationale)+'</p><p class="ma-note">依据 '+t.evidenceCount+' 条记录</p><p>'+escape(t.recommendation)+'</p><a class="ma-link" href="/my-ai/reports?courseId='+encodeURIComponent(t.courseId)+(t.evidenceIds?.[0]?'&evidenceId='+encodeURIComponent(t.evidenceIds[0]):'')+'#evidence">查看对应记录 →</a></div>').join(''):empty('当前范围的数据不足。'))+
+      card('已完成复习',(data.completedReviews||[]).length?data.completedReviews.map(item=>{
+        const details=escape(item.courseTitle)+' · '+escape(time(item.completedAt))+' · 完成 '+item.questionCount+' 题'+
+          (item.changedCount?' · 评价依据已更新':'');
+        const evidence=item.evidenceIds.map((id,index)=>'<a class="ma-link" href="/my-ai/reports?'+
+          new URLSearchParams({courseId:item.courseId,evidenceId:id})+'#evidence">第 '+(index+1)+' 条评价</a>').join('');
+        const timing=item.timing||{},duration=seconds=>seconds>=86400?(seconds/86400).toFixed(1)+' 天':seconds>=60?(seconds/60).toFixed(1)+' 分钟':seconds+' 秒';
+        const interval=timing.status==='delay_met'?'各题提交均达到约定间隔，最短 '+duration(timing.minimumElapsedSeconds)+'。':
+          timing.status==='too_early'?'本次提前复习，尚未达到约定间隔 '+duration(timing.minimumDelaySeconds)+'。':
+          timing.status==='unavailable'?'提交时间记录不足，无法核对复习间隔。':'本次未约定最短间隔。';
+        return '<div class="ma-row"><h3>'+escape(item.title)+'</h3><p class="ma-note">'+details+'</p>'+
+          '<p class="ma-note">'+escape(interval)+' 完成复习不代表已验证长期记忆。</p>'+
+          '<div class="ma-actions"><a class="ma-link" href="/practice?lessonId='+encodeURIComponent(item.lessonId)+
+          '">回看复习</a>'+evidence+'</div></div>';
+      }).join(''):empty('复习完成后，这里会显示作答依据。'))+
       // 【逐行批注】 调用 card、escape、empty 执行页面交互或数据处理：card('变化趋势','<p class="ma-note">'+escape(data.historyNote)+'</p>'+(da…。
       card('变化趋势','<p class="ma-note">'+escape(data.historyNote)+'</p>'+(data.history.some(h=>Object.values(h.scores).some(v=>typeof v==='number'))?'<div id="profile-chart" class="ma-chart"></div>':empty('完成有效学习并更新画像后，这里会展示变化趋势。')))+
       // 【逐行批注】 调用 card、empty 执行页面交互或数据处理：card('有效学习时间',(data.time.length?'<div id="time-chart" class="ma-chart…。
