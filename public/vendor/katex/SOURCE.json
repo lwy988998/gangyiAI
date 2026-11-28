@@ -1,0 +1,147 @@
+{
+  "project": "KaTeX",
+  "version": "0.16.11",
+  "registry": "https://registry.npmjs.org/katex/0.16.11",
+  "tarball": "https://registry.npmjs.org/katex/-/katex-0.16.11.tgz",
+  "integrity": "sha512-RQrI8rlHY92OLf3rho/Ts8i/XvjgguEjOkO1BEXcU3N8BqPpSzBNwV/G0Ukr+P/l3ivvJUE/Fa/CwbS6HesGNQ==",
+  "archiveSha256": "8c5494c5f7d8e8bf73ff3fe64d4bd09a340e4878b7eec9bbd9ef8d8f3e24193f",
+  "license": "MIT",
+  "licenseSha256": "766ccc1f306c885aa45542a9846bbd0a505b27a0374f146778171c2254ce18e3",
+  "files": [
+    {
+      "path": "fonts/KaTeX_AMS-Regular.woff2",
+      "upstreamSha256": "0cdd387c9590a1a9f9794560022dbb59654a7d86f187aa0c81495ad42d3a7308",
+      "sha256AtImport": "0cdd387c9590a1a9f9794560022dbb59654a7d86f187aa0c81495ad42d3a7308",
+      "comparisonAtImport": "exact"
+    },
+    {
+      "path": "fonts/KaTeX_Caligraphic-Bold.woff2",
+      "upstreamSha256": "de7701e42cf1f4cf0b766c03fb27977207eee2f4fd5d76fa82188406da43ea4c",
+      "sha256AtImport": "de7701e42cf1f4cf0b766c03fb27977207eee2f4fd5d76fa82188406da43ea4c",
+      "comparisonAtImport": "exact"
+    },
+    {
+      "path": "fonts/KaTeX_Caligraphic-Regular.woff2",
+      "upstreamSha256": "5d53e70ad607c2352162dec9e0923fb54ecdafaccbf604cd8dcf7d00facb989b",
+      "sha256AtImport": "5d53e70ad607c2352162dec9e0923fb54ecdafaccbf604cd8dcf7d00facb989b",
+      "comparisonAtImport": "exact"
+    },
+    {
+      "path": "fonts/KaTeX_Fraktur-Bold.woff2",
+      "upstreamSha256": "74444efd593c005e3f4573b44524704c0af0a937fe911cca9e94068d0d140d3f",
+      "sha256AtImport": "74444efd593c005e3f4573b44524704c0af0a937fe911cca9e94068d0d140d3f",
+      "comparisonAtImport": "exact"
+    },
+    {
+      "path": "fonts/KaTeX_Fraktur-Regular.woff2",
+      "upstreamSha256": "51814d270d06ff0255dba0799994fa4d8c84d11f09951d47595f4abb1f3602dc",
+      "sha256AtImport": "51814d270d06ff0255dba0799994fa4d8c84d11f09951d47595f4abb1f3602dc",
+      "comparisonAtImport": "exact"
+    },
+    {
+      "path": "fonts/KaTeX_Main-Bold.woff2",
+      "upstreamSha256": "0f60d1b897938ec918c8ce073092411baf9438f6739465693ff18b0f9d20b021",
+      "sha256AtImport": "0f60d1b897938ec918c8ce073092411baf9438f6739465693ff18b0f9d20b021",
+      "comparisonAtImport": "exact"
+    },
+    {
+      "path": "fonts/KaTeX_Main-BoldItalic.woff2",
+      "upstreamSha256": "99cd42a3c072d918f2f44984a807cf7aa16e13545fd0875fc07c6c65f99e715b",
+      "sha256AtImport": "99cd42a3c072d918f2f44984a807cf7aa16e13545fd0875fc07c6c65f99e715b",
+      "comparisonAtImport": "exact"
+    },
+    {
+      "path": "fonts/KaTeX_Main-Italic.woff2",
+      "upstreamSha256": "97479ca6cce906abc961ecac96faa5f9ca2e61b8e7670d475826bcdee9a7c267",
+      "sha256AtImport": "97479ca6cce906abc961ecac96faa5f9ca2e61b8e7670d475826bcdee9a7c267",
+      "comparisonAtImport": "exact"
+    },
+    {
+      "path": "fonts/KaTeX_Main-Regular.woff2",
+      "upstreamSha256": "c2342cd8b869e01752a9321dc17213fc40d4d04c79688c1d43f2cf316abd7866",
+      "sha256AtImport": "c2342cd8b869e01752a9321dc17213fc40d4d04c79688c1d43f2cf316abd7866",
+      "comparisonAtImport": "exact"
+    },
+    {
+      "path": "fonts/KaTeX_Math-BoldItalic.woff2",
+      "upstreamSha256": "dc47344dbb6cb5b655c8460d561f4df5f501b90c804ad3c6cec65fe322351ab1",
+      "sha256AtImport": "dc47344dbb6cb5b655c8460d561f4df5f501b90c804ad3c6cec65fe322351ab1",
+      "comparisonAtImport": "exact"
+    },
+    {
+      "path": "fonts/KaTeX_Math-Italic.woff2",
+      "upstreamSha256": "7af58c5ec8f132a2ddde9027c6d7814decce4d3b822a11192a42a20e2e973264",
+      "sha256AtImport": "7af58c5ec8f132a2ddde9027c6d7814decce4d3b822a11192a42a20e2e973264",
+      "comparisonAtImport": "exact"
+    },
+    {
+      "path": "fonts/KaTeX_SansSerif-Bold.woff2",
+      "upstreamSha256": "e99ae51144bf1232efcc1bfe5add36262c6866b0faab24fa75740e1b98577a62",
+      "sha256AtImport": "e99ae51144bf1232efcc1bfe5add36262c6866b0faab24fa75740e1b98577a62",
+      "comparisonAtImport": "exact"
+    },
+    {
+      "path": "fonts/KaTeX_SansSerif-Italic.woff2",
+      "upstreamSha256": "00b26ac825e2095056396e0553b8ac26d3f8ad158c3826e28b4c45b385c4714a",
+      "sha256AtImport": "00b26ac825e2095056396e0553b8ac26d3f8ad158c3826e28b4c45b385c4714a",
+      "comparisonAtImport": "exact"
+    },
+    {
+      "path": "fonts/KaTeX_SansSerif-Regular.woff2",
+      "upstreamSha256": "68e8c73ef42afd3ccec58bf0fba302cce448938e7fc020a5e31f8a952eee1342",
+      "sha256AtImport": "68e8c73ef42afd3ccec58bf0fba302cce448938e7fc020a5e31f8a952eee1342",
+      "comparisonAtImport": "exact"
+    },
+    {
+      "path": "fonts/KaTeX_Script-Regular.woff2",
+      "upstreamSha256": "036d4e95149b69ff9bcc0cd55771efeb25ffa3947293e69acd78d5ac328c684b",
+      "sha256AtImport": "036d4e95149b69ff9bcc0cd55771efeb25ffa3947293e69acd78d5ac328c684b",
+      "comparisonAtImport": "exact"
+    },
+    {
+      "path": "fonts/KaTeX_Size1-Regular.woff2",
+      "upstreamSha256": "6b47c40166b6dbe21a5dfca7718413f2147fd2399be1ba605d8ad39cedf25dfe",
+      "sha256AtImport": "6b47c40166b6dbe21a5dfca7718413f2147fd2399be1ba605d8ad39cedf25dfe",
+      "comparisonAtImport": "exact"
+    },
+    {
+      "path": "fonts/KaTeX_Size2-Regular.woff2",
+      "upstreamSha256": "d04c54219f9eaec6d4d4fd42dfb28785975a4794d6b2fc71e566b9cd6db842dd",
+      "sha256AtImport": "d04c54219f9eaec6d4d4fd42dfb28785975a4794d6b2fc71e566b9cd6db842dd",
+      "comparisonAtImport": "exact"
+    },
+    {
+      "path": "fonts/KaTeX_Size3-Regular.woff2",
+      "upstreamSha256": "73d591271b1604960cb10bb90fee021670af7297017e0e98480b332d11f51995",
+      "sha256AtImport": "73d591271b1604960cb10bb90fee021670af7297017e0e98480b332d11f51995",
+      "comparisonAtImport": "exact"
+    },
+    {
+      "path": "fonts/KaTeX_Size4-Regular.woff2",
+      "upstreamSha256": "a4af7d414440a1c1790825cfb700cf9cf43b0f2c4b04f0ebc523011ad9853ec0",
+      "sha256AtImport": "a4af7d414440a1c1790825cfb700cf9cf43b0f2c4b04f0ebc523011ad9853ec0",
+      "comparisonAtImport": "exact"
+    },
+    {
+      "path": "fonts/KaTeX_Typewriter-Regular.woff2",
+      "upstreamSha256": "71d517d67827787cfabdf186914cc3358eda539e37931941f2b2fd4a21f68c0b",
+      "sha256AtImport": "71d517d67827787cfabdf186914cc3358eda539e37931941f2b2fd4a21f68c0b",
+      "comparisonAtImport": "exact"
+    },
+    {
+      "path": "katex.min.css",
+      "upstreamSha256": "717bc9ae7853b61f0f76455dddf0ecd4f527a783f42de2ac24684899c1c46258",
+      "sha256AtImport": "4597f0d14fe81bdcf985a0a667e2cc16d4cae413f6f1f66b5bcd6f4f32bceb96",
+      "comparisonAtImport": "LF-normalized",
+      "lfSha256": "717bc9ae7853b61f0f76455dddf0ecd4f527a783f42de2ac24684899c1c46258"
+    },
+    {
+      "path": "katex.min.js",
+      "upstreamSha256": "e6bfe5deebd4c7ccd272055bab63bd3ab2c73b907b6e6a22d352740a81381fd4",
+      "sha256AtImport": "e6bfe5deebd4c7ccd272055bab63bd3ab2c73b907b6e6a22d352740a81381fd4",
+      "comparisonAtImport": "exact",
+      "lfSha256": "e6bfe5deebd4c7ccd272055bab63bd3ab2c73b907b6e6a22d352740a81381fd4"
+    }
+  ],
+  "importNote": "sha256AtImport 记录本次导入原字节；文本使用 lfSha256 跨换行格式校对，字体使用原字节摘要。"
+}

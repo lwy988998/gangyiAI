@@ -1,0 +1,2969 @@
+{
+  "cases": [
+    {
+      "config": {
+        "type": "function_lab",
+        "coefficients": [
+          2,
+          -3,
+          1
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "coefficients": [
+          2,
+          -3,
+          1
+        ]
+      },
+      "expected": {
+        "yAtZero": 1,
+        "yAtOne": 0
+      }
+    },
+    {
+      "config": {
+        "type": "function_lab",
+        "coefficients": [
+          0,
+          0.5,
+          -2
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "coefficients": [
+          0,
+          0.5,
+          -2
+        ]
+      },
+      "expected": {
+        "yAtZero": -2,
+        "yAtOne": -1.5
+      }
+    },
+    {
+      "config": {
+        "type": "circuit_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "mode": "series",
+        "voltage": 6,
+        "r1": 10,
+        "r2": 20
+      },
+      "expected": {
+        "equivalentResistance": 30,
+        "totalCurrent": 0.2,
+        "current1": 0.2,
+        "current2": 0.2,
+        "voltage1": 2,
+        "voltage2": 4
+      }
+    },
+    {
+      "config": {
+        "type": "circuit_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "mode": "parallel",
+        "voltage": 6,
+        "r1": 10,
+        "r2": 20
+      },
+      "expected": {
+        "equivalentResistance": 6.666666666666667,
+        "totalCurrent": 0.9,
+        "current1": 0.6,
+        "current2": 0.3,
+        "voltage1": 6,
+        "voltage2": 6
+      }
+    },
+    {
+      "config": {
+        "type": "chemical_balance",
+        "reactionId": "water"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "coefficients": [
+          2,
+          1,
+          2
+        ]
+      },
+      "expected": {
+        "balanced": true,
+        "leftAtoms": {
+          "H": 4,
+          "O": 2
+        },
+        "rightAtoms": {
+          "H": 4,
+          "O": 2
+        }
+      }
+    },
+    {
+      "config": {
+        "type": "chemical_balance",
+        "reactionId": "water"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "coefficients": [
+          1,
+          1,
+          1
+        ]
+      },
+      "expected": {
+        "balanced": false,
+        "leftAtoms": {
+          "H": 2,
+          "O": 2
+        },
+        "rightAtoms": {
+          "H": 2,
+          "O": 1
+        }
+      }
+    },
+    {
+      "config": {
+        "type": "chemical_balance",
+        "reactionId": "methane"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "coefficients": [
+          1,
+          2,
+          1,
+          2
+        ]
+      },
+      "expected": {
+        "balanced": true,
+        "leftAtoms": {
+          "C": 1,
+          "H": 4,
+          "O": 4
+        },
+        "rightAtoms": {
+          "C": 1,
+          "H": 4,
+          "O": 4
+        }
+      }
+    },
+    {
+      "config": {
+        "type": "chemical_balance",
+        "reactionId": "iron_oxide"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "coefficients": [
+          4,
+          3,
+          2
+        ]
+      },
+      "expected": {
+        "balanced": true,
+        "leftAtoms": {
+          "Fe": 4,
+          "O": 6
+        },
+        "rightAtoms": {
+          "Fe": 4,
+          "O": 6
+        }
+      }
+    },
+    {
+      "config": {
+        "type": "cell_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "cellType": "plant",
+        "selectedPart": "chloroplast"
+      },
+      "expected": {
+        "availableParts": [
+          "membrane",
+          "cytoplasm",
+          "nucleus",
+          "mitochondrion",
+          "wall",
+          "chloroplast",
+          "vacuole"
+        ],
+        "part": [
+          "叶绿体",
+          "在绿色植物的光合细胞中参与光合作用；不是所有植物细胞都有叶绿体。"
+        ]
+      }
+    },
+    {
+      "config": {
+        "type": "cell_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "cellType": "animal",
+        "selectedPart": "mitochondrion"
+      },
+      "expected": {
+        "availableParts": [
+          "membrane",
+          "cytoplasm",
+          "nucleus",
+          "mitochondrion"
+        ]
+      }
+    },
+    {
+      "config": {
+        "type": "history_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "order": [
+          "launch",
+          "landing",
+          "return"
+        ],
+        "selectedEvent": "landing"
+      },
+      "expected": {
+        "dates": [
+          "1969-07-16",
+          "1969-07-20",
+          "1969-07-24"
+        ],
+        "chronological": true,
+        "selectedFact": {
+          "label": "登月舱着陆月面",
+          "date": "1969-07-20"
+        }
+      }
+    },
+    {
+      "config": {
+        "type": "history_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "order": [
+          "landing",
+          "launch",
+          "return"
+        ],
+        "selectedEvent": "launch"
+      },
+      "expected": {
+        "chronological": false
+      }
+    },
+    {
+      "config": {
+        "type": "climate_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "month": 7,
+        "compareMonth": 1
+      },
+      "expected": {
+        "temperatureC": 26,
+        "precipitationMm": 180,
+        "temperatureDifferenceC": 24,
+        "precipitationDifferenceMm": 150,
+        "dataKind": "illustrative_not_observed"
+      }
+    },
+    {
+      "config": {
+        "type": "climate_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "month": 7,
+        "compareMonth": 7
+      },
+      "expected": {
+        "temperatureDifferenceC": 0,
+        "precipitationDifferenceMm": 0
+      }
+    },
+    {
+      "config": {
+        "type": "annotation_lab",
+        "fragments": [
+          "自编原文",
+          "<img src=x onerror=alert(1)>"
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "marks": [
+          1,
+          3
+        ]
+      },
+      "expected": {
+        "annotations": [
+          {
+            "index": 0,
+            "text": "自编原文",
+            "label": "意象"
+          },
+          {
+            "index": 1,
+            "text": "<img src=x onerror=alert(1)>",
+            "label": "疑问"
+          }
+        ],
+        "interpretation": "student_annotation_not_correctness"
+      }
+    },
+    {
+      "config": {
+        "type": "sentence_lab",
+        "fragments": [
+          "The students",
+          "read",
+          "a book",
+          "in the library."
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "roles": [
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "expected": {
+        "annotations": [
+          {
+            "index": 0,
+            "text": "The students",
+            "label": "主语"
+          },
+          {
+            "index": 1,
+            "text": "read",
+            "label": "谓语动词"
+          },
+          {
+            "index": 2,
+            "text": "a book",
+            "label": "宾语"
+          },
+          {
+            "index": 3,
+            "text": "in the library.",
+            "label": "修饰或状语"
+          }
+        ]
+      }
+    },
+    {
+      "config": {
+        "type": "algorithm_lab",
+        "values": [
+          5,
+          2,
+          4,
+          1
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "step": 1
+      },
+      "expected": {
+        "array": [
+          2,
+          5,
+          4,
+          1
+        ],
+        "comparedIndices": [
+          0,
+          1
+        ],
+        "swapped": true,
+        "finished": false,
+        "totalSteps": 6
+      }
+    },
+    {
+      "config": {
+        "type": "algorithm_lab",
+        "values": [
+          5,
+          2,
+          4,
+          1
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "step": 6
+      },
+      "expected": {
+        "array": [
+          1,
+          2,
+          4,
+          5
+        ],
+        "finished": true
+      }
+    },
+    {
+      "config": {
+        "type": "function_lab",
+        "coefficients": [
+          1,
+          -2,
+          0
+        ],
+        "xMin": -5,
+        "xMax": 5,
+        "domain": {
+          "min": 0,
+          "max": 3
+        }
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "coefficients": [
+          1,
+          -2,
+          0
+        ]
+      },
+      "expected": {
+        "yAtZero": 0,
+        "yAtOne": -1,
+        "functionAnalysis": {
+          "kind": "quadratic",
+          "domain": {
+            "kind": "closed_interval",
+            "min": 0,
+            "max": 3
+          },
+          "range": {
+            "min": -1,
+            "max": 3
+          },
+          "turningPoint": {
+            "x": 1,
+            "y": -1,
+            "inDomain": true
+          },
+          "zeros": {
+            "kind": "finite",
+            "values": [
+              0,
+              2
+            ]
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "type": "function_lab",
+        "coefficients": [
+          1,
+          0,
+          0
+        ],
+        "xMin": -5,
+        "xMax": 5,
+        "domain": {
+          "min": 2,
+          "max": 4
+        }
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "coefficients": [
+          1,
+          0,
+          0
+        ]
+      },
+      "expected": {
+        "yAtZero": null,
+        "yAtOne": null,
+        "functionAnalysis": {
+          "kind": "quadratic",
+          "domain": {
+            "kind": "closed_interval",
+            "min": 2,
+            "max": 4
+          },
+          "range": {
+            "min": 4,
+            "max": 16
+          },
+          "turningPoint": {
+            "x": 0,
+            "y": 0,
+            "inDomain": false
+          },
+          "zeros": {
+            "kind": "finite",
+            "values": []
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "type": "function_lab",
+        "coefficients": [
+          -1,
+          2,
+          3
+        ],
+        "xMin": -5,
+        "xMax": 5,
+        "domain": {
+          "min": -1,
+          "max": 4
+        }
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "coefficients": [
+          -1,
+          2,
+          3
+        ]
+      },
+      "expected": {
+        "yAtZero": 3,
+        "yAtOne": 4,
+        "functionAnalysis": {
+          "kind": "quadratic",
+          "domain": {
+            "kind": "closed_interval",
+            "min": -1,
+            "max": 4
+          },
+          "range": {
+            "min": -5,
+            "max": 4
+          },
+          "turningPoint": {
+            "x": 1,
+            "y": 4,
+            "inDomain": true
+          },
+          "zeros": {
+            "kind": "finite",
+            "values": [
+              -1,
+              3
+            ]
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "type": "function_lab",
+        "coefficients": [
+          0,
+          -2,
+          4
+        ],
+        "xMin": -5,
+        "xMax": 5,
+        "domain": {
+          "min": 1,
+          "max": 3
+        }
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "coefficients": [
+          0,
+          -2,
+          4
+        ]
+      },
+      "expected": {
+        "yAtZero": null,
+        "yAtOne": 2,
+        "functionAnalysis": {
+          "kind": "linear",
+          "domain": {
+            "kind": "closed_interval",
+            "min": 1,
+            "max": 3
+          },
+          "range": {
+            "min": -2,
+            "max": 2
+          },
+          "turningPoint": null,
+          "zeros": {
+            "kind": "finite",
+            "values": [
+              2
+            ]
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "type": "function_lab",
+        "coefficients": [
+          0,
+          0,
+          0
+        ],
+        "xMin": -5,
+        "xMax": 5
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "coefficients": [
+          0,
+          0,
+          0
+        ]
+      },
+      "expected": {
+        "yAtZero": 0,
+        "yAtOne": 0,
+        "functionAnalysis": {
+          "kind": "constant",
+          "domain": {
+            "kind": "real"
+          },
+          "range": {
+            "min": 0,
+            "max": 0
+          },
+          "turningPoint": null,
+          "zeros": {
+            "kind": "all",
+            "values": []
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "type": "function_lab",
+        "coefficients": [
+          0,
+          0,
+          5
+        ],
+        "xMin": -5,
+        "xMax": 5,
+        "domain": {
+          "min": 2,
+          "max": 3
+        }
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "coefficients": [
+          0,
+          0,
+          5
+        ]
+      },
+      "expected": {
+        "yAtZero": null,
+        "yAtOne": null,
+        "functionAnalysis": {
+          "kind": "constant",
+          "domain": {
+            "kind": "closed_interval",
+            "min": 2,
+            "max": 3
+          },
+          "range": {
+            "min": 5,
+            "max": 5
+          },
+          "turningPoint": null,
+          "zeros": {
+            "kind": "finite",
+            "values": []
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "type": "function_lab",
+        "coefficients": [
+          -1,
+          0,
+          1
+        ],
+        "xMin": -5,
+        "xMax": 5
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "coefficients": [
+          -1,
+          0,
+          1
+        ]
+      },
+      "expected": {
+        "yAtZero": 1,
+        "yAtOne": 0,
+        "functionAnalysis": {
+          "kind": "quadratic",
+          "domain": {
+            "kind": "real"
+          },
+          "range": {
+            "min": null,
+            "max": 1
+          },
+          "turningPoint": {
+            "x": 0,
+            "y": 1,
+            "inDomain": true
+          },
+          "zeros": {
+            "kind": "finite",
+            "values": [
+              -1,
+              1
+            ]
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "type": "function_lab",
+        "coefficients": [
+          1,
+          0,
+          1
+        ],
+        "xMin": -5,
+        "xMax": 5
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "coefficients": [
+          1,
+          0,
+          1
+        ]
+      },
+      "expected": {
+        "yAtZero": 1,
+        "yAtOne": 2,
+        "functionAnalysis": {
+          "kind": "quadratic",
+          "domain": {
+            "kind": "real"
+          },
+          "range": {
+            "min": 1,
+            "max": null
+          },
+          "turningPoint": {
+            "x": 0,
+            "y": 1,
+            "inDomain": true
+          },
+          "zeros": {
+            "kind": "finite",
+            "values": []
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "type": "function_lab",
+        "coefficients": [
+          1,
+          -2,
+          1
+        ],
+        "xMin": -5,
+        "xMax": 5,
+        "domain": {
+          "min": 1,
+          "max": 2
+        }
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "coefficients": [
+          1,
+          -2,
+          1
+        ]
+      },
+      "expected": {
+        "yAtZero": null,
+        "yAtOne": 0,
+        "functionAnalysis": {
+          "kind": "quadratic",
+          "domain": {
+            "kind": "closed_interval",
+            "min": 1,
+            "max": 2
+          },
+          "range": {
+            "min": 0,
+            "max": 1
+          },
+          "turningPoint": {
+            "x": 1,
+            "y": 0,
+            "inDomain": true
+          },
+          "zeros": {
+            "kind": "finite",
+            "values": [
+              1
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "binary-midpoint",
+      "config": {
+        "type": "algorithm_lab",
+        "algorithm": "binary_search",
+        "values": [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ],
+        "target": 11
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "step": 1
+      },
+      "expected": {
+        "algorithm": "binary_search_ascending",
+        "array": [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ],
+        "target": 11,
+        "low": 4,
+        "high": 7,
+        "comparedIndices": [
+          3
+        ],
+        "foundIndex": null,
+        "finished": false,
+        "totalSteps": 2
+      }
+    },
+    {
+      "id": "binary-found",
+      "config": {
+        "type": "algorithm_lab",
+        "algorithm": "binary_search",
+        "values": [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ],
+        "target": 11
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "step": 2
+      },
+      "expected": {
+        "algorithm": "binary_search_ascending",
+        "array": [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ],
+        "target": 11,
+        "low": 4,
+        "high": 7,
+        "comparedIndices": [
+          5
+        ],
+        "foundIndex": 5,
+        "finished": true,
+        "totalSteps": 2
+      }
+    },
+    {
+      "id": "binary-missing",
+      "config": {
+        "type": "algorithm_lab",
+        "algorithm": "binary_search",
+        "values": [
+          2,
+          4,
+          6,
+          8
+        ],
+        "target": 5
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "step": 2
+      },
+      "expected": {
+        "algorithm": "binary_search_ascending",
+        "array": [
+          2,
+          4,
+          6,
+          8
+        ],
+        "target": 5,
+        "low": 2,
+        "high": 1,
+        "comparedIndices": [
+          2
+        ],
+        "foundIndex": null,
+        "finished": true,
+        "totalSteps": 2
+      }
+    },
+    {
+      "id": "binary-duplicate",
+      "config": {
+        "type": "algorithm_lab",
+        "algorithm": "binary_search",
+        "values": [
+          2,
+          2,
+          2,
+          4
+        ],
+        "target": 2
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "step": 1
+      },
+      "expected": {
+        "algorithm": "binary_search_ascending",
+        "array": [
+          2,
+          2,
+          2,
+          4
+        ],
+        "target": 2,
+        "low": 0,
+        "high": 3,
+        "comparedIndices": [
+          1
+        ],
+        "foundIndex": 1,
+        "finished": true,
+        "totalSteps": 1
+      }
+    },
+    {
+      "id": "binary-before-first",
+      "config": {
+        "type": "algorithm_lab",
+        "algorithm": "binary_search",
+        "values": [
+          2,
+          4
+        ],
+        "target": 1
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "step": 1
+      },
+      "expected": {
+        "algorithm": "binary_search_ascending",
+        "array": [
+          2,
+          4
+        ],
+        "target": 1,
+        "low": 0,
+        "high": -1,
+        "comparedIndices": [
+          0
+        ],
+        "foundIndex": null,
+        "finished": true,
+        "totalSteps": 1
+      }
+    },
+    {
+      "id": "binary-after-last",
+      "config": {
+        "type": "algorithm_lab",
+        "algorithm": "binary_search",
+        "values": [
+          2,
+          4
+        ],
+        "target": 9
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "step": 2
+      },
+      "expected": {
+        "algorithm": "binary_search_ascending",
+        "array": [
+          2,
+          4
+        ],
+        "target": 9,
+        "low": 2,
+        "high": 1,
+        "comparedIndices": [
+          1
+        ],
+        "foundIndex": null,
+        "finished": true,
+        "totalSteps": 2
+      }
+    },
+    {
+      "id": "motion-initial",
+      "config": {
+        "type": "motion_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "initialPositionM": 8,
+        "initialVelocityMps": 6,
+        "accelerationMps2": -2,
+        "timeSeconds": 0
+      },
+      "expected": {
+        "positionM": 8,
+        "displacementM": 0,
+        "velocityMps": 6,
+        "speedMps": 6,
+        "travelDistanceM": 0,
+        "model": "one_dimensional_constant_acceleration"
+      }
+    },
+    {
+      "id": "motion-turn",
+      "config": {
+        "type": "motion_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "initialPositionM": 0,
+        "initialVelocityMps": 6,
+        "accelerationMps2": -2,
+        "timeSeconds": 3
+      },
+      "expected": {
+        "positionM": 9,
+        "displacementM": 9,
+        "velocityMps": 0,
+        "speedMps": 0,
+        "travelDistanceM": 9,
+        "model": "one_dimensional_constant_acceleration"
+      }
+    },
+    {
+      "id": "motion-return",
+      "config": {
+        "type": "motion_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "initialPositionM": 0,
+        "initialVelocityMps": 6,
+        "accelerationMps2": -2,
+        "timeSeconds": 6
+      },
+      "expected": {
+        "positionM": 0,
+        "displacementM": 0,
+        "velocityMps": -6,
+        "speedMps": 6,
+        "travelDistanceM": 18,
+        "model": "one_dimensional_constant_acceleration"
+      }
+    },
+    {
+      "id": "motion-offset",
+      "config": {
+        "type": "motion_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "initialPositionM": -5,
+        "initialVelocityMps": 6,
+        "accelerationMps2": -2,
+        "timeSeconds": 6
+      },
+      "expected": {
+        "positionM": -5,
+        "displacementM": 0,
+        "velocityMps": -6,
+        "speedMps": 6,
+        "travelDistanceM": 18,
+        "model": "one_dimensional_constant_acceleration"
+      }
+    },
+    {
+      "id": "motion-uniform",
+      "config": {
+        "type": "motion_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "initialPositionM": 4,
+        "initialVelocityMps": -3,
+        "accelerationMps2": 0,
+        "timeSeconds": 2
+      },
+      "expected": {
+        "positionM": -2,
+        "displacementM": -6,
+        "velocityMps": -3,
+        "speedMps": 3,
+        "travelDistanceM": 6,
+        "model": "one_dimensional_constant_acceleration"
+      }
+    },
+    {
+      "id": "motion-stationary",
+      "config": {
+        "type": "motion_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "initialPositionM": 7,
+        "initialVelocityMps": 0,
+        "accelerationMps2": 0,
+        "timeSeconds": 20
+      },
+      "expected": {
+        "positionM": 7,
+        "displacementM": 0,
+        "velocityMps": 0,
+        "speedMps": 0,
+        "travelDistanceM": 0,
+        "model": "one_dimensional_constant_acceleration"
+      }
+    },
+    {
+      "id": "motion-reverse-sign",
+      "config": {
+        "type": "motion_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "initialPositionM": 0,
+        "initialVelocityMps": -6,
+        "accelerationMps2": 2,
+        "timeSeconds": 6
+      },
+      "expected": {
+        "positionM": 0,
+        "displacementM": 0,
+        "velocityMps": 6,
+        "speedMps": 6,
+        "travelDistanceM": 18,
+        "model": "one_dimensional_constant_acceleration"
+      }
+    },
+    {
+      "id": "annotation-selection-unicode",
+      "config": {
+        "type": "annotation_lab",
+        "mode": "selection",
+        "fragments": [
+          "甲🌱",
+          "乙，丙。"
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "selections": [
+          {
+            "start": 1,
+            "end": 4,
+            "label": 2,
+            "reason": "跨片段观察"
+          }
+        ]
+      },
+      "expected": {
+        "annotations": [
+          {
+            "start": 1,
+            "end": 4,
+            "text": "🌱乙，",
+            "label": "表达",
+            "reason": "跨片段观察"
+          }
+        ],
+        "interpretation": "student_annotation_not_correctness"
+      }
+    },
+    {
+      "id": "annotation-selection-newline",
+      "config": {
+        "type": "annotation_lab",
+        "mode": "selection",
+        "fragments": [
+          "首段。\r\n",
+          "次段。"
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "selections": [
+          {
+            "start": 5,
+            "end": 7,
+            "label": 3,
+            "reason": "为什么这样写？"
+          }
+        ]
+      },
+      "expected": {
+        "annotations": [
+          {
+            "start": 5,
+            "end": 7,
+            "text": "次段",
+            "label": "疑问",
+            "reason": "为什么这样写？"
+          }
+        ],
+        "interpretation": "student_annotation_not_correctness"
+      }
+    },
+    {
+      "id": "number-line-left-open",
+      "config": {
+        "type": "number_line"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "lower": -2,
+        "upper": 3,
+        "lowerClosed": false,
+        "upperClosed": true,
+        "point": -2
+      },
+      "expected": {
+        "intervalKind": "interval",
+        "containsPoint": false,
+        "length": 5
+      }
+    },
+    {
+      "id": "number-line-left-closed",
+      "config": {
+        "type": "number_line"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "lower": -2,
+        "upper": 3,
+        "lowerClosed": true,
+        "upperClosed": true,
+        "point": -2
+      },
+      "expected": {
+        "intervalKind": "interval",
+        "containsPoint": true,
+        "length": 5
+      }
+    },
+    {
+      "id": "number-line-right-open",
+      "config": {
+        "type": "number_line"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "lower": -2,
+        "upper": 3,
+        "lowerClosed": true,
+        "upperClosed": false,
+        "point": 3
+      },
+      "expected": {
+        "intervalKind": "interval",
+        "containsPoint": false,
+        "length": 5
+      }
+    },
+    {
+      "id": "number-line-right-closed",
+      "config": {
+        "type": "number_line"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "lower": -2,
+        "upper": 3,
+        "lowerClosed": false,
+        "upperClosed": true,
+        "point": 3
+      },
+      "expected": {
+        "intervalKind": "interval",
+        "containsPoint": true,
+        "length": 5
+      }
+    },
+    {
+      "id": "number-line-empty",
+      "config": {
+        "type": "number_line"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "lower": 2,
+        "upper": 2,
+        "lowerClosed": false,
+        "upperClosed": true,
+        "point": 2
+      },
+      "expected": {
+        "intervalKind": "empty",
+        "containsPoint": false,
+        "length": 0
+      }
+    },
+    {
+      "id": "number-line-singleton",
+      "config": {
+        "type": "number_line"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "lower": 2,
+        "upper": 2,
+        "lowerClosed": true,
+        "upperClosed": true,
+        "point": 2
+      },
+      "expected": {
+        "intervalKind": "singleton",
+        "containsPoint": true,
+        "length": 0
+      }
+    },
+    {
+      "id": "number-line-left-ray",
+      "config": {
+        "type": "number_line"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "lower": null,
+        "upper": -1,
+        "lowerClosed": false,
+        "upperClosed": true,
+        "point": -1
+      },
+      "expected": {
+        "intervalKind": "left_ray",
+        "containsPoint": true,
+        "length": null
+      }
+    },
+    {
+      "id": "number-line-right-ray",
+      "config": {
+        "type": "number_line"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "lower": 1,
+        "upper": null,
+        "lowerClosed": false,
+        "upperClosed": false,
+        "point": 1
+      },
+      "expected": {
+        "intervalKind": "right_ray",
+        "containsPoint": false,
+        "length": null
+      }
+    },
+    {
+      "id": "number-line-real",
+      "config": {
+        "type": "number_line"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "lower": null,
+        "upper": null,
+        "lowerClosed": false,
+        "upperClosed": false,
+        "point": 20
+      },
+      "expected": {
+        "intervalKind": "real_line",
+        "containsPoint": true,
+        "length": null
+      }
+    },
+    {
+      "id": "number-line-outside",
+      "config": {
+        "type": "number_line"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "lower": -2,
+        "upper": 3,
+        "lowerClosed": true,
+        "upperClosed": true,
+        "point": -20
+      },
+      "expected": {
+        "intervalKind": "interval",
+        "containsPoint": false,
+        "length": 5
+      }
+    },
+    {
+      "id": "vector-right-triangle",
+      "config": {
+        "type": "vector_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "vectorA": [
+          3,
+          0
+        ],
+        "vectorB": [
+          0,
+          4
+        ],
+        "scalar": 2,
+        "operation": "add"
+      },
+      "expected": {
+        "vectorResult": [
+          3,
+          4
+        ],
+        "normA": 3,
+        "normB": 4,
+        "resultNorm": 5,
+        "dotProduct": 0,
+        "determinant": 12,
+        "angleDegrees": 90,
+        "directionsDefined": true,
+        "parallelDirections": false,
+        "perpendicularDirections": true
+      }
+    },
+    {
+      "id": "vector-opposite",
+      "config": {
+        "type": "vector_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "vectorA": [
+          3,
+          4
+        ],
+        "vectorB": [
+          -3,
+          -4
+        ],
+        "scalar": 2,
+        "operation": "add"
+      },
+      "expected": {
+        "vectorResult": [
+          0,
+          0
+        ],
+        "normA": 5,
+        "normB": 5,
+        "resultNorm": 0,
+        "dotProduct": -25,
+        "determinant": 0,
+        "angleDegrees": 180,
+        "directionsDefined": true,
+        "parallelDirections": true,
+        "perpendicularDirections": false
+      }
+    },
+    {
+      "id": "vector-parallel-difference",
+      "config": {
+        "type": "vector_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "vectorA": [
+          1,
+          2
+        ],
+        "vectorB": [
+          2,
+          4
+        ],
+        "scalar": 2,
+        "operation": "subtract"
+      },
+      "expected": {
+        "vectorResult": [
+          -1,
+          -2
+        ],
+        "normA": 2.23606797749979,
+        "normB": 4.47213595499958,
+        "resultNorm": 2.23606797749979,
+        "dotProduct": 10,
+        "determinant": 0,
+        "angleDegrees": 0,
+        "directionsDefined": true,
+        "parallelDirections": true,
+        "perpendicularDirections": false
+      }
+    },
+    {
+      "id": "vector-negative-scalar",
+      "config": {
+        "type": "vector_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "vectorA": [
+          1,
+          2
+        ],
+        "vectorB": [
+          2,
+          4
+        ],
+        "scalar": -2,
+        "operation": "scale_a"
+      },
+      "expected": {
+        "vectorResult": [
+          -2,
+          -4
+        ],
+        "normA": 2.23606797749979,
+        "normB": 4.47213595499958,
+        "resultNorm": 4.47213595499958,
+        "dotProduct": 10,
+        "determinant": 0,
+        "angleDegrees": 0,
+        "directionsDefined": true,
+        "parallelDirections": true,
+        "perpendicularDirections": false
+      }
+    },
+    {
+      "id": "vector-zero",
+      "config": {
+        "type": "vector_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "vectorA": [
+          0,
+          0
+        ],
+        "vectorB": [
+          3,
+          4
+        ],
+        "scalar": 2,
+        "operation": "add"
+      },
+      "expected": {
+        "vectorResult": [
+          3,
+          4
+        ],
+        "normA": 0,
+        "normB": 5,
+        "resultNorm": 5,
+        "dotProduct": 0,
+        "determinant": 0,
+        "angleDegrees": null,
+        "directionsDefined": false,
+        "parallelDirections": null,
+        "perpendicularDirections": null
+      }
+    },
+    {
+      "id": "vector-half",
+      "config": {
+        "type": "vector_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "vectorA": [
+          0.5,
+          0.5
+        ],
+        "vectorB": [
+          -0.5,
+          0.5
+        ],
+        "scalar": 2,
+        "operation": "add"
+      },
+      "expected": {
+        "vectorResult": [
+          0,
+          1
+        ],
+        "normA": 0.7071067811865476,
+        "normB": 0.7071067811865476,
+        "resultNorm": 1,
+        "dotProduct": 0,
+        "determinant": 0.5,
+        "angleDegrees": 90,
+        "directionsDefined": true,
+        "parallelDirections": false,
+        "perpendicularDirections": true
+      }
+    },
+    {
+      "id": "vector-limit",
+      "config": {
+        "type": "vector_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "vectorA": [
+          10,
+          10
+        ],
+        "vectorB": [
+          10,
+          -10
+        ],
+        "scalar": 2,
+        "operation": "subtract"
+      },
+      "expected": {
+        "vectorResult": [
+          0,
+          20
+        ],
+        "normA": 14.142135623730951,
+        "normB": 14.142135623730951,
+        "resultNorm": 20,
+        "dotProduct": 0,
+        "determinant": -200,
+        "angleDegrees": 90,
+        "directionsDefined": true,
+        "parallelDirections": false,
+        "perpendicularDirections": true
+      }
+    },
+    {
+      "id": "vector-oblique",
+      "config": {
+        "type": "vector_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "vectorA": [
+          1,
+          0
+        ],
+        "vectorB": [
+          1,
+          1
+        ],
+        "scalar": 2,
+        "operation": "add"
+      },
+      "expected": {
+        "vectorResult": [
+          2,
+          1
+        ],
+        "normA": 1,
+        "normB": 1.4142135623730951,
+        "resultNorm": 2.23606797749979,
+        "dotProduct": 1,
+        "determinant": 1,
+        "angleDegrees": 45,
+        "directionsDefined": true,
+        "parallelDirections": false,
+        "perpendicularDirections": false
+      }
+    },
+    {
+      "id": "vector-zero-scalar",
+      "config": {
+        "type": "vector_lab"
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "vectorA": [
+          3,
+          0
+        ],
+        "vectorB": [
+          0,
+          4
+        ],
+        "scalar": 0,
+        "operation": "scale_a"
+      },
+      "expected": {
+        "vectorResult": [
+          0,
+          0
+        ],
+        "normA": 3,
+        "normB": 4,
+        "resultNorm": 0,
+        "dotProduct": 0,
+        "determinant": 12,
+        "angleDegrees": 90,
+        "directionsDefined": true,
+        "parallelDirections": false,
+        "perpendicularDirections": true
+      }
+    },
+    {
+      "id": "equation-initial",
+      "config": {
+        "type": "equation_lab",
+        "left": [
+          2,
+          3
+        ],
+        "right": [
+          1,
+          7
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "steps": []
+      },
+      "expected": {
+        "solutionKind": "unique",
+        "solutionExact": "4",
+        "isolated": false,
+        "left": [
+          {
+            "numerator": 2,
+            "denominator": 1
+          },
+          {
+            "numerator": 3,
+            "denominator": 1
+          }
+        ],
+        "right": [
+          {
+            "numerator": 1,
+            "denominator": 1
+          },
+          {
+            "numerator": 7,
+            "denominator": 1
+          }
+        ],
+        "stepCount": 0,
+        "equivalencePreserved": true
+      }
+    },
+    {
+      "id": "equation-isolate",
+      "config": {
+        "type": "equation_lab",
+        "left": [
+          2,
+          3
+        ],
+        "right": [
+          1,
+          7
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "steps": [
+          {
+            "op": "add_x",
+            "value": -1
+          },
+          {
+            "op": "add_constant",
+            "value": -3
+          }
+        ]
+      },
+      "expected": {
+        "solutionKind": "unique",
+        "solutionExact": "4",
+        "isolated": true,
+        "left": [
+          {
+            "numerator": 1,
+            "denominator": 1
+          },
+          {
+            "numerator": 0,
+            "denominator": 1
+          }
+        ],
+        "right": [
+          {
+            "numerator": 0,
+            "denominator": 1
+          },
+          {
+            "numerator": 4,
+            "denominator": 1
+          }
+        ],
+        "stepCount": 2,
+        "equivalencePreserved": true
+      }
+    },
+    {
+      "id": "equation-third",
+      "config": {
+        "type": "equation_lab",
+        "left": [
+          3,
+          1
+        ],
+        "right": [
+          0,
+          2
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "steps": [
+          {
+            "op": "add_constant",
+            "value": -1
+          },
+          {
+            "op": "divide",
+            "value": 3
+          }
+        ]
+      },
+      "expected": {
+        "solutionExact": "1/3",
+        "isolated": true,
+        "left": [
+          {
+            "numerator": 1,
+            "denominator": 1
+          },
+          {
+            "numerator": 0,
+            "denominator": 1
+          }
+        ],
+        "right": [
+          {
+            "numerator": 0,
+            "denominator": 1
+          },
+          {
+            "numerator": 1,
+            "denominator": 3
+          }
+        ],
+        "stepCount": 2,
+        "equivalencePreserved": true
+      }
+    },
+    {
+      "id": "equation-none",
+      "config": {
+        "type": "equation_lab",
+        "left": [
+          2,
+          1
+        ],
+        "right": [
+          2,
+          3
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "steps": [
+          {
+            "op": "add_x",
+            "value": -2
+          }
+        ]
+      },
+      "expected": {
+        "solutionKind": "none",
+        "solution": null,
+        "isolated": false,
+        "stepCount": 1,
+        "equivalencePreserved": true
+      }
+    },
+    {
+      "id": "equation-all-real",
+      "config": {
+        "type": "equation_lab",
+        "left": [
+          2,
+          3
+        ],
+        "right": [
+          2,
+          3
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "steps": [
+          {
+            "op": "divide",
+            "value": -2
+          }
+        ]
+      },
+      "expected": {
+        "solutionKind": "all_real",
+        "solution": null,
+        "isolated": false,
+        "stepCount": 1,
+        "equivalencePreserved": true
+      }
+    },
+    {
+      "id": "equation-right-isolate",
+      "config": {
+        "type": "equation_lab",
+        "left": [
+          0,
+          5
+        ],
+        "right": [
+          1,
+          2
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "steps": [
+          {
+            "op": "add_constant",
+            "value": -2
+          }
+        ]
+      },
+      "expected": {
+        "solutionExact": "3",
+        "isolated": true,
+        "left": [
+          {
+            "numerator": 0,
+            "denominator": 1
+          },
+          {
+            "numerator": 3,
+            "denominator": 1
+          }
+        ],
+        "right": [
+          {
+            "numerator": 1,
+            "denominator": 1
+          },
+          {
+            "numerator": 0,
+            "denominator": 1
+          }
+        ],
+        "stepCount": 1,
+        "equivalencePreserved": true
+      }
+    },
+    {
+      "id": "equation-negative",
+      "config": {
+        "type": "equation_lab",
+        "left": [
+          2,
+          0
+        ],
+        "right": [
+          0,
+          -3
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "steps": [
+          {
+            "op": "divide",
+            "value": 2
+          }
+        ]
+      },
+      "expected": {
+        "solutionExact": "-3/2",
+        "isolated": true,
+        "stepCount": 1,
+        "equivalencePreserved": true
+      }
+    },
+    {
+      "id": "equation-zero-solution",
+      "config": {
+        "type": "equation_lab",
+        "left": [
+          3,
+          0
+        ],
+        "right": [
+          0,
+          0
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "steps": [
+          {
+            "op": "multiply",
+            "value": -1
+          }
+        ]
+      },
+      "expected": {
+        "solutionExact": "0",
+        "solutionKind": "unique",
+        "stepCount": 1,
+        "equivalencePreserved": true
+      }
+    },
+    {
+      "id": "equation-fraction-roundtrip",
+      "config": {
+        "type": "equation_lab",
+        "left": [
+          3,
+          1
+        ],
+        "right": [
+          0,
+          2
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "steps": [
+          {
+            "op": "divide",
+            "value": 3
+          },
+          {
+            "op": "multiply",
+            "value": 3
+          }
+        ]
+      },
+      "expected": {
+        "solutionExact": "1/3",
+        "left": [
+          {
+            "numerator": 3,
+            "denominator": 1
+          },
+          {
+            "numerator": 1,
+            "denominator": 1
+          }
+        ],
+        "right": [
+          {
+            "numerator": 0,
+            "denominator": 1
+          },
+          {
+            "numerator": 2,
+            "denominator": 1
+          }
+        ],
+        "stepCount": 2,
+        "equivalencePreserved": true
+      }
+    },
+    {
+      "id": "statistics-default",
+      "config": {
+        "type": "statistics_lab",
+        "values": [
+          2,
+          3,
+          3,
+          4,
+          8
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "values": [
+          2,
+          3,
+          3,
+          4,
+          8
+        ],
+        "varianceBasis": "population"
+      },
+      "expected": {
+        "count": 5,
+        "sum": 20.0,
+        "mean": 4.0,
+        "median": 3.0,
+        "minimum": 2,
+        "maximum": 8,
+        "range": 6,
+        "modeValues": [
+          3
+        ],
+        "maxFrequency": 2,
+        "frequencies": [
+          {
+            "value": 2,
+            "count": 1
+          },
+          {
+            "value": 3,
+            "count": 2
+          },
+          {
+            "value": 4,
+            "count": 1
+          },
+          {
+            "value": 8,
+            "count": 1
+          }
+        ],
+        "populationVariance": 4.4,
+        "sampleVariance": 5.5,
+        "variance": 4.4,
+        "varianceDenominator": 5,
+        "exact": {
+          "mean": {
+            "numerator": 4,
+            "denominator": 1
+          },
+          "median": {
+            "numerator": 3,
+            "denominator": 1
+          },
+          "populationVariance": {
+            "numerator": 22,
+            "denominator": 5
+          },
+          "sampleVariance": {
+            "numerator": 11,
+            "denominator": 2
+          }
+        }
+      }
+    },
+    {
+      "id": "statistics-outlier-edited",
+      "config": {
+        "type": "statistics_lab",
+        "values": [
+          2,
+          3,
+          3,
+          4,
+          3
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "values": [
+          2,
+          3,
+          3,
+          4,
+          3
+        ],
+        "varianceBasis": "sample"
+      },
+      "expected": {
+        "count": 5,
+        "sum": 15.0,
+        "mean": 3.0,
+        "median": 3.0,
+        "minimum": 2,
+        "maximum": 4,
+        "range": 2,
+        "modeValues": [
+          3
+        ],
+        "maxFrequency": 3,
+        "frequencies": [
+          {
+            "value": 2,
+            "count": 1
+          },
+          {
+            "value": 3,
+            "count": 3
+          },
+          {
+            "value": 4,
+            "count": 1
+          }
+        ],
+        "populationVariance": 0.4,
+        "sampleVariance": 0.5,
+        "variance": 0.5,
+        "varianceDenominator": 4,
+        "exact": {
+          "mean": {
+            "numerator": 3,
+            "denominator": 1
+          },
+          "median": {
+            "numerator": 3,
+            "denominator": 1
+          },
+          "populationVariance": {
+            "numerator": 2,
+            "denominator": 5
+          },
+          "sampleVariance": {
+            "numerator": 1,
+            "denominator": 2
+          }
+        }
+      }
+    },
+    {
+      "id": "statistics-negative",
+      "config": {
+        "type": "statistics_lab",
+        "values": [
+          -2,
+          -0.5,
+          1
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "values": [
+          -2,
+          -0.5,
+          1
+        ],
+        "varianceBasis": "population"
+      },
+      "expected": {
+        "count": 3,
+        "sum": -1.5,
+        "mean": -0.5,
+        "median": -0.5,
+        "minimum": -2,
+        "maximum": 1,
+        "range": 3,
+        "modeValues": [],
+        "maxFrequency": 1,
+        "frequencies": [
+          {
+            "value": -2,
+            "count": 1
+          },
+          {
+            "value": -0.5,
+            "count": 1
+          },
+          {
+            "value": 1,
+            "count": 1
+          }
+        ],
+        "populationVariance": 1.5,
+        "sampleVariance": 2.25,
+        "variance": 1.5,
+        "varianceDenominator": 3,
+        "exact": {
+          "mean": {
+            "numerator": -1,
+            "denominator": 2
+          },
+          "median": {
+            "numerator": -1,
+            "denominator": 2
+          },
+          "populationVariance": {
+            "numerator": 3,
+            "denominator": 2
+          },
+          "sampleVariance": {
+            "numerator": 9,
+            "denominator": 4
+          }
+        }
+      }
+    },
+    {
+      "id": "statistics-even",
+      "config": {
+        "type": "statistics_lab",
+        "values": [
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "values": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "varianceBasis": "sample"
+      },
+      "expected": {
+        "count": 4,
+        "sum": 10.0,
+        "mean": 2.5,
+        "median": 2.5,
+        "minimum": 1,
+        "maximum": 4,
+        "range": 3,
+        "modeValues": [],
+        "maxFrequency": 1,
+        "frequencies": [
+          {
+            "value": 1,
+            "count": 1
+          },
+          {
+            "value": 2,
+            "count": 1
+          },
+          {
+            "value": 3,
+            "count": 1
+          },
+          {
+            "value": 4,
+            "count": 1
+          }
+        ],
+        "populationVariance": 1.25,
+        "sampleVariance": 1.6666666666666667,
+        "variance": 1.6666666666666667,
+        "varianceDenominator": 3,
+        "exact": {
+          "mean": {
+            "numerator": 5,
+            "denominator": 2
+          },
+          "median": {
+            "numerator": 5,
+            "denominator": 2
+          },
+          "populationVariance": {
+            "numerator": 5,
+            "denominator": 4
+          },
+          "sampleVariance": {
+            "numerator": 5,
+            "denominator": 3
+          }
+        }
+      }
+    },
+    {
+      "id": "statistics-singleton",
+      "config": {
+        "type": "statistics_lab",
+        "values": [
+          7.5
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "values": [
+          7.5
+        ],
+        "varianceBasis": "sample"
+      },
+      "expected": {
+        "count": 1,
+        "sum": 7.5,
+        "mean": 7.5,
+        "median": 7.5,
+        "minimum": 7.5,
+        "maximum": 7.5,
+        "range": 0.0,
+        "modeValues": [],
+        "maxFrequency": 1,
+        "frequencies": [
+          {
+            "value": 7.5,
+            "count": 1
+          }
+        ],
+        "populationVariance": 0.0,
+        "sampleVariance": null,
+        "variance": null,
+        "varianceDenominator": 0,
+        "exact": {
+          "mean": {
+            "numerator": 15,
+            "denominator": 2
+          },
+          "median": {
+            "numerator": 15,
+            "denominator": 2
+          },
+          "populationVariance": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "sampleVariance": null
+        }
+      }
+    },
+    {
+      "id": "statistics-constant",
+      "config": {
+        "type": "statistics_lab",
+        "values": [
+          2,
+          2,
+          2
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "values": [
+          2,
+          2,
+          2
+        ],
+        "varianceBasis": "population"
+      },
+      "expected": {
+        "count": 3,
+        "sum": 6.0,
+        "mean": 2.0,
+        "median": 2.0,
+        "minimum": 2,
+        "maximum": 2,
+        "range": 0,
+        "modeValues": [
+          2
+        ],
+        "maxFrequency": 3,
+        "frequencies": [
+          {
+            "value": 2,
+            "count": 3
+          }
+        ],
+        "populationVariance": 0.0,
+        "sampleVariance": 0.0,
+        "variance": 0.0,
+        "varianceDenominator": 3,
+        "exact": {
+          "mean": {
+            "numerator": 2,
+            "denominator": 1
+          },
+          "median": {
+            "numerator": 2,
+            "denominator": 1
+          },
+          "populationVariance": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "sampleVariance": {
+            "numerator": 0,
+            "denominator": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "statistics-multiple-modes",
+      "config": {
+        "type": "statistics_lab",
+        "values": [
+          1,
+          1,
+          2,
+          2,
+          3
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "values": [
+          1,
+          1,
+          2,
+          2,
+          3
+        ],
+        "varianceBasis": "population"
+      },
+      "expected": {
+        "count": 5,
+        "sum": 9.0,
+        "mean": 1.8,
+        "median": 2.0,
+        "minimum": 1,
+        "maximum": 3,
+        "range": 2,
+        "modeValues": [
+          1,
+          2
+        ],
+        "maxFrequency": 2,
+        "frequencies": [
+          {
+            "value": 1,
+            "count": 2
+          },
+          {
+            "value": 2,
+            "count": 2
+          },
+          {
+            "value": 3,
+            "count": 1
+          }
+        ],
+        "populationVariance": 0.56,
+        "sampleVariance": 0.7,
+        "variance": 0.56,
+        "varianceDenominator": 5,
+        "exact": {
+          "mean": {
+            "numerator": 9,
+            "denominator": 5
+          },
+          "median": {
+            "numerator": 2,
+            "denominator": 1
+          },
+          "populationVariance": {
+            "numerator": 14,
+            "denominator": 25
+          },
+          "sampleVariance": {
+            "numerator": 7,
+            "denominator": 10
+          }
+        }
+      }
+    },
+    {
+      "id": "statistics-bounds",
+      "config": {
+        "type": "statistics_lab",
+        "values": [
+          -100,
+          100
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "values": [
+          -100,
+          100
+        ],
+        "varianceBasis": "sample"
+      },
+      "expected": {
+        "count": 2,
+        "sum": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "minimum": -100,
+        "maximum": 100,
+        "range": 200,
+        "modeValues": [],
+        "maxFrequency": 1,
+        "frequencies": [
+          {
+            "value": -100,
+            "count": 1
+          },
+          {
+            "value": 100,
+            "count": 1
+          }
+        ],
+        "populationVariance": 10000.0,
+        "sampleVariance": 20000.0,
+        "variance": 20000.0,
+        "varianceDenominator": 1,
+        "exact": {
+          "mean": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "median": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "populationVariance": {
+            "numerator": 10000,
+            "denominator": 1
+          },
+          "sampleVariance": {
+            "numerator": 20000,
+            "denominator": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "statistics-fraction",
+      "config": {
+        "type": "statistics_lab",
+        "values": [
+          0,
+          0,
+          1
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "values": [
+          0,
+          0,
+          1
+        ],
+        "varianceBasis": "population"
+      },
+      "expected": {
+        "count": 3,
+        "sum": 1.0,
+        "mean": 0.3333333333333333,
+        "median": 0.0,
+        "minimum": 0,
+        "maximum": 1,
+        "range": 1,
+        "modeValues": [
+          0
+        ],
+        "maxFrequency": 2,
+        "frequencies": [
+          {
+            "value": 0,
+            "count": 2
+          },
+          {
+            "value": 1,
+            "count": 1
+          }
+        ],
+        "populationVariance": 0.2222222222222222,
+        "sampleVariance": 0.3333333333333333,
+        "variance": 0.2222222222222222,
+        "varianceDenominator": 3,
+        "exact": {
+          "mean": {
+            "numerator": 1,
+            "denominator": 3
+          },
+          "median": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "populationVariance": {
+            "numerator": 2,
+            "denominator": 9
+          },
+          "sampleVariance": {
+            "numerator": 1,
+            "denominator": 3
+          }
+        }
+      }
+    },
+    {
+      "id": "statistics-maximum-count",
+      "config": {
+        "type": "statistics_lab",
+        "values": [
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100
+        ]
+      },
+      "state": {
+        "schemaVersion": 1,
+        "contentVersion": 1,
+        "values": [
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100
+        ],
+        "varianceBasis": "sample"
+      },
+      "expected": {
+        "count": 32,
+        "sum": 3200.0,
+        "mean": 100.0,
+        "median": 100.0,
+        "minimum": 100,
+        "maximum": 100,
+        "range": 0,
+        "modeValues": [
+          100
+        ],
+        "maxFrequency": 32,
+        "frequencies": [
+          {
+            "value": 100,
+            "count": 32
+          }
+        ],
+        "populationVariance": 0.0,
+        "sampleVariance": 0.0,
+        "variance": 0.0,
+        "varianceDenominator": 31,
+        "exact": {
+          "mean": {
+            "numerator": 100,
+            "denominator": 1
+          },
+          "median": {
+            "numerator": 100,
+            "denominator": 1
+          },
+          "populationVariance": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "sampleVariance": {
+            "numerator": 0,
+            "denominator": 1
+          }
+        }
+      }
+    }
+  ]
+}

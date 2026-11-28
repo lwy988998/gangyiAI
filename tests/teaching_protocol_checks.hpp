@@ -1,100 +1,314 @@
+// 【逐行批注】 要求预处理器保证当前头文件在一次编译中只被包含一次。
 #pragma once
 
 // 回放真实故障的两类括号错误；未经完整校验的文字和动作不得公开或保存。
-inline void runTeachingProtocolChecks(const std::filesystem::path& path) {
-    const std::vector<std::string> malformed = {
-        R"({"teaching":{"helpType":"explanation"},"message":"INVALID-PUBLIC","actions":[{"id":"bad-section","tool":"append_section","args":{"lessonId":"protocol-lesson","section":{"kind":"explanation","title":"不应应用","body":"INVALID-PUBLIC","helpType":"explanation"}}],"state":"waiting_student"})",
-        R"({"teaching":{"helpType":"explanation"},"message":"INVALID-PUBLIC",{"actions":[],"state":"waiting_student"}})"
-    };
-    for (std::size_t index = 0; index < malformed.size(); ++index) {
-        const auto database = path.string() + "." + std::to_string(index);
-        gangyi::Database db; db.open(database); db.migrate();
-        const gangyi::AgentAccess access{"protocol-check", {"protocol-math"}};
-        assert(db.insert(gangyi::Course{"protocol-math", access.scopeId, {}, "分数", "deep", "分数", {}, "ai", "active", "now", "now"}));
-        const Json lesson = {{"id", "protocol-lesson"}, {"scopeId", access.scopeId}, {"courseId", "protocol-math"},
-            {"title", "分数"}, {"purpose", "校验错误恢复"}, {"status", "ready"}, {"entered", true}, {"version", 1},
-            {"updatedAt", "now"}, {"sourceLearningVersion", db.learningRevision()}, {"sections", {
-                {{"id", "q1"}, {"kind", "question"}, {"title", "实际作答"}, {"questionKind", "practice"},
-                    {"questionId", "protocol-q1"}, {"version", 1}, {"question", {{"question", "1/2+1/3=?"},
-                    {"expectedAnswer", "PRIVATE-5/6"}, {"rubric", "PRIVATE-STANDARD"}}}}
-            }}};
-        assert(db.upsert(gangyi::ClassroomActivity{"protocol-lesson", "protocol-math", "agent-lesson", lesson.dump(), "now", 0, 0}));
-        const Json event = {{"type", "question_answer"}, {"courseId", "protocol-math"}, {"lessonId", "protocol-lesson"},
-            {"sectionId", "q1"}, {"sectionVersion", 1}, {"view", "practice"}, {"requestId", "protocol-answer"}, {"text", "2/5"}};
-        const auto task = gangyi::agentSubmit(db, access, event);
-        const auto actual = gangyi::agentContext(db, access, event).at("currentInputs").at(0);
-        int assessmentCalls = 0, teachingCalls = 0;
-        bool recover = false;
-        gangyi::LearningAgent agent(database, [&](const gangyi::ChatOptions& options, const auto& sink) {
-            assert(options.maxTokens == 8192 && options.temperature == 0.25 && options.maxAttempts == 1);
-            assert(options.responseFormat == "json_object");
-            assert(options.messages.front().content.find(gangyi::kAgentTeachingAccuracyRule) != std::string::npos);
-            if (options.activity.purpose == "判断本次回答或追问") {
-                ++assessmentCalls; assert(assessmentCalls == 1);
-                return output({{"message", ""}, {"teaching", {{"helpType", "none"}}}, {"state", "continue"},
-                    {"actions", {{{"id", "original-diagnosis"}, {"tool", "evaluate_answer"}, {"args", {
-                        {"interactionId", actual.at("interactionId")}, {"score", 20}, {"credible", true},
-                        {"feedback", "分母表示整体等分的份数，需要统一分数单位。"}, {"feedbackHelpType", "explanation"},
-                        {"reason", "真实回答把分子分母分别相加"}, {"uncertainty", "只有一次回答"},
-                        {"diagnosis", {{"summary", "混淆分数单位"}, {"evidence", {"2/5"}},
-                            {"teachingDirection", "解释同一整体的等分份数与每份大小"}, {"needsClarification", false}}}
-                    }}}}}}, sink);
-            }
-            ++teachingCalls;
-            if (!recover) {
-                const auto& content = malformed[index];
-                for (char byte : content) sink(std::string(1, byte));
-                gangyi::AIResult result; result.content = content; result.model = "fixture"; result.finishReason = "stop";
-                return result;
-            }
-            return output({{"message", "分母表示把同一整体平均分成的份数；先统一分数单位，再解释你的方法。"},
-                {"teaching", {{"helpType", "explanation"}, {"demonstratedQuestions", Json::array()}}},
-                {"actions", Json::array()}, {"state", "waiting_student"}}, sink);
-        });
-        gangyi::registerAgentLessonTools(agent); agent.process(db, task.at("id"));
-        auto raw = Json::parse(db.getClassroomActivity(task.at("id"))->payload);
-        assert(raw.at("status") == "failed" && assessmentCalls == 1 && teachingCalls == 3);
-        assert(raw.at("completedActions").size() == 1 && raw.at("completedActions").contains("original-diagnosis"));
-        const auto diagnostic = raw.at("failure").at("responseDiagnostic");
-        assert(diagnostic.at("matchesStream") == true && diagnostic.at("parseByte").get<std::size_t>() > 0);
-        assert(diagnostic.at("receivedBytes") == malformed[index].size() && diagnostic.at("streamBytes") == malformed[index].size());
-        for (const auto& item : raw.at("events")) if (item.value("type", "") == "delta")
-            assert(item.value("text", "").find("INVALID-PUBLIC") == std::string::npos);
-        auto shown = gangyi::agentLessonView(db, access, "protocol-lesson");
-        assert(shown.at("sections").size() == 1 && shown.at("evaluations").empty());
-        assert(shown.dump().find("INVALID-PUBLIC") == std::string::npos && shown.dump().find("PRIVATE-") == std::string::npos);
-        recover = true;
-        gangyi::agentControl(db, access, {{"command", "retry"}, {"taskId", task.at("id")}});
-        agent.process(db, task.at("id"));
-        shown = gangyi::agentLessonView(db, access, "protocol-lesson");
-        assert(gangyi::agentView(db, access, task.at("id")).at("status") == "waiting_student");
-        assert(assessmentCalls == 1 && teachingCalls == 4 && shown.at("evaluations").size() == 1);
-        int answers = 0, assessments = 0;
-        for (const auto& interaction : db.listInteractions()) {
-            if (interaction.kind == "chat-user") ++answers;
-            if (interaction.kind == "practice") ++assessments;
-        }
-        assert(shown.at("evaluations").at(0).at("score") == 20 && answers == 1 && assessments == 1);
-        agent.process(db, task.at("id"));
-        assert(assessmentCalls == 1 && teachingCalls == 4);
-    }
-
-    // JSON 解析器的异常摘录可能截断汉字；记录错误时不得再次抛出并遗留运行中任务。
-    const auto database = path.string() + ".error-text";
-    gangyi::Database db; db.open(database); db.migrate();
-    const gangyi::AgentAccess access{"protocol-error", {"error-math"}};
-    assert(db.insert(gangyi::Course{"error-math", access.scopeId, {}, "分数", "deep", "分数", {}, "ai", "active", "now", "now"}));
-    const auto task = gangyi::agentSubmit(db, access, {{"type", "chat"}, {"courseId", "error-math"},
-        {"requestId", "invalid-error-text"}, {"text", "保留学生原始输入"}});
+// 【逐行批注】 定义函数 runTeachingProtocolChecks，执行该函数声明的职责。
+inline // 真实接收回调内检查数据库，保证公开草稿在模型返回之前已经可订阅。
+void runPublicStreamChecks(const std::filesystem::path& path) {
+    gangyi::Database db; db.open(path.string()); db.migrate();
+    const gangyi::AgentAccess access{"public-stream-check", {}};
+    const auto task = gangyi::agentSubmit(db, access, {{"type", "chat"}, {"text", "逐片显示并修正"}, {"requestId", "public-stream-check"}});
     int calls = 0;
-    gangyi::LearningAgent agent(database, [&](const auto&, const auto&) -> gangyi::AIResult {
+    gangyi::LearningAgent agent(path.string(), [&](const auto&, const auto& sink) {
         ++calls;
-        throw std::runtime_error(std::string("invalid excerpt: ") + static_cast<char>(0xe4) + "'");
+        if (calls == 2) return output({{"message", ""}, {"actions", Json::array({{{"id", "recheck"}, {"tool", "read_context"}, {"args", Json::object()}}})}, {"state", "continue"}}, sink);
+        const std::string head = calls == 1 ? R"({"message":"首片草稿)" : R"({"message":"修正后的正文)";
+        sink(head);
+        const auto running = gangyi::agentView(db, access, task.at("id"));
+        assert(running.at("status") == "running");
+        assert(std::any_of(running.at("events").begin(), running.at("events").end(), [&](const auto& event) {
+            return event.value("type", "") == "delta" && event.value("step", 0) == calls && event.value("provisional", false);
+        }));
+        const std::string tail = calls == 1 ? R"(","actions":[})" : R"(","teaching":{"helpType":"explanation"},"actions":[],"state":"waiting_student"})";
+        sink(tail);
+        gangyi::AIResult result; result.content = head + tail; result.model = "stream-fixture"; result.finishReason = "stop";
+        return result;
     });
     agent.process(db, task.at("id"));
+    const auto ready = gangyi::agentView(db, access, task.at("id"));
+    assert(calls == 3 && ready.at("message") == "修正后的正文");
+    assert(std::any_of(ready.at("events").begin(), ready.at("events").end(), [](const auto& event) {
+        return event.value("type", "") == "stream_status" && event.value("state", "") == "confirmed" &&
+            event.value("correctedSteps", Json::array()) == Json::array({1});
+    }));
+
+    // 超过一页归档后仍可完整恢复，并支持按确认序号读取增量。
+    const auto archivedTask = gangyi::agentSubmit(db, access, {{"type", "chat"}, {"text", "长回复恢复"}, {"requestId", "long-public-stream"}});
+    const auto row = db.getClassroomActivity(archivedTask.at("id"));
+    auto stored = Json::parse(row->payload);
+    const int start = stored.value("seq", 0);
+    for (int index = 1; index <= 650; ++index) {
+        const Json event = {{"seq", start + index}, {"type", "delta"}, {"field", "message"}, {"step", 1}, {"text", "字"}};
+        db.appendAgentRunEvent(stored.at("id"), start + index, event.dump(), "now");
+    }
+    stored["seq"] = start + 650; stored["events"] = Json::array();
+    db.upsert(gangyi::ClassroomActivity{stored.at("id"), "", "agent-task", stored.dump(), "now", 0, 0});
+    const auto full = gangyi::agentView(db, access, stored.at("id"));
+    assert(full.at("events").size() >= 650);
+    const auto incremental = gangyi::agentView(db, access, stored.at("id"), false, start + 600);
+    assert(incremental.at("events").size() == 50);
+}
+
+void runTeachingProtocolChecks(const std::filesystem::path& path) {
+    runPublicStreamChecks(path.string() + ".public-stream");
+    // 【逐行批注】 执行当前声明或表达式：const std::vector<std::string> malformed = {。
+    const std::vector<std::string> malformed = {
+        // 【逐行批注】 执行当前声明或表达式：R"({"teaching":{"helpType":"explanation"},"message":"INVALID-PUBLIC","actions":[{"id…。
+        R"({"teaching":{"helpType":"explanation"},"message":"INVALID-PUBLIC","actions":[{"id":"bad-section","tool":"append_section","args":{"lessonId":"protocol-lesson","section":{"kind":"explanation","title":"不应应用","body":"INVALID-PUBLIC","helpType":"explanation"}}],"state":"waiting_student"})",
+        // 【逐行批注】 执行当前声明或表达式：R"({"teaching":{"helpType":"explanation"},"message":"INVALID-PUBLIC",{"actions":[],"…。
+        R"({"teaching":{"helpType":"explanation"},"message":"INVALID-PUBLIC",{"actions":[],"state":"waiting_student"}})"
+    // 【逐行批注】 执行当前声明或表达式：};。
+    };
+    // 【逐行批注】 按循环规则重复处理：for (std::size_t index = 0; index < malformed.size(); ++index) {。
+    for (std::size_t index = 0; index < malformed.size(); ++index) {
+        // 【逐行批注】 计算右侧结果并写入 auto database，更新当前运行状态。
+        const auto database = path.string() + "." + std::to_string(index);
+        // 【逐行批注】 执行当前声明或表达式：gangyi::Database db; db.open(database); db.migrate();。
+        gangyi::Database db; db.open(database); db.migrate();
+        // 【逐行批注】 执行当前声明或表达式：const gangyi::AgentAccess access{"protocol-check", {"protocol-math"}};。
+        const gangyi::AgentAccess access{"protocol-check", {"protocol-math"}};
+        // 【逐行批注】 调用 assert 完成本行所需操作：assert(db.insert(gangyi::Course{"protocol-math", access.scopeId, {}, …。
+        assert(db.insert(gangyi::Course{"protocol-math", access.scopeId, {}, "分数", "deep", "分数", {}, "ai", "active", "now", "now"}));
+        // 【逐行批注】 计算右侧结果并写入 Json lesson，更新当前运行状态。
+        const Json lesson = {{"id", "protocol-lesson"}, {"scopeId", access.scopeId}, {"courseId", "protocol-math"},
+            // 【逐行批注】 执行当前声明或表达式：{"title", "分数"}, {"purpose", "校验错误恢复"}, {"status", "ready"}, {"entered", true}, {"ve…。
+            {"title", "分数"}, {"purpose", "校验错误恢复"}, {"status", "ready"}, {"entered", true}, {"version", 1},
+            // 【逐行批注】 执行当前声明或表达式：{"updatedAt", "now"}, {"sourceLearningVersion", db.learningRevision()}, {"sections",…。
+            {"updatedAt", "now"}, {"sourceLearningVersion", db.learningRevision()}, {"sections", {
+                // 【逐行批注】 执行当前声明或表达式：{{"id", "q1"}, {"kind", "question"}, {"title", "实际作答"}, {"questionKind", "practice"},。
+                {{"id", "q1"}, {"kind", "question"}, {"title", "实际作答"}, {"questionKind", "practice"},
+                    // 【逐行批注】 计算右侧结果并写入 {"questionId", "protocol-q1"}, {"version", 1…，更新当前运行状态。
+                    {"questionId", "protocol-q1"}, {"version", 1}, {"question", {{"question", "1/2+1/3=?"},
+                    // 【逐行批注】 执行当前声明或表达式：{"expectedAnswer", "PRIVATE-5/6"}, {"rubric", "PRIVATE-STANDARD"}}}}。
+                    {"expectedAnswer", "PRIVATE-5/6"}, {"rubric", "PRIVATE-STANDARD"}}}}
+            // 【逐行批注】 执行当前声明或表达式：}}};。
+            }}};
+        // 【逐行批注】 调用 assert 完成本行所需操作：assert(db.upsert(gangyi::ClassroomActivity{"protocol-lesson", "protoc…。
+        assert(db.upsert(gangyi::ClassroomActivity{"protocol-lesson", "protocol-math", "agent-lesson", lesson.dump(), "now", 0, 0}));
+        // 【逐行批注】 计算右侧结果并写入 Json event，更新当前运行状态。
+        const Json event = {{"type", "question_answer"}, {"courseId", "protocol-math"}, {"lessonId", "protocol-lesson"},
+            // 【逐行批注】 执行当前声明或表达式：{"sectionId", "q1"}, {"sectionVersion", 1}, {"view", "practice"}, {"requestId", "pro…。
+            {"sectionId", "q1"}, {"sectionVersion", 1}, {"view", "practice"}, {"requestId", "protocol-answer"}, {"text", "2/5"}};
+        // 【逐行批注】 计算右侧结果并写入 auto task，更新当前运行状态。
+        const auto task = gangyi::agentSubmit(db, access, event);
+        // 【逐行批注】 计算右侧结果并写入 auto actual，更新当前运行状态。
+        const auto actual = gangyi::agentContext(db, access, event).at("currentInputs").at(0);
+        // 【逐行批注】 计算右侧结果并写入 int assessmentCalls，更新当前运行状态。
+        int assessmentCalls = 0, teachingCalls = 0;
+        // 【逐行批注】 计算右侧结果并写入 bool recover，更新当前运行状态。
+        bool recover = false;
+        // 【逐行批注】 定义函数 agent，执行该函数声明的职责。
+        gangyi::LearningAgent agent(database, [&](const gangyi::ChatOptions& options, const auto& sink) {
+            // 【逐行批注】 调用 assert 完成本行所需操作：assert(options.maxTokens == 8192 && options.temperature == 0.25 && op…。
+            assert(options.maxTokens == 8192 && options.maxAttempts == 1);
+            assert(options.temperature == (teachingCalls > 0 ? 0.0 : 0.25));
+            // 【逐行批注】 调用 assert 完成本行所需操作：assert(options.responseFormat == "json_object");。
+            assert(options.responseFormat == "json_object");
+            // 【逐行批注】 调用 assert 完成本行所需操作：assert(options.messages.front().content.find(gangyi::kAgentTeachingAc…。
+            assert(options.messages.front().content.find(gangyi::kAgentTeachingAccuracyRule) != std::string::npos);
+            // 【逐行批注】 判断条件 (options.activity.purpose == "判断本次回答或追问") {，成立时执行对应分支。
+            if (options.activity.purpose == "判断本次回答或追问") {
+                // 【逐行批注】 调用 assert 完成本行所需操作：++assessmentCalls; assert(assessmentCalls == 1);。
+                ++assessmentCalls; assert(assessmentCalls == 1);
+                // 【逐行批注】 结束当前函数并返回结果：return output({{"message", ""}, {"teaching", {{"helpType", "none"}}},…。
+                return output({{"message", ""}, {"teaching", {{"helpType", "none"}}}, {"state", "continue"},
+                    // 【逐行批注】 执行当前声明或表达式：{"actions", {{{"id", "original-diagnosis"}, {"tool", "evaluate_answer"}, {"args", {。
+                    {"actions", {{{"id", "original-diagnosis"}, {"tool", "evaluate_answer"}, {"args", {
+                        // 【逐行批注】 执行当前声明或表达式：{"interactionId", actual.at("interactionId")}, {"score", 20}, {"credible", true},。
+                        {"interactionId", actual.at("interactionId")}, {"score", 20}, {"credible", true},
+                        // 【逐行批注】 执行当前声明或表达式：{"feedback", "分母表示整体等分的份数，需要统一分数单位。"}, {"feedbackHelpType", "explanation"},。
+                        {"feedback", "分母表示整体等分的份数，需要统一分数单位。"}, {"feedbackHelpType", "explanation"},
+                        // 【逐行批注】 执行当前声明或表达式：{"reason", "真实回答把分子分母分别相加"}, {"uncertainty", "只有一次回答"},。
+                        {"reason", "真实回答把分子分母分别相加"}, {"uncertainty", "只有一次回答"},
+                        // 【逐行批注】 执行当前声明或表达式：{"diagnosis", {{"summary", "混淆分数单位"}, {"evidence", {"2/5"}},。
+                        {"diagnosis", {{"summary", "混淆分数单位"}, {"evidence", {"2/5"}},
+                            // 【逐行批注】 执行当前声明或表达式：{"teachingDirection", "解释同一整体的等分份数与每份大小"}, {"needsClarification", false}}}。
+                            {"teachingDirection", "解释同一整体的等分份数与每份大小"}, {"needsClarification", false}}}
+                    // 【逐行批注】 执行当前声明或表达式：}}}}}}, sink);。
+                    }}}}}}, sink);
+            // 【逐行批注】 结束当前代码块。
+            }
+            // 【逐行批注】 执行当前声明或表达式：++teachingCalls;。
+            ++teachingCalls;
+            // 【逐行批注】 判断条件 (!recover) {，成立时执行对应分支。
+            if (!recover) {
+                // 【逐行批注】 计算右侧结果并写入 auto& content，更新当前运行状态。
+                const auto& content = malformed[index];
+                // 【逐行批注】 按循环规则重复处理：for (char byte : content) sink(std::string(1, byte));。
+                for (char byte : content) sink(std::string(1, byte));
+                // 【逐行批注】 计算右侧结果并写入 gangyi::AIResult result; result.content，更新当前运行状态。
+                gangyi::AIResult result; result.content = content; result.model = "fixture"; result.finishReason = "stop";
+                // 【逐行批注】 结束当前函数并返回结果：return result;。
+                return result;
+            // 【逐行批注】 结束当前代码块。
+            }
+            // 【逐行批注】 结束当前函数并返回结果：return output({{"message", "分母表示把同一整体平均分成的份数；先统一分数单位，再解释你的方法。"},。
+            return output({{"message", "分母表示把同一整体平均分成的份数；先统一分数单位，再解释你的方法。"},
+                // 【逐行批注】 调用 array 完成本行所需操作：{"teaching", {{"helpType", "explanation"}, {"demonstratedQuestions", …。
+                {"teaching", {{"helpType", "explanation"}, {"demonstratedQuestions", Json::array()}}},
+                {"tool", nullptr}, {"state", "waiting_student"}}, sink);
+        // 【逐行批注】 执行当前声明或表达式：});。
+        });
+        // 【逐行批注】 调用 registerAgentLessonTools 完成本行所需操作：gangyi::registerAgentLessonTools(agent); agent.process(db, task.at("i…。
+        gangyi::registerAgentLessonTools(agent); agent.process(db, task.at("id"));
+        // 【逐行批注】 计算右侧结果并写入 raw，更新当前运行状态。
+        auto raw = Json::parse(db.getClassroomActivity(task.at("id"))->payload);
+        // 【逐行批注】 调用 assert 完成本行所需操作：assert(raw.at("status") == "failed" && assessmentCalls == 1 && teachi…。
+        assert(raw.at("status") == "failed" && assessmentCalls == 1 && teachingCalls == 3);
+        // 【逐行批注】 调用 assert 完成本行所需操作：assert(raw.at("completedActions").size() == 1 && raw.at("completedAct…。
+        assert(raw.at("completedActions").size() == 1 && raw.at("completedActions").contains("original-diagnosis"));
+        // 【逐行批注】 计算右侧结果并写入 auto diagnostic，更新当前运行状态。
+        const auto diagnostic = raw.at("failure").at("responseDiagnostic");
+        // 【逐行批注】 调用 assert 完成本行所需操作：assert(diagnostic.at("matchesStream") == true && diagnostic.at("parse…。
+        assert(diagnostic.at("matchesStream") == true && diagnostic.at("parseByte").get<std::size_t>() > 0);
+        // 【逐行批注】 调用 assert 完成本行所需操作：assert(diagnostic.at("receivedBytes") == malformed[index].size() && d…。
+        assert(diagnostic.at("receivedBytes") == malformed[index].size() && diagnostic.at("streamBytes") == malformed[index].size());
+        // 【逐行批注】 按循环规则重复处理：for (const auto& item : raw.at("events")) if (item.value("type", "") == "d…。
+        for (const auto& item : raw.at("events")) if (item.value("type", "") == "delta")
+            // 【逐行批注】 调用 assert 完成本行所需操作：assert(item.value("text", "").find("INVALID-PUBLIC") == std::string::…。
+            assert(item.value("text", "").find("INVALID-PUBLIC") == std::string::npos || item.value("provisional", false));
+        // 【逐行批注】 计算右侧结果并写入 shown，更新当前运行状态。
+        auto shown = gangyi::agentLessonView(db, access, "protocol-lesson");
+        // 【逐行批注】 调用 assert 完成本行所需操作：assert(shown.at("sections").size() == 1 && shown.at("evaluations").em…。
+        assert(shown.at("sections").size() == 1 && shown.at("evaluations").empty());
+        // 【逐行批注】 调用 assert 完成本行所需操作：assert(shown.dump().find("INVALID-PUBLIC") == std::string::npos && sh…。
+        assert(shown.dump().find("INVALID-PUBLIC") == std::string::npos && shown.dump().find("PRIVATE-") == std::string::npos);
+        // 【逐行批注】 计算右侧结果并写入 recover，更新当前运行状态。
+        recover = true;
+        // 【逐行批注】 调用 agentControl 完成本行所需操作：gangyi::agentControl(db, access, {{"command", "retry"}, {"taskId", ta…。
+        gangyi::agentControl(db, access, {{"command", "retry"}, {"taskId", task.at("id")}});
+        // 【逐行批注】 执行当前声明或表达式：agent.process(db, task.at("id"));。
+        agent.process(db, task.at("id"));
+        // 【逐行批注】 计算右侧结果并写入 shown，更新当前运行状态。
+        shown = gangyi::agentLessonView(db, access, "protocol-lesson");
+        // 【逐行批注】 调用 assert、agentView 完成本行所需操作：assert(gangyi::agentView(db, access, task.at("id")).at("status") == "…。
+        assert(gangyi::agentView(db, access, task.at("id")).at("status") == "waiting_student");
+        // 【逐行批注】 调用 assert 完成本行所需操作：assert(assessmentCalls == 1 && teachingCalls == 4 && shown.at("evalua…。
+        assert(assessmentCalls == 1 && teachingCalls == 4 && shown.at("evaluations").size() == 1);
+        // 【逐行批注】 计算右侧结果并写入 int answers，更新当前运行状态。
+        int answers = 0, assessments = 0;
+        // 【逐行批注】 按循环规则重复处理：for (const auto& interaction : db.listInteractions()) {。
+        for (const auto& interaction : db.listInteractions()) {
+            // 【逐行批注】 判断条件 (interaction.kind == "chat-user") ++answers;，成立时执行对应分支。
+            if (interaction.kind == "chat-user") ++answers;
+            // 【逐行批注】 判断条件 (interaction.kind == "practice") ++assessments;，成立时执行对应分支。
+            if (interaction.kind == "practice") ++assessments;
+        // 【逐行批注】 结束当前代码块。
+        }
+        // 【逐行批注】 调用 assert 完成本行所需操作：assert(shown.at("evaluations").at(0).at("score") == 20 && answers == …。
+        assert(shown.at("evaluations").at(0).at("score") == 20 && answers == 1 && assessments == 1);
+        // 【逐行批注】 执行当前声明或表达式：agent.process(db, task.at("id"));。
+        agent.process(db, task.at("id"));
+        // 【逐行批注】 调用 assert 完成本行所需操作：assert(assessmentCalls == 1 && teachingCalls == 4);。
+        assert(assessmentCalls == 1 && teachingCalls == 4);
+    // 【逐行批注】 结束当前代码块。
+    }
+
+    // 结构错误后的自动恢复必须丢弃上一轮坏 JSON，而不是继续把它带进上下文。
+    // 【逐行批注】 计算右侧结果并写入 auto autoRecoveryDatabase，更新当前运行状态。
+    const auto autoRecoveryDatabase = path.string() + ".auto-recovery";
+    // 【逐行批注】 执行当前声明或表达式：gangyi::Database autoRecoveryDb; autoRecoveryDb.open(autoRecoveryDatabase); autoReco…。
+    gangyi::Database autoRecoveryDb; autoRecoveryDb.open(autoRecoveryDatabase); autoRecoveryDb.migrate();
+    // 【逐行批注】 执行当前声明或表达式：const gangyi::AgentAccess autoRecoveryAccess{"protocol-auto-recovery", {"protocol-re…。
+    const gangyi::AgentAccess autoRecoveryAccess{"protocol-auto-recovery", {"protocol-recovery"}};
+    // 【逐行批注】 调用 assert 完成本行所需操作：assert(autoRecoveryDb.insert(gangyi::Course{"protocol-recovery", auto…。
+    assert(autoRecoveryDb.insert(gangyi::Course{"protocol-recovery", autoRecoveryAccess.scopeId, {}, "恢复", "deep", "恢复", {}, "ai", "active", "now", "now"}));
+    // 【逐行批注】 计算右侧结果并写入 auto autoRecoveryTask，更新当前运行状态。
+    const auto autoRecoveryTask = gangyi::agentSubmit(autoRecoveryDb, autoRecoveryAccess,
+        // 【逐行批注】 执行当前声明或表达式：{{"type", "chat"}, {"courseId", "protocol-recovery"}, {"requestId", "auto-recovery"}…。
+        {{"type", "chat"}, {"courseId", "protocol-recovery"}, {"requestId", "auto-recovery"}, {"text", "继续准备"}});
+    // 【逐行批注】 计算右侧结果并写入 int recoveryCalls，更新当前运行状态。
+    int recoveryCalls = 0;
+    int savedActions = 0;
+    // 【逐行批注】 计算右侧结果并写入 bool carriedInvalidStructure，更新当前运行状态。
+    bool carriedInvalidStructure = false;
+    // 【逐行批注】 定义函数 autoRecoveryAgent，执行该函数声明的职责。
+    gangyi::LearningAgent autoRecoveryAgent(autoRecoveryDatabase, [&](const gangyi::ChatOptions& options, const auto& sink) {
+        // 【逐行批注】 执行当前声明或表达式：++recoveryCalls;。
+        ++recoveryCalls;
+        // 【逐行批注】 判断条件 (recoveryCalls > 1)，成立时执行对应分支。
+        if (recoveryCalls > 1)
+            // 【逐行批注】 按循环规则重复处理：for (const auto& message : options.messages)。
+            for (const auto& message : options.messages)
+                carriedInvalidStructure = carriedInvalidStructure || message.content.find("INVALID-") != std::string::npos;
+        // 【逐行批注】 判断条件 (recoveryCalls == 1) {，成立时执行对应分支。
+        if (recoveryCalls == 1) {
+            // 【逐行批注】 计算右侧结果并写入 std::string invalid，更新当前运行状态。
+            const std::string invalid = R"({"message":"INVALID-AUTO-RECOVERY","actions":[{"id":"old","tool":"record_recovery","args":{"value":"原任务"}],"state":"waiting_student"})";
+            // 【逐行批注】 调用 sink 完成本行所需操作：sink(invalid);。
+            sink(invalid);
+            // 【逐行批注】 计算右侧结果并写入 gangyi::AIResult result; result.content，更新当前运行状态。
+            gangyi::AIResult result; result.content = invalid; result.model = "fixture"; result.finishReason = "stop";
+            // 【逐行批注】 结束当前函数并返回结果：return result;。
+            return result;
+        // 【逐行批注】 结束当前代码块。
+        }
+        assert(std::any_of(options.messages.begin(), options.messages.end(), [](const auto& item) {
+            return item.role == "system" && item.content.find("本轮恢复使用单步回复") != std::string::npos;
+        }));
+        assert(savedActions == 0);
+        Json recovered = {{"message", "已自动恢复。"}, {"teaching", {{"helpType", "none"}}},
+            {"tool", "record_recovery"}, {"actionId", "same-task-action"}, {"args", {{"value", "原任务"}}}, {"state", "waiting_student"}};
+        if (recoveryCalls == 2) {
+            recovered["message"] = "INVALID-MIXED-RECOVERY";
+            recovered["actions"] = Json::array();
+        }
+        return output(recovered, sink);
+    // 【逐行批注】 执行当前声明或表达式：});。
+    });
+    // 【逐行批注】 执行当前声明或表达式：autoRecoveryAgent.process(autoRecoveryDb, autoRecoveryTask.at("id"));。
+    autoRecoveryAgent.registerTool("record_recovery", {"记录原任务的已核对结果", false,
+        [&](auto&, const Json& args, const Json&, const auto&) {
+            assert(args.at("value") == "原任务");
+            return gangyi::PreparedAgentTool{{{"saved", true}}, [&](auto&) { ++savedActions; }};
+        }});
+    autoRecoveryAgent.process(autoRecoveryDb, autoRecoveryTask.at("id"));
+    // 【逐行批注】 计算右侧结果并写入 auto recoveredTask，更新当前运行状态。
+    const auto recoveredTask = Json::parse(autoRecoveryDb.getClassroomActivity(autoRecoveryTask.at("id"))->payload);
+    // 【逐行批注】 调用 assert 完成本行所需操作：assert(recoveryCalls == 2 && !carriedInvalidStructure);。
+    assert(recoveryCalls == 3 && savedActions == 1 && !carriedInvalidStructure);
+    // 【逐行批注】 调用 assert 完成本行所需操作：assert(recoveredTask.at("status") == "waiting_student" && !recoveredT…。
+    assert(recoveredTask.at("status") == "waiting_student" && !recoveredTask.contains("failure") && !recoveredTask.contains("failureCount"));
+    assert(recoveredTask.at("message") == "已自动恢复。" && recoveredTask.at("completedActions").size() == 1);
+    std::string streamedReply;
+    for (const auto& item : recoveredTask.at("events")) if (item.value("type", "") == "delta" && item.value("step", 0) == 3)
+        streamedReply = (item.value("replace", false) ? std::string() : streamedReply) + item.value("text", "");
+    assert(streamedReply == "已自动恢复。");
+
+    // JSON 解析器的异常摘录可能截断汉字；记录错误时不得再次抛出并遗留运行中任务。
+    // 【逐行批注】 计算右侧结果并写入 auto database，更新当前运行状态。
+    const auto database = path.string() + ".error-text";
+    // 【逐行批注】 执行当前声明或表达式：gangyi::Database db; db.open(database); db.migrate();。
+    gangyi::Database db; db.open(database); db.migrate();
+    // 【逐行批注】 执行当前声明或表达式：const gangyi::AgentAccess access{"protocol-error", {"error-math"}};。
+    const gangyi::AgentAccess access{"protocol-error", {"error-math"}};
+    // 【逐行批注】 调用 assert 完成本行所需操作：assert(db.insert(gangyi::Course{"error-math", access.scopeId, {}, "分数…。
+    assert(db.insert(gangyi::Course{"error-math", access.scopeId, {}, "分数", "deep", "分数", {}, "ai", "active", "now", "now"}));
+    // 【逐行批注】 计算右侧结果并写入 auto task，更新当前运行状态。
+    const auto task = gangyi::agentSubmit(db, access, {{"type", "chat"}, {"courseId", "error-math"},
+        // 【逐行批注】 执行当前声明或表达式：{"requestId", "invalid-error-text"}, {"text", "保留学生原始输入"}});。
+        {"requestId", "invalid-error-text"}, {"text", "保留学生原始输入"}});
+    // 【逐行批注】 计算右侧结果并写入 int calls，更新当前运行状态。
+    int calls = 0;
+    // 【逐行批注】 声明对象 agent，并通过构造函数初始化其状态。
+    gangyi::LearningAgent agent(database, [&](const auto&, const auto&) -> gangyi::AIResult {
+        // 【逐行批注】 执行当前声明或表达式：++calls;。
+        ++calls;
+        // 【逐行批注】 检测到错误情形时抛出异常：throw std::runtime_error(std::string("invalid excerpt: ") + static_ca…。
+        throw std::runtime_error(std::string("invalid excerpt: ") + static_cast<char>(0xe4) + "'");
+    // 【逐行批注】 执行当前声明或表达式：});。
+    });
+    // 【逐行批注】 执行当前声明或表达式：agent.process(db, task.at("id"));。
+    agent.process(db, task.at("id"));
+    // 【逐行批注】 计算右侧结果并写入 auto raw，更新当前运行状态。
     const auto raw = Json::parse(db.getClassroomActivity(task.at("id"))->payload);
+    // 【逐行批注】 调用 assert 完成本行所需操作：assert(raw.at("status") == "failed" && calls == 3 && raw.at("failureC…。
     assert(raw.at("status") == "failed" && calls == 3 && raw.at("failureCount") == 3);
+    // 【逐行批注】 调用 assert 完成本行所需操作：assert(raw.at("event").at("text") == "保留学生原始输入" && raw.at("completedA…。
     assert(raw.at("event").at("text") == "保留学生原始输入" && raw.at("completedActions").empty());
+    // 【逐行批注】 计算右侧结果并写入 auto error，更新当前运行状态。
     const auto error = Json::parse(raw.at("messages").back().at("content").get<std::string>());
+    // 【逐行批注】 调用 assert、string 完成本行所需操作：assert(error.at("toolError") == std::string("invalid excerpt: ") + u8…。
     assert(error.at("toolError") == std::string("invalid excerpt: ") + u8"�'");
+// 【逐行批注】 结束当前代码块。
 }

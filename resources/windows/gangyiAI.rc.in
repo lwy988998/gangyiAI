@@ -1,35 +1,67 @@
+// 【逐行批注】 调用 code_page 完成本行所需操作：#pragma code_page(65001)。
 #pragma code_page(65001)
 
+// 【逐行批注】 引入头文件 <windows.h>，为后续实现提供类型或接口声明。
 #include <windows.h>
+// 【逐行批注】 引入头文件 "windows_resource.h"，为后续实现提供类型或接口声明。
 #include "windows_resource.h"
 
+// 【逐行批注】 执行当前声明或表达式：IDI_GANGYI_AI ICON "@CMAKE_CURRENT_SOURCE_DIR@/assets/windows/gangyiAI.ico"。
 IDI_GANGYI_AI ICON "@CMAKE_CURRENT_SOURCE_DIR@/assets/windows/gangyiAI.ico"
 
+// 【逐行批注】 执行当前声明或表达式：VS_VERSION_INFO VERSIONINFO。
 VS_VERSION_INFO VERSIONINFO
+ // 【逐行批注】 执行当前声明或表达式：FILEVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0。
  FILEVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+ // 【逐行批注】 执行当前声明或表达式：PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATC…。
  PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+ // 【逐行批注】 执行当前声明或表达式：FILEFLAGSMASK 0x3fL。
  FILEFLAGSMASK 0x3fL
+ // 【逐行批注】 执行当前声明或表达式：FILEFLAGS 0x0L。
  FILEFLAGS 0x0L
+ // 【逐行批注】 执行当前声明或表达式：FILEOS VOS_NT_WINDOWS32。
  FILEOS VOS_NT_WINDOWS32
+ // 【逐行批注】 执行当前声明或表达式：FILETYPE VFT_APP。
  FILETYPE VFT_APP
+ // 【逐行批注】 执行当前声明或表达式：FILESUBTYPE 0x0L。
  FILESUBTYPE 0x0L
+// 【逐行批注】 执行当前声明或表达式：BEGIN。
 BEGIN
+    // 【逐行批注】 执行当前声明或表达式：BLOCK "StringFileInfo"。
     BLOCK "StringFileInfo"
+    // 【逐行批注】 执行当前声明或表达式：BEGIN。
     BEGIN
+        // 【逐行批注】 执行当前声明或表达式：BLOCK "080404b0"。
         BLOCK "080404b0"
+        // 【逐行批注】 执行当前声明或表达式：BEGIN。
         BEGIN
+            // 【逐行批注】 执行当前声明或表达式：VALUE "CompanyName", "柳州市钢一中学\0"。
             VALUE "CompanyName", "柳州市钢一中学\0"
+            // 【逐行批注】 执行当前声明或表达式：VALUE "FileDescription", "@GANGYI_FILE_DESCRIPTION@\0"。
             VALUE "FileDescription", "@GANGYI_FILE_DESCRIPTION@\0"
+            // 【逐行批注】 执行当前声明或表达式：VALUE "FileVersion", "@PROJECT_VERSION@\0"。
             VALUE "FileVersion", "@PROJECT_VERSION@\0"
+            // 【逐行批注】 执行当前声明或表达式：VALUE "InternalName", "gangyiAI\0"。
             VALUE "InternalName", "gangyiAI\0"
+            // 【逐行批注】 执行当前声明或表达式：VALUE "LegalCopyright", "项目作者：lwy\0"。
             VALUE "LegalCopyright", "项目作者：lwy\0"
+            // 【逐行批注】 执行当前声明或表达式：VALUE "OriginalFilename", "@GANGYI_ORIGINAL_FILENAME@\0"。
             VALUE "OriginalFilename", "@GANGYI_ORIGINAL_FILENAME@\0"
+            // 【逐行批注】 执行当前声明或表达式：VALUE "ProductName", "钢一定制AI\0"。
             VALUE "ProductName", "钢一定制AI\0"
+            // 【逐行批注】 执行当前声明或表达式：VALUE "ProductVersion", "@PROJECT_VERSION@\0"。
             VALUE "ProductVersion", "@PROJECT_VERSION@\0"
+        // 【逐行批注】 执行当前声明或表达式：END。
         END
+    // 【逐行批注】 执行当前声明或表达式：END。
     END
+    // 【逐行批注】 执行当前声明或表达式：BLOCK "VarFileInfo"。
     BLOCK "VarFileInfo"
+    // 【逐行批注】 执行当前声明或表达式：BEGIN。
     BEGIN
+        // 【逐行批注】 执行当前声明或表达式：VALUE "Translation", 0x0804, 1200。
         VALUE "Translation", 0x0804, 1200
+    // 【逐行批注】 执行当前声明或表达式：END。
     END
+// 【逐行批注】 执行当前声明或表达式：END。
 END

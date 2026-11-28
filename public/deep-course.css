@@ -1,148 +1,584 @@
 /* 深度课堂沿用澄明配色：正文、课程目录与答疑各自滚动。 */
+.il-sets { color: var(--dc-text, #21324b); }
+.il-instruction, .il-note, .il-sets-description { margin: 8px 0 16px; overflow-wrap: anywhere; }
+.il-note, .il-sets-description { color: var(--dc-muted, #5e6d82); font-size: 13px; }
+.il-sets-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(180px, 1fr); gap: 24px; align-items: start; }
+.il-sets-diagram svg { display: block; width: 100%; max-height: 190px; }
+.il-sets-diagram circle { fill: var(--dc-accent, #3d61ce); fill-opacity: .12; stroke: var(--dc-accent, #3d61ce); stroke-width: 1.5; }
+.il-sets-diagram text { fill: var(--dc-text, #21324b); font: 600 18px "Segoe UI", sans-serif; }
+.il-sets-result { margin: 12px 0 4px; font-size: 20px; font-weight: 600; overflow-wrap: anywhere; }
+.il-sets-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.il-sets-table caption { text-align: left; font-weight: 600; padding-bottom: 8px; }
+.il-sets-table th, .il-sets-table td { border-bottom: 1px solid var(--dc-line, #dfe6ef); padding: 4px 8px; text-align: center; overflow-wrap: anywhere; }
+.il-sets-table tbody th { text-align: left; max-width: 140px; }
+.il-sets-table label { display: flex; justify-content: center; align-items: center; min-height: 40px; cursor: pointer; }
+.il-sets-table input { width: 18px; height: 18px; accent-color: var(--dc-accent, #3d61ce); cursor: pointer; }
+.il-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.dc-mastery { margin-top: 7px; max-width: 70ch; font-size: 13px; }
+.dc-mastery[open] { max-height: min(200px, 25dvh); overflow: auto; padding-right: 10px; }
+.dc-mastery summary { cursor: pointer; color: var(--dc-accent, #3d61ce); width: fit-content; padding: 3px 0; }
+.dc-mastery p { margin: 6px 0; color: var(--dc-muted, #5e6d82); overflow-wrap: anywhere; }
+.dc-teaching-preferences { margin: 6px 0 0; font-size: 12px; color: var(--dc-muted, #5e6d82); overflow-wrap: anywhere; }
+.il-lab { min-width: 0; }
+.dc-labs-link { text-decoration: none; white-space: nowrap; }
+.il-lab-diagram { margin: 18px 0; min-width: 0; }
+.il-function-board { width: 100%; height: 300px; touch-action: none; }
+.il-lab-diagram > svg { display: block; width: 100%; max-height: 280px; color: var(--dc-text,#21324b); }
+.il-lab-diagram svg text { fill: currentColor; font-size: 15px; }
+.il-circuit-wire { fill: none; stroke: var(--dc-accent,#3d61ce); stroke-width: 3; }
+.il-circuit-resistor,.il-circuit-source { fill: var(--dc-surface,#fff); stroke: var(--dc-text,#21324b); stroke-width: 2; }
+.il-lab-controls { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(220px,100%),1fr)); gap: 14px 24px; margin: 16px 0; }
+.il-lab-control { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 7px 12px; align-items: center; }
+.il-lab-control[hidden] { display: none; }
+.il-lab-control input[type=range] { grid-column: 1; width: 100%; accent-color: var(--dc-accent,#3d61ce); }
+.il-lab-control input[type=number],.il-lab-control select { min-width: 0; width: 100%; padding: 8px; border: 1px solid var(--dc-line,#dfe6ef); border-radius: 6px; background: var(--dc-surface,#fff); color: inherit; }
+.il-lab-control output { font-variant-numeric: tabular-nums; }
+.il-lab-result { font-size: 15px; line-height: 1.9; overflow-wrap: anywhere; }
+.il-equation-current { font-size:22px; font-weight:600; line-height:1.7; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+.il-equation-history { padding-inline-start:24px; margin:14px 0; overflow-wrap:anywhere; }
+.il-equation-history li { margin-block:8px; }
+.il-atom-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.il-atom-table caption { text-align: left; margin-bottom: 12px; font-weight: 600; }
+.il-atom-table td,.il-atom-table th { padding: 10px 8px; text-align: left; border-bottom: 1px solid var(--dc-line,#dfe6ef); }
+.dc-more-list { max-height: min(60dvh, 480px); overflow: auto; }
+@media (max-width: 700px) { .il-sets-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; } }
+/* 【逐行批注】 定义或补充当前界面样式：body.deep-course-body{overflow:hidden}。 */
 body.deep-course-body{overflow:hidden}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell{--dc-bg:var(--gy-bg,#f6f8fc);--dc-surface:var(--gy-surface,#fff);--dc-…。 */
 .deep-course-shell{--dc-bg:var(--gy-bg,#f6f8fc);--dc-surface:var(--gy-surface,#fff);--dc-soft:var(--gy-surface-alt,#eef3fc);--dc-text:var(--gy-text,#21324b);--dc-muted:var(--gy-muted,#5e6d82);--dc-line:var(--gy-border,#dfe6ef);--dc-accent:var(--gy-accent,#3d61ce);height:calc(100dvh - var(--gy-header-height,72px));min-height:0;display:flex;flex-direction:column;background:var(--dc-bg);color:var(--dc-text);font:14px/1.7 "Segoe UI","Microsoft YaHei UI","Microsoft YaHei",sans-serif;box-sizing:border-box}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell *,.dc-dialog *{box-sizing:border-box}。 */
 .deep-course-shell *,.dc-dialog *{box-sizing:border-box}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell button,.deep-course-shell input,.deep-course-shell textarea,.deep-cour…。 */
 .deep-course-shell button,.deep-course-shell input,.deep-course-shell textarea,.deep-course-shell select,.dc-dialog button{font:inherit}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell button,.dc-dialog button{cursor:pointer}。 */
 .deep-course-shell button,.dc-dialog button{cursor:pointer}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell button:disabled{cursor:wait;opacity:.55}。 */
 .deep-course-shell button:disabled{cursor:wait;opacity:.55}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell :is(button,a,input,textarea,summary):focus-visible,.dc-dialog :focus-v…。 */
 .deep-course-shell :is(button,a,input,textarea,summary):focus-visible,.dc-dialog :focus-visible{outline:2px solid var(--dc-accent,#3d61ce);outline-offset:3px}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell [hidden],.dc-dialog [hidden]{display:none!important}。 */
 .deep-course-shell [hidden],.dc-dialog [hidden]{display:none!important}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell ::selection{background:#d7e2ff;color:#21324b}。 */
 .deep-course-shell ::selection{background:#d7e2ff;color:#21324b}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell textarea{caret-color:var(--dc-accent)}。 */
 .deep-course-shell textarea{caret-color:var(--dc-accent)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-head{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:1…。 */
 .dc-head{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:18px 28px 15px;background:var(--dc-surface);border-bottom:1px solid var(--dc-line);flex:none}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-head h1{font-size:23px;font-weight:650;line-height:1.4;letter-spacing:-.02em;margin:0…。 */
 .dc-head h1{font-size:23px;font-weight:650;line-height:1.4;letter-spacing:-.02em;margin:0 0 5px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-head-context{font-size:12px;color:var(--dc-muted);margin:0;overflow-wrap:anywhere}。 */
 .dc-head-context{font-size:12px;color:var(--dc-muted);margin:0;overflow-wrap:anywhere}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-head-actions{display:flex;align-items:center;gap:9px;flex-shrink:0}。 */
 .dc-head-actions{display:flex;align-items:center;gap:9px;flex-shrink:0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-button{border:1px solid var(--dc-line,#dfe6ef);border-radius:7px;background:var(--dc-…。 */
 .dc-button{border:1px solid var(--dc-line,#dfe6ef);border-radius:7px;background:var(--dc-surface,#fff);color:var(--dc-text,#21324b);padding:8px 12px;min-height:36px;display:inline-flex;align-items:center;justify-content:center;gap:7px;font-size:12px!important;text-decoration:none;line-height:1.4;white-space:nowrap;transition:background .18s,border-color .18s}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-button:hover{background:var(--dc-soft,#eef3fc);border-color:#bdcbe4}。 */
 .dc-button:hover{background:var(--dc-soft,#eef3fc);border-color:#bdcbe4}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-button.dc-primary{background:var(--dc-accent,#3d61ce);color:#fff;border-color:transpa…。 */
 .dc-button.dc-primary{background:var(--dc-accent,#3d61ce);color:#fff;border-color:transparent;font-weight:600}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-button.dc-primary:hover{background:#3154bd}。 */
 .dc-button.dc-primary:hover{background:#3154bd}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-icon-button{padding:7px;min-width:34px;min-height:34px}。 */
 .dc-icon-button{padding:7px;min-width:34px;min-height:34px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-button svg,.dc-inline-icon{width:16px;height:16px;vertical-align:middle;flex-shrink:0}。 */
 .dc-button svg,.dc-inline-icon{width:16px;height:16px;vertical-align:middle;flex-shrink:0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-layout{flex:1;min-height:0;display:grid;grid-template-columns:218px minmax(0,1fr)}。 */
 .dc-layout{flex:1;min-height:0;display:grid;grid-template-columns:218px minmax(0,1fr)}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell[data-chat-open=true] .dc-layout{grid-template-columns:200px minmax(0,1…。 */
 .deep-course-shell[data-chat-open=true] .dc-layout{grid-template-columns:200px minmax(0,1fr) 304px}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell[data-directory-open=false] .dc-layout{grid-template-columns:minmax(0,1…。 */
 .deep-course-shell[data-directory-open=false] .dc-layout{grid-template-columns:minmax(0,1fr)}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell[data-directory-open=false][data-chat-open=true] .dc-layout{grid-templa…。 */
 .deep-course-shell[data-directory-open=false][data-chat-open=true] .dc-layout{grid-template-columns:minmax(0,1fr) 304px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-directory{min-height:0;overflow:auto;background:var(--dc-soft,#eef3fc);padding:22px 1…。 */
 .dc-directory{min-height:0;overflow:auto;background:var(--dc-soft,#eef3fc);padding:22px 18px;border-right:1px solid var(--dc-line,#dfe6ef);scrollbar-width:thin}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell[data-directory-open=false] .dc-layout>.dc-directory{display:none}。 */
 .deep-course-shell[data-directory-open=false] .dc-layout>.dc-directory{display:none}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-directory h2{font-size:16px;line-height:1.6;margin:0 0 7px;font-weight:600;overflow-w…。 */
 .dc-directory h2{font-size:16px;line-height:1.6;margin:0 0 7px;font-weight:600;overflow-wrap:anywhere}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-directory>p{font-size:12px;color:var(--dc-muted,#5e6d82);margin:0 0 20px}。 */
 .dc-directory>p{font-size:12px;color:var(--dc-muted,#5e6d82);margin:0 0 20px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-outline-stage{margin:19px 0}。 */
 .dc-outline-stage{margin:19px 0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-outline-stage>summary{font-size:12px;font-weight:600;cursor:pointer;padding:5px 0;ove…。 */
 .dc-outline-stage>summary{font-size:12px;font-weight:600;cursor:pointer;padding:5px 0;overflow-wrap:anywhere}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-outline-topic{width:100%;text-align:left;border:0;background:transparent;border-radiu…。 */
 .dc-outline-topic{width:100%;text-align:left;border:0;background:transparent;border-radius:6px;display:flex;align-items:flex-start;gap:9px;padding:9px 8px;margin:4px 0;color:var(--dc-muted,#5e6d82);font-size:12px!important;line-height:1.7}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-outline-topic:hover{background:#e2eafa;color:var(--dc-text,#21324b)}。 */
 .dc-outline-topic:hover{background:#e2eafa;color:var(--dc-text,#21324b)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-outline-topic[aria-current=page]{background:#e0e9fd;color:#2e52ba;font-weight:600}。 */
 .dc-outline-topic[aria-current=page]{background:#e0e9fd;color:#2e52ba;font-weight:600}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-topic-mark{width:7px;height:7px;border:1px solid currentColor;border-radius:50%;flex-…。 */
 .dc-topic-mark{width:7px;height:7px;border:1px solid currentColor;border-radius:50%;flex-shrink:0;margin-top:7px;opacity:.7}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-outline-topic[aria-current=page] .dc-topic-mark{background:currentColor;opacity:1}。 */
 .dc-outline-topic[aria-current=page] .dc-topic-mark{background:currentColor;opacity:1}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-reader{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--d…。 */
 .dc-reader{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--dc-surface,#fff)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-view-toolbar{display:flex;justify-content:space-between;align-items:center;gap:15px;p…。 */
 .dc-view-toolbar{display:flex;justify-content:space-between;align-items:center;gap:15px;padding:0 26px;border-bottom:1px solid var(--dc-line,#dfe6ef);flex:none}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-tabs{display:flex;gap:24px;min-width:0}。 */
 .dc-tabs{display:flex;gap:24px;min-width:0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-tab{background:none;border:0;border-bottom:2px solid transparent;padding:13px 0 11px;…。 */
 .dc-tab{background:none;border:0;border-bottom:2px solid transparent;padding:13px 0 11px;color:var(--dc-muted,#5e6d82);font-size:13px!important;display:flex;align-items:center;gap:7px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-tab[aria-selected=true]{color:var(--dc-accent,#3d61ce);border-bottom-color:var(--dc-a…。 */
 .dc-tab[aria-selected=true]{color:var(--dc-accent,#3d61ce);border-bottom-color:var(--dc-accent,#3d61ce);font-weight:650}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-saved{font-size:12px;color:var(--dc-muted,#5e6d82);display:flex;gap:6px;align-items:c…。 */
 .dc-saved{font-size:12px;color:var(--dc-muted,#5e6d82);display:flex;gap:6px;align-items:center}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-reading{flex:1;min-height:0;overflow:auto;padding:28px 35px 24px;scrollbar-width:thin…。 */
 .dc-reading{flex:1;min-height:0;overflow:auto;padding:28px 35px 24px;scrollbar-width:thin;overscroll-behavior:contain;scroll-padding-top:18px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-lecture{max-width:76ch;margin:0 auto}。 */
 .dc-lecture{max-width:76ch;margin:0 auto}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-lecture-section{margin:0 0 28px;overflow-wrap:anywhere}。 */
 .dc-lecture-section{margin:0 0 28px;overflow-wrap:anywhere}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-lecture-section h2{font-size:19px;margin:0 0 13px;font-weight:600;line-height:1.5;let…。 */
 .dc-lecture-section h2{font-size:19px;margin:0 0 13px;font-weight:600;line-height:1.5;letter-spacing:-.01em}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-rich{font-size:15px;line-height:1.95;overflow-wrap:anywhere}。 */
 .dc-rich{font-size:15px;line-height:1.95;overflow-wrap:anywhere}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-rich>:first-child{margin-top:0}.dc-rich>:last-child{margin-bottom:0}。 */
 .dc-rich>:first-child{margin-top:0}.dc-rich>:last-child{margin-bottom:0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-rich h3,.dc-rich h4{font-size:17px;line-height:1.6;margin:25px 0 12px}。 */
 .dc-rich h3,.dc-rich h4{font-size:17px;line-height:1.6;margin:25px 0 12px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-rich p{margin:0 0 15px}.dc-rich ul,.dc-rich ol{padding-left:24px;margin:12px 0 18px}。 */
 .dc-rich p{margin:0 0 15px}.dc-rich ul,.dc-rich ol{padding-left:24px;margin:12px 0 18px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-rich li{margin:6px 0}.dc-rich a{color:var(--dc-accent,#3d61ce);text-underline-offset:…。 */
 .dc-rich li{margin:6px 0}.dc-rich a{color:var(--dc-accent,#3d61ce);text-underline-offset:3px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-rich pre{padding:14px 16px;background:var(--dc-soft,#eef3fc);border-radius:8px;overfl…。 */
 .dc-rich pre{padding:14px 16px;background:var(--dc-soft,#eef3fc);border-radius:8px;overflow:auto;max-width:100%;font-size:13px;line-height:1.7}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-rich code{font-family:Consolas,"Cascadia Code",monospace;font-size:.92em}。 */
 .dc-rich code{font-family:Consolas,"Cascadia Code",monospace;font-size:.92em}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-rich table{border-collapse:collapse;width:100%;display:block;overflow:auto;margin:16p…。 */
 .dc-rich table{border-collapse:collapse;width:100%;display:block;overflow:auto;margin:16px 0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-rich td,.dc-rich th{border:1px solid var(--dc-line,#dfe6ef);padding:8px 11px;font-siz…。 */
 .dc-rich td,.dc-rich th{border:1px solid var(--dc-line,#dfe6ef);padding:8px 11px;font-size:13px;white-space:normal}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-rich .katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0;max-width:100%}。 */
 .dc-rich .katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0;max-width:100%}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-media{border:1px solid var(--dc-line,#dfe6ef);border-radius:12px;padding:18px;margin:…。 */
 .dc-media{border:1px solid var(--dc-line,#dfe6ef);border-radius:12px;padding:18px;margin:21px 0;background:var(--dc-surface,#fff);min-width:0;overflow:hidden}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-media h3{font-size:15px;font-weight:600;line-height:1.6;margin:0 0 13px}。 */
 .dc-media h3{font-size:15px;font-weight:600;line-height:1.6;margin:0 0 13px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-media figcaption{font-size:12px;line-height:1.85;color:var(--dc-muted,#5e6d82);margin…。 */
 .dc-media figcaption{font-size:12px;line-height:1.85;color:var(--dc-muted,#5e6d82);margin-top:12px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-media-source{font-size:12px;color:var(--dc-accent,#3d61ce);display:inline-flex;gap:5p…。 */
 .dc-media-source{font-size:12px;color:var(--dc-accent,#3d61ce);display:inline-flex;gap:5px;align-items:center;margin-top:7px;text-underline-offset:3px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-media-image{display:block;max-width:100%;max-height:420px;width:auto;height:auto;obje…。 */
 .dc-media-image{display:block;max-width:100%;max-height:420px;width:auto;height:auto;object-fit:contain;border-radius:5px;margin:0 auto}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-media-state{font-size:13px;line-height:1.85;color:var(--dc-muted,#5e6d82);margin:0}。 */
 .dc-media-state{font-size:13px;line-height:1.85;color:var(--dc-muted,#5e6d82);margin:0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-media-state+.dc-button{margin-top:11px}。 */
 .dc-media-state+.dc-button{margin-top:11px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-timeline{list-style:none;padding:0!important;margin:5px 0!important}。 */
 .dc-timeline{list-style:none;padding:0!important;margin:5px 0!important}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-timeline li{display:grid;grid-template-columns:82px minmax(0,1fr);gap:18px;position:r…。 */
 .dc-timeline li{display:grid;grid-template-columns:82px minmax(0,1fr);gap:18px;position:relative;margin:0!important;padding:0 0 21px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-timeline li:last-child{padding-bottom:0}。 */
 .dc-timeline li:last-child{padding-bottom:0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-timeline strong{font-size:13px;font-weight:550;color:var(--dc-accent,#3d61ce);overflo…。 */
 .dc-timeline strong{font-size:13px;font-weight:550;color:var(--dc-accent,#3d61ce);overflow-wrap:anywhere}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-timeline div{position:relative;border-left:1px solid var(--dc-line,#dfe6ef);padding-l…。 */
 .dc-timeline div{position:relative;border-left:1px solid var(--dc-line,#dfe6ef);padding-left:18px;font-size:13px;line-height:1.8}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-timeline div::before{position:absolute;content:'';width:7px;height:7px;border-radius:…。 */
 .dc-timeline div::before{position:absolute;content:'';width:7px;height:7px;border-radius:50%;left:-4px;top:7px;background:var(--dc-accent,#3d61ce)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-flow{display:flex;flex-wrap:wrap;align-items:center;gap:10px;list-style:none;padding:…。 */
 .dc-flow{display:flex;flex-wrap:wrap;align-items:center;gap:10px;list-style:none;padding:0!important;margin:0!important}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-flow li{font-size:13px;display:flex;align-items:center;gap:10px;margin:0!important;mi…。 */
 .dc-flow li{font-size:13px;display:flex;align-items:center;gap:10px;margin:0!important;min-width:0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-flow-node{padding:10px 14px;border-radius:7px;background:var(--dc-soft,#eef3fc);color…。 */
 .dc-flow-node{padding:10px 14px;border-radius:7px;background:var(--dc-soft,#eef3fc);color:var(--dc-text,#21324b);max-width:220px;overflow-wrap:anywhere}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-flow-edge-list{font-size:12px;color:var(--dc-muted,#5e6d82);line-height:1.9;margin:13…。 */
 .dc-flow-edge-list{font-size:12px;color:var(--dc-muted,#5e6d82);line-height:1.9;margin:13px 0 0!important}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-plot{width:100%;height:auto;display:block;aspect-ratio:1.9;min-height:160px;max-heigh…。 */
 .dc-plot{width:100%;height:auto;display:block;aspect-ratio:1.9;min-height:160px;max-height:310px;color:var(--dc-accent,#3d61ce)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-plot text{font-family:inherit;font-size:13px;fill:var(--dc-muted,#5e6d82)}。 */
 .dc-plot text{font-family:inherit;font-size:13px;fill:var(--dc-muted,#5e6d82)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-plot .dc-axis{stroke:#a5b2c7;stroke-width:1.2}.dc-plot .dc-tick{stroke:#e5eaf2;stroke…。 */
 .dc-plot .dc-axis{stroke:#a5b2c7;stroke-width:1.2}.dc-plot .dc-tick{stroke:#e5eaf2;stroke-width:1}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-plot .dc-curve{fill:none;stroke:var(--dc-accent,#3d61ce);stroke-width:2.4}。 */
 .dc-plot .dc-curve{fill:none;stroke:var(--dc-accent,#3d61ce);stroke-width:2.4}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-plot .dc-force{stroke:var(--dc-accent,#3d61ce);stroke-width:2.3}。 */
 .dc-plot .dc-force{stroke:var(--dc-accent,#3d61ce);stroke-width:2.3}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-plot .dc-friction{stroke:#a86b47;stroke-width:2.3}。 */
 .dc-plot .dc-friction{stroke:#a86b47;stroke-width:2.3}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-plot .dc-object{fill:var(--dc-soft,#eef3fc);stroke:#9eb2d4;stroke-width:1.3}。 */
 .dc-plot .dc-object{fill:var(--dc-soft,#eef3fc);stroke:#9eb2d4;stroke-width:1.3}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-parameter{display:flex;align-items:center;gap:12px;margin:12px 0 0;font-size:12px;col…。 */
 .dc-parameter{display:flex;align-items:center;gap:12px;margin:12px 0 0;font-size:12px;color:var(--dc-muted,#5e6d82);flex-wrap:wrap}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-parameter input[type=range]{accent-color:var(--dc-accent,#3d61ce);min-width:100px;fle…。 */
 .dc-parameter input[type=range]{accent-color:var(--dc-accent,#3d61ce);min-width:100px;flex:1;min-height:28px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-parameter output{font-variant-numeric:tabular-nums;min-width:34px;color:var(--dc-text…。 */
 .dc-parameter output{font-variant-numeric:tabular-nums;min-width:34px;color:var(--dc-text,#21324b)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-reset{border:0;background:none;color:var(--dc-accent,#3d61ce);padding:4px;font-size:1…。 */
 .dc-reset{border:0;background:none;color:var(--dc-accent,#3d61ce);padding:4px;font-size:12px!important;text-decoration:underline;text-underline-offset:3px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-force-readout{display:flex;gap:16px;flex-wrap:wrap;color:var(--dc-muted,#5e6d82);font…。 */
 .dc-force-readout{display:flex;gap:16px;flex-wrap:wrap;color:var(--dc-muted,#5e6d82);font-size:12px;margin-top:11px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-slide{min-height:310px;background:var(--dc-soft,#eef3fc);border-radius:12px;padding:2…。 */
 .dc-slide{min-height:310px;background:var(--dc-soft,#eef3fc);border-radius:12px;padding:29px 32px;max-width:980px;margin:0 auto;overflow-wrap:anywhere}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-slide h2{font-size:27px;line-height:1.5;letter-spacing:-.02em;font-weight:600;margin:…。 */
 .dc-slide h2{font-size:27px;line-height:1.5;letter-spacing:-.02em;font-weight:600;margin:0 0 22px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-slide .dc-rich{font-size:17px;line-height:1.9}.dc-slide .dc-media{background:var(--dc…。 */
 .dc-slide .dc-rich{font-size:17px;line-height:1.9}.dc-slide .dc-media{background:var(--dc-surface,#fff);margin-bottom:0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-slide-navigation{flex:none;display:flex;align-items:center;justify-content:center;gap…。 */
 .dc-slide-navigation{flex:none;display:flex;align-items:center;justify-content:center;gap:18px;padding:8px 26px;border-bottom:1px solid var(--dc-line,#dfe6ef);background:var(--dc-surface,#fff)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-slide-count{font-size:12px;font-variant-numeric:tabular-nums;color:var(--dc-muted,#5e…。 */
 .dc-slide-count{font-size:12px;font-variant-numeric:tabular-nums;color:var(--dc-muted,#5e6d82);min-width:52px;text-align:center}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-empty{max-width:70ch;margin:26px auto;line-height:1.9;color:var(--dc-muted,#5e6d82);f…。 */
 .dc-empty{max-width:70ch;margin:26px auto;line-height:1.9;color:var(--dc-muted,#5e6d82);font-size:14px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-empty h2{font-size:20px;font-weight:600;color:var(--dc-text,#21324b);margin:0 0 12px}…。 */
 .dc-empty h2{font-size:20px;font-weight:600;color:var(--dc-text,#21324b);margin:0 0 12px}.dc-empty p{margin:0 0 17px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-skeleton{height:12px;border-radius:5px;background:#eaf0fa;margin:17px 0}.dc-skeleton:…。 */
 .dc-skeleton{height:12px;border-radius:5px;background:#eaf0fa;margin:17px 0}.dc-skeleton:nth-child(2){width:86%}.dc-skeleton:nth-child(3){width:67%}
+/* 【逐行批注】 定义或补充当前界面样式：#dc-trace-host{padding:12px 24px 0;flex:none;min-width:0;background:var(--dc-surface,#fff…。 */
+#dc-trace-host{padding:12px 24px 0;flex:none;min-width:0;background:var(--dc-surface,#fff)}
+/* 【逐行批注】 定义或补充当前界面样式：#dc-trace-host .gy-agent-trace{margin:0}。 */
+#dc-trace-host .gy-agent-trace{margin:0}
+/* 轨迹只说明执行过程：矮视口（含 1280×720 的 150% 缩放场景）进一步收紧，保证讲义和课件阅读区始终可见。 */
+/* 【逐行批注】 定义响应式媒体查询条件：@media(max-height:760px){#dc-trace-host .gy-agent-trace{max-height:min(28v…。 */
+@media(max-height:760px){#dc-trace-host .gy-agent-trace{max-height:min(28vh,210px)}}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-draft-note{display:grid;gap:3px;margin:0 0 20px;padding:12px 14px;border:1px solid #d…。 */
+.dc-draft-note{display:grid;gap:3px;margin:0 0 20px;padding:12px 14px;border:1px solid #d8e2f2;border-radius:10px;background:#f3f7fd;color:var(--dc-muted,#5e6d82);font-size:13px;line-height:1.7}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-draft-note strong{color:var(--dc-text,#21324b);font-size:13px}。 */
+.dc-draft-note strong{color:var(--dc-text,#21324b);font-size:13px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-draft-note p{margin:0}。 */
+.dc-draft-note p{margin:0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-footer{flex:none;display:flex;align-items:center;justify-content:space-between;gap:16…。 */
 .dc-footer{flex:none;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:13px 25px;background:var(--dc-surface,#fff);border-top:1px solid var(--dc-line,#dfe6ef)}
-.dc-footer-message{min-width:0;font-size:12px;line-height:1.7;color:var(--dc-muted,#5e6d82);margin:0;overflow-wrap:anywhere}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-footer-message{display:flex;align-items:center;gap:8px;min-width:0;font-size:12px;lin…。 */
+.dc-footer-message{display:flex;align-items:center;gap:8px;min-width:0;font-size:12px;line-height:1.7;color:var(--dc-muted,#5e6d82);margin:0;overflow-wrap:anywhere}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-status-text{min-width:0}。 */
+.dc-status-text{min-width:0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-activity-spinner{width:13px;height:13px;flex:none;border:2px solid #cfd9e9;border-top…。 */
+.dc-activity-spinner{width:13px;height:13px;flex:none;border:2px solid #cfd9e9;border-top-color:var(--dc-accent,#3d61ce);border-radius:50%;animation:dc-activity-spin .9s linear infinite}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-activity-spinner[hidden]{display:none}。 */
+.dc-activity-spinner[hidden]{display:none}
+/* 【逐行批注】 定义界面动画关键帧：@keyframes dc-activity-spin{to{transform:rotate(360deg)}}。 */
+@keyframes dc-activity-spin{to{transform:rotate(360deg)}}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-footer-controls{display:flex;gap:8px;align-items:center;flex-shrink:0}。 */
 .dc-footer-controls{display:flex;gap:8px;align-items:center;flex-shrink:0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-course-reply{display:flex;align-items:center;gap:9px;padding:7px 22px;border-top:1px …。 */
+.dc-course-reply{display:flex;align-items:center;gap:9px;padding:7px 22px;border-top:1px solid var(--dc-line,#dfe6ef);background:var(--dc-surface,#fff);flex:none}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-course-reply-label{font-size:12px;font-weight:600;color:var(--dc-accent,#3d61ce);whit…。 */
+.dc-course-reply-label{font-size:12px;font-weight:600;color:var(--dc-accent,#3d61ce);white-space:nowrap}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-course-reply-field{flex:1;min-width:0;display:flex;align-items:center;border:1px soli…。 */
+.dc-course-reply-field{flex:1;min-width:0;display:flex;align-items:center;border:1px solid var(--dc-line,#dfe6ef);border-radius:8px;padding:0 10px;background:var(--dc-surface,#fff)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-course-reply-field:focus-within{border-color:var(--dc-accent,#3d61ce)}。 */
+.dc-course-reply-field:focus-within{border-color:var(--dc-accent,#3d61ce)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-course-reply textarea{display:block;width:100%;height:36px;min-height:36px;max-height…。 */
+.dc-course-reply textarea{display:block;width:100%;height:36px;min-height:36px;max-height:72px;padding:8px 0;border:0;outline:0;resize:none;background:transparent;color:var(--dc-text,#21324b);font:13px/1.5 "Segoe UI","Microsoft YaHei UI",sans-serif}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-course-reply textarea::placeholder{color:var(--dc-muted,#5e6d82);opacity:1}。 */
+.dc-course-reply textarea::placeholder{color:var(--dc-muted,#5e6d82);opacity:1}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-course-reply textarea:disabled{opacity:.6;cursor:not-allowed}。 */
+.dc-course-reply textarea:disabled{opacity:.6;cursor:not-allowed}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-course-reply .dc-button{width:36px;height:36px;min-height:36px;padding:0;flex:none}。 */
+.dc-course-reply .dc-button{width:36px;height:36px;min-height:36px;padding:0;flex:none}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-course-reply-hint{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overfl…。 */
+.dc-course-reply-hint{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-more{position:relative;font-size:12px}。 */
 .dc-more{position:relative;font-size:12px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-more>summary{list-style:none;cursor:pointer}.dc-more>summary::-webkit-details-marker{…。 */
 .dc-more>summary{list-style:none;cursor:pointer}.dc-more>summary::-webkit-details-marker{display:none}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-more-list{position:absolute;right:0;bottom:calc(100% + 7px);width:176px;background:va…。 */
 .dc-more-list{position:absolute;right:0;bottom:calc(100% + 7px);width:176px;background:var(--dc-surface,#fff);border:1px solid var(--dc-line,#dfe6ef);padding:6px;border-radius:8px;z-index:5;box-shadow:0 8px 24px #24395914}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-more-list button{display:block;text-align:left;border:0;background:none;color:var(--d…。 */
 .dc-more-list button{display:block;text-align:left;border:0;background:none;color:var(--dc-text,#21324b);border-radius:5px;width:100%;padding:9px 10px;font-size:12px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-more-list button:hover{background:var(--dc-soft,#eef3fc)}。 */
 .dc-more-list button:hover{background:var(--dc-soft,#eef3fc)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-answer-panel{min-height:0;min-width:0;border-left:1px solid var(--dc-line,#dfe6ef);ba…。 */
 .dc-answer-panel{min-height:0;min-width:0;border-left:1px solid var(--dc-line,#dfe6ef);background:var(--dc-surface,#fff);display:flex;flex-direction:column}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell[data-chat-open=false] .dc-answer-panel{display:none}。 */
 .deep-course-shell[data-chat-open=false] .dc-answer-panel{display:none}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-room{display:flex;flex-direction:column;min-height:0;height:100%;min-width:0;col…。 */
 .dc-chat-room{display:flex;flex-direction:column;min-height:0;height:100%;min-width:0;color:var(--dc-text,#21324b);background:var(--dc-surface,#fff)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-header{padding:18px 17px 13px;display:flex;justify-content:space-between;align-i…。 */
 .dc-chat-header{padding:18px 17px 13px;display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:1px solid var(--dc-line,#dfe6ef);flex:none}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-header h2{font-size:15px;font-weight:600;margin:0}.dc-chat-header p{font-size:12…。 */
 .dc-chat-header h2{font-size:15px;font-weight:600;margin:0}.dc-chat-header p{font-size:12px;color:var(--dc-muted,#5e6d82);margin:3px 0 0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-header-actions{display:flex;align-items:center;gap:4px;flex:none}。 */
+.dc-chat-header-actions{display:flex;align-items:center;gap:4px;flex:none}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-scroll{flex:1;min-height:0;overflow:auto;padding:19px 17px;scrollbar-width:thin;…。 */
 .dc-chat-scroll{flex:1;min-height:0;overflow:auto;padding:19px 17px;scrollbar-width:thin;overscroll-behavior:contain}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-message{margin:0 0 21px;overflow-wrap:anywhere}.dc-chat-message h3{font-size:12p…。 */
 .dc-chat-message{margin:0 0 21px;overflow-wrap:anywhere}.dc-chat-message h3{font-size:12px;font-weight:600;margin:0 0 8px;color:var(--dc-muted,#5e6d82)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-message h3 time{margin-left:7px;color:var(--dc-muted,#5e6d82);font-weight:400;fo…。 */
+.dc-chat-message h3 time{margin-left:7px;color:var(--dc-muted,#5e6d82);font-weight:400;font-variant-numeric:tabular-nums}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-message .dc-rich{font-size:13px;line-height:1.9}.dc-chat-message.user .dc-rich{b…。 */
 .dc-chat-message .dc-rich{font-size:13px;line-height:1.9}.dc-chat-message.user .dc-rich{background:var(--dc-soft,#eef3fc);padding:10px 12px;border-radius:8px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-message .dc-partial{font-size:12px;color:var(--dc-muted,#5e6d82);margin:6px 0 0}。 */
 .dc-chat-message .dc-partial{font-size:12px;color:var(--dc-muted,#5e6d82);margin:6px 0 0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-sources{margin:10px 0 0;padding:10px 12px 10px 30px;border:1px solid var(--dc-li…。 */
+.dc-chat-sources{margin:10px 0 0;padding:10px 12px 10px 30px;border:1px solid var(--dc-line,#dfe6ef);border-radius:8px;background:var(--dc-soft,#eef3fc);font-size:12px;line-height:1.7}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-sources strong{display:block;margin-left:-17px;margin-bottom:4px;color:var(--dc-…。 */
+.dc-chat-sources strong{display:block;margin-left:-17px;margin-bottom:4px;color:var(--dc-text,#21324b)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-sources li{overflow-wrap:anywhere}.dc-chat-sources a{color:var(--dc-accent,#3d61…。 */
+.dc-chat-sources li{overflow-wrap:anywhere}.dc-chat-sources a{color:var(--dc-accent,#3d61ce);text-underline-offset:3px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-task-state{margin:16px 0 4px;padding:10px 12px;border:1px solid var(--dc-line,#d…。 */
+.dc-chat-task-state{margin:16px 0 4px;padding:10px 12px;border:1px solid var(--dc-line,#dfe6ef);border-radius:8px;background:var(--dc-soft,#eef3fc);font-size:12px;line-height:1.7}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-task-state[data-status=failed]{border-color:#e7b9b4;background:#fff3f2;color:#a4…。 */
+.dc-chat-task-state[data-status=failed]{border-color:#e7b9b4;background:#fff3f2;color:#a4373e}.dc-chat-task-state[data-status=paused]{border-color:#e2cfaa;background:#fff7ea;color:#78541e}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-task-state p{margin:2px 0 0;color:inherit}.dc-chat-task-state .dc-button{margin-…。 */
+.dc-chat-task-state p{margin:2px 0 0;color:inherit}.dc-chat-task-state .dc-button{margin-top:7px;min-height:30px;padding:5px 9px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-error{margin:10px 0 0;color:#a4373e;font-size:12px;line-height:1.7}。 */
+.dc-chat-error{margin:10px 0 0;color:#a4373e;font-size:12px;line-height:1.7}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-empty{font-size:13px;color:var(--dc-muted,#5e6d82);line-height:1.9;margin:1px 0}。 */
 .dc-chat-empty{font-size:13px;color:var(--dc-muted,#5e6d82);line-height:1.9;margin:1px 0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-composer{padding:13px 14px 15px;border-top:1px solid var(--dc-line,#dfe6ef);flex…。 */
 .dc-chat-composer{padding:13px 14px 15px;border-top:1px solid var(--dc-line,#dfe6ef);flex:none}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-composer label{display:block;font-size:12px;margin:0 0 7px;color:var(--dc-muted,…。 */
 .dc-chat-composer label{display:block;font-size:12px;margin:0 0 7px;color:var(--dc-muted,#5e6d82)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-input-row{border:1px solid var(--dc-line,#dfe6ef);border-radius:9px;display:flex…。 */
 .dc-chat-input-row{border:1px solid var(--dc-line,#dfe6ef);border-radius:9px;display:flex;align-items:flex-end;padding:8px 8px 8px 11px;gap:8px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-input-row:focus-within{border-color:var(--dc-accent,#3d61ce)}。 */
 .dc-chat-input-row:focus-within{border-color:var(--dc-accent,#3d61ce)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-input-row textarea{border:0;background:none;color:var(--dc-text,#21324b);width:1…。 */
 .dc-chat-input-row textarea{border:0;background:none;color:var(--dc-text,#21324b);width:100%;min-width:0;min-height:52px;max-height:140px;resize:vertical;outline:none;line-height:1.8;font-size:13px;padding:3px 0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-input-row .dc-button{min-width:33px;min-height:33px;padding:7px}。 */
 .dc-chat-input-row .dc-button{min-width:33px;min-height:33px;padding:7px}
+/* 【逐行批注】 定义或补充当前界面样式：#dc-web-toggle{min-width:auto;padding:7px 8px;color:var(--dc-muted,#5e6d82);border-color:…。 */
+#dc-web-toggle{min-width:auto;padding:7px 8px;color:var(--dc-muted,#5e6d82);border-color:transparent;background:var(--dc-soft,#eef3fc)}
+/* 【逐行批注】 定义或补充当前界面样式：#dc-web-toggle[data-enabled=true]{color:var(--dc-accent,#3d61ce);border-color:#b9c8eb;bac…。 */
+#dc-web-toggle[data-enabled=true]{color:var(--dc-accent,#3d61ce);border-color:#b9c8eb;background:#e8efff}
+/* 【逐行批注】 定义或补充当前界面样式：#dc-web-toggle[aria-pressed=true] svg{stroke-width:1.9}。 */
+#dc-web-toggle[aria-pressed=true] svg{stroke-width:1.9}
+/* 【逐行批注】 定义或补充当前界面样式：#dc-web-toggle:disabled{opacity:.5;cursor:not-allowed}。 */
+#dc-web-toggle:disabled{opacity:.5;cursor:not-allowed}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-note{font-size:12px;color:var(--dc-muted,#5e6d82);line-height:1.7;margin:8px 0 0}。 */
 .dc-chat-note{font-size:12px;color:var(--dc-muted,#5e6d82);line-height:1.7;margin:8px 0 0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-question{border-top:1px solid var(--dc-line,#dfe6ef);padding-top:24px;margin-top:28px…。 */
 .dc-question{border-top:1px solid var(--dc-line,#dfe6ef);padding-top:24px;margin-top:28px;scroll-margin-top:16px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-question h2{font-size:18px;margin:0 0 12px;font-weight:600}.dc-question-options{displ…。 */
 .dc-question h2{font-size:18px;margin:0 0 12px;font-weight:600}.dc-question-options{display:flex;flex-direction:column;gap:8px;margin:15px 0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-question-option{display:flex;align-items:flex-start;gap:9px;padding:9px 12px;border:1…。 */
 .dc-question-option{display:flex;align-items:flex-start;gap:9px;padding:9px 12px;border:1px solid var(--dc-line,#dfe6ef);border-radius:7px;font-size:13px;line-height:1.85;cursor:pointer}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-question-option:has(input:checked){background:var(--dc-soft,#eef3fc);border-color:var…。 */
 .dc-question-option:has(input:checked){background:var(--dc-soft,#eef3fc);border-color:var(--dc-accent,#3d61ce)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-question-option input{accent-color:var(--dc-accent,#3d61ce);margin-top:6px;flex-shrin…。 */
 .dc-question-option input{accent-color:var(--dc-accent,#3d61ce);margin-top:6px;flex-shrink:0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-question>form>label{display:block;font-size:12px;color:var(--dc-muted,#5e6d82);margin…。 */
 .dc-question>form>label{display:block;font-size:12px;color:var(--dc-muted,#5e6d82);margin:12px 0 7px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-question textarea{display:block;width:100%;min-height:84px;resize:vertical;padding:11…。 */
 .dc-question textarea{display:block;width:100%;min-height:84px;resize:vertical;padding:11px 13px;border:1px solid var(--dc-line,#dfe6ef);border-radius:8px;background:var(--dc-surface,#fff);color:var(--dc-text,#21324b);font-size:14px;line-height:1.8;margin-bottom:12px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-evaluation{margin-top:17px;background:var(--dc-soft,#eef3fc);border-radius:8px;paddin…。 */
 .dc-evaluation{margin-top:17px;background:var(--dc-soft,#eef3fc);border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.9}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-evaluation strong{display:block;margin-bottom:6px;font-size:13px;font-weight:600}.dc-…。 */
 .dc-evaluation strong{display:block;margin-bottom:6px;font-size:13px;font-weight:600}.dc-evaluation .dc-rich{font-size:13px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-teaching-thread{margin-top:18px;border-top:1px solid var(--dc-line,#dfe6ef);padding-t…。 */
+.dc-teaching-thread{margin-top:18px;border-top:1px solid var(--dc-line,#dfe6ef);padding-top:15px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-teaching-message{margin:0 0 11px;font-size:13px;line-height:1.9;overflow-wrap:anywher…。 */
+.dc-teaching-message{margin:0 0 11px;font-size:13px;line-height:1.9;overflow-wrap:anywhere}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-teaching-message:last-child{margin-bottom:0}。 */
+.dc-teaching-message:last-child{margin-bottom:0}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-teaching-label{margin:0 0 5px;font-size:12px;font-weight:600;color:var(--dc-muted,#5e…。 */
+.dc-teaching-label{margin:0 0 5px;font-size:12px;font-weight:600;color:var(--dc-muted,#5e6d82)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-teaching-message.user .dc-rich{color:var(--dc-muted,#5e6d82);padding:2px 0 2px 12px;b…。 */
+.dc-teaching-message.user .dc-rich{color:var(--dc-muted,#5e6d82);padding:2px 0 2px 12px;border-left:1px solid var(--dc-line,#dfe6ef)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-teaching-message.assistant{background:var(--dc-soft,#eef3fc);border-radius:8px;paddin…。 */
+.dc-teaching-message.assistant{background:var(--dc-soft,#eef3fc);border-radius:8px;padding:12px 14px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-teaching-message.assistant .dc-teaching-label{color:var(--dc-accent,#3d61ce)}。 */
+.dc-teaching-message.assistant .dc-teaching-label{color:var(--dc-accent,#3d61ce)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-teaching-message .dc-partial{margin:6px 0 0;font-size:12px;color:var(--dc-muted,#5e6d…。 */
+.dc-teaching-message .dc-partial{margin:6px 0 0;font-size:12px;color:var(--dc-muted,#5e6d82)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-dialog{--dc-bg:#f6f8fc;--dc-surface:#fff;--dc-soft:#eef3fc;--dc-text:#21324b;--dc-mut…。 */
 .dc-dialog{--dc-bg:#f6f8fc;--dc-surface:#fff;--dc-soft:#eef3fc;--dc-text:#21324b;--dc-muted:#5e6d82;--dc-line:#dfe6ef;--dc-accent:#3d61ce;border:1px solid var(--dc-line);background:var(--dc-surface);color:var(--dc-text);border-radius:12px;padding:0;width:min(380px,calc(100vw - 28px));max-height:calc(100dvh - 30px);font:14px/1.7 "Segoe UI","Microsoft YaHei UI",sans-serif;overflow:auto}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-dialog::backdrop{background:#16294366}.dc-dialog .dc-directory{border:0;display:block…。 */
 .dc-dialog::backdrop{background:#16294366}.dc-dialog .dc-directory{border:0;display:block}.dc-dialog-head{display:flex;align-items:center;justify-content:space-between;padding:15px 18px 0;gap:10px;font-size:15px;font-weight:600}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-dialog{height:calc(100dvh - 36px);max-width:540px;width:calc(100vw - 28px);overf…。 */
 .dc-chat-dialog{height:calc(100dvh - 36px);max-width:540px;width:calc(100vw - 28px);overflow:hidden}.dc-chat-dialog .dc-chat-room{height:100%}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell svg{vertical-align:middle}。 */
 .deep-course-shell svg{vertical-align:middle}
 /* 保持课堂自身的标题层级，避免全局主题在后加载时放大工具区标题。 */
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell .dc-head h1{font-size:23px;line-height:1.4;margin:0 0 5px;font-weight:…。 */
 .deep-course-shell .dc-head h1{font-size:23px;line-height:1.4;margin:0 0 5px;font-weight:650}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell .dc-lecture-section h2{font-size:19px;line-height:1.5;margin:0 0 13px}。 */
 .deep-course-shell .dc-lecture-section h2{font-size:19px;line-height:1.5;margin:0 0 13px}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell .dc-slide h2{font-size:27px;line-height:1.5;margin:0 0 22px}。 */
 .deep-course-shell .dc-slide h2{font-size:27px;line-height:1.5;margin:0 0 22px}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell .dc-media h3{font-size:15px;line-height:1.6;margin:0 0 13px}。 */
 .deep-course-shell .dc-media h3{font-size:15px;line-height:1.6;margin:0 0 13px}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell .dc-chat-header h2{font-size:15px;margin:0}。 */
 .deep-course-shell .dc-chat-header h2{font-size:15px;margin:0}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell .dc-chat-message h3{font-size:12px;margin:0 0 8px}。 */
 .deep-course-shell .dc-chat-message h3{font-size:12px;margin:0 0 8px}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell .dc-directory h2{font-size:16px;margin:0 0 7px}。 */
 .deep-course-shell .dc-directory h2{font-size:16px;margin:0 0 7px}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell .dc-question h2{font-size:18px;margin:0 0 12px}。 */
 .deep-course-shell .dc-question h2{font-size:18px;margin:0 0 12px}
+/* 【逐行批注】 定义或补充当前界面样式：.deep-course-shell .dc-empty h2{font-size:20px;margin:0 0 12px}。 */
 .deep-course-shell .dc-empty h2{font-size:20px;margin:0 0 12px}
+/* 【逐行批注】 定义响应式媒体查询条件：@media(min-width:1500px){.deep-course-shell[data-chat-open=true] .dc-layou…。 */
 @media(min-width:1500px){.deep-course-shell[data-chat-open=true] .dc-layout{grid-template-columns:235px minmax(0,1fr) 340px}.deep-course-shell[data-directory-open=false][data-chat-open=true] .dc-layout{grid-template-columns:minmax(0,1fr) 340px}.dc-reading{padding:31px 44px}}
-@media(max-width:1150px){.deep-course-shell[data-chat-open=true] .dc-layout{grid-template-columns:175px minmax(0,1fr) 280px}.deep-course-shell[data-directory-open=false][data-chat-open=true] .dc-layout{grid-template-columns:minmax(0,1fr) 280px}.dc-layout{grid-template-columns:190px minmax(0,1fr)}.dc-reading{padding:24px}.dc-head{padding:16px 22px 13px}.dc-head h1{font-size:21px}.dc-directory{padding:20px 14px}.dc-view-toolbar{padding:0 23px}.dc-slide{padding:24px}.dc-slide h2{font-size:25px}.dc-slide .dc-rich{font-size:16px}}
+/* 【逐行批注】 定义响应式媒体查询条件：@media(max-width:1150px){.deep-course-shell[data-chat-open=true] .dc-layou…。 */
+@media(max-width:1150px){.deep-course-shell[data-chat-open=true] .dc-layout{grid-template-columns:175px minmax(0,1fr) 280px}.deep-course-shell[data-directory-open=false][data-chat-open=true] .dc-layout{grid-template-columns:minmax(0,1fr) 280px}.dc-layout{grid-template-columns:190px minmax(0,1fr)}.dc-reading{padding:24px}#dc-trace-host{padding:10px 24px 0}.dc-head{padding:16px 22px 13px}.dc-head h1{font-size:21px}.dc-directory{padding:20px 14px}.dc-view-toolbar{padding:0 23px}.dc-slide{padding:24px}.dc-slide h2{font-size:25px}.dc-slide .dc-rich{font-size:16px}}
+/* 【逐行批注】 定义响应式媒体查询条件：@media(max-width:900px){.deep-course-shell[data-chat-open=true] .dc-layout…。 */
 @media(max-width:900px){.deep-course-shell[data-chat-open=true] .dc-layout,.deep-course-shell[data-directory-open=false][data-chat-open=true] .dc-layout{grid-template-columns:minmax(0,1fr) 292px}.deep-course-shell[data-chat-open=true] .dc-layout>.dc-directory{display:none}.dc-head-actions{gap:6px}.dc-head h1{font-size:20px}.dc-head-context{font-size:12px}.dc-head .dc-button{padding:7px 9px}.dc-saved{display:none}.dc-reading{padding:22px}.dc-head{padding:16px 19px 13px}}
-@media(max-width:700px){.deep-course-shell{height:calc(100dvh - var(--gy-header-height,64px))}.dc-head{padding:15px 16px 13px;gap:12px;align-items:flex-start}.dc-head h1{font-size:19px;margin-bottom:5px}.dc-head-context{font-size:12px;max-width:30ch;line-height:1.7}.dc-head-actions{gap:6px}.dc-head-actions .dc-button{font-size:12px!important;min-height:34px;padding:7px}.dc-head-actions .dc-action-label{display:none}.dc-layout,.deep-course-shell[data-chat-open=true] .dc-layout,.deep-course-shell[data-directory-open=false][data-chat-open=true] .dc-layout{display:flex;flex-direction:column}.dc-layout>.dc-directory,.dc-layout>.dc-answer-panel{display:none!important}.dc-reader{flex:1}.dc-view-toolbar{padding:0 17px;gap:10px}.dc-tabs{gap:23px}.dc-tab{padding:11px 0 10px;font-size:13px!important}.dc-reading{padding:22px 18px 20px}.dc-lecture-section h2{font-size:18px}.dc-rich{font-size:14px;line-height:1.95}.dc-rich h3,.dc-rich h4{font-size:16px}.dc-media{padding:15px 13px;border-radius:10px}.dc-media h3{font-size:14px}.dc-timeline li{grid-template-columns:62px minmax(0,1fr);gap:12px}.dc-timeline div{padding-left:13px}.dc-plot{aspect-ratio:1.45;min-height:175px}.dc-slide{padding:23px 19px;min-height:320px;border-radius:10px}.dc-slide h2{font-size:23px;margin-bottom:18px}.dc-slide .dc-rich{font-size:15px}.dc-slide-navigation{gap:15px;padding:8px 17px}.dc-slide-navigation .dc-button{min-height:44px}.dc-footer{padding:12px 16px;gap:10px;align-items:center}.dc-footer-message{font-size:12px;max-width:46%}.dc-footer-controls{gap:6px}.dc-footer-controls .dc-button{font-size:12px!important;min-height:36px;padding:8px 10px}.dc-more-list{width:170px}.dc-empty{font-size:14px;margin:16px 0}.dc-force-readout{gap:8px 13px}.dc-parameter{gap:8px}.dc-parameter>label{width:100%}.dc-dialog .dc-directory{max-height:none}.dc-chat-dialog .dc-rich{font-size:14px}.dc-chat-dialog .dc-chat-input-row textarea{min-height:66px}.dc-flow-node{max-width:210px}}
-@media(prefers-reduced-motion:reduce){.deep-course-shell *,.dc-dialog *{scroll-behavior:auto!important;transition:none!important}}
+/* 【逐行批注】 定义响应式媒体查询条件：@media(max-width:700px){.deep-course-shell{height:calc(100dvh - var(--gy-h…。 */
+@media(max-width:700px){.deep-course-shell{height:calc(100dvh - var(--gy-header-height,64px))}.dc-head{padding:15px 16px 13px;gap:12px;align-items:flex-start}.dc-head h1{font-size:19px;margin-bottom:5px}.dc-head-context{font-size:12px;max-width:30ch;line-height:1.7}.dc-head-actions{gap:6px}.dc-head-actions .dc-button{font-size:12px!important;min-height:34px;padding:7px}.dc-head-actions .dc-action-label{display:none}.dc-layout,.deep-course-shell[data-chat-open=true] .dc-layout,.deep-course-shell[data-directory-open=false][data-chat-open=true] .dc-layout{display:flex;flex-direction:column}.dc-layout>.dc-directory,.dc-layout>.dc-answer-panel{display:none!important}.dc-reader{flex:1}.dc-view-toolbar{padding:0 17px;gap:10px}.dc-tabs{gap:23px}.dc-tab{padding:11px 0 10px;font-size:13px!important}#dc-trace-host{padding:9px 14px 0}.dc-reading{padding:22px 18px 20px}.dc-lecture-section h2{font-size:18px}.dc-rich{font-size:14px;line-height:1.95}.dc-rich h3,.dc-rich h4{font-size:16px}.dc-media{padding:15px 13px;border-radius:10px}.dc-media h3{font-size:14px}.dc-timeline li{grid-template-columns:62px minmax(0,1fr);gap:12px}.dc-timeline div{padding-left:13px}.dc-plot{aspect-ratio:1.45;min-height:175px}.dc-slide{padding:23px 19px;min-height:320px;border-radius:10px}.dc-slide h2{font-size:23px;margin-bottom:18px}.dc-slide .dc-rich{font-size:15px}.dc-slide-navigation{gap:15px;padding:8px 17px}.dc-slide-navigation .dc-button{min-height:44px}.dc-footer{padding:12px 16px;gap:10px;align-items:center}.dc-footer-message{font-size:12px;max-width:46%}.dc-footer-controls{gap:6px}.dc-footer-controls .dc-button{font-size:12px!important;min-height:36px;padding:8px 10px}.dc-more-list{width:170px}.dc-empty{font-size:14px;margin:16px 0}.dc-force-readout{gap:8px 13px}.dc-parameter{gap:8px}.dc-parameter>label{width:100%}.dc-dialog .dc-directory{max-height:none}.dc-chat-dialog .dc-rich{font-size:14px}.dc-chat-dialog .dc-chat-input-row textarea{min-height:66px}.dc-flow-node{max-width:210px}}
+/* 【逐行批注】 定义响应式媒体查询条件：@media(prefers-reduced-motion:reduce){.deep-course-shell *,.dc-dialog *{sc…。 */
+@media(prefers-reduced-motion:reduce){.deep-course-shell *,.dc-dialog *{scroll-behavior:auto!important;transition:none!important}.dc-activity-spinner{animation:none;border-right-color:var(--dc-accent,#3d61ce)}}
+/* 【逐行批注】 定义响应式媒体查询条件：@media(max-width:1150px){.deep-course-shell .dc-head h1{font-size:21px}.de…。 */
 @media(max-width:1150px){.deep-course-shell .dc-head h1{font-size:21px}.deep-course-shell .dc-slide h2{font-size:25px}}
+/* 【逐行批注】 定义响应式媒体查询条件：@media(max-width:700px){.deep-course-shell .dc-head h1{font-size:19px}.dee…。 */
 @media(max-width:700px){.deep-course-shell .dc-head h1{font-size:19px}.deep-course-shell .dc-lecture-section h2{font-size:18px}.deep-course-shell .dc-slide h2{font-size:23px}.deep-course-shell .dc-media h3{font-size:14px}}
+
+/* 深度课堂系统全屏：顶部只保留课程定位与必要切换，阅读和答疑占据全部可用空间。 */
+/* 【逐行批注】 定义或补充当前界面样式：.dc-fullscreen-bar{display:none}。 */
+.dc-fullscreen-bar{display:none}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-fullscreen-bar[hidden]{display:none!important}。 */
+.dc-fullscreen-bar[hidden]{display:none!important}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen,.gy-classroom-fullscreen body{width:100%;height:100%;overflow:hi…。 */
+.gy-classroom-fullscreen,.gy-classroom-fullscreen body{width:100%;height:100%;overflow:hidden;background:var(--gy-bg,#f6f8fc)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen .site-header{display:none!important}。 */
+.gy-classroom-fullscreen .site-header{display:none!important}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen #learning-navigation{display:none!important}。 */
+.gy-classroom-fullscreen #learning-navigation{display:none!important}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen .deep-course-shell{height:100dvh;min-height:0}。 */
+.gy-classroom-fullscreen .deep-course-shell{height:100dvh;min-height:0}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen .dc-head{display:none}。 */
+.gy-classroom-fullscreen .dc-head{display:none}
+/* 【逐行批注】 为选择器 .gy-classroom-fullscreen .dc-fullscreen-bar 定义一组样式。 */
+.gy-classroom-fullscreen .dc-fullscreen-bar{
+  /* 【逐行批注】 把样式属性 display 设置为 flex;align-items:center;gap:14px;flex:none;width:100%。 */
+  display:flex;align-items:center;gap:14px;flex:none;width:100%;
+  /* 【逐行批注】 把样式属性 height 设置为 min(64px,5.88dvh);padding:0 12px 0 16px。 */
+  height:min(64px,5.88dvh);padding:0 12px 0 16px;
+  /* 【逐行批注】 把样式属性 border-bottom 设置为 1px solid var(--dc-line,#dfe6ef);background:var(--dc-surfac…。 */
+  border-bottom:1px solid var(--dc-line,#dfe6ef);background:var(--dc-surface,#fff);
+  /* 【逐行批注】 把样式属性 color 设置为 var(--dc-text,#21324b)。 */
+  color:var(--dc-text,#21324b)
+/* 【逐行批注】 结束当前样式规则。 */
+}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-fullscreen-title{min-width:0;max-width:42ch;overflow:hidden;text-overflow:ellipsis;wh…。 */
+.dc-fullscreen-title{min-width:0;max-width:42ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:650;line-height:1.4}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-fullscreen-tabs{display:flex;align-self:stretch;gap:15px;flex:none}。 */
+.dc-fullscreen-tabs{display:flex;align-self:stretch;gap:15px;flex:none}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-fs-tab{align-self:stretch;border:0;border-bottom:2px solid transparent;background:tra…。 */
+.dc-fs-tab{align-self:stretch;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--dc-muted,#5e6d82);padding:0 2px;font-size:12px!important;display:inline-flex;align-items:center;gap:6px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-fs-tab[aria-selected=true]{color:var(--dc-accent,#3d61ce);border-bottom-color:var(--d…。 */
+.dc-fs-tab[aria-selected=true]{color:var(--dc-accent,#3d61ce);border-bottom-color:var(--dc-accent,#3d61ce);font-weight:650}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-fs-tab:hover{color:var(--dc-accent,#3d61ce)}。 */
+.dc-fs-tab:hover{color:var(--dc-accent,#3d61ce)}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-fullscreen-actions{display:flex;align-items:center;gap:7px;margin-left:auto;flex:none}。 */
+.dc-fullscreen-actions{display:flex;align-items:center;gap:7px;margin-left:auto;flex:none}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-fullscreen-actions .dc-button{min-height:30px;padding:5px 9px}。 */
+.dc-fullscreen-actions .dc-button{min-height:30px;padding:5px 9px}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen .dc-layout{display:grid;grid-template-columns:minmax(0,1fr)}。 */
+.gy-classroom-fullscreen .dc-layout{display:grid;grid-template-columns:minmax(0,1fr)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen .dc-layout>.dc-directory{display:none!important}。 */
+.gy-classroom-fullscreen .dc-layout>.dc-directory{display:none!important}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen .deep-course-shell[data-chat-open=true] .dc-layout{grid-template…。 */
+.gy-classroom-fullscreen .deep-course-shell[data-chat-open=true] .dc-layout{grid-template-columns:minmax(0,1fr) clamp(300px,28vw,380px)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen .deep-course-shell[data-chat-open=false] .dc-layout{grid-templat…。 */
+.gy-classroom-fullscreen .deep-course-shell[data-chat-open=false] .dc-layout{grid-template-columns:minmax(0,1fr)}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen .deep-course-shell[data-chat-open=true] .dc-layout>.dc-answer-pa…。 */
+.gy-classroom-fullscreen .deep-course-shell[data-chat-open=true] .dc-layout>.dc-answer-panel{display:flex!important}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen .dc-view-toolbar{display:none!important}。 */
+.gy-classroom-fullscreen .dc-view-toolbar{display:none!important}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen .dc-reading{padding:22px 32px 20px}。 */
+.gy-classroom-fullscreen .dc-reading{padding:22px 32px 20px}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen .dc-footer{padding:8px 18px;min-height:42px}。 */
+.gy-classroom-fullscreen .dc-footer{padding:8px 18px;min-height:42px}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-dock{position:fixed;right:12px;top:50%;transform:translateY(-50%);z-index:67;min…。 */
+.dc-chat-dock{position:fixed;right:12px;top:50%;transform:translateY(-50%);z-index:67;min-height:44px;padding:10px 9px!important;writing-mode:vertical-rl;letter-spacing:.08em;box-shadow:0 8px 24px #21324b12}
+/* 【逐行批注】 定义或补充当前界面样式：.dc-chat-scrim{display:none;position:fixed;inset:min(64px,5.88dvh) 0 0;z-index:65;border:…。 */
+.dc-chat-scrim{display:none;position:fixed;inset:min(64px,5.88dvh) 0 0;z-index:65;border:0;background:#16294333;padding:0}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen .deep-course-shell[data-overlay-chat=true] .dc-chat-scrim{displa…。 */
+.gy-classroom-fullscreen .deep-course-shell[data-overlay-chat=true] .dc-chat-scrim{display:block}
+/* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen .deep-course-shell[data-overlay-chat=true] .dc-answer-panel{posi…。 */
+.gy-classroom-fullscreen .deep-course-shell[data-overlay-chat=true] .dc-answer-panel{position:fixed;right:0;top:min(64px,5.88dvh);bottom:0;z-index:70;width:min(380px,calc(100vw - 52px));box-shadow:-12px 0 32px #21324b1c}
+/* 【逐行批注】 定义响应式媒体查询条件：@media(max-width:1000px){。 */
+@media(max-width:1000px){
+  /* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen .dc-layout,。 */
+  .gy-classroom-fullscreen .dc-layout,
+  /* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen .deep-course-shell[data-chat-open=true] .dc-layout{display:grid;…。 */
+  .gy-classroom-fullscreen .deep-course-shell[data-chat-open=true] .dc-layout{display:grid;grid-template-columns:minmax(0,1fr)}
+  /* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen .dc-reading{padding:18px 22px 18px}。 */
+  .gy-classroom-fullscreen .dc-reading{padding:18px 22px 18px}
+/* 【逐行批注】 结束当前样式规则。 */
+}
+/* 【逐行批注】 定义响应式媒体查询条件：@media(max-width:700px){。 */
+@media(max-width:700px){
+  /* 【逐行批注】 定义或补充当前界面样式：.dc-course-reply{padding:7px 12px}。 */
+  .dc-course-reply{padding:7px 12px}
+  /* 【逐行批注】 定义或补充当前界面样式：.dc-course-reply-label{display:none}。 */
+  .dc-course-reply-label{display:none}
+  /* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen .dc-fullscreen-bar{gap:8px;padding:0 8px 0 11px}。 */
+  .gy-classroom-fullscreen .dc-fullscreen-bar{gap:8px;padding:0 8px 0 11px}
+  /* 【逐行批注】 定义或补充当前界面样式：.dc-fullscreen-title{max-width:30vw;font-size:13px}。 */
+  .dc-fullscreen-title{max-width:30vw;font-size:13px}
+  /* 【逐行批注】 定义或补充当前界面样式：.dc-fullscreen-tabs{gap:10px}。 */
+  .dc-fullscreen-tabs{gap:10px}
+  /* 【逐行批注】 定义或补充当前界面样式：.dc-fullscreen-actions{gap:4px}。 */
+  .dc-fullscreen-actions{gap:4px}
+  /* 【逐行批注】 定义或补充当前界面样式：.dc-fullscreen-actions .dc-button span{display:none}。 */
+  .dc-fullscreen-actions .dc-button span{display:none}
+  /* 【逐行批注】 定义或补充当前界面样式：.dc-fullscreen-actions .dc-button{padding:6px;min-width:32px}。 */
+  .dc-fullscreen-actions .dc-button{padding:6px;min-width:32px}
+  /* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen .dc-reading{padding:17px 16px 16px}。 */
+  .gy-classroom-fullscreen .dc-reading{padding:17px 16px 16px}
+  /* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen .dc-footer{padding:8px 12px}。 */
+  .gy-classroom-fullscreen .dc-footer{padding:8px 12px}
+  /* 【逐行批注】 定义或补充当前界面样式：.gy-classroom-fullscreen .dc-footer-message{max-width:55%}。 */
+  .gy-classroom-fullscreen .dc-footer-message{max-width:55%}
+/* 【逐行批注】 结束当前样式规则。 */
+}
+/* 学科互动延续课堂配色；原生控件提供与图形等价的键盘操作。 */
+.il-subject { color:var(--dc-text,#21324b); }
+.il-subject-diagram { min-width:0; }
+.il-subject-diagram svg { display:block;width:100%;max-height:380px; }
+.il-subject-diagram svg text { fill:currentColor;font-size:13px; }
+.il-subject-controls,.il-part-controls { display:flex;flex-wrap:wrap;gap:10px;margin:18px 0; }
+.il-subject-control { display:flex;flex:1 1 210px;flex-direction:column;gap:8px;min-width:0;line-height:1.65; }
+.il-subject-control select { color:inherit;background:var(--dc-surface,#fff);border:1px solid var(--dc-border,#dfe6ef);border-radius:6px;min-height:42px;padding:8px;font:inherit;max-width:100%; }
+.il-subject button { min-height:42px;white-space:normal; }
+.il-subject [hidden] { display:none!important; }
+.il-subject button[aria-pressed=true] { background:#3d61ce;color:#fff; }
+.il-subject button:disabled { opacity:.55;cursor:default; }
+.il-subject :focus-visible { outline:3px solid #3d61ce;outline-offset:3px; }
+.il-cell-part { fill:#e6edf8;stroke:#506485;stroke-width:2;cursor:pointer; }
+.il-cell-part[data-part=cytoplasm] { fill:#f5f7fc; }
+.il-cell-part[data-part=membrane] { fill:none;pointer-events:stroke; }
+.il-cell-part[data-part=chloroplast] { fill:#d8eee1; }
+.il-cell-part[data-part=vacuole] { fill:#dcebf7; }
+.il-cell-part.is-selected { fill:#c0d2ff;stroke:#284ba8;stroke-width:4; }
+.il-cell-part[data-part=membrane].is-selected { fill:none; }
+.il-history-list { margin:0;padding-left:24px; }
+.il-history-list li { margin:12px 0;line-height:1.7; }
+.il-history-list li button { margin:4px 8px 4px 0; }
+.il-history-list time { display:block;color:var(--dc-muted,#5e6d82);font-variant-numeric:tabular-nums; }
+.il-chart-grid { stroke:var(--dc-border,#dfe6ef);stroke-width:1; }
+.il-temperature-line { stroke:#aa472c;stroke-width:3;fill:none; }
+.il-temperature-point { fill:#aa472c; }
+.il-rainfall-bar { fill:#9aafd8; }
+.il-chart-current { fill:#3d61ce;stroke:#284ba8;stroke-width:2; }
+.il-chart-compare { fill:#c3ccd9;stroke:#526985;stroke-width:2;stroke-dasharray:3 2; }
+.il-data-source { font-weight:600;line-height:1.7; }
+.il-marked-passage { display:flex;flex-wrap:wrap;gap:8px;line-height:2; }
+.il-selection-text,.il-selection-reason { display:block;width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--dc-line,#dfe6ef);border-radius:8px;background:var(--dc-surface,#fff);color:var(--dc-text,#21324b);font:inherit;line-height:1.8;resize:vertical; }
+.il-selection-field { display:grid;gap:8px;width:100%; }
+.il-selection-list { display:grid;gap:18px;padding-left:24px;flex-basis:100%; }
+.il-subject-controls:has(.il-selection-field) > .il-actions { flex-basis:100%;align-items:flex-start; }
+.il-selection-list blockquote { margin:0;white-space:pre-wrap;overflow-wrap:anywhere; }
+.il-selection-list p { margin:6px 0;white-space:pre-wrap;overflow-wrap:anywhere; }
+.il-marked-passage .dc-button { text-align:left;font:inherit; }
+.il-marked-passage [data-mark="1"] { background:#e0eaff;color:#243f7b; }
+.il-marked-passage [data-mark="2"] { background:#e0f1e9;color:#245b43; }
+.il-marked-passage [data-mark="3"] { background:#fff0d8;color:#6a4819; }
+.il-marked-passage [data-mark="4"] { background:#efe7f9;color:#594078; }
+@media(max-width:600px) { .il-subject-diagram svg { max-height:310px; }.il-subject-diagram svg text { font-size:20px; }.il-subject-control { flex-basis:100%; } }
+.il-statistics-chart { display:block;width:100%;max-width:560px;margin:0 auto;color:var(--dc-text,#21324b); }
+@media(max-width:600px) { .il-statistics-chart text { font-size:24px; } }
+.il-statistics-values { display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;max-height:260px;overflow:auto;padding:4px;margin:16px 0; }
+.il-statistics-row { display:flex;align-items:center;gap:8px;min-width:0; }
+.il-statistics-row label { display:flex;align-items:center;flex:1;gap:8px;min-width:0; }
+.il-statistics-row input { box-sizing:border-box;min-width:0;width:78px;flex:1;min-height:42px;font:inherit;color:inherit;background:var(--dc-surface,#fff);border:1px solid var(--dc-border,#dfe6ef);border-radius:6px;padding:6px; }
+.il-statistics-row button { flex:none; }
+.il-statistics-chart + .il-lab-result p { margin:6px 0; }
+.il-lab[data-lab-type=statistics_lab] table { width:100%;border-collapse:collapse; }
+.il-lab[data-lab-type=statistics_lab] th,.il-lab[data-lab-type=statistics_lab] td { padding:6px 12px;text-align:left;border-bottom:1px solid var(--dc-border,#dfe6ef);font-variant-numeric:tabular-nums; }
+
+/* 目录收起入口固定在目录上缘，折叠后可从原区域重新展开。 */
+.dc-layout { position: relative; }
+.dc-directory { position: relative; }
+.dc-directory > h2 { padding-right: 45px; }
+.dc-directory-collapse { position: absolute; right: 7px; top: 7px; padding: 5px; min-height: 30px; }
+.dc-directory-reopen { position: absolute; left: 7px; top: 7px; z-index: 5; }
+.dc-stream-lecture { padding-block: 8px 20px; }
+.dc-stream-lecture .gy-stream-text { font-size: 15px; }
+.dc-stream-lecture .gy-stream-notice { font-size: 12px; }

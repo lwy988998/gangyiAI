@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "subjects": [
+    { "name": "语文", "questionTypes": ["readingComprehension", "classicalChinese", "poetryAppreciation", "languageUse", "essay"] },
+    { "name": "数学", "questionTypes": ["singleChoice", "multipleChoice", "fillBlank", "calculation", "proof", "geometry", "statistics"] },
+    { "name": "外语", "questionTypes": ["listeningTranscript", "readingComprehension", "cloze", "grammarFill", "translation", "writing"] },
+    { "name": "思想政治", "questionTypes": ["singleChoice", "multipleChoice", "materialAnalysis", "shortAnswer", "essay"] },
+    { "name": "历史", "questionTypes": ["singleChoice", "multipleChoice", "sourceAnalysis", "timeline", "materialAnalysis", "essay"] },
+    { "name": "地理", "questionTypes": ["singleChoice", "multipleChoice", "mapInterpretation", "graphInterpretation", "calculation", "materialAnalysis"] },
+    { "name": "物理", "questionTypes": ["singleChoice", "multipleChoice", "calculation", "proof", "experiment", "graphInterpretation"] },
+    { "name": "化学", "questionTypes": ["singleChoice", "multipleChoice", "equation", "calculation", "experiment", "materialAnalysis"] },
+    { "name": "生物学", "questionTypes": ["singleChoice", "multipleChoice", "experiment", "graphInterpretation", "dataAnalysis", "shortAnswer"] },
+    { "name": "信息技术", "questionTypes": ["singleChoice", "multipleChoice", "dataAnalysis", "programming", "debugging", "shortAnswer"] },
+    { "name": "通用技术", "questionTypes": ["singleChoice", "multipleChoice", "designAnalysis", "drawingInterpretation", "shortAnswer"] },
+    { "name": "体育与健康", "questionTypes": ["singleChoice", "multipleChoice", "scenarioAnalysis", "shortAnswer"] },
+    { "name": "艺术（音乐/美术）", "questionTypes": ["imageOrAudioInterpretation", "styleAnalysis", "shortAnswer", "essay"] },
+    { "name": "劳动", "questionTypes": ["processAnalysis", "safetyJudgement", "designExplanation"] }
+  ],
+  "recognitionCases": [
+    {
+      "id": "clear-print",
+      "kind": "printedQuestion",
+      "confidence": 0.98,
+      "expected": "startLearning",
+      "mustPreservePageOrder": true
+    },
+    {
+      "id": "ambiguous-stem",
+      "kind": "printedQuestion",
+      "confidence": 0.48,
+      "expected": "requestCorrectionBeforeTeachingThatQuestion",
+      "editableFields": ["questionNumber", "stem", "materials", "subquestions"]
+    },
+    {
+      "id": "uncertain-handwriting",
+      "kind": "handwrittenAnswer",
+      "confidence": 0.56,
+      "expected": "continueWithBestEffortAndMarkUncertain",
+      "mustNotSilentlyClaimExactTranscription": true
+    }
+  ],
+  "sourceCases": [
+    {
+      "id": "confirmed-exact-paper",
+      "match": "confirmedSameExam",
+      "gradingEligible": true,
+      "requires": ["titleOrIdentifier", "subject", "questionContent", "sourceUrl"]
+    },
+    {
+      "id": "similar-paper-only",
+      "match": "similarUnconfirmed",
+      "gradingEligible": false,
+      "presentation": "labelAsUnverifiedReference"
+    },
+    {
+      "id": "no-match",
+      "match": "notFound",
+      "gradingEligible": false,
+      "expected": "continueFromUploadedPaperWithoutBlocking"
+    }
+  ],
+  "gradingCases": [
+    {
+      "id": "uploaded-rubric",
+      "rubricPresent": true,
+      "answerReveal": "onlyOnRequestOrAfterStudentAttempt"
+    },
+    {
+      "id": "estimated-score",
+      "rubricPresent": false,
+      "mayEstimate": true,
+      "requiredLabel": "AI 估分，非官方",
+      "requiredContext": ["scoringBasis", "uncertainty"]
+    }
+  ],
+  "conversationControls": ["directAnswer", "hint", "skip", "nextQuestion", "previousQuestion", "pause", "resume", "followUp", "editAnswer"],
+  "artifactCases": [
+    { "type": "markdown", "render": "inline" },
+    { "type": "table", "render": "inline", "mayExpandToCanvas": true },
+    { "type": "code", "render": "inline", "copyable": true, "execution": "onlyAfterExplicitRequestAndInIsolation" },
+    { "type": "math", "render": "inline" },
+    { "type": "chart", "render": "inline", "interactive": ["zoom", "hover"] },
+    { "type": "functionPlot", "render": "inline", "interactive": ["zoom", "parameterAdjustment"] },
+    { "type": "flowchart", "render": "inline", "mayExpandToCanvas": true },
+    { "type": "mindmap", "render": "inline", "interactive": ["zoom", "pan", "collapseBranch"], "mayExpandToCanvas": true }
+  ],
+  "safetyCases": [
+    {
+      "id": "untrusted-label",
+      "value": "<img src=x onerror=alert(1)>",
+      "expected": "renderAsTextOrSanitizedMarkup",
+      "scriptExecutionAllowed": false
+    },
+    {
+      "id": "generated-chart-data",
+      "mustReference": "uploadedQuestionOrExplicitlySuppliedData",
+      "inventedValuesAllowed": false
+    }
+  ],
+  "persistence": {
+    "storage": "localOnly",
+    "preserveOriginalPageBytes": true,
+    "resumeFields": ["recognition", "questions", "messages", "answers", "sources", "artifacts", "progress"]
+  },
+  "deferred": ["generativeImageCreation", "cloudSync", "exportToOfficeFormats"]
+}

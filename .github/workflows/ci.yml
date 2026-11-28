@@ -61,6 +61,10 @@ jobs:
         run: |
           python tests/learning_agent_api_smoke.py dist/windows/gangyiAI.exe
           if ($LASTEXITCODE -ne 0) { throw '统一主控接口验收失败' }
+          python -B -X utf8 tests/plan_response_recovery_smoke.py dist/windows/gangyiAI.exe
+          if ($LASTEXITCODE -ne 0) { throw '课程规划回复恢复验收失败' }
+          python -B -X utf8 tests/exam_recognition_recovery_smoke.py dist/windows/gangyiAI.exe
+          if ($LASTEXITCODE -ne 0) { throw '试卷识别和讲解回复恢复验收失败' }
           python tests/learning_agent_browser_smoke.py dist/windows/gangyiAI.exe
           if ($LASTEXITCODE -ne 0) { throw '统一主控课堂与备课页面验收失败' }
           python -X utf8 tests/teaching_requests_browser_smoke.py dist/windows/gangyiAI.exe
@@ -81,8 +85,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw '全项目澄明界面与课堂可用区域验收失败' }
           python -X utf8 tests/deep_course_browser_smoke.py verification/deep-course-ui
           if ($LASTEXITCODE -ne 0) { throw '深度课堂呈现与交互协议验收失败' }
-          python -X utf8 tests/deep_course_integration_smoke.py dist/windows/gangyiAI.exe verification/deep-course-integration
+          python -X utf8 tests/deep_course_integration_smoke.py dist/windows/gangyiAI.exe verification/deep-course-integration --teaching-round
           if ($LASTEXITCODE -ne 0) { throw 'C++深度课堂建课、进入与作答闭环验收失败' }
+          python -B -X utf8 tests/component_draft_recovery_smoke.py dist/windows/gangyiAI.exe verification/component-draft-recovery
+          if ($LASTEXITCODE -ne 0) { throw '组件草稿断线、回执和冲突恢复失败' }
+          python -B -X utf8 tests/component_drafts_all_types_smoke.py dist/windows/gangyiAI.exe verification/component-drafts-all-types
+          if ($LASTEXITCODE -ne 0) { throw '各类组件未提交草稿恢复失败' }
+          python -B -X utf8 tests/triangle_classroom_smoke.py dist/windows/gangyiAI.exe verification/triangle-classroom
+          if ($LASTEXITCODE -ne 0) { throw '三角形课堂操作与轨迹回归失败' }
+          python -B -X utf8 tests/wave_classroom_smoke.py dist/windows/gangyiAI.exe verification/wave-classroom
+          if ($LASTEXITCODE -ne 0) { throw '波动课堂播放、恢复与轨迹回归失败' }
+          python -B -X utf8 tests/periodic_classroom_smoke.py dist/windows/gangyiAI.exe verification/periodic-classroom
+          if ($LASTEXITCODE -ne 0) { throw '元素课堂选择、来源、恢复与轨迹回归失败' }
           python tests/startup_browser_smoke.py
           if ($LASTEXITCODE -ne 0) { throw '启动动画与首页过渡验收失败' }
       - name: 验收安装包和免安装版

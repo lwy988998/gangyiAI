@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "review": {"status": "pending_expert_review"},
+  "cases": [
+    {
+      "id": "math-checked-intersection-after-exploration",
+      "subject": "mathematics",
+      "knowledgePoint": "交集与题面条件",
+      "scenarios": ["diagnosis", "partial_answer", "independent_exploration"],
+      "prompt": "请按保存时的题面选择交集，并说明你用了哪些条件。",
+      "studentResponse": "我选1：∅。我刚才把 2 从 B 中去掉了，现在没有共同元素。",
+      "selectedOption": 0,
+      "formalSubmission": true,
+      "reference": "保存的初始 A={1,2}、B={2,3} 的交集是 {2}。探索修改后的 A、B 交集为空，学生正确描述了探索结果，但给原题选错。",
+      "expectedAction": ["feedback", "explain"],
+      "errorTypes": ["condition_omission"],
+      "forbidden": ["按探索后的状态改判原题", "虚构组件动作", "仅根据探索记分"],
+      "componentTypes": ["sets"],
+      "turns": [],
+      "binding": {"courseId": "checked-set-pilot", "lessonId": "checked-set-intersection", "questionId": "intersection", "interactionId": "intersection-after-change"},
+      "componentPlan": {
+        "mode": "interactive",
+        "reason": "程序合成的探索状态用于区分已保存题面与操作后的条件。",
+        "evidenceSource": "synthetic_fixture",
+        "staticTypes": [],
+        "fixtures": [{
+          "id": "scene-set",
+          "config": {"type": "sets", "operation": "intersection", "universe": ["1", "2", "3"], "setA": ["1", "2"], "setB": ["2", "3"]},
+          "states": [{"schemaVersion": 1, "contentVersion": 1, "setA": ["1", "2"], "setB": ["2", "3"]},
+                     {"schemaVersion": 1, "contentVersion": 1, "setA": ["1", "2"], "setB": ["3"]}]
+        }]
+      },
+      "setExercise": {"schemaVersion": 1, "mediaId": "scene-set", "options": [[], ["2"], ["1", "3"]]}
+    },
+    {
+      "id": "math-checked-complement-empty",
+      "subject": "mathematics",
+      "knowledgePoint": "相对于全集的补集与空集",
+      "scenarios": ["diagnosis", "boundary"],
+      "prompt": "请判断相对给定全集的补集。",
+      "studentResponse": "我选2：∅。A 已经包含全集的每个元素，U 中没有剩下的元素。",
+      "selectedOption": 1,
+      "formalSubmission": true,
+      "reference": "A=U 时，A 相对于 U 的补集为空集。",
+      "expectedAction": ["feedback"],
+      "errorTypes": [],
+      "forbidden": ["把空集合说成含一个元素的集合", "将本题答对当成长时掌握"],
+      "componentTypes": [],
+      "turns": [],
+      "binding": {"courseId": "checked-set-pilot", "lessonId": "checked-set-complement", "questionId": "complement", "interactionId": "complement-empty"},
+      "componentPlan": {"mode": "none", "reason": "静态题面已足以诊断对空集的理解。", "evidenceSource": "synthetic_fixture", "staticTypes": [], "fixtures": []},
+      "setExercise": {"schemaVersion": 1, "config": {"operation": "complement_a", "universe": ["1", "2"], "setA": ["2", "1"], "setB": ["1"]}, "options": [["1"], [], ["2"]]}
+    },
+    {
+      "id": "math-checked-subset-direction",
+      "subject": "mathematics",
+      "knowledgePoint": "真子集的方向",
+      "scenarios": ["diagnosis", "partial_answer"],
+      "prompt": "请选择 A、B 的关系，并用额外元素检查方向。",
+      "studentResponse": "我选2：A 是 B 的真子集。因为 2 只属于 A。",
+      "selectedOption": 1,
+      "formalSubmission": true,
+      "reference": "A={1,2}、B={1}，B 是 A 的真子集。学生给出的额外元素正确，但由此选反了包含方向。",
+      "expectedAction": ["feedback", "explain"],
+      "errorTypes": ["reasoning"],
+      "forbidden": ["判定学生没有发现额外元素", "混淆真子集的方向"],
+      "componentTypes": [],
+      "turns": [],
+      "binding": {"courseId": "checked-set-pilot", "lessonId": "checked-set-subset", "questionId": "subset", "interactionId": "subset-reversed"},
+      "componentPlan": {"mode": "none", "reason": "在固定题面中诊断子集方向，无组件操作证据。", "evidenceSource": "synthetic_fixture", "staticTypes": [], "fixtures": []},
+      "setExercise": {"schemaVersion": 1, "config": {"operation": "relations", "universe": ["1", "2"], "setA": ["1", "2"], "setB": ["1"]}}
+    }
+  ]
+}

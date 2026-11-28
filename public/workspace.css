@@ -1,0 +1,368 @@
+/* 澄明课堂的本课上下文和深色配色。 */
+.gy-theme-toggle,
+.gy-context-close {
+  flex: none;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--gy-border);
+  border-radius: 7px;
+  background: var(--gy-surface);
+  color: var(--gy-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.gy-theme-toggle:hover,
+.gy-context-close:hover { background: var(--gy-surface-alt); color: var(--gy-accent); }
+.gy-context-panel { min-width: 0; background: var(--gy-surface); color: var(--gy-text); overflow: auto; }
+.gy-context-panel[hidden] { display: none; }
+.gy-context-content {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+  padding: 16px;
+}
+.gy-context-head,
+.gy-context-content > nav { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.gy-context-head { justify-content: space-between; }
+.gy-context-content > nav { border-top: 1px solid var(--gy-border); padding-top: 12px; }
+.gy-context-content h2 { margin: 0; font-size: 16px; font-weight: 650; white-space: nowrap; }
+.gy-context-content p { margin-block: 8px; overflow-wrap: anywhere; }
+.gy-context-content a { color: var(--gy-accent); text-decoration: underline; text-underline-offset: 3px; }
+.gy-context-empty { color: var(--gy-muted); }
+.gy-context-dialog {
+  max-block-size: calc(100dvh - 40px);
+  width: min(420px, calc(100vw - 28px));
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--gy-border);
+  border-radius: 12px;
+}
+.gy-context-dialog::backdrop { background: #10182780; }
+.gy-context-information > :not([hidden]) + :not([hidden]) { margin-top: 10px; }
+.gy-context-information .agent-topic-evidence { max-height: none; }
+.gy-context-information :is(#classroom-agent-trace, #dc-trace-host) { margin: 0; padding: 0; }
+#dc-course-context { border-inline-start: 1px solid var(--gy-border); }
+@media (min-width: 1001px) {
+  .deep-course-shell[data-context-open=true] .dc-layout { grid-template-columns: 218px minmax(0, 1fr) 276px; }
+  .deep-course-shell[data-directory-open=false][data-context-open=true] .dc-layout { grid-template-columns: minmax(0, 1fr) 276px; }
+  .clarity-app.gy-workspace-context-open.gy-chat-classroom .lesson-page { margin-right: 301px; width: auto; }
+  #classroom-context {
+    position: fixed;
+    z-index: 12;
+    inset: calc(var(--gy-header-height) + 17px) 20px 17px auto;
+    width: 265px;
+    border: 1px solid var(--gy-border);
+    border-radius: 12px;
+  }
+}
+.clarity-app .lesson-heading > .gy-context-toggle { flex: none; }
+
+:root[data-workspace-theme=dark] {
+  color-scheme: dark;
+  --gy-bg: #141d2c;
+  --gy-surface: #1c283a;
+  --gy-surface-alt: #25354d;
+  --gy-text: #edf2fa;
+  --gy-muted: #b3c0d4;
+  --gy-border: #3c4e67;
+  --gy-accent: #a6bdff;
+  --gy-accent-hover: #c7d5ff;
+  --gy-action-bg: #4161c7;
+  --gy-action-hover: #4b6bd1;
+  --gy-danger: #ffc0c0;
+  --gy-warning: #f4cc92;
+  --gy-danger-bg: #432b39;
+  --gy-warning-bg: #463927;
+}
+[data-workspace-theme=dark] body.clarity-app,
+[data-workspace-theme=dark] .clarity-app main:has(#ask-form) {
+  background: var(--gy-bg);
+  color: var(--gy-text);
+}
+[data-workspace-theme=dark] .clarity-app :is(.dark-header, .my-ai-top, .dc-dialog) {
+  background: var(--gy-surface);
+  color: var(--gy-text);
+  border-color: var(--gy-border);
+}
+[data-workspace-theme=dark] .clarity-app :is(.clarity-continue, .dc-outline-topic:hover,
+  .dc-outline-topic[aria-current=page], .dc-skeleton, .exam-question textarea, .exam-chat-input textarea,
+  .chat-bubble-mine, .chat-bubble-user) {
+  background: var(--gy-surface-alt);
+  color: var(--gy-text);
+}
+[data-workspace-theme=dark] .clarity-app :is(.clarity-primary, .uc-primary, .ma-button:not(.secondary),
+  .dc-button.dc-primary, .clarity-continue-action, #lesson-send, #ask-submit, .exam-chat-input button) {
+  background: var(--gy-action-bg);
+  color: #fff;
+  border-color: transparent;
+}
+[data-workspace-theme=dark] .clarity-app :is(.clarity-primary, .uc-primary, .ma-button:not(.secondary),
+  .dc-button.dc-primary, .clarity-continue-action, #lesson-send, #ask-submit, .exam-chat-input button):hover {
+  background: var(--gy-action-hover);
+}
+[data-workspace-theme=dark] .clarity-app :is(.dc-dialog, .gy-context-panel) {
+  --dc-bg: var(--gy-bg);
+  --dc-surface: var(--gy-surface);
+  --dc-soft: var(--gy-surface-alt);
+  --dc-text: var(--gy-text);
+  --dc-muted: var(--gy-muted);
+  --dc-line: var(--gy-border);
+  --dc-accent: var(--gy-accent);
+}
+[data-workspace-theme=dark] .clarity-app :is(.dc-chat-error, .exam-error) { color: var(--gy-danger); }
+[data-workspace-theme=dark] .clarity-app .dc-chat-task-state[data-status=failed] {
+  color: var(--gy-danger);
+  background: var(--gy-danger-bg);
+  border-color: var(--gy-border);
+}
+[data-workspace-theme=dark] .clarity-app .dc-chat-task-state[data-status=paused] {
+  color: var(--gy-warning);
+  background: var(--gy-warning-bg);
+  border-color: var(--gy-border);
+}
+[data-workspace-theme=dark] .clarity-app main:has(#ask-form) :is(.bg-white, .chat-bubble-ai) {
+  background: var(--gy-surface);
+  color: var(--gy-text);
+  border-color: var(--gy-border);
+}
+[data-workspace-theme=dark] .clarity-app main:has(#ask-form) :is(.text-slate-600, #ask-empty) { color: var(--gy-muted); }
+[data-workspace-theme=dark] .clarity-app #ask-empty { background: var(--gy-surface-alt); border-color: var(--gy-border); }
+[data-workspace-theme=dark] .clarity-app :focus-visible { outline-color: var(--gy-accent); }
+
+/* 学习页共用单行页头，菜单在浏览器顶层展示。 */
+body.gy-compact-workspace { --gy-learning-bar-height: 48px; }
+.clarity-app.gy-compact-workspace > .site-header {
+  height: var(--gy-learning-bar-height);
+  margin: 0;
+}
+.gy-compact-workspace > .site-header .dark-nav-shell {
+  max-width: 1500px;
+  gap: 12px;
+  padding-inline: clamp(14px, 2.2vw, 32px);
+}
+.clarity-app .site-header h1.gy-learning-title {
+  min-width: 0;
+  margin: 0 auto 0 0;
+  overflow: hidden;
+  color: var(--gy-text);
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gy-learning-menu-toggle,
+.gy-compact-workspace > .site-header #dc-fullscreen {
+  flex: none;
+  min-height: 36px;
+  padding: 5px 10px;
+  border: 1px solid var(--gy-border);
+  border-radius: 7px;
+  color: var(--gy-text);
+  background: var(--gy-surface);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.gy-compact-workspace > .site-header #dc-fullscreen svg { width: 15px; height: 15px; }
+.gy-learning-menu-toggle:hover,
+.gy-learning-menu-toggle[aria-expanded=true],
+.gy-compact-workspace > .site-header #dc-fullscreen:hover {
+  background: var(--gy-surface-alt);
+  color: var(--gy-accent);
+}
+.gy-learning-menu {
+  inset: calc(var(--gy-learning-bar-height) + 5px) max(10px, calc((100vw - 1500px) / 2 + 16px)) auto auto;
+  width: min(350px, calc(100vw - 20px));
+  max-height: calc(100dvh - var(--gy-learning-bar-height) - 16px);
+  margin: 0;
+  padding: 6px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--gy-border);
+  border-radius: 10px;
+  background: var(--gy-surface);
+  color: var(--gy-text);
+  font-size: 14px;
+}
+.gy-learning-menu[popover]:not(:popover-open),
+.gy-learning-menu [hidden],
+.gy-compact-workspace .exam-workspace [hidden],
+.gy-compact-workspace #exam-upload[hidden] { display: none !important; }
+.gy-learning-menu :is(p, a, button, summary) { overflow-wrap: anywhere; }
+.gy-learning-menu :is(a, button, summary):focus-visible { outline-offset: -2px; }
+.gy-learning-menu > :is(a, button),
+.gy-learning-menu > details > :is(a, button),
+.gy-learning-menu .gy-learning-actions > :is(a, button) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  margin: 0;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gy-text);
+  font-size: 14px;
+  text-align: left;
+  text-decoration: none;
+}
+.gy-learning-menu > details > summary {
+  min-height: 36px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  color: var(--gy-text);
+}
+.gy-learning-menu :is(a, button, summary):hover { color: var(--gy-accent); background: var(--gy-surface-alt); }
+.gy-learning-menu button:disabled { opacity: .6; cursor: default; }
+.gy-learning-menu > details + details { border-top: 1px solid var(--gy-border); }
+.gy-learning-menu > details[open] { padding-bottom: 6px; }
+.gy-learning-menu > details > p { margin: 4px 9px 8px; color: var(--gy-muted); }
+.gy-learning-menu :is(.lesson-tabs,.dc-tabs,.course-context-actions,.gy-learning-menu-settings) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 4px 8px;
+}
+.gy-learning-menu :is(.lesson-tabs,.dc-tabs) :is(a,button) {
+  min-height: 36px;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--gy-muted);
+  text-decoration: none;
+}
+.gy-learning-menu :is(.lesson-tabs,.dc-tabs) :is([aria-selected=true],[aria-current=page]) {
+  color: var(--gy-accent);
+  background: var(--gy-surface-alt);
+  font-weight: 650;
+}
+.gy-learning-menu .course-context-navigation { margin: 0; padding: 4px 8px; }
+.gy-learning-menu .course-breadcrumbs > :nth-child(-n+2) { display: none; }
+.gy-learning-menu .gy-learning-menu-links { display: grid; gap: 2px; padding: 0 8px; }
+.gy-learning-menu-links > a { min-height: 34px; padding: 5px 8px; border-radius: 6px; color: var(--gy-text); }
+.gy-learning-menu-links .dark-brand { gap: 8px; }
+.gy-learning-menu-links .dark-brand-mark { width: 24px; height: 24px; }
+.gy-learning-menu-links .dark-nav-cta { display: block; }
+.gy-learning-menu #learning-navigation { position: static; width: 100%; margin: 0; }
+.gy-learning-menu #learning-navigation .gy-navigation-body {
+  position: static;
+  width: 100%;
+  max-height: none;
+  margin: 6px 0 0;
+}
+.gy-learning-menu .course-directory-toggle { position: static; }
+.gy-learning-menu .course-directory-mobile { display: none; }
+.gy-learning-menu .dc-button { justify-content: flex-start; }
+.gy-learning-menu .dc-button svg { flex: none; width: 16px; height: 16px; }
+.gy-learning-menu :is(.gy-agent-trace, #prepare-trace) { margin: 0; }
+.gy-learning-menu .dc-slide-navigation { padding: 3px 8px; }
+
+.clarity-app.gy-compact-workspace .course-directory { padding-top: 17px; }
+.gy-compact-workspace #page-status:not(.agent-error) { display: none; }
+.clarity-app.gy-chat-classroom.gy-compact-workspace .lesson-page { padding-block: 10px 12px; }
+.gy-compact-workspace #lesson-chat-panel .composer-toolbar {
+  min-height: 34px;
+  padding-top: 4px;
+  border-top: 0;
+}
+.gy-compact-workspace #classroom-teaching-round { margin: 0; }
+.gy-compact-workspace .dc-footer { gap: 8px; padding: 5px 16px; }
+.gy-compact-workspace #dc-teaching-round { margin: 0; padding: 4px 16px; }
+.gy-compact-workspace .dc-footer-controls:not(:has(> :not([hidden]))) { display: none; }
+.gy-classroom-fullscreen .gy-compact-workspace > .site-header { display: block !important; }
+.gy-classroom-fullscreen .gy-compact-workspace .deep-course-shell {
+  height: calc(100dvh - var(--gy-learning-bar-height));
+}
+.gy-classroom-fullscreen .gy-compact-workspace :is(.dc-fullscreen-bar,.dc-chat-dock) { display: none !important; }
+.gy-classroom-fullscreen .gy-compact-workspace .deep-course-shell[data-overlay-chat=true] .dc-answer-panel {
+  top: var(--gy-learning-bar-height);
+}
+.gy-context-information .gy-agent-trace { margin: 0; }
+.gy-context-information .gy-trace-head {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+}
+.gy-context-information .gy-trace-toggle { grid-column: 2; justify-self: start; }
+
+.gy-compact-workspace .preparation-page { padding-top: 18px; }
+.gy-ask-workspace {
+  height: calc(100dvh - var(--gy-learning-bar-height));
+  min-height: 0;
+}
+.gy-ask-workspace > section {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding-block: 10px 12px;
+}
+.gy-ask-workspace #ask-messages {
+  flex: 1;
+  min-height: 0;
+  margin-top: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  box-shadow: none;
+}
+.gy-ask-workspace section:has(> #ask-form) { flex: none; margin-top: 8px; padding: 10px; }
+.gy-ask-workspace textarea { min-height: 66px; max-height: 30dvh; }
+.gy-compact-workspace:has(.gy-ask-workspace) > .dark-footer { display: none; }
+.gy-learning-menu .ask-material { margin: 0 4px 8px; }
+
+.gy-compact-workspace .exam-page { padding: 12px clamp(12px, 2.2vw, 30px); }
+.gy-compact-workspace .exam-workspace {
+  height: calc(100dvh - var(--gy-learning-bar-height) - 24px);
+  min-height: 240px;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+}
+.gy-compact-workspace .exam-workspace.is-source-open { grid-template-columns: minmax(0, 1fr) minmax(245px, 330px); }
+.gy-compact-workspace .exam-chat-panel { min-height: 0; overflow: hidden; }
+.gy-compact-workspace .exam-chat-messages { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.gy-compact-workspace .exam-chat-input { padding: 10px 14px; flex: none; }
+.gy-compact-workspace .exam-chat-input textarea { min-width: 0; max-height: 30dvh; }
+.gy-compact-workspace .exam-source-panel { position: static; min-height: 0; overflow: auto; }
+.gy-compact-workspace .exam-source-body { max-height: none; }
+.gy-compact-workspace .exam-source-dialog {
+  width: min(580px, calc(100vw - 24px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+}
+.gy-compact-workspace .exam-source-dialog::backdrop { background: #10182780; }
+.gy-compact-workspace .exam-upload-shell h2 { font-size: 16px; }
+
+@media (max-width: 900px) {
+  .gy-learning-menu:not([hidden]) .course-directory-toggle { display: none; }
+  .gy-learning-menu .course-directory-mobile:not([hidden]) {
+    position: static;
+    display: block;
+    width: auto;
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    color: var(--gy-text);
+    background: transparent;
+    box-shadow: none;
+  }
+  .gy-learning-menu .course-directory-mobile .course-directory-body { padding: 4px 8px; }
+  .gy-learning-menu .course-directory-mobile[open] > summary { padding: 6px 9px; border: 0; }
+  .gy-compact-workspace .exam-chat-input { flex-direction: row; align-items: end; }
+  .gy-compact-workspace .exam-chat-input button { width: auto; min-height: 42px; }
+}
+
+@media (max-width: 700px) {
+  .gy-learning-menu-toggle,
+  .gy-compact-workspace > .site-header #dc-fullscreen { min-height: 42px; }
+  .gy-learning-menu :is(a, button, summary) { min-height: 40px; }
+  .gy-compact-workspace .exam-chat-messages { padding: 12px; }
+}

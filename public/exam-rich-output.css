@@ -1,0 +1,325 @@
+/* 试卷讲解富内容：沿用澄明工作台的蓝白、细边框和阅读优先层级。 */
+.exam-rich-output {
+  color: var(--gy-text, #21324b);
+}
+
+.exam-rich-output .chat-table { margin: 16px 0; }
+.exam-rich-output .chat-table table { width: 100%; border-collapse: collapse; }
+.exam-rich-output .chat-table th,
+.exam-rich-output .chat-table td { padding: 9px 12px; border: 1px solid var(--gy-border, #dfe6ef); vertical-align: top; }
+.exam-rich-output .chat-table th { background: var(--gy-surface-alt, #eef3fc); font-weight: 600; }
+
+.exam-rich-output .exam-rich-figure {
+  position: relative;
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid var(--gy-border, #dfe6ef);
+  border-radius: 10px;
+  background: var(--gy-surface, #fff);
+  overflow: hidden;
+}
+
+.exam-rich-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 28px;
+  margin-bottom: 8px;
+}
+
+.exam-rich-title {
+  color: var(--gy-text, #21324b);
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.exam-rich-toolbar,
+.exam-rich-code-tools {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.exam-rich-button {
+  min-height: 30px;
+  padding: 4px 9px;
+  border: 1px solid var(--gy-border, #dfe6ef);
+  border-radius: 7px;
+  background: var(--gy-surface, #fff);
+  color: var(--gy-text, #21324b);
+  font: 600 12px/1.5 "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  cursor: pointer;
+}
+
+.exam-rich-button:hover,
+.exam-rich-button:focus-visible {
+  border-color: var(--gy-accent, #3d61ce);
+  color: var(--gy-accent, #3d61ce);
+}
+
+.exam-rich-button:focus-visible {
+  outline: 2px solid var(--gy-accent, #3d61ce);
+  outline-offset: 2px;
+}
+
+.exam-rich-button:disabled {
+  cursor: wait;
+  opacity: .58;
+}
+
+.exam-rich-source {
+  font-size: 12px;
+}
+
+.exam-rich-source summary {
+  color: var(--gy-muted, #5e6d82);
+  cursor: pointer;
+}
+
+.exam-rich-source-code {
+  max-height: 230px;
+  margin: 8px 0 0;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid var(--gy-border, #dfe6ef);
+  border-radius: 7px;
+  background: var(--gy-surface-alt, #eef3fc);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.exam-rich-chart {
+  width: 100%;
+  min-height: 310px;
+}
+
+.exam-rich-chart.is-large {
+  min-height: min(70vh, 720px);
+}
+
+.exam-rich-viewport {
+  position: relative;
+  min-height: 270px;
+  overflow: hidden;
+  border: 1px solid var(--gy-border, #dfe6ef);
+  border-radius: 8px;
+  background: var(--gy-surface-alt, #eef3fc);
+  cursor: grab;
+  touch-action: none;
+}
+
+.exam-rich-viewport.is-large {
+  min-height: min(72vh, 760px);
+}
+
+.exam-rich-viewport.is-dragging {
+  cursor: grabbing;
+}
+
+.exam-rich-pan-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  min-width: 100%;
+  min-height: 100%;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.exam-rich-viewport > .exam-rich-toolbar {
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  right: 8px;
+  padding: 4px;
+  border: 1px solid var(--gy-border, #dfe6ef);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--gy-surface, #fff) 92%, transparent);
+}
+
+.exam-rich-flow svg {
+  display: block;
+  width: max(100%, 460px);
+  height: 310px;
+  min-width: 460px;
+  overflow: visible;
+}
+
+.exam-rich-flow.is-large svg {
+  height: min(70vh, 720px);
+}
+
+.exam-rich-node rect {
+  fill: var(--gy-surface, #fff);
+  stroke: var(--gy-accent, #3d61ce);
+  stroke-width: 1.5;
+}
+
+.exam-rich-node text,
+.exam-rich-edge-label {
+  fill: var(--gy-text, #21324b);
+  font: 14px "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+}
+
+.exam-rich-edge {
+  fill: none;
+  stroke: var(--gy-muted, #5e6d82);
+  stroke-width: 1.6;
+}
+
+.exam-rich-mindmap {
+  padding: 34px 20px 26px;
+  overflow: auto;
+}
+
+.exam-rich-mindmap .exam-rich-pan-canvas {
+  position: relative;
+  width: max-content;
+  min-width: 100%;
+}
+
+.exam-rich-tree,
+.exam-rich-tree-children {
+  min-width: 280px;
+  margin: 0;
+  padding-left: 24px;
+  list-style: none;
+}
+
+.exam-rich-tree > li {
+  padding-left: 0;
+}
+
+.exam-rich-tree details,
+.exam-rich-tree-label {
+  display: inline-block;
+  max-width: 54ch;
+  margin: 6px 0;
+  padding: 7px 11px;
+  border: 1px solid var(--gy-border, #dfe6ef);
+  border-radius: 7px;
+  background: var(--gy-surface, #fff);
+  line-height: 1.65;
+}
+
+.exam-rich-tree summary {
+  cursor: pointer;
+}
+
+.exam-rich-tree .is-root > details,
+.exam-rich-tree .is-root > .exam-rich-tree-label {
+  border-color: var(--gy-accent, #3d61ce);
+  background: var(--gy-surface-alt, #eef3fc);
+  font-weight: 650;
+}
+
+.exam-rich-tree-children {
+  border-left: 1px solid var(--gy-border, #dfe6ef);
+}
+
+.exam-rich-slider {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) 58px;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 14px;
+  color: var(--gy-muted, #5e6d82);
+  font-size: 13px;
+}
+
+.exam-rich-slider input {
+  accent-color: var(--gy-accent, #3d61ce);
+}
+
+.exam-rich-slider output {
+  color: var(--gy-text, #21324b);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.exam-rich-code-tools {
+  float: right;
+  margin: 4px 4px 0 10px;
+}
+
+.exam-rich-code-result {
+  clear: both;
+  margin: 8px 0 0;
+  padding: 9px;
+  border-top: 1px solid var(--gy-border, #dfe6ef);
+  white-space: pre-wrap;
+}
+
+.exam-rich-error {
+  margin: 10px 0;
+  color: var(--gy-danger, #a4373e);
+  font-size: 13px;
+}
+
+.exam-rich-dialog {
+  width: min(1100px, calc(100vw - 30px));
+  height: min(840px, calc(100vh - 30px));
+  padding: 0;
+  border: 1px solid var(--gy-border, #dfe6ef);
+  border-radius: 12px;
+  background: var(--gy-bg, #f6f8fc);
+  color: var(--gy-text, #21324b);
+}
+
+.exam-rich-dialog::backdrop {
+  background: #21324b55;
+}
+
+.exam-rich-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--gy-border, #dfe6ef);
+  background: var(--gy-surface, #fff);
+}
+
+.exam-rich-dialog-body {
+  height: calc(100% - 58px);
+  padding: 14px;
+  overflow: auto;
+}
+
+@media (max-width: 700px) {
+  .exam-rich-output .exam-rich-figure {
+    margin: 14px -2px;
+    padding: 10px;
+  }
+
+  .exam-rich-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .exam-rich-chart {
+    min-height: 260px;
+  }
+
+  .exam-rich-viewport {
+    min-height: 240px;
+  }
+
+  .exam-rich-slider {
+    grid-template-columns: 1fr;
+  }
+
+  .exam-rich-slider output {
+    text-align: left;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .exam-rich-pan-canvas,
+  .exam-rich-chart {
+    scroll-behavior: auto;
+  }
+}
+.exam-rich-viewport{border-radius:7px}

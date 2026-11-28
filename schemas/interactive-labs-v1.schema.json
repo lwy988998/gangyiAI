@@ -1,0 +1,659 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "已注册的交互实验配置",
+  "description": "配置可嵌在原深度课件media中，额外媒体身份字段由原协议管理；状态必须另经当前版本和程序计算校验。 跨字段约束、UTF-8字节长度及步数范围由前后端校验器补充。",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "function_lab"
+        },
+        "schemaVersion": {
+          "const": 1
+        },
+        "coefficients": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "number",
+            "minimum": -10,
+            "maximum": 10,
+            "multipleOf": 0.5
+          }
+        },
+        "xMin": {
+          "type": "number",
+          "minimum": -20,
+          "maximum": 20
+        },
+        "xMax": {
+          "type": "number",
+          "minimum": -20,
+          "maximum": 20
+        },
+        "domain": {
+          "description": "可选数学闭区间，min须小于max；省略为全体实数，xMin/xMax仅控制初始视窗。",
+          "type": "object",
+          "required": [
+            "min",
+            "max"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "min": {
+              "type": "number",
+              "minimum": -20,
+              "maximum": 20
+            },
+            "max": {
+              "type": "number",
+              "minimum": -20,
+              "maximum": 20
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "circuit_lab"
+        },
+        "schemaVersion": {
+          "const": 1
+        },
+        "mode": {
+          "enum": [
+            "series",
+            "parallel"
+          ]
+        },
+        "voltage": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 24
+        },
+        "r1": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "r2": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "chemical_balance"
+        },
+        "schemaVersion": {
+          "const": 1
+        },
+        "reactionId": {
+          "enum": [
+            "water",
+            "methane",
+            "iron_oxide"
+          ]
+        },
+        "coefficients": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 4,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "cell_lab"
+        },
+        "schemaVersion": {
+          "const": 1
+        },
+        "cellType": {
+          "enum": [
+            "plant",
+            "animal"
+          ]
+        },
+        "selectedPart": {
+          "enum": [
+            "membrane",
+            "cytoplasm",
+            "nucleus",
+            "mitochondrion",
+            "wall",
+            "chloroplast",
+            "vacuole"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "history_lab"
+        },
+        "schemaVersion": {
+          "const": 1
+        },
+        "datasetId": {
+          "const": "apollo11"
+        },
+        "order": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "launch",
+              "landing",
+              "return"
+            ]
+          }
+        },
+        "selectedEvent": {
+          "enum": [
+            "launch",
+            "landing",
+            "return"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "climate_lab"
+        },
+        "schemaVersion": {
+          "const": 1
+        },
+        "datasetId": {
+          "const": "illustrative_north"
+        },
+        "month": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12
+        },
+        "compareMonth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "type",
+        "fragments"
+      ],
+      "properties": {
+        "type": {
+          "const": "annotation_lab"
+        },
+        "schemaVersion": {
+          "const": 1
+        },
+        "fragments": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          }
+        },
+        "marks": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 16,
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3
+          }
+        },
+        "mode": {
+          "enum": [
+            "fragments",
+            "selection"
+          ],
+          "default": "fragments"
+        },
+        "selections": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "required": [
+              "start",
+              "end",
+              "label",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "start": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "end": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "label": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 480
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "type",
+        "fragments"
+      ],
+      "properties": {
+        "type": {
+          "const": "sentence_lab"
+        },
+        "schemaVersion": {
+          "const": 1
+        },
+        "fragments": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          }
+        },
+        "roles": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 16,
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "algorithm_lab"
+        },
+        "schemaVersion": {
+          "const": 1
+        },
+        "values": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 8,
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 99
+          }
+        },
+        "step": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 28
+        },
+        "algorithm": {
+          "enum": [
+            "bubble_sort",
+            "binary_search"
+          ],
+          "default": "bubble_sort"
+        },
+        "target": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 99
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "algorithm"
+            ],
+            "properties": {
+              "algorithm": {
+                "const": "binary_search"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "target"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "motion_lab"
+        },
+        "schemaVersion": {
+          "const": 1
+        },
+        "initialPositionM": {
+          "type": "number",
+          "minimum": -100,
+          "maximum": 100,
+          "default": 0
+        },
+        "initialVelocityMps": {
+          "type": "number",
+          "minimum": -20,
+          "maximum": 20,
+          "default": 6
+        },
+        "accelerationMps2": {
+          "type": "number",
+          "minimum": -10,
+          "maximum": 10,
+          "default": -2
+        },
+        "timeSeconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 20,
+          "default": 0
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "description": "单一区间，lower<=upper；相等时两端都闭合才为单点，否则为空集。null端点为无穷，不能闭合。",
+      "properties": {
+        "type": {
+          "const": "number_line"
+        },
+        "schemaVersion": {
+          "const": 1
+        },
+        "lower": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": -20,
+          "maximum": 20,
+          "multipleOf": 0.5,
+          "default": -2
+        },
+        "upper": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": -20,
+          "maximum": 20,
+          "multipleOf": 0.5,
+          "default": 3
+        },
+        "point": {
+          "type": "number",
+          "minimum": -20,
+          "maximum": 20,
+          "multipleOf": 0.5,
+          "default": 0
+        },
+        "lowerClosed": {
+          "type": "boolean",
+          "default": false
+        },
+        "upperClosed": {
+          "type": "boolean",
+          "description": "省略时，有限右端点默认闭合；正无穷端默认开放。"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "vector_lab"
+        },
+        "schemaVersion": {
+          "const": 1
+        },
+        "vectorA": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "number",
+            "minimum": -10,
+            "maximum": 10,
+            "multipleOf": 0.5
+          },
+          "default": [
+            3,
+            0
+          ]
+        },
+        "vectorB": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "number",
+            "minimum": -10,
+            "maximum": 10,
+            "multipleOf": 0.5
+          },
+          "default": [
+            0,
+            4
+          ]
+        },
+        "scalar": {
+          "type": "number",
+          "minimum": -3,
+          "maximum": 3,
+          "multipleOf": 0.5,
+          "default": 2
+        },
+        "operation": {
+          "enum": [
+            "add",
+            "subtract",
+            "scale_a"
+          ],
+          "default": "add"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "equation_lab"
+        },
+        "schemaVersion": {
+          "const": 1
+        },
+        "left": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "integer",
+            "minimum": -20,
+            "maximum": 20
+          },
+          "default": [
+            2,
+            3
+          ]
+        },
+        "right": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "integer",
+            "minimum": -20,
+            "maximum": 20
+          },
+          "default": [
+            1,
+            7
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "statistics_lab"
+        },
+        "schemaVersion": {
+          "const": 1
+        },
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "number",
+            "minimum": -100,
+            "maximum": 100,
+            "multipleOf": 0.5
+          }
+        },
+        "varianceBasis": {
+          "enum": [
+            "population",
+            "sample"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {"const": "triangle_lab"},
+        "schemaVersion": {"const": 1},
+        "points": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {"type": "number", "minimum": -10, "maximum": 10, "multipleOf": 0.5}
+          },
+          "default": [[0, 0], [4, 0], [0, 3]]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {"const": "wave_lab"},
+        "schemaVersion": {"const": 1},
+        "amplitudeM": {"type": "number", "minimum": 0, "maximum": 2, "multipleOf": 0.5},
+        "waveSpeedMps": {"type": "integer", "minimum": 1, "maximum": 5},
+        "periodSeconds": {"type": "number", "minimum": 1, "maximum": 4, "multipleOf": 0.5},
+        "timeSeconds": {"type": "number", "minimum": 0, "maximum": 8, "multipleOf": 0.25},
+        "probeXM": {"type": "number", "minimum": 0, "maximum": 12, "multipleOf": 0.5}
+      }
+    },
+    {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {"const": "periodic_lab"},
+        "schemaVersion": {"const": 1},
+        "datasetId": {"const": "pubchem-elements-20261128-v1"},
+        "selectedZ": {"type": "integer", "minimum": 1, "maximum": 118},
+        "comparisonZ": {"type": "integer", "minimum": 1, "maximum": 118},
+        "highlight": {"enum": ["none", "period", "group"]}
+      }
+    }
+  ]
+}

@@ -1,165 +1,299 @@
 /* 课程规划页 /plan 样式（对应 page_renderer.cpp renderPlanPage 的 class） */
 
+/* 【逐行批注】 定义或补充当前界面样式：.plan-page { background: linear-gradient(180deg, #f8fbff 0%, #f5f9ff 40%, #ffffff 100%); }。 */
 .plan-page { background: linear-gradient(180deg, #f8fbff 0%, #f5f9ff 40%, #ffffff 100%); }
 
+/* 【逐行批注】 定义或补充当前界面样式：.plan-heading { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: s…。 */
 .plan-heading { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 0.75rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.save-status { border-radius: 9999px; border: 1px solid #e0e7ef; background: #fff; paddin…。 */
 .save-status { border-radius: 9999px; border: 1px solid #e0e7ef; background: #fff; padding: 0.35rem 0.9rem; font-size: 0.8rem; font-weight: 600; color: #475569; white-space: nowrap; }
+/* 【逐行批注】 定义或补充当前界面样式：.save-status.warning { color: #b45309; border-color: #fde68a; background: #fffbeb; }。 */
 .save-status.warning { color: #b45309; border-color: #fde68a; background: #fffbeb; }
 
+/* 【逐行批注】 定义或补充当前界面样式：.plan-view { display: grid; gap: 1rem; }。 */
 .plan-view { display: grid; gap: 1rem; }
 
+/* 【逐行批注】 定义或补充当前界面样式：.plan-card { border: 1px solid #e0eaf5; background: #fff; border-radius: 1.25rem; padding…。 */
 .plan-card { border: 1px solid #e0eaf5; background: #fff; border-radius: 1.25rem; padding: 1.25rem; box-shadow: 0 1px 3px rgba(15,23,42,.05); }
+/* 【逐行批注】 定义或补充当前界面样式：.plan-card.full-card { border-radius: 1.5rem; padding: 1.5rem; }。 */
 .plan-card.full-card { border-radius: 1.5rem; padding: 1.5rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.plan-card h2 { font-size: 1.25rem; font-weight: 700; color: #0f172a; margin: .25rem 0 .7…。 */
 .plan-card h2 { font-size: 1.25rem; font-weight: 700; color: #0f172a; margin: .25rem 0 .75rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.plan-kicker { font-size: .75rem; font-weight: 700; letter-spacing: .14em; text-transform…。 */
 .plan-kicker { font-size: .75rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #0369a1; margin: 0 0 .35rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.muted-label { font-size: .8rem; color: #94a3b8; font-weight: 600; }。 */
 .muted-label { font-size: .8rem; color: #94a3b8; font-weight: 600; }
+/* 【逐行批注】 定义或补充当前界面样式：.empty-note { font-size: .85rem; color: #94a3b8; padding: .5rem 0; }。 */
 .empty-note { font-size: .85rem; color: #94a3b8; padding: .5rem 0; }
+/* 【逐行批注】 定义或补充当前界面样式：.plan-pill { display: inline-flex; border-radius: 9999px; background: #f0f9ff; border: 1p…。 */
 .plan-pill { display: inline-flex; border-radius: 9999px; background: #f0f9ff; border: 1px solid #bae6fd; color: #0c4a6e; padding: .2rem .7rem; font-size: .75rem; font-weight: 600; }
 
 /* hero */
+/* 【逐行批注】 定义或补充当前界面样式：.plan-hero { display: grid; gap: 1rem; border: 1px solid #dbeafe; background: linear-grad…。 */
 .plan-hero { display: grid; gap: 1rem; border: 1px solid #dbeafe; background: linear-gradient(135deg, #fff 0%, #eff6ff 100%); border-radius: 1.5rem; padding: 1.5rem; box-shadow: 0 1px 3px rgba(15,23,42,.05); }
+/* 【逐行批注】 定义或补充当前界面样式：.plan-hero h2 { font-size: 1.75rem; line-height: 1.25; font-weight: 800; color: #0c4a6e; …。 */
 .plan-hero h2 { font-size: 1.75rem; line-height: 1.25; font-weight: 800; color: #0c4a6e; margin: .5rem 0 .5rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.plan-hero p { color: #475569; line-height: 1.7; }。 */
 .plan-hero p { color: #475569; line-height: 1.7; }
+/* 【逐行批注】 定义或补充当前界面样式：.mode-badge { display: inline-flex; border-radius: 9999px; background: #0369a1; color: #f…。 */
 .mode-badge { display: inline-flex; border-radius: 9999px; background: #0369a1; color: #fff; font-size: .75rem; font-weight: 700; padding: .3rem .85rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.mode-badge.lite-badge { background: #059669; }。 */
 .mode-badge.lite-badge { background: #059669; }
+/* 【逐行批注】 定义或补充当前界面样式：.hero-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; }。 */
 .hero-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.hero-facts > div { border: 1px solid #e0eaf5; background: #fff; border-radius: 1rem; pad…。 */
 .hero-facts > div { border: 1px solid #e0eaf5; background: #fff; border-radius: 1rem; padding: .75rem 1rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.hero-facts small { display: block; font-size: .7rem; color: #94a3b8; margin-bottom: .25r…。 */
 .hero-facts small { display: block; font-size: .7rem; color: #94a3b8; margin-bottom: .25rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.hero-facts b { font-size: .95rem; color: #0f172a; }。 */
 .hero-facts b { font-size: .95rem; color: #0f172a; }
 
 /* next action */
+/* 【逐行批注】 定义或补充当前界面样式：.next-action { display: flex; flex-wrap: wrap; align-items: center; justify-content: spac…。 */
 .next-action { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; border-radius: 1.5rem; padding: 1.5rem; color: #fff; background: linear-gradient(120deg, #0369a1 0%, #047857 100%); box-shadow: 0 6px 18px rgba(3,105,161,.25); }
+/* 【逐行批注】 定义或补充当前界面样式：.next-action h2 { font-size: 1.3rem; font-weight: 800; margin: .25rem 0 .35rem; }。 */
 .next-action h2 { font-size: 1.3rem; font-weight: 800; margin: .25rem 0 .35rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.next-action p { font-size: .9rem; opacity: .85; line-height: 1.6; }。 */
 .next-action p { font-size: .9rem; opacity: .85; line-height: 1.6; }
+/* 【逐行批注】 定义或补充当前界面样式：.next-action .plan-kicker { color: #a7f3d0; }。 */
 .next-action .plan-kicker { color: #a7f3d0; }
+/* 【逐行批注】 定义或补充当前界面样式：.primary-action { display: inline-flex; align-items: center; gap: .4rem; border: 0; borde…。 */
 .primary-action { display: inline-flex; align-items: center; gap: .4rem; border: 0; border-radius: .85rem; background: #fff; color: #0369a1; font-weight: 700; font-size: .95rem; padding: .75rem 1.25rem; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.15); text-decoration: none; transition: transform .12s ease, box-shadow .12s ease; }
+/* 【逐行批注】 定义或补充当前界面样式：.primary-action:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.2…。 */
 .primary-action:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.2); }
+/* 【逐行批注】 定义或补充当前界面样式：.secondary-action { display: inline-flex; align-items: center; border-radius: .85rem; bor…。 */
 .secondary-action { display: inline-flex; align-items: center; border-radius: .85rem; border: 1px solid #cbd5e1; background: #fff; color: #334155; font-weight: 600; font-size: .9rem; padding: .7rem 1.1rem; cursor: pointer; text-decoration: none; transition: background .12s ease; }
+/* 【逐行批注】 定义或补充当前界面样式：.secondary-action:hover { background: #f8fafc; }。 */
 .secondary-action:hover { background: #f8fafc; }
+/* 【逐行批注】 定义或补充当前界面样式：.lite-action { background: linear-gradient(120deg, #059669 0%, #0d9488 100%); }。 */
 .lite-action { background: linear-gradient(120deg, #059669 0%, #0d9488 100%); }
+/* 【逐行批注】 定义或补充当前界面样式：.lite-action .plan-kicker { color: #d1fae5; }。 */
 .lite-action .plan-kicker { color: #d1fae5; }
+/* 【逐行批注】 定义或补充当前界面样式：.lite-primary { color: #047857; }。 */
 .lite-primary { color: #047857; }
 
 /* progress */
+/* 【逐行批注】 定义或补充当前界面样式：.progress-strip { display: flex; align-items: center; gap: 1rem; border: 1px solid #e0eaf…。 */
 .progress-strip { display: flex; align-items: center; gap: 1rem; border: 1px solid #e0eaf5; background: #fff; border-radius: 1rem; padding: .9rem 1.1rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.progress-strip b { font-size: 1.4rem; color: #0369a1; }。 */
 .progress-strip b { font-size: 1.4rem; color: #0369a1; }
+/* 【逐行批注】 定义或补充当前界面样式：.progress-strip span { font-size: .85rem; color: #64748b; }。 */
 .progress-strip span { font-size: .85rem; color: #64748b; }
+/* 【逐行批注】 定义或补充当前界面样式：.progress-track { flex: 1; height: .5rem; border-radius: 9999px; background: #e2e8f0; ove…。 */
 .progress-track { flex: 1; height: .5rem; border-radius: 9999px; background: #e2e8f0; overflow: hidden; }
+/* 【逐行批注】 定义或补充当前界面样式：.progress-track i { display: block; height: 100%; width: 0%; border-radius: 9999px; backg…。 */
 .progress-track i { display: block; height: 100%; width: 0%; border-radius: 9999px; background: linear-gradient(90deg, #0284c7, #10b981); }
 
 /* slides */
+/* 【逐行批注】 定义或补充当前界面样式：.slide-tabs { display: flex; gap: .5rem; overflow-x: auto; padding-bottom: .5rem; }。 */
 .slide-tabs { display: flex; gap: .5rem; overflow-x: auto; padding-bottom: .5rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.slide-tab { flex: 0 0 auto; border: 1px solid #e0eaf5; background: #f8fafc; border-radiu…。 */
 .slide-tab { flex: 0 0 auto; border: 1px solid #e0eaf5; background: #f8fafc; border-radius: .75rem; padding: .5rem .85rem; font-size: .8rem; font-weight: 600; color: #64748b; cursor: pointer; white-space: nowrap; }
+/* 【逐行批注】 定义或补充当前界面样式：.slide-tab.selected { border-color: #0369a1; background: #eff6ff; color: #0369a1; }。 */
 .slide-tab.selected { border-color: #0369a1; background: #eff6ff; color: #0369a1; }
+/* 【逐行批注】 定义或补充当前界面样式：.slide-content { border: 1px solid #eef2f7; background: #f8fafc; border-radius: 1rem; pad…。 */
 .slide-content { border: 1px solid #eef2f7; background: #f8fafc; border-radius: 1rem; padding: 1rem; margin-top: .5rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.slide-content h3 { font-size: 1.05rem; font-weight: 700; color: #0f172a; }。 */
 .slide-content h3 { font-size: 1.05rem; font-weight: 700; color: #0f172a; }
+/* 【逐行批注】 定义或补充当前界面样式：.slide-content p { color: #475569; line-height: 1.7; margin-top: .4rem; }。 */
 .slide-content p { color: #475569; line-height: 1.7; margin-top: .4rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.bullet-list { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .6rem; }。 */
 .bullet-list { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .6rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.bullet-list span { border-radius: 9999px; background: #eff6ff; border: 1px solid #dbeafe…。 */
 .bullet-list span { border-radius: 9999px; background: #eff6ff; border: 1px solid #dbeafe; color: #0c4a6e; font-size: .8rem; padding: .25rem .75rem; }
 
 /* mind map */
+/* 【逐行批注】 定义或补充当前界面样式：.mind-map ul { list-style: none; margin: 0; padding-left: 1.1rem; }。 */
 .mind-map ul { list-style: none; margin: 0; padding-left: 1.1rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.mind-map > ul { padding-left: 0; }。 */
 .mind-map > ul { padding-left: 0; }
+/* 【逐行批注】 定义或补充当前界面样式：.mind-node { position: relative; margin: .3rem 0; padding: .4rem .8rem; border-radius: .7…。 */
 .mind-node { position: relative; margin: .3rem 0; padding: .4rem .8rem; border-radius: .7rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.mind-node span { font-size: .88rem; font-weight: 600; color: #1e293b; }。 */
 .mind-node span { font-size: .88rem; font-weight: 600; color: #1e293b; }
+/* 【逐行批注】 定义或补充当前界面样式：.mind-node.depth-0 > span { background: #0369a1; color: #fff; display: inline-flex; paddi…。 */
 .mind-node.depth-0 > span { background: #0369a1; color: #fff; display: inline-flex; padding: .4rem .9rem; border-radius: .7rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.mind-node.depth-1 > span { background: #fff; border: 1px solid #dbeafe; display: inline-…。 */
 .mind-node.depth-1 > span { background: #fff; border: 1px solid #dbeafe; display: inline-flex; padding: .35rem .8rem; border-radius: .7rem; color: #0c4a6e; }
+/* 【逐行批注】 定义或补充当前界面样式：.mind-node.depth-2 > span { color: #64748b; font-weight: 500; }。 */
 .mind-node.depth-2 > span { color: #64748b; font-weight: 500; }
+/* 【逐行批注】 定义或补充当前界面样式：.mind-node.depth-1 > ul { border-left: 2px solid #e0eaf5; margin-top: .3rem; }。 */
 .mind-node.depth-1 > ul { border-left: 2px solid #e0eaf5; margin-top: .3rem; }
 
 /* roadmap phases */
+/* 【逐行批注】 定义或补充当前界面样式：.section-heading { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content…。 */
 .section-heading { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: .5rem; margin: 1.25rem 0 .75rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.section-heading h2 { font-size: 1.4rem; font-weight: 800; color: #0f172a; margin: 0; }。 */
 .section-heading h2 { font-size: 1.4rem; font-weight: 800; color: #0f172a; margin: 0; }
+/* 【逐行批注】 定义或补充当前界面样式：.phase-list { display: grid; gap: .9rem; }。 */
 .phase-list { display: grid; gap: .9rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.phase-card { display: flex; gap: 1rem; border: 1px solid #e0eaf5; background: #fff; bord…。 */
 .phase-card { display: flex; gap: 1rem; border: 1px solid #e0eaf5; background: #fff; border-radius: 1.25rem; padding: 1.2rem; box-shadow: 0 1px 3px rgba(15,23,42,.05); }
+/* 【逐行批注】 定义或补充当前界面样式：.phase-number { flex: 0 0 auto; width: 2.6rem; height: 2.6rem; border-radius: .9rem; back…。 */
 .phase-number { flex: 0 0 auto; width: 2.6rem; height: 2.6rem; border-radius: .9rem; background: #eff6ff; color: #0369a1; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.phase-main { flex: 1; min-width: 0; }。 */
 .phase-main { flex: 1; min-width: 0; }
+/* 【逐行批注】 定义或补充当前界面样式：.phase-meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .35rem; }。 */
 .phase-meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .35rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.phase-meta span { font-size: .72rem; font-weight: 600; color: #64748b; background: #f1f5…。 */
 .phase-meta span { font-size: .72rem; font-weight: 600; color: #64748b; background: #f1f5f9; border-radius: 9999px; padding: .15rem .6rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.phase-card h3 { font-size: 1.1rem; font-weight: 700; color: #0f172a; }。 */
 .phase-card h3 { font-size: 1.1rem; font-weight: 700; color: #0f172a; }
+/* 【逐行批注】 定义或补充当前界面样式：.phase-card > .phase-main > p { color: #475569; font-size: .9rem; line-height: 1.65; marg…。 */
 .phase-card > .phase-main > p { color: #475569; font-size: .9rem; line-height: 1.65; margin: .35rem 0 .7rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.phase-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: .6rem; }。 */
 .phase-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: .6rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.phase-grid > div { background: #f8fafc; border-radius: .8rem; padding: .6rem .8rem; }。 */
 .phase-grid > div { background: #f8fafc; border-radius: .8rem; padding: .6rem .8rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.phase-grid b { display: block; font-size: .72rem; color: #0369a1; margin-bottom: .2rem; }。 */
 .phase-grid b { display: block; font-size: .72rem; color: #0369a1; margin-bottom: .2rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.phase-grid p { font-size: .82rem; color: #475569; line-height: 1.55; margin: 0; }。 */
 .phase-grid p { font-size: .82rem; color: #475569; line-height: 1.55; margin: 0; }
+/* 【逐行批注】 定义或补充当前界面样式：.step-list { margin-top: .8rem; display: grid; gap: .4rem; }。 */
 .step-list { margin-top: .8rem; display: grid; gap: .4rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.step-row { display: flex; align-items: center; gap: .6rem; border-radius: .8rem; backgro…。 */
 .step-row { display: flex; align-items: center; gap: .6rem; border-radius: .8rem; background: #f8fafc; padding: .5rem .8rem; text-decoration: none; transition: background .12s ease; }
+/* 【逐行批注】 定义或补充当前界面样式：.step-row:hover { background: #eff6ff; }。 */
 .step-row:hover { background: #eff6ff; }
+/* 【逐行批注】 定义或补充当前界面样式：.step-row span { font-size: .75rem; font-weight: 700; color: #94a3b8; }。 */
 .step-row span { font-size: .75rem; font-weight: 700; color: #94a3b8; }
+/* 【逐行批注】 定义或补充当前界面样式：.step-row strong { flex: 1; font-size: .88rem; font-weight: 600; color: #1e293b; }。 */
 .step-row strong { flex: 1; font-size: .88rem; font-weight: 600; color: #1e293b; }
+/* 【逐行批注】 定义或补充当前界面样式：.step-row em { font-style: normal; font-size: .8rem; color: #0369a1; font-weight: 600; }。 */
 .step-row em { font-style: normal; font-size: .8rem; color: #0369a1; font-weight: 600; }
 
 /* structure */
+/* 【逐行批注】 定义或补充当前界面样式：.structure-list { display: grid; gap: .6rem; }。 */
 .structure-list { display: grid; gap: .6rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.structure-row { display: flex; align-items: center; justify-content: space-between; gap:…。 */
 .structure-row { display: flex; align-items: center; justify-content: space-between; gap: .8rem; border-radius: .9rem; background: #f8fafc; padding: .7rem .9rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.structure-row b { color: #0f172a; font-size: .92rem; }。 */
 .structure-row b { color: #0f172a; font-size: .92rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.structure-row p { color: #64748b; font-size: .82rem; margin: .2rem 0 0; line-height: 1.5…。 */
 .structure-row p { color: #64748b; font-size: .82rem; margin: .2rem 0 0; line-height: 1.5; }
+/* 【逐行批注】 定义或补充当前界面样式：.structure-row a { text-decoration: none; font-size: .82rem; font-weight: 700; color: #03…。 */
 .structure-row a { text-decoration: none; font-size: .82rem; font-weight: 700; color: #0369a1; border: 1px solid #dbeafe; background: #fff; border-radius: .7rem; padding: .4rem .8rem; white-space: nowrap; }
+/* 【逐行批注】 定义或补充当前界面样式：.structure-row a:hover { background: #eff6ff; }。 */
 .structure-row a:hover { background: #eff6ff; }
 
 /* resources */
+/* 【逐行批注】 定义或补充当前界面样式：.resource-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1f…。 */
 .resource-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .7rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.resource-item { display: block; border: 1px solid #e0eaf5; border-radius: 1rem; padding:…。 */
 .resource-item { display: block; border: 1px solid #e0eaf5; border-radius: 1rem; padding: .9rem 1rem; text-decoration: none; background: #f8fafc; transition: border-color .12s ease, background .12s ease; }
+/* 【逐行批注】 定义或补充当前界面样式：.resource-item:hover { border-color: #7dd3fc; background: #f0f9ff; }。 */
 .resource-item:hover { border-color: #7dd3fc; background: #f0f9ff; }
+/* 【逐行批注】 定义或补充当前界面样式：.resource-item > div { display: flex; align-items: center; justify-content: space-between…。 */
 .resource-item > div { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.resource-item span { font-size: .7rem; font-weight: 700; color: #0c4a6e; background: #e0…。 */
 .resource-item span { font-size: .7rem; font-weight: 700; color: #0c4a6e; background: #e0f2fe; border-radius: 9999px; padding: .15rem .6rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.resource-item b { font-size: .7rem; font-weight: 700; color: #047857; background: #d1fae…。 */
 .resource-item b { font-size: .7rem; font-weight: 700; color: #047857; background: #d1fae5; border-radius: 9999px; padding: .15rem .6rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.resource-item h3 { font-size: .92rem; font-weight: 700; color: #0f172a; margin: .45rem 0…。 */
 .resource-item h3 { font-size: .92rem; font-weight: 700; color: #0f172a; margin: .45rem 0 .3rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.resource-item p { font-size: .8rem; color: #64748b; line-height: 1.5; margin: 0 0 .3rem;…。 */
 .resource-item p { font-size: .8rem; color: #64748b; line-height: 1.5; margin: 0 0 .3rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.resource-item small { font-size: .75rem; color: #0369a1; font-weight: 600; }。 */
 .resource-item small { font-size: .75rem; color: #0369a1; font-weight: 600; }
+/* 【逐行批注】 定义或补充当前界面样式：.resource-source { font-size: .8rem; color: #94a3b8; margin-top: .7rem; }。 */
 .resource-source { font-size: .8rem; color: #94a3b8; margin-top: .7rem; }
 
 /* projects */
+/* 【逐行批注】 定义或补充当前界面样式：.project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr…。 */
 .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .7rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.project-item { border: 1px solid #e0eaf5; border-radius: 1rem; padding: .9rem 1rem; back…。 */
 .project-item { border: 1px solid #e0eaf5; border-radius: 1rem; padding: .9rem 1rem; background: #f8fafc; }
+/* 【逐行批注】 定义或补充当前界面样式：.project-item span { font-size: .7rem; font-weight: 700; color: #7c3aed; background: #ede…。 */
 .project-item span { font-size: .7rem; font-weight: 700; color: #7c3aed; background: #ede9fe; border-radius: 9999px; padding: .15rem .6rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.project-item h3 { font-size: .95rem; font-weight: 700; color: #0f172a; margin: .45rem 0 …。 */
 .project-item h3 { font-size: .95rem; font-weight: 700; color: #0f172a; margin: .45rem 0 .3rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.project-item p { font-size: .82rem; color: #475569; line-height: 1.55; margin: 0 0 .3rem…。 */
 .project-item p { font-size: .82rem; color: #475569; line-height: 1.55; margin: 0 0 .3rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.project-item small { font-size: .75rem; color: #64748b; }。 */
 .project-item small { font-size: .75rem; color: #64748b; }
 
 /* lite view */
+/* 【逐行批注】 定义或补充当前界面样式：.lite-hero { display: grid; gap: 1rem; border: 1px solid #d1fae5; background: linear-grad…。 */
 .lite-hero { display: grid; gap: 1rem; border: 1px solid #d1fae5; background: linear-gradient(135deg, #fff 0%, #ecfdf5 100%); border-radius: 1.5rem; padding: 1.5rem; box-shadow: 0 1px 3px rgba(15,23,42,.05); }
+/* 【逐行批注】 定义或补充当前界面样式：.lite-hero h2 { font-size: 1.6rem; font-weight: 800; color: #064e3b; margin: .5rem 0 .4re…。 */
 .lite-hero h2 { font-size: 1.6rem; font-weight: 800; color: #064e3b; margin: .5rem 0 .4rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.lite-hero p { color: #475569; line-height: 1.7; }。 */
 .lite-hero p { color: #475569; line-height: 1.7; }
+/* 【逐行批注】 定义或补充当前界面样式：.lite-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; }。 */
 .lite-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.lite-facts span { text-align: center; border: 1px solid #d1fae5; background: #fff; borde…。 */
 .lite-facts span { text-align: center; border: 1px solid #d1fae5; background: #fff; border-radius: 1rem; padding: .7rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.lite-facts b { display: block; font-size: 1rem; color: #047857; }。 */
 .lite-facts b { display: block; font-size: 1rem; color: #047857; }
+/* 【逐行批注】 定义或补充当前界面样式：.lite-facts small { font-size: .7rem; color: #94a3b8; }。 */
 .lite-facts small { font-size: .7rem; color: #94a3b8; }
+/* 【逐行批注】 定义或补充当前界面样式：.lite-stage-list { display: grid; gap: .6rem; }。 */
 .lite-stage-list { display: grid; gap: .6rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.lite-stage-list > div { display: flex; align-items: center; gap: .7rem; border-radius: .…。 */
 .lite-stage-list > div { display: flex; align-items: center; gap: .7rem; border-radius: .9rem; background: #f8fafc; padding: .7rem .9rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.lite-stage-list span { font-size: .78rem; font-weight: 800; color: #94a3b8; }。 */
 .lite-stage-list span { font-size: .78rem; font-weight: 800; color: #94a3b8; }
+/* 【逐行批注】 定义或补充当前界面样式：.lite-stage-list strong { flex: 1; font-size: .92rem; color: #0f172a; }。 */
 .lite-stage-list strong { flex: 1; font-size: .92rem; color: #0f172a; }
+/* 【逐行批注】 定义或补充当前界面样式：.lite-stage-list em { font-style: normal; font-size: .75rem; color: #64748b; }。 */
 .lite-stage-list em { font-style: normal; font-size: .75rem; color: #64748b; }
+/* 【逐行批注】 定义或补充当前界面样式：.lite-stage-list p { width: 100%; margin: .2rem 0 0 1.6rem; font-size: .8rem; color: #647…。 */
 .lite-stage-list p { width: 100%; margin: .2rem 0 0 1.6rem; font-size: .8rem; color: #64748b; }
+/* 【逐行批注】 定义或补充当前界面样式：.core-steps { display: grid; gap: .7rem; }。 */
 .core-steps { display: grid; gap: .7rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.core-steps > div { display: flex; gap: .7rem; border-radius: .9rem; background: #f8fafc;…。 */
 .core-steps > div { display: flex; gap: .7rem; border-radius: .9rem; background: #f8fafc; padding: .8rem 1rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.core-steps > div > span { font-size: .8rem; font-weight: 800; color: #059669; }。 */
 .core-steps > div > span { font-size: .8rem; font-weight: 800; color: #059669; }
+/* 【逐行批注】 定义或补充当前界面样式：.core-steps h3 { font-size: .95rem; font-weight: 700; color: #0f172a; margin: 0 0 .25rem;…。 */
 .core-steps h3 { font-size: .95rem; font-weight: 700; color: #0f172a; margin: 0 0 .25rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.core-steps p { font-size: .82rem; color: #475569; line-height: 1.55; margin: 0 0 .3rem; }。 */
 .core-steps p { font-size: .82rem; color: #475569; line-height: 1.55; margin: 0 0 .3rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.core-steps b { font-size: .78rem; color: #047857; }。 */
 .core-steps b { font-size: .78rem; color: #047857; }
+/* 【逐行批注】 定义或补充当前界面样式：.mistake-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr…。 */
 .mistake-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .7rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.mistake-grid > div { border-radius: .9rem; background: #fffbeb; border: 1px solid #fde68…。 */
 .mistake-grid > div { border-radius: .9rem; background: #fffbeb; border: 1px solid #fde68a; padding: .8rem 1rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.mistake-grid b { font-size: .85rem; color: #92400e; }。 */
 .mistake-grid b { font-size: .85rem; color: #92400e; }
+/* 【逐行批注】 定义或补充当前界面样式：.mistake-grid p { font-size: .8rem; color: #b45309; line-height: 1.6; margin: .3rem 0 0; }。 */
 .mistake-grid p { font-size: .8rem; color: #b45309; line-height: 1.6; margin: .3rem 0 0; }
+/* 【逐行批注】 定义或补充当前界面样式：.mistake-grid span { display: block; }。 */
 .mistake-grid span { display: block; }
 
 /* failure state */
+/* 【逐行批注】 定义或补充当前界面样式：.failure-panel { display: flex; gap: 1rem; align-items: flex-start; border: 1px solid #fe…。 */
 .failure-panel { display: flex; gap: 1rem; align-items: flex-start; border: 1px solid #fecaca; background: #fff; border-radius: 1.5rem; padding: 1.5rem; box-shadow: 0 1px 3px rgba(15,23,42,.05); }
+/* 【逐行批注】 定义或补充当前界面样式：.failure-mark { flex: 0 0 auto; width: 2.75rem; height: 2.75rem; border-radius: 50%; back…。 */
 .failure-mark { flex: 0 0 auto; width: 2.75rem; height: 2.75rem; border-radius: 50%; background: #fee2e2; color: #dc2626; font-weight: 800; font-size: 1.3rem; display: flex; align-items: center; justify-content: center; }
+/* 【逐行批注】 定义或补充当前界面样式：.failure-panel h2 { font-size: 1.25rem; font-weight: 800; color: #991b1b; margin: .2rem 0…。 */
 .failure-panel h2 { font-size: 1.25rem; font-weight: 800; color: #991b1b; margin: .2rem 0 .35rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.failure-panel p { color: #64748b; font-size: .9rem; line-height: 1.6; }。 */
 .failure-panel p { color: #64748b; font-size: .9rem; line-height: 1.6; }
+/* 【逐行批注】 定义或补充当前界面样式：.failure-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: 1rem; }。 */
 .failure-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: 1rem; }
 
 /* save warning */
+/* 【逐行批注】 定义或补充当前界面样式：.save-warning { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; border: …。 */
 .save-warning { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; border: 1px solid #fde68a; background: #fffbeb; border-radius: 1rem; padding: .8rem 1rem; font-size: .85rem; color: #92400e; margin-bottom: 1rem; }
+/* 【逐行批注】 定义或补充当前界面样式：.save-warning button { border: 1px solid #f59e0b; background: #fff; color: #b45309; font-…。 */
 .save-warning button { border: 1px solid #f59e0b; background: #fff; color: #b45309; font-weight: 700; border-radius: .6rem; padding: .35rem .8rem; font-size: .8rem; cursor: pointer; }
 
 /* responsive */
+/* 【逐行批注】 定义响应式媒体查询条件：@media (max-width: 640px) {。 */
 @media (max-width: 640px) {
+  /* 【逐行批注】 定义或补充当前界面样式：.hero-facts, .lite-facts { grid-template-columns: 1fr; }。 */
   .hero-facts, .lite-facts { grid-template-columns: 1fr; }
+  /* 【逐行批注】 定义或补充当前界面样式：.phase-grid { grid-template-columns: 1fr; }。 */
   .phase-grid { grid-template-columns: 1fr; }
+  /* 【逐行批注】 定义或补充当前界面样式：.phase-card { flex-direction: column; }。 */
   .phase-card { flex-direction: column; }
+  /* 【逐行批注】 定义或补充当前界面样式：.next-action { flex-direction: column; align-items: stretch; }。 */
   .next-action { flex-direction: column; align-items: stretch; }
+  /* 【逐行批注】 定义或补充当前界面样式：.failure-actions { flex-direction: column; }。 */
   .failure-actions { flex-direction: column; }
+  /* 【逐行批注】 定义或补充当前界面样式：.failure-actions .primary-action, .failure-actions .secondary-action { justify-content: c…。 */
   .failure-actions .primary-action, .failure-actions .secondary-action { justify-content: center; }
+/* 【逐行批注】 结束当前样式规则。 */
 }

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "平面三角形探索状态 v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "contentVersion", "points"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "contentVersion": {"type": "integer", "minimum": 1},
+    "points": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "items": {"type": "number", "minimum": -10, "maximum": 10, "multipleOf": 0.5}
+      }
+    }
+  },
+  "description": "只提交三个顶点；边长、面积、角度及退化判断由服务端重新计算，探索不评分。"
+}

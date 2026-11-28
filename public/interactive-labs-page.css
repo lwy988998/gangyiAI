@@ -1,0 +1,19 @@
+/* 实验页延续澄明蓝白阅读体系；一次只展示一个可操作的学习目标。 */
+.labs-page { --dc-bg:var(--gy-bg,#f5f7fc);--dc-surface:var(--gy-surface,#fff);--dc-soft:var(--gy-surface-alt,#eef3fc);--dc-text:var(--gy-text,#21324b);--dc-muted:var(--gy-muted,#5e6d82);--dc-line:var(--gy-border,#dfe6ef);--dc-accent:var(--gy-accent,#3d61ce);margin: 0; background: var(--gy-bg,#f5f7fc); color: var(--gy-text,#21324b); font-family: "Microsoft YaHei",sans-serif; }
+.labs-header { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 22px max(22px,calc((100% - 1040px)/2)); background: var(--gy-surface,#fff); border-bottom: 1px solid var(--gy-border,#dfe6ef); }
+.labs-header>a { font-size: 18px; font-weight: 600; text-decoration: none; color: inherit; }
+.labs-header nav { display: flex; gap: 20px; font-size: 14px; }
+.labs-main { max-width: 960px; margin: 44px auto; padding: 0 24px; }
+.labs-main h1 { font-size: clamp(26px,4vw,36px); margin: 0 0 14px; }
+.labs-intro,.labs-next,.labs-footer { max-width: 70ch; line-height: 1.9; color: var(--gy-muted,#5e6d82); }
+.labs-topics { display: flex; flex-wrap: wrap; gap: 8px; margin: 30px 0 26px; }
+.labs-topics button { padding: 11px 16px; border: 1px solid var(--gy-border,#dfe6ef); border-radius: 7px; background: var(--gy-surface,#fff); color: inherit; cursor: pointer; font: inherit; }
+.labs-topics button[aria-pressed=true] { color: #fff; background: #3d61ce; border-color: #3d61ce; }
+.labs-workspace { padding: 28px; border: 1px solid var(--gy-border,#dfe6ef); border-radius: 12px; background: var(--gy-surface,#fff); }
+.labs-workspace h2 { font-size: 23px; margin: 0 0 14px; }
+.labs-workspace>p { line-height: 1.9; margin-bottom: 24px; }
+.labs-workspace .il-function-board { height: 360px; }
+.labs-footer { font-size: 12px; margin-top: 36px; }
+.labs-page :focus-visible { outline: 3px solid var(--gy-accent,#3d61ce); outline-offset: 3px; }
+.labs-page ::selection { background: #dce6ff; color: #132747; }
+@media(max-width:600px) { .labs-header { padding: 18px; gap: 12px; }.labs-header nav { gap: 12px;font-size:12px; }.labs-main { margin: 28px auto;padding:0 16px; }.labs-workspace { padding: 20px 14px; }.labs-workspace .il-function-board { height: 280px; }.labs-topics button { font-size: 14px;padding:10px 12px; } }

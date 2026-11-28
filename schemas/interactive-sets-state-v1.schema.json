@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gangyiai:interactive-sets-state:v1",
+  "title": "浏览器集合探索状态 v1",
+  "description": "模型不能自报计算结果或成绩；后端校验当前课件版本、元素归属并计算交集。",
+  "type": "object",
+  "required": ["schemaVersion", "contentVersion", "setA", "setB"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {"const": 1, "type": "integer"},
+    "contentVersion": {"type": "integer", "minimum": 1},
+    "setA": {"$ref": "#/$defs/members"},
+    "setB": {"$ref": "#/$defs/members"}
+  },
+  "$defs": {
+    "members": {
+      "type": "array", "maxItems": 16, "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "\\S"}
+    }
+  }
+}
