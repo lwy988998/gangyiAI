@@ -58,9 +58,9 @@ def main(executable):
             # 【逐行批注】 计算右侧结果并赋给 page.goto(info['base']+'/learn?lessonId，更新脚本状态。
             page.goto(info['base']+'/learn?lessonId='+lesson)
             # 【逐行批注】 计算右侧结果并赋给 page.get_by_role('heading',name，更新脚本状态。
-            page.get_by_role('heading',name='先比较同一种元素',exact=True).wait_for()
+            page.locator('.chat-section').get_by_role('heading',name='先比较同一种元素',exact=True).wait_for()
             # 【逐行批注】 计算右侧结果并赋给 page.get_by_role('heading',name，更新脚本状态。
-            page.get_by_role('heading',name='说说你的观察',exact=True).wait_for()
+            page.locator('.chat-section').get_by_role('heading',name='说说你的观察',exact=True).wait_for()
             # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(page.locator('#lesson-task-status')).to_have_text('你可以继续回答或追问')。
             expect(page.locator('#lesson-task-status')).to_have_text('你可以继续回答或追问')
             # 【逐行批注】 计算右侧结果并赋给 expect(page.locator('.course-directory .cour…，更新脚本状态。
@@ -306,7 +306,7 @@ def main(executable):
             # 【逐行批注】 计算右侧结果并赋给 page.get_by_role('heading',name，更新脚本状态。
             page.get_by_role('heading',name='本次作答 · 80 分',exact=True).wait_for()
             # 【逐行批注】 计算右侧结果并赋给 page.locator('.chat-message.assistant').get_…，更新脚本状态。
-            page.locator('.chat-message.assistant').get_by_text('你已经给出了观察，接下来可以补充电子变化的理由。',exact=True).wait_for()
+            page.locator('.chat-message.assistant').get_by_text('AI补充：\n你已经给出了观察，接下来可以补充电子变化的理由。',exact=True).wait_for()
             # 评价必须先于后续讲解，展示顺序与服务端实际动作顺序一致。
             # 【逐行批注】 计算右侧结果并赋给 sequence，更新脚本状态。
             sequence=page.locator('#lesson-sections').evaluate("(root)=>[...root.children].map(node=>node.textContent)")
@@ -328,7 +328,7 @@ def main(executable):
             # 【逐行批注】 执行当前 Python 语句：page.locator('#lesson-send').click()。
             page.locator('#lesson-send').click()
             # 【逐行批注】 计算右侧结果并赋给 page.locator('.chat-message.assistant').get_…，更新脚本状态。
-            page.locator('.chat-message.assistant').get_by_text('这是对思路的追问。我们可以先比较前后状态，再联系电子变化。',exact=True).wait_for()
+            page.locator('.chat-message.assistant').get_by_text('AI补充：\n这是对思路的追问。我们可以先比较前后状态，再联系电子变化。',exact=True).wait_for()
             # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(page.locator('#lesson-task-status')).to_have_text('你可以继续回答或追问')。
             expect(page.locator('#lesson-task-status')).to_have_text('你可以继续回答或追问')
             # 【逐行批注】 校验关键条件，测试失败时立即报错：assert page.locator('.chat-message.user').count()==2。
@@ -340,7 +340,7 @@ def main(executable):
             # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(page.locator('.chat-message.user')).to_have_count(2)。
             expect(page.locator('.chat-message.user')).to_have_count(2)
             # 【逐行批注】 计算右侧结果并赋给 page.locator('.chat-message.assistant').get_…，更新脚本状态。
-            page.locator('.chat-message.assistant').get_by_text('这是对思路的追问。我们可以先比较前后状态，再联系电子变化。',exact=True).wait_for()
+            page.locator('.chat-message.assistant').get_by_text('AI补充：\n这是对思路的追问。我们可以先比较前后状态，再联系电子变化。',exact=True).wait_for()
             # 【逐行批注】 计算右侧结果并赋给 page.locator('[data-lesson-link，更新脚本状态。
             open_learning_menu(page).locator('[data-lesson-link=practice]').click()
             # 【逐行批注】 执行当前 Python 语句：field.fill('请根据我的回答出一道选择题。')。
@@ -348,9 +348,11 @@ def main(executable):
             # 【逐行批注】 执行当前 Python 语句：page.locator('#lesson-send').click()。
             page.locator('#lesson-send').click()
             # 【逐行批注】 计算右侧结果并赋给 page.get_by_role('heading',name，更新脚本状态。
-            page.get_by_role('heading',name='根据你的回答：比较电子得失',exact=True).wait_for()
+            page.locator('.chat-section').get_by_role('heading',name='根据你的回答：比较电子得失',exact=True).wait_for()
             # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(page.locator('#lesson-task-status')).to_have_text('你可以继续回答或追问')。
             expect(page.locator('#lesson-task-status')).to_have_text('你可以继续回答或追问')
+            # 正式题卡接管后不再保留同一内容的独立流式草稿。
+            expect(page.locator('.agent-stream-sections')).to_be_hidden()
             # 【逐行批注】 计算右侧结果并赋给 followup，更新脚本状态。
             followup=page.locator('.chat-section').filter(has=page.get_by_role('heading',name='根据你的回答：比较电子得失',exact=True))
             # 【逐行批注】 计算右侧结果并赋给 expect(followup.locator('input[type，更新脚本状态。
@@ -547,7 +549,7 @@ def main(executable):
             # 【逐行批注】 执行当前 Python 语句：page.locator('#finish-lesson').click()。
             open_learning_menu(page, '课堂操作').locator('#finish-lesson').click()
             # 【逐行批注】 计算右侧结果并赋给 finish_reply，更新脚本状态。
-            finish_reply = page.locator('.chat-message.assistant').get_by_text('请结合本节检查点回顾，已有记录会保留，缺少证据的部分继续练习。', exact=True)
+            finish_reply = page.locator('.chat-message.assistant').get_by_text('AI补充：\n请结合本节检查点回顾，已有记录会保留，缺少证据的部分继续练习。', exact=True)
             # 【逐行批注】 执行当前 Python 语句：finish_reply.wait_for()。
             finish_reply.wait_for()
             # 【逐行批注】 调用 expect 完成当前脚本或测试步骤：expect(page.locator('#lesson-task-status')).to_have_text('你可以继续回答或追问')。

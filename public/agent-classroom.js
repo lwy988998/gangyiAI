@@ -91,10 +91,6 @@
   const $ = id => document.getElementById(id), root = $('lesson-sections'), scroll = $('lesson-scroll'), input = $('lesson-input');
   // 【逐行批注】 声明前端变量 nodes，保存本行计算出的数据或对象。
   const nodes = new Map(), records = new Map();
-  const sectionPreviewHost = element('div', '', 'agent-stream-sections');
-  const sectionPreview = api.createStreamView(sectionPreviewHost, {filter:record => record.field !== 'message' &&
-    !(lesson?.sections || []).some(section => section.title === record.text || section.body === record.text ||
-      section.question?.question === record.text || (section.question?.options || []).includes(record.text))});
 
   // 【逐行批注】 声明前端变量 lesson，保存本行计算出的数据或对象。
   let lesson, admissionError = '', selectedQuestion = '', watchingTask = '', watchingView = '', unsubscribe, watchEpoch = 0;
@@ -168,6 +164,12 @@
   }
   // 【逐行批注】 声明前端变量 element，保存本行计算出的数据或对象。
   const element = (tag, text = '', className = '') => { const node = document.createElement(tag); node.textContent = text; node.className = className; return node; };
+  // 流式视图依赖课堂状态和节点工厂，必须在两者初始化后创建。
+  const sectionPreviewHost = element('div', '', 'agent-stream-sections');
+  let sectionPreviewRecords = [];
+  const sectionPreview = api.createStreamView(sectionPreviewHost, {filter:record => record.field !== 'message' &&
+    !(lesson?.sections || []).some(section => section.title === record.text || section.body === record.text ||
+      section.question?.question === record.text || (section.question?.options || []).includes(record.text))});
   // 【逐行批注】 声明前端变量 focus，保存本行计算出的数据或对象。
   const focus = () => lesson?.teachingFocus || {};
   // 【逐行批注】 声明前端变量 sectionFor，保存本行计算出的数据或对象。
@@ -486,6 +488,8 @@
     // 【逐行批注】 计算右侧结果并更新 mutate(()，改变页面或请求状态。
     workspaceContext?.update(lesson.courseId);
     mutate(() => {
+      // 保存事件后的课堂读取可能晚于末个流片；用新课时数据重新接管已落库的草稿。
+      sectionPreview.update(watchingView === activeView ? sectionPreviewRecords : []);
       // 【逐行批注】 计算右侧结果并更新 $('lesson-title').textContent，改变页面或请求状态。
       $('lesson-title').textContent = lesson.title; $('lesson-purpose').textContent = lesson.purpose;
       // 【逐行批注】 声明前端变量 order，保存本行计算出的数据或对象。
@@ -768,6 +772,7 @@
       onContent(content) {
         if (epoch !== watchEpoch || watchingView !== activeView) return;
         mutate(() => {
+          sectionPreviewRecords = content;
           sectionPreview.update(content);
           if (sectionPreviewHost.parentNode !== root) root.append(sectionPreviewHost);
           for (const item of content.filter(value => value.field === 'message')) {

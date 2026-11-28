@@ -10,7 +10,7 @@ from threading import Event
 import time
 from urllib.error import HTTPError
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 import classroom_v560_fixture as fixture
 
 
@@ -162,8 +162,12 @@ with fixture.start_session(sys.argv[1]) as (info, api, _):
             assert duplicate['id'] == preexisting['id'] and duplicate['status'] == 'running'
         finally:
             Model.manual_release.set()
-        page.get_by_role('heading', name='隔离课程大纲', exact=True).wait_for()
-        assert not alert.is_visible()
+        # 重试期间各轮草稿会保留同名标题；只有已保存总览才代表恢复完成。
+        expect(page.locator('#plan-title')).to_have_text('隔离课程大纲')
+        expect(page.locator('#result')).to_be_visible()
+        expect(page.locator('#plan-view .outline-row h3')).to_have_text(['概念'])
+        expect(page.locator('#plan-live-content')).to_be_hidden()
+        expect(alert).to_be_hidden()
         browser.close()
     task = task_result(api, preexisting['id'], 'ready')
     assert len(Model.plan_calls[goal]) == 4 and Model.plan_calls[goal][-1]['repair']

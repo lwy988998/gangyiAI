@@ -91,14 +91,19 @@ def classroom_html(view):
     if (query.has('archived')) fixture.timeline = [{type:'section',sectionId:'question-0',taskId:'saved-task',view:'practice'}];
     let ownerStatus = 'running';
     const fixtureWatches = new Map();
-    window.fixtureRequests = {read:0,control:[],submit:[],visible:[]};
+    window.fixtureRequests = {read:0,visits:[],control:[],submit:[],visible:[]};
     window.fixtureOwnerState = status => { ownerStatus=status; fixtureWatches.get('saved-task')?.onState({id:'saved-task',status}); };
     window.fixtureFinishOwner = () => window.fixtureOwnerState('waiting_student');
     const storageKey = key => 'navigation-fixture:' + key;
     window.GangyiAgent = {
+      // 展示和流式状态使用生产客户端，只替换隔离数据与请求边界。
+      ...window.GangyiAgent,
       request: async path => { if (!path.startsWith('/api/learning-agent/lesson?')) throw Error('非预期读取');
         window.fixtureRequests.read++; return structuredClone(fixture); },
-      control: async event => { window.fixtureRequests.control.push(event);
+      control: async event => {
+        // 入课只记访问；教学命令另行记录，避免把访问误报为新教学调用。
+        if(event.command==='enter_lesson') { window.fixtureRequests.visits.push(event); return {lessonId:fixture.id}; }
+        window.fixtureRequests.control.push(event);
         if(query.has('deferred') && event.command==='start_lesson') {
           if(!['ready','waiting_student','cancelled','superseded'].includes(ownerStatus))return {id:'saved-task',status:ownerStatus,initialTeachingDeferred:true};
           fixture.initialTeachingTaskId=fixture.teachingTaskId='initial-task'; fixture.teachingTaskView='learn';
@@ -125,7 +130,7 @@ def classroom_html(view):
             # 【逐行批注】 执行当前 Python 语句：'<body class="dark-app"><header style="height:76px">离线导航回归</header>' + body +。
             '<body class="dark-app"><header style="height:76px">离线导航回归</header>' + body +
             # 【逐行批注】 执行当前 Python 语句：'<script src="/chat-render.js"></script><script>' + script + '</script><script defer src=…。
-            '<script src="/chat-render.js"></script><script>' + script + '</script><script defer src="/agent-classroom.js"></script></body></html>').encode()
+            '<script src="/chat-render.js"></script><script src="/learning-agent.js"></script><script>' + script + '</script><script defer src="/agent-classroom.js"></script></body></html>').encode()
 
 
 # 【逐行批注】 应用装饰器 @contextmanager，扩展下一函数或测试的行为。
@@ -148,7 +153,7 @@ def local_pages():
                 # 【逐行批注】 计算右侧结果并赋给 content, kind，更新脚本状态。
                 content, kind = classroom_html(path[1:]), 'text/html; charset=utf-8'
             # 【逐行批注】 当前一条件不成立时继续判断：path in ('/agent-classroom.js', '/chat-render.js') or path.endsw…。
-            elif path in ('/agent-classroom.js', '/chat-render.js') or path.endswith('.css') and '/' not in path[1:]:
+            elif path in ('/agent-classroom.js', '/chat-render.js', '/learning-agent.js') or path.endswith('.css') and '/' not in path[1:]:
                 # 【逐行批注】 计算右侧结果并赋给 content，更新脚本状态。
                 content = (REPO / 'public' / path[1:]).read_bytes()
                 # 【逐行批注】 计算右侧结果并赋给 kind，更新脚本状态。
@@ -199,6 +204,7 @@ def assert_located(page, identity):
     assert target.count() == 1
     # 【逐行批注】 校验关键条件，测试失败时立即报错：assert not page.evaluate('fixtureRequests.control.length || fixtureRequests.sub…。
     assert not page.evaluate('fixtureRequests.control.length || fixtureRequests.submit.length')
+    assert page.evaluate('fixtureRequests.visits.length===1 && fixtureRequests.visits[0].lessonId===fixture.id')
     # 【逐行批注】 结束当前函数并返回结果：return page.locator('#lesson-scroll').evaluate('node=>node.scrollTop')。
     return page.locator('#lesson-scroll').evaluate('node=>node.scrollTop')
 
