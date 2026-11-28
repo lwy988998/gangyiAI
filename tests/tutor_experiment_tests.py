@@ -127,15 +127,30 @@ class ExperimentTests(unittest.TestCase):
                         approvalNote='不调用真实服务', configurationPath=str(configuration),
                         configurationSha256=experiment.file_hash(configuration), moneyCumulativeLimitMicros=6_000_000)
         experiment.atomic_save(authorization, approved)
-        with patch('ai_money_budget.checked_live_environment', side_effect=AssertionError('不可使用不一致的上限')):
-            with self.assertRaisesRegex(PermissionError, '累计上限'):
-                experiment.live_environment(folder, manifest, authorization, configuration)
-        approved['moneyCumulativeLimitMicros'] = 4_000_000
-        experiment.atomic_save(authorization, approved)
-        with patch('ai_money_budget.checked_live_environment', side_effect=PermissionError('拦截本机隔离测试')) as inspect_budget:
-            with self.assertRaisesRegex(PermissionError, '拦截本机隔离测试'):
-                experiment.live_environment(folder, manifest, authorization, configuration)
-        self.assertEqual(inspect_budget.call_args.kwargs['cumulative_limit_micros'], 4_000_000)
+        previous = Path.cwd()
+        try:
+            os.chdir(folder)
+            # 同一目录的绝对路径、相对路径和 Windows 短路径应经过相同授权校验。
+            roots = (folder, Path('.'))
+            for current_root in roots:
+                with self.subTest(root=current_root), patch('ai_money_budget.checked_live_environment', side_effect=AssertionError('不可使用不一致的上限')):
+                    with self.assertRaisesRegex(PermissionError, '累计上限'):
+                        experiment.live_environment(current_root, manifest, authorization, configuration)
+            approved['moneyCumulativeLimitMicros'] = 4_000_000
+            experiment.atomic_save(authorization, approved)
+            with patch('ai_money_budget.checked_live_environment', side_effect=PermissionError('拦截本机隔离测试')) as inspect_budget:
+                for current_root in roots:
+                    with self.subTest(root=current_root), self.assertRaisesRegex(PermissionError, '拦截本机隔离测试'):
+                        experiment.live_environment(current_root, manifest, authorization, configuration)
+                self.assertEqual(inspect_budget.call_count, 2)
+                self.assertEqual(inspect_budget.call_args.kwargs['cumulative_limit_micros'], 4_000_000)
+            approved['manifestPath'] = str(self.root / 'another-manifest.json')
+            experiment.atomic_save(authorization, approved)
+            with patch('ai_money_budget.checked_live_environment', side_effect=AssertionError('不可使用其它材料路径')):
+                with self.assertRaisesRegex(PermissionError, '固定材料路径'):
+                    experiment.live_environment(Path('.'), manifest, authorization, configuration)
+        finally:
+            os.chdir(previous)
 
     def test_fixture_rejects_remote_dns_userinfo_and_redirect_forms(self):
         for url in ('https://127.0.0.1:80/v1','http://localhost:1234/v1', 'http://127.0.0.1:80@example.invalid/v1',

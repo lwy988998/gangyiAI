@@ -200,6 +200,7 @@ def fixture_endpoint(url):
 
 def live_environment(folder,manifest,authorization,configuration):
     """严格核对授权和冻结身份后，才调用既有凭据读取器。"""
+    folder=Path(folder).resolve()
     if authorization is None or configuration is None:raise PermissionError('缺少真实实验授权与冻结配置，未读取凭据。')
     approved=benchmark.load_json(authorization);frozen=benchmark.load_json(configuration)
     if approved.get('newPaidCallsAllowedThisRound') is not True or not all(benchmark.nonblank(approved.get(key)) for key in ('approvedBy','approvedAt','approvalNote')):
