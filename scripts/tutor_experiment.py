@@ -153,6 +153,8 @@ def prepare(dataset_path, driver, output, case_ids=None, limit_tokens=100000, li
 
 
 def checked_plan(folder, *, for_execution=True):
+    # Windows 临时目录可能含短文件名别名；先统一根目录再核验子路径边界。
+    folder=Path(folder).resolve()
     manifest=benchmark.load_json(folder/'manifest.json')
     if type(manifest.get('schemaVersion')) is not int or manifest['schemaVersion']!=1 or manifest.get('kind')!='native_tutor_experiment':
         raise ValueError('实验清单版本无效。')

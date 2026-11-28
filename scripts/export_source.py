@@ -7,9 +7,9 @@ from pathlib import Path
 import zipfile
 
 
-SOURCE_DIRECTORIES = ('src', 'include', 'public', 'cmake', 'prompts', 'schemas', 'resources', 'assets', 'installer')
+SOURCE_DIRECTORIES = ('src', 'include', 'public', 'cmake', 'prompts', 'schemas', 'resources', 'assets', 'installer', 'licenses')
 ROOT_FILES = ('CMakeLists.txt', 'README.md', 'PRODUCT.md', 'DESIGN.md', 'LICENSE', 'LICENSE.txt')
-BUILD_SCRIPTS = ('build_windows.ps1', 'setup_library_dependencies.ps1', 'generate_brand_assets.ps1', 'export_source.py')
+BUILD_SCRIPTS = ('build_windows.ps1', 'setup_library_dependencies.ps1', 'generate_brand_assets.ps1', 'copy_third_party_notices.ps1', 'export_source.py')
 EXCLUDED_DIRECTORIES = {'tests', 'test', '__tests__', '__pycache__', 'verification', 'fixtures', 'node_modules', '.git', 'ui-previews'}
 EXCLUDED_SUFFIXES = {'.exe', '.dll', '.pdb', '.obj', '.o', '.a', '.lib', '.pyc', '.db', '.sqlite', '.sqlite3', '.log', '.zip', '.7z'}
 

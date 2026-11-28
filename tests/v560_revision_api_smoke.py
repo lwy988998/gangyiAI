@@ -58,7 +58,7 @@ def main(executable):
                 # 【逐行批注】 判断条件 state['status'] not in ('pending', 'running'):，成立时执行对应分支。
                 if state['status'] not in ('pending', 'running'):
                     # 【逐行批注】 校验关键条件，测试失败时立即报错：assert state['status'] == expected, (state['status'], state.get('error'))。
-                    assert state['status'] == expected, (state['status'], state.get('error'))
+                    assert state['status'] == expected, (state['status'], state.get('error'), state.get('failure'))
                     # 【逐行批注】 结束当前函数并返回结果：return state。
                     return state
                 # 【逐行批注】 执行当前 Python 语句：time.sleep(.05)。

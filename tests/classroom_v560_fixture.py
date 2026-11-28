@@ -144,9 +144,16 @@ class FixtureAI(BaseHTTPRequestHandler):
         context = json.loads(request['messages'][1]['content'])
         # 【逐行批注】 计算右侧结果并赋给 event，更新脚本状态。
         event = context['event']
+        type(self).calls.append(event.get('requestId', event['type']))
+        # 逐题协议要求先发布暂存的真实评价，再考虑下一步教学动作。
+        if context.get('stagedEvaluations'):
+            evaluation = context['stagedEvaluations'][0]
+            self.send_decision(dict(teaching=dict(helpType=evaluation['feedbackHelpType']),
+                                    message=evaluation['feedback'], actions=[], state='waiting_student',
+                                    materialOrigin='ai_supplement'))
+            return
         expected_curriculum = {'核对课程教材来源': 'pep-a-sets-logic',
                                '核对课程人教 B 版教材来源': 'pep-b-sets-logic'}.get(event.get('text'))
-        type(self).calls.append(event.get('requestId', event['type']))
         # 【逐行批注】 计算右侧结果并赋给 results，更新脚本状态。
         results = []
         # 【逐行批注】 遍历数据并重复执行循环体：for item in request['messages'][2:]:。
@@ -163,6 +170,7 @@ class FixtureAI(BaseHTTPRequestHandler):
                     pass
         # 【逐行批注】 计算右侧结果并赋给 actions, state, message，更新脚本状态。
         actions, state, message = [], 'completed', '已保存本次处理。'
+        assessment_pending = '本轮判断 currentInputs' in system_prompt
         # 【逐行批注】 判断条件 event.get('attemptSchedule'):，成立时执行对应分支。
         if event.get('attemptSchedule'):
             # 【逐行批注】 计算右侧结果并赋给 actions，更新脚本状态。
@@ -318,17 +326,19 @@ class FixtureAI(BaseHTTPRequestHandler):
             # 【逐行批注】 判断条件 '选择题' in event['text']:，成立时执行对应分支。
             if '选择题' in event['text']:
                 # 【逐行批注】 计算右侧结果并赋给 actions，更新脚本状态。
-                actions = [dict(id='classify', tool='classify_input', args=dict(interactionId=actual['id'], isAnswer=False, reason='学生希望改用选择题练习')),
+                actions = [
                     # 【逐行批注】 计算右侧结果并赋给 dict(id，更新脚本状态。
                     dict(id='followup-choice', tool='append_section', args=dict(lessonId=event['lessonId'], section=dict(kind='question', questionKind='interaction', title='根据你的回答：比较电子得失',
                         # 【逐行批注】 计算右侧结果并赋给 question，更新脚本状态。
                         question=dict(question='Fe 变为 Fe²⁺ 时，下列哪种描述正确？', type='choice', options=['失去两个电子', '得到两个电子'], expectedAnswer='PRIVATE-FOLLOWUP', rubric='PRIVATE-RUBRIC'))))]
+                if assessment_pending:
+                    actions = [dict(id='classify', tool='classify_input', args=dict(interactionId=actual['id'], isAnswer=False, reason='学生希望改用选择题练习'))]
                 # 【逐行批注】 计算右侧结果并赋给 message，更新脚本状态。
                 message = '根据你的回答换一道选择题，请选择电子变化的正确描述。'
             # 【逐行批注】 当前一条件不成立时继续判断：'为什么' in event['text'] or '提示' in event['text']:。
             elif '为什么' in event['text'] or '提示' in event['text']:
                 # 【逐行批注】 计算右侧结果并赋给 actions，更新脚本状态。
-                actions = [dict(id='classify', tool='classify_input', args=dict(interactionId=actual['id'], isAnswer=False, reason='本次输入只有追问'))]
+                actions = [dict(id='classify', tool='classify_input', args=dict(interactionId=actual['id'], isAnswer=False, reason='本次输入只有追问'))] if assessment_pending else []
                 # 【逐行批注】 计算右侧结果并赋给 message，更新脚本状态。
                 message = '这是对思路的追问。我们可以先比较前后状态，再联系电子变化。'
             # 【逐行批注】 当前一条件不成立时继续判断：event.get('action') == 'skip':。
@@ -348,7 +358,9 @@ class FixtureAI(BaseHTTPRequestHandler):
                 # 【逐行批注】 计算右侧结果并赋给 message，更新脚本状态。
                 message = '你已经给出了观察，接下来可以补充电子变化的理由。'
             # 【逐行批注】 计算右侧结果并赋给 state，更新脚本状态。
-            state = 'waiting_student'
+            state = 'continue' if assessment_pending else 'waiting_student'
+            if assessment_pending:
+                message = ''
         # 【逐行批注】 当前一条件不成立时继续判断：event['type'] == 'teaching_request':。
         elif event['type'] == 'teaching_request':
             # 【逐行批注】 计算右侧结果并赋给 message，更新脚本状态。
@@ -396,13 +408,16 @@ class FixtureAI(BaseHTTPRequestHandler):
                 # 【逐行批注】 执行当前 Python 语句：section.setdefault('helpType', 'explanation')。
                 section.setdefault('helpType', 'explanation')
         # 【逐行批注】 计算右侧结果并赋给 help_type，更新脚本状态。
-        help_type = event.get('requestType') if event.get('requestType') in ('hint','worked_example') else 'explanation'
+        help_type = 'none' if assessment_pending else event.get('requestType') if event.get('requestType') in ('hint','worked_example') else 'explanation'
         # 【逐行批注】 计算右侧结果并赋给 value，更新脚本状态。
         decision = dict(teaching=dict(helpType=help_type), message=message, actions=actions, state=state)
         if event['type'] == 'chat' and 'material' in event:
             decision.update(material_decision)
         if event['type'] == 'chat' and expected_curriculum:
             decision.update(curriculum_decision)
+        # 模拟文字由夹具编写；只有明确绑定原文的分支才采用 source_based。
+        if message:
+            decision.setdefault('materialOrigin', 'ai_supplement')
         self.send_decision(decision)
 
     def send_decision(self, decision):

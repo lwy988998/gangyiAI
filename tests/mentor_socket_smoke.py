@@ -54,7 +54,10 @@ async def exercise_material(info, api):
     conversation_path = '/api/conversations/' + conversation
     home_step_id = api('/api/home/next-step').get('id')
 
+    observed_statuses = []
+
     async def ask(connection, request_id, question):
+        observed_statuses.clear()
         await connection.send(json.dumps(dict(type='ask', requestId=request_id, question=question,
                                               courseId=course, material=material)))
         deltas = []
@@ -71,7 +74,11 @@ async def exercise_material(info, api):
             if event['type'] in ('done', 'error'):
                 return event, ''.join(deltas)
             if event['type'] == 'delta':
+                if event.get('replace'):
+                    deltas.clear()
                 deltas.append(event['text'])
+            elif event['type'] == 'stream_status':
+                observed_statuses.append(event)
 
     async with websockets.connect(info['base'].replace('http:', 'ws:') + '/ws/ask') as connection:
         result, answer = await ask(connection, 'material-one', '先解释第一段')
@@ -87,9 +94,11 @@ async def exercise_material(info, api):
         result, answer = await ask(connection, 'material-excerpt', '读取后半部分')
         assert result['type'] == 'done' and '旧快照中的第二段' in answer and 'snap-pinned#fixed-two' in answer, (result, answer)
         result, answer = await ask(connection, 'material-wrong-citation', '伪造新版引用')
-        assert result['type'] == 'error' and not answer, '引用另一版本的回复不能流出'
+        assert result['type'] == 'error' and result['taskStatus'] == 'failed', (result, answer)
+        assert any(item.get('state') == 'interrupted' for item in observed_statuses), '引用校验失败的即时草稿必须明确标记为中断'
     history = api(conversation_path)['messages']
     assert sum(item['role'] == 'assistant' for item in history) == followups + 2
+    assert 'snap-latest' not in json.dumps(history), '错误版本引用不能进入已完成对话'
     assert not any('旧快照中的第一段' in item['text'] for item in api('/api/conversations/general')['messages'])
     assert api('/api/home/next-step').get('id') == home_step_id
 

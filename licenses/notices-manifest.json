@@ -1,0 +1,323 @@
+{
+  "schemaVersion": 1,
+  "scope": "Windows 依赖通知归档基线；完整依赖冻结与对应源码材料继续待完成",
+  "toolchainArchiveBaseline": {
+    "gcc": "16.1.0",
+    "mingwW64": "14.0.0",
+    "ciCompiler": "13.2.0；实际构建版本单独记录"
+  },
+  "files": [
+    {
+      "path": "public/vendor/katex/LICENSE",
+      "component": "KaTeX",
+      "sourceVersion": "0.16.11",
+      "source": "https://registry.npmjs.org/katex/-/katex-0.16.11.tgz",
+      "sha256": "766ccc1f306c885aa45542a9846bbd0a505b27a0374f146778171c2254ce18e3",
+      "lfSha256": "766ccc1f306c885aa45542a9846bbd0a505b27a0374f146778171c2254ce18e3"
+    },
+    {
+      "path": "licenses/crow/LICENSE",
+      "component": "Crow",
+      "sourceVersion": "1.3.0",
+      "source": "https://github.com/CrowCpp/Crow/tree/v1.3.0",
+      "sha256": "a6748e7da3a81c88da4c4ba1fdcaa887740adfce3ccf770087571c8710804b56",
+      "lfSha256": "a6748e7da3a81c88da4c4ba1fdcaa887740adfce3ccf770087571c8710804b56"
+    },
+    {
+      "path": "licenses/nlohmann-json/LICENSE.MIT",
+      "component": "nlohmann/json",
+      "sourceVersion": "3.11.3",
+      "source": "https://github.com/nlohmann/json/tree/v3.11.3",
+      "sha256": "6f48a03625699eea99e599744efea0bf9c9dd67a669e65554df1cd726b8a2477",
+      "lfSha256": "86b998c792894ccb911a1cb7994f7a9652894e7a094c0b5e45be2f553f45cf14"
+    },
+    {
+      "path": "licenses/asio/LICENSE_1_0.txt",
+      "component": "Asio",
+      "sourceVersion": "1.28.2",
+      "source": "https://github.com/chriskohlhoff/asio/tree/asio-1-28-2",
+      "sha256": "beb8e42e9d6b4284e03304d05a81a0755200a965fc8d0a5e0aea1e84cf805d6e",
+      "lfSha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "licenses/webview/LICENSE",
+      "component": "webview",
+      "sourceVersion": "0.12.0",
+      "source": "https://github.com/webview/webview/tree/0.12.0",
+      "sha256": "4cb33388546274a69209ab387d6688303a1dfc6fcfa381ffd83c1fd9e1b60d76",
+      "lfSha256": "22c4c38a605ae5362bdbd795b4358f3599c7a7e58d4824c4ed55e3be192386e0"
+    },
+    {
+      "path": "licenses/webview2/LICENSE.txt",
+      "component": "WebView2 SDK notice",
+      "sourceVersion": "local header notice",
+      "source": "现有构建依赖 third_party/webview2/LICENSE.txt；SDK 精确来源待冻结",
+      "sha256": "0af8f1b807512aae39c2ac1aa4d0cae65cabecb6fd554b8439a5162a0d6eca55",
+      "lfSha256": "0af8f1b807512aae39c2ac1aa4d0cae65cabecb6fd554b8439a5162a0d6eca55"
+    },
+    {
+      "path": "licenses/curl/COPYING.txt",
+      "component": "curl Windows distribution",
+      "sourceVersion": "8.22.0_1",
+      "source": "https://curl.se/windows/dl-8.22.0_1/curl-8.22.0_1-win64-mingw.zip",
+      "sha256": "82f2f4427d6545ee5aaac4f0b80428da6cc8ba41c2cf5da3a03680ec327b9681",
+      "lfSha256": "82f2f4427d6545ee5aaac4f0b80428da6cc8ba41c2cf5da3a03680ec327b9681"
+    },
+    {
+      "path": "licenses/curl/dep/brotli/LICENSE.txt",
+      "component": "curl bundled dependency notices",
+      "sourceVersion": "8.22.0_1 distribution",
+      "source": "https://curl.se/windows/dl-8.22.0_1/curl-8.22.0_1-win64-mingw.zip",
+      "sha256": "3d180008e36922a4e8daec11c34c7af264fed5962d07924aea928c38e8663c94",
+      "lfSha256": "3d180008e36922a4e8daec11c34c7af264fed5962d07924aea928c38e8663c94"
+    },
+    {
+      "path": "licenses/curl/dep/certdata/LICENSE.url",
+      "component": "curl bundled dependency notices",
+      "sourceVersion": "8.22.0_1 distribution",
+      "source": "https://curl.se/windows/dl-8.22.0_1/curl-8.22.0_1-win64-mingw.zip",
+      "sha256": "b9954f88a27e8457cefcebd076fa533d037711383f6b28ae489d063ef8c61f79",
+      "lfSha256": "007d51f8906311cc141d1c72a6defea899958bd46406d7d0866822624cb16232"
+    },
+    {
+      "path": "licenses/curl/dep/libpsl/COPYING.txt",
+      "component": "curl bundled dependency notices",
+      "sourceVersion": "8.22.0_1 distribution",
+      "source": "https://curl.se/windows/dl-8.22.0_1/curl-8.22.0_1-win64-mingw.zip",
+      "sha256": "e7c9f0d8498d28a360a7e8293ea70fd7bd952955b636938322c13d60a03b5a45",
+      "lfSha256": "e7c9f0d8498d28a360a7e8293ea70fd7bd952955b636938322c13d60a03b5a45"
+    },
+    {
+      "path": "licenses/curl/dep/libressl/COPYING.txt",
+      "component": "curl bundled dependency notices",
+      "sourceVersion": "8.22.0_1 distribution",
+      "source": "https://curl.se/windows/dl-8.22.0_1/curl-8.22.0_1-win64-mingw.zip",
+      "sha256": "9853507b8821c3f277aa60bf554eade41441ef06b2df538d247183ad28789b7f",
+      "lfSha256": "9853507b8821c3f277aa60bf554eade41441ef06b2df538d247183ad28789b7f"
+    },
+    {
+      "path": "licenses/curl/dep/libssh2/COPYING.txt",
+      "component": "curl bundled dependency notices",
+      "sourceVersion": "8.22.0_1 distribution",
+      "source": "https://curl.se/windows/dl-8.22.0_1/curl-8.22.0_1-win64-mingw.zip",
+      "sha256": "f7f9633cf9ff2f1333f3d7ce46973a8716a4d2a2815ad56f30d437d5fea7bafe",
+      "lfSha256": "f7f9633cf9ff2f1333f3d7ce46973a8716a4d2a2815ad56f30d437d5fea7bafe"
+    },
+    {
+      "path": "licenses/curl/dep/nghttp2/COPYING.txt",
+      "component": "curl bundled dependency notices",
+      "sourceVersion": "8.22.0_1 distribution",
+      "source": "https://curl.se/windows/dl-8.22.0_1/curl-8.22.0_1-win64-mingw.zip",
+      "sha256": "6b94f3abc1aabd0c72a7c7d92a77f79dda7c8a0cb3df839a97890b4116a2de2a",
+      "lfSha256": "6b94f3abc1aabd0c72a7c7d92a77f79dda7c8a0cb3df839a97890b4116a2de2a"
+    },
+    {
+      "path": "licenses/curl/dep/nghttp3/COPYING.txt",
+      "component": "curl bundled dependency notices",
+      "sourceVersion": "8.22.0_1 distribution",
+      "source": "https://curl.se/windows/dl-8.22.0_1/curl-8.22.0_1-win64-mingw.zip",
+      "sha256": "58cc3fc8c6d6cb2485ab35eb5918e849b5bf1e56522974e106d7a39a88d61dcd",
+      "lfSha256": "58cc3fc8c6d6cb2485ab35eb5918e849b5bf1e56522974e106d7a39a88d61dcd"
+    },
+    {
+      "path": "licenses/curl/dep/ngtcp2/COPYING.txt",
+      "component": "curl bundled dependency notices",
+      "sourceVersion": "8.22.0_1 distribution",
+      "source": "https://curl.se/windows/dl-8.22.0_1/curl-8.22.0_1-win64-mingw.zip",
+      "sha256": "542dd526d2ea23565f0571cc68df6f05ed11248a90ff0f32de19d8ba589db513",
+      "lfSha256": "542dd526d2ea23565f0571cc68df6f05ed11248a90ff0f32de19d8ba589db513"
+    },
+    {
+      "path": "licenses/curl/dep/psl/LICENSE.txt",
+      "component": "curl bundled dependency notices",
+      "sourceVersion": "8.22.0_1 distribution",
+      "source": "https://curl.se/windows/dl-8.22.0_1/curl-8.22.0_1-win64-mingw.zip",
+      "sha256": "66a3107d5ad6a058aab753eaac2047ccb2ed0e39465dd0fe5844da3e300d5172",
+      "lfSha256": "66a3107d5ad6a058aab753eaac2047ccb2ed0e39465dd0fe5844da3e300d5172"
+    },
+    {
+      "path": "licenses/curl/dep/trurl/COPYING.txt",
+      "component": "curl bundled dependency notices",
+      "sourceVersion": "8.22.0_1 distribution",
+      "source": "https://curl.se/windows/dl-8.22.0_1/curl-8.22.0_1-win64-mingw.zip",
+      "sha256": "4b3e3c4d0d954c3693161dbcf1bab99803c79f7ce80319e11eb406e3a3d424cf",
+      "lfSha256": "4b3e3c4d0d954c3693161dbcf1bab99803c79f7ce80319e11eb406e3a3d424cf"
+    },
+    {
+      "path": "licenses/curl/dep/zlibng/LICENSE.md",
+      "component": "curl bundled dependency notices",
+      "sourceVersion": "8.22.0_1 distribution",
+      "source": "https://curl.se/windows/dl-8.22.0_1/curl-8.22.0_1-win64-mingw.zip",
+      "sha256": "6c9f0d975b41afaa34d22f55bb8986ce69e5cb7ad327cb2b28820cd425edf5ee",
+      "lfSha256": "6c9f0d975b41afaa34d22f55bb8986ce69e5cb7ad327cb2b28820cd425edf5ee"
+    },
+    {
+      "path": "licenses/curl/dep/zstd/LICENSE.txt",
+      "component": "curl bundled dependency notices",
+      "sourceVersion": "8.22.0_1 distribution",
+      "source": "https://curl.se/windows/dl-8.22.0_1/curl-8.22.0_1-win64-mingw.zip",
+      "sha256": "7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8",
+      "lfSha256": "7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8"
+    },
+    {
+      "path": "licenses/curl/dep/certdata/MPL-2.0.txt",
+      "component": "Mozilla CA data license",
+      "sourceVersion": "MPL-2.0",
+      "source": "https://www.mozilla.org/media/MPL/2.0/index.txt",
+      "sha256": "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04",
+      "lfSha256": "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04"
+    },
+    {
+      "path": "licenses/gcc-16.1.0/COPYING.RUNTIME",
+      "component": "gcc-16.1.0",
+      "sourceVersion": "6afcc4f6da931eb93f3ab001a0dd9650ea71d1ea",
+      "source": "https://github.com/gcc-mirror/gcc/blob/6afcc4f6da931eb93f3ab001a0dd9650ea71d1ea/COPYING.RUNTIME",
+      "sha256": "9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74",
+      "lfSha256": "9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74"
+    },
+    {
+      "path": "licenses/gcc-16.1.0/COPYING3",
+      "component": "gcc-16.1.0",
+      "sourceVersion": "6afcc4f6da931eb93f3ab001a0dd9650ea71d1ea",
+      "source": "https://github.com/gcc-mirror/gcc/blob/6afcc4f6da931eb93f3ab001a0dd9650ea71d1ea/COPYING3",
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+      "lfSha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+    },
+    {
+      "path": "licenses/mingw-w64-14.0.0/COPYING",
+      "component": "mingw-w64-14.0.0",
+      "sourceVersion": "9b3dd0125792fe94d16cacdc596dbd42fca1b369",
+      "source": "https://github.com/mingw-w64/mingw-w64/blob/9b3dd0125792fe94d16cacdc596dbd42fca1b369/COPYING",
+      "sha256": "99a69660981156c21336fdb5661f89341b013c94e4bf9e1c7467b4745718397f",
+      "lfSha256": "99a69660981156c21336fdb5661f89341b013c94e4bf9e1c7467b4745718397f"
+    },
+    {
+      "path": "licenses/mingw-w64-14.0.0/COPYING.MinGW-w64-runtime/COPYING.MinGW-w64-runtime.txt",
+      "component": "mingw-w64-14.0.0",
+      "sourceVersion": "9b3dd0125792fe94d16cacdc596dbd42fca1b369",
+      "source": "https://github.com/mingw-w64/mingw-w64/blob/9b3dd0125792fe94d16cacdc596dbd42fca1b369/COPYING.MinGW-w64-runtime/COPYING.MinGW-w64-runtime.txt",
+      "sha256": "1db8da07b436c68833c0673ffee3d9fcb2526047f3820b81661865dfedc79a1f",
+      "lfSha256": "1db8da07b436c68833c0673ffee3d9fcb2526047f3820b81661865dfedc79a1f"
+    },
+    {
+      "path": "licenses/mingw-w64-14.0.0/COPYING.MinGW-w64/COPYING.MinGW-w64.txt",
+      "component": "mingw-w64-14.0.0",
+      "sourceVersion": "9b3dd0125792fe94d16cacdc596dbd42fca1b369",
+      "source": "https://github.com/mingw-w64/mingw-w64/blob/9b3dd0125792fe94d16cacdc596dbd42fca1b369/COPYING.MinGW-w64/COPYING.MinGW-w64.txt",
+      "sha256": "f38e6194bd3bfa1b654f118e5acefe0aead437bbe669eee43957ccc65a7127f1",
+      "lfSha256": "f38e6194bd3bfa1b654f118e5acefe0aead437bbe669eee43957ccc65a7127f1"
+    },
+    {
+      "path": "licenses/mingw-w64-14.0.0/DISCLAIMER",
+      "component": "mingw-w64-14.0.0",
+      "sourceVersion": "9b3dd0125792fe94d16cacdc596dbd42fca1b369",
+      "source": "https://github.com/mingw-w64/mingw-w64/blob/9b3dd0125792fe94d16cacdc596dbd42fca1b369/DISCLAIMER",
+      "sha256": "039ed6b4f31bb7fb97e733170b58cc435335352e4745734fcfd113877fdaf340",
+      "lfSha256": "039ed6b4f31bb7fb97e733170b58cc435335352e4745734fcfd113877fdaf340"
+    },
+    {
+      "path": "licenses/mingw-w64-14.0.0/DISCLAIMER.PD",
+      "component": "mingw-w64-14.0.0",
+      "sourceVersion": "9b3dd0125792fe94d16cacdc596dbd42fca1b369",
+      "source": "https://github.com/mingw-w64/mingw-w64/blob/9b3dd0125792fe94d16cacdc596dbd42fca1b369/DISCLAIMER.PD",
+      "sha256": "87f33608570312a0f2a9745edcb2527275df813b13982e8c3b3f893d88a4141a",
+      "lfSha256": "87f33608570312a0f2a9745edcb2527275df813b13982e8c3b3f893d88a4141a"
+    },
+    {
+      "path": "licenses/mingw-w64-14.0.0/mingw-w64-libraries/winpthreads/COPYING",
+      "component": "mingw-w64-14.0.0",
+      "sourceVersion": "9b3dd0125792fe94d16cacdc596dbd42fca1b369",
+      "source": "https://github.com/mingw-w64/mingw-w64/blob/9b3dd0125792fe94d16cacdc596dbd42fca1b369/mingw-w64-libraries/winpthreads/COPYING",
+      "sha256": "63263614cdd29f2f93cba85e992f041b31f9fc7b4033692f31269489a8a1b177",
+      "lfSha256": "63263614cdd29f2f93cba85e992f041b31f9fc7b4033692f31269489a8a1b177"
+    },
+    {
+      "path": "licenses/sqlite/NOTICE.txt",
+      "component": "SQLite",
+      "sourceVersion": "3.53.4",
+      "source": "https://www.sqlite.org/2026/sqlite-amalgamation-3530400.zip",
+      "sha256": "85806d613cfda5901f848b3b5b4b04396c8c64e89c97c0af3706c42b0c44bb47",
+      "lfSha256": "85806d613cfda5901f848b3b5b4b04396c8c64e89c97c0af3706c42b0c44bb47"
+    },
+    {
+      "path": "public/vendor/jsxgraph/LICENSE.MIT",
+      "component": "JSXGraph",
+      "sourceVersion": "1.14.3",
+      "source": "https://github.com/jsxgraph/jsxgraph/tree/0f8690fb1a060b167bfa6f05d5fb63cf0293845c",
+      "sha256": "43e325001487de7f09745fbe086b054bb1b70d4ab58060e87153849365b23ff1",
+      "lfSha256": "43e325001487de7f09745fbe086b054bb1b70d4ab58060e87153849365b23ff1"
+    },
+    {
+      "path": "public/vendor/echarts/LICENSE",
+      "component": "Apache ECharts",
+      "sourceVersion": "bundled distribution",
+      "source": "https://github.com/apache/echarts",
+      "sha256": "9ef11df57e751e8c6d10d54e1855c64d316627bbe89e73326de7e3ccdb8184aa",
+      "lfSha256": "634293835b43a6dd2094fa39182a3d9a6b9ca43b7fdb9ac354e8037af2a3093a"
+    },
+    {
+      "path": "public/vendor/echarts/NOTICE",
+      "component": "Apache ECharts",
+      "sourceVersion": "bundled distribution",
+      "source": "https://github.com/apache/echarts",
+      "sha256": "a1ee6a6458692238dcbef3f688a0e296a1d94821aa36c0dbde2160d57e91a20f",
+      "lfSha256": "d491d358344f842685c1b1585970999db65fe30ecf7ef3867af8814f4016c016"
+    },
+    {
+      "path": "public/vendor/readability/LICENSE.md",
+      "component": "Mozilla Readability",
+      "sourceVersion": "04fd32f72b448c12b02ba6c40928b67e510bac49",
+      "source": "https://github.com/mozilla/readability/tree/04fd32f72b448c12b02ba6c40928b67e510bac49",
+      "sha256": "a5b1e8181751ce05b85b7bfaa832b785e87086250a5148e679d17ca9bdcfa958",
+      "lfSha256": "a5b1e8181751ce05b85b7bfaa832b785e87086250a5148e679d17ca9bdcfa958"
+    },
+    {
+      "path": "public/vendor/pdfjs/LICENSE",
+      "component": "PDF.js",
+      "sourceVersion": "bundled distribution",
+      "source": "https://github.com/mozilla/pdf.js",
+      "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+      "lfSha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+    },
+    {
+      "path": "public/vendor/pdfjs/cmaps/LICENSE",
+      "component": "PDF.js CMaps",
+      "sourceVersion": "bundled distribution",
+      "source": "https://github.com/mozilla/pdf.js",
+      "sha256": "aa92ab5a472974865a96fd4a4e9c13bb41bf6fe1b309cb6b8da48bc9e19839a2",
+      "lfSha256": "aa92ab5a472974865a96fd4a4e9c13bb41bf6fe1b309cb6b8da48bc9e19839a2"
+    },
+    {
+      "path": "public/vendor/pdfjs/standard_fonts/LICENSE_FOXIT",
+      "component": "PDF.js Foxit fonts",
+      "sourceVersion": "bundled distribution",
+      "source": "https://github.com/mozilla/pdf.js",
+      "sha256": "b578cdd2345840ada550bd12519533812320d5f1d21cf4c1c7e1b1b0a31c98b7",
+      "lfSha256": "b578cdd2345840ada550bd12519533812320d5f1d21cf4c1c7e1b1b0a31c98b7"
+    },
+    {
+      "path": "public/vendor/pdfjs/standard_fonts/LICENSE_LIBERATION",
+      "component": "PDF.js Liberation fonts",
+      "sourceVersion": "bundled distribution",
+      "source": "https://github.com/mozilla/pdf.js",
+      "sha256": "d2c4d5b3e115a519cb58eb691aa64538397e2611f9ebe801392cf9667997e7dc",
+      "lfSha256": "d2c4d5b3e115a519cb58eb691aa64538397e2611f9ebe801392cf9667997e7dc"
+    },
+    {
+      "path": "licenses/README.md",
+      "component": "交付通知说明",
+      "sourceVersion": "1",
+      "source": "本项目交付清单",
+      "sha256": "7be2d55df09c91928b3ac6df89d6483d79dd1f598417736037d4cfece3104a22",
+      "lfSha256": "7be2d55df09c91928b3ac6df89d6483d79dd1f598417736037d4cfece3104a22"
+    },
+    {
+      "path": "public/vendor/katex/SOURCE.json",
+      "component": "KaTeX 来源与校对记录",
+      "sourceVersion": "0.16.11",
+      "source": "https://registry.npmjs.org/katex/0.16.11",
+      "sha256": "3d0d8d3a8f8df6b42f0fb26735e090b7a9162c0837eb9a435d52623e10927cd1",
+      "lfSha256": "662708f9eb1d7139d20d1cf08d486f1d527e35bba2fd1e8871b6459a9f4ccb98"
+    }
+  ]
+}

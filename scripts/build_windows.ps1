@@ -291,6 +291,8 @@ foreach ($asset in @('exam-import.css', 'exam-import.js', 'exam-page.css', 'exam
 # 公式渲染引擎随包发布：断网也能显示数学公式。
 # 【逐行批注】 执行当前 PowerShell 构建或测试命令：Copy-Item -LiteralPath (Join-Path $repoRoot 'public\vendor') -Destination $publicDist -Re…。
 Copy-Item -LiteralPath (Join-Path $repoRoot 'public\vendor') -Destination $publicDist -Recurse -Force
+# 依赖通知属于交付文件；缺失或内容与归档不符时停止打包。
+& (Join-Path $PSScriptRoot 'copy_third_party_notices.ps1') -DistDir $distDir -CompilerPath $compiler
 # 【逐行批注】 执行命令并将结果保存到 $requiredFiles。
 $requiredFiles = @(
     # 【逐行批注】 执行当前 PowerShell 构建或测试命令：'gangyiAI.exe', 'gangyiAI-launcher.exe', 'gangyiAI-source-reader.exe', 'pdfium.dll', 'pub…。
@@ -309,6 +311,8 @@ $requiredFiles = @(
     'public\app-layout.js', 'public\app-layout.css', 'public\profile-radar.js', 'public\profile-radar.css', 'public\classroom.js', 'public\classroom.css', 'public\learning-flow.js', 'public\learning-flow.css', 'public\learning-agent.js', 'public\agent-shell.js', 'public\agent-classroom.html', 'public\agent-classroom.js', 'public\agent-classroom.css', 'public\agent-prepare.html', 'public\agent-prepare.js', 'public\chat-render.js', 'public\user-center.js',
     # 【逐行批注】 执行当前 PowerShell 构建或测试命令：'public\vendor\katex\katex.min.js', 'public\vendor\katex\katex.min.css',。
     'public\vendor\katex\katex.min.js', 'public\vendor\katex\katex.min.css',
+    'public\vendor\katex\LICENSE', 'public\vendor\katex\SOURCE.json',
+    'licenses\notices-manifest.json', 'licenses\dependency-inventory.json',
     # 【逐行批注】 执行当前 PowerShell 构建或测试命令：'public\vendor\katex\fonts\KaTeX_Main-Regular.woff2',。
     'public\vendor\katex\fonts\KaTeX_Main-Regular.woff2',
     # 【逐行批注】 执行当前 PowerShell 构建或测试命令：'public\school-logo.png', 'public\campus-background.jpg'。

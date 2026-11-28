@@ -32,7 +32,8 @@ class RecoveryAI(ProtocolAI):
         raw = self.rfile.read(int(self.headers['Content-Length']))
         messages = json.loads(raw)['messages']
         context = json.loads(messages[1]['content'])
-        request_id = context['event']['requestId']
+        # 大纲规划上下文可省略外部请求编号，与基础模拟协议保持一致。
+        request_id = context['event'].get('requestId', context['event']['type'])
         if request_id in self.entered:
             if self.entered[request_id].is_set():
                 self.resumed.setdefault(request_id, []).append(context)

@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
-from threading import Thread
+from threading import Barrier, Thread
 import time
 import unittest
 from unittest.mock import patch
@@ -303,6 +303,21 @@ class MoneyTests(unittest.TestCase):
         self.assertTrue(all(result.returncode == 0 for result in results))
         self.assertEqual(self.state()['spentMicros'], 100)
         self.assertEqual(self.state()['heldMicros'], 0)
+
+    def test_python_ledger_lock_serializes_competing_threads(self):
+        barrier = Barrier(4)
+        active = []
+        def acquire(index):
+            barrier.wait(timeout=3)
+            with budget.ledger_lock(self.ledger):
+                self.assertEqual(active, [])
+                active.append(index)
+                time.sleep(.025)
+                self.assertEqual(active, [index])
+                active.pop()
+            return index
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            self.assertEqual(sorted(executor.map(acquire, range(4))), list(range(4)))
 
     def test_image_and_search_are_denied_before_http(self):
         self.assertNotEqual(self.run_driver('image').returncode, 0)

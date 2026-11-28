@@ -51,9 +51,14 @@ def ledger_lock(path):
                                    wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p]
         api.CreateFileW.restype = wintypes.HANDLE
         api.CloseHandle.argtypes = [wintypes.HANDLE]
-        handle = api.CreateFileW(str(lock), 0xC0000000, 0, None, 4, 0x80, None)
-        if handle == ctypes.c_void_p(-1).value:
-            raise RuntimeError('费用账本正被使用或不能锁定。')
+        deadline = time.monotonic() + 2
+        while True:
+            handle = api.CreateFileW(str(lock), 0xC0000000, 0, None, 4, 0x80, None)
+            if handle != ctypes.c_void_p(-1).value:
+                break
+            if ctypes.get_last_error() != 32 or time.monotonic() >= deadline:
+                raise RuntimeError('费用账本正被使用或不能锁定。')
+            time.sleep(.01)
         try:
             yield
         finally:
@@ -61,7 +66,15 @@ def ledger_lock(path):
     else:
         import fcntl
         with lock.open('ab') as stream:
-            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            deadline = time.monotonic() + 2
+            while True:
+                try:
+                    fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except (BlockingIOError, InterruptedError) as error:
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError('费用账本正被使用或不能锁定。') from error
+                    time.sleep(.01)
             try:
                 yield
             finally:

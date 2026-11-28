@@ -171,6 +171,12 @@ void Database::transaction(const std::function<void()>& action) {
 // 保存点既可作为独立原子单元，也可嵌入同线程已有的写事务。
 void Database::savepoint(const std::function<void()>& action) {
     ConnectionGuard guard(db_);
+    // 最外层先取得写入保留锁，避免 WAL 读取快照被其它连接更新后无法升级写入。
+    // 已有事务继续使用嵌套保存点，保留内层失败和外层回滚的边界。
+    if (sqlite3_get_autocommit(db_)) {
+        transaction(action);
+        return;
+    }
     static std::atomic<unsigned long long> sequence{0};
     const auto name = "gangyi_operation_" + std::to_string(++sequence);
     exec(db_, ("SAVEPOINT " + name).c_str());

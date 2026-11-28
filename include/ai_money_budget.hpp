@@ -2,6 +2,7 @@
 
 #include "ai_client.hpp"
 #include "search_client.hpp"
+#include <cerrno>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -97,10 +98,16 @@ class AIMoneyBudget {
         int descriptor = -1;
         explicit FileLock(const std::filesystem::path& file) {
             descriptor = ::open((file.string() + ".lock").c_str(), O_CREAT | O_RDWR, 0600);
-            if (descriptor < 0 || flock(descriptor, LOCK_EX | LOCK_NB) != 0) {
-                if (descriptor >= 0) ::close(descriptor);
-                denied("费用账本无法锁定，未发送请求");
+            if (descriptor < 0) denied("费用账本无法锁定，未发送请求");
+            // 与 Windows 一样有限等待竞争者；锁定失败时仍在发送前拒绝。
+            for (int attempt = 0; attempt < 200; ++attempt) {
+                if (flock(descriptor, LOCK_EX | LOCK_NB) == 0) return;
+                const auto code = errno;
+                if (code != EWOULDBLOCK && code != EAGAIN && code != EINTR) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
+            ::close(descriptor); descriptor = -1;
+            denied("费用账本正被使用或无法锁定，未发送请求");
         }
         ~FileLock() { if (descriptor >= 0) { flock(descriptor, LOCK_UN); ::close(descriptor); } }
 #endif

@@ -179,9 +179,21 @@ inline void runSetExerciseChecks(const std::filesystem::path& path) {
     gangyi::registerAgentLessonTools(hints);
     hints.process(db, hintTask.at("id"));
     const auto visibleHint = gangyi::agentView(db, access, hintTask.at("id"), false);
-    const auto published = visibleHint.dump();
+    const auto committedHint = Json{{"message", visibleHint.at("message")}, {"sections", shown().at("sections")}}.dump();
     assert(hintCalls == 3 && visibleHint.at("status") == "waiting_student");
-    assert(published.find("aSubsetB") == std::string::npos && published.find("complementB") == std::string::npos);
+    assert(committedHint.find("aSubsetB") == std::string::npos && committedHint.find("complementB") == std::string::npos);
+    // 草稿立即显示，校验失败后必须有更正状态；最终内容与已保存板块保持干净。
+    const auto& hintEvents = visibleHint.at("events");
+    std::string initialHintDraft;
+    for (const auto& item : hintEvents)
+        if (item.value("type", "") == "delta" && item.value("step", 0) == 1 && item.value("field", "") == "message" && item.value("provisional", false))
+            initialHintDraft += item.value("text", "");
+    assert(initialHintDraft.find("aSubsetB") != std::string::npos);
+    assert(std::any_of(hintEvents.begin(), hintEvents.end(), [](const Json& item) {
+        if (item.value("type", "") != "stream_status" || item.value("state", "") != "confirmed") return false;
+        const auto corrected = item.value("correctedSteps", Json::array());
+        return std::find(corrected.begin(), corrected.end(), 1) != corrected.end() && std::find(corrected.begin(), corrected.end(), 2) != corrected.end();
+    }));
     assert(visibleHint.at("message") == "试着在两个集合中分别找到元素 2。");
     assert(shown().at("sections") == beforeHint.at("sections") && shown().at("evaluations") == all);
 }

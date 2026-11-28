@@ -164,6 +164,20 @@ void sharedConnectionDoesNotExposePartialDelete() {
     expect(blocked && reader.get(), "同连接另一请求读到了未提交的部分删除");
     expect(fixture.snapshot() == before, "并发回滚改变了课程记录");
 }
+void outerSavepointReservesWriteBeforeReading() {
+    Fixture fixture;
+    fixture.db.savepoint([&] {
+        expect(fixture.db.getCourse("a").has_value(), "写事务内课程读取失败");
+        // 另一个连接不能在读取之后抢先提交，使原事务无法升级为写事务。
+        const auto competing = sqlite3_exec(fixture.sql, "UPDATE Course SET title='外部写入' WHERE id='ab'", nullptr, nullptr, nullptr);
+        expect(competing == SQLITE_BUSY || competing == SQLITE_LOCKED, "最外层保存点未在读取前取得写入保留锁");
+        expect(gangyi::deleteCourseForIdentity(fixture.db, "a", "owner-a", ""), "保留写入后课程删除失败");
+    });
+    const auto other = fixture.db.getCourse("ab");
+    expect(!fixture.db.getCourse("a") && other && other->title == "课程", "并发连接改变了事务中的其它课程");
+    fixture.exec("UPDATE Course SET title='外部写入' WHERE id='ab'");
+    expect(fixture.db.getCourse("ab")->title == "外部写入", "提交后未释放跨连接写入保留锁");
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -175,7 +189,8 @@ int main(int argc, char** argv) {
         deletionRemovesOnlyCourse();
         permissionAndNestedTransactions();
         sharedConnectionDoesNotExposePartialDelete();
-        std::cout << "课程删除：晚期/中期失败整体回滚、关联清理、课程隔离、外层事务和重复删除通过\n";
+        outerSavepointReservesWriteBeforeReading();
+        std::cout << "课程删除：失败整体回滚、关联清理、课程隔离、嵌套事务、重复删除和跨连接写入保留通过\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "课程删除未通过：" << error.what() << '\n'; return 1;

@@ -38,6 +38,21 @@ class ExperimentTests(unittest.TestCase):
             self.assertFalse(experiment.benchmark.load_json(folder/'authorization-template.json')['newPaidCallsAllowedThisRound'])
             self.assertEqual(experiment.inspect(folder)['paidModelRequests'], 0)
 
+    def test_checked_plan_accepts_relative_root_without_weakening_case_boundary(self):
+        folder = self.prepare()
+        previous = Path.cwd()
+        try:
+            os.chdir(folder.parent)
+            relative = Path(folder.name)
+            self.assertEqual(experiment.checked_plan(relative), experiment.checked_plan(folder))
+            manifest = experiment.benchmark.load_json(folder / 'manifest.json')
+            manifest['records'][0]['caseFile'] = '../outside.json'
+            (folder / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, '案例路径越界'):
+                experiment.checked_plan(relative)
+        finally:
+            os.chdir(previous)
+
     def test_offline_import_binds_raw_response_and_accepts_moved_archive_without_old_binary(self):
         folder = self.prepare()
         manifest = experiment.checked_plan(folder)
