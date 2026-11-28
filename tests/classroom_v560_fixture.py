@@ -146,8 +146,7 @@ class FixtureAI(BaseHTTPRequestHandler):
         event = context['event']
         expected_curriculum = {'核对课程教材来源': 'pep-a-sets-logic',
                                '核对课程人教 B 版教材来源': 'pep-b-sets-logic'}.get(event.get('text'))
-        # 【逐行批注】 调用 type 完成当前脚本或测试步骤：type(self).calls.append(event['requestId'])。
-        type(self).calls.append(event['requestId'])
+        type(self).calls.append(event.get('requestId', event['type']))
         # 【逐行批注】 计算右侧结果并赋给 results，更新脚本状态。
         results = []
         # 【逐行批注】 遍历数据并重复执行循环体：for item in request['messages'][2:]:。
@@ -176,12 +175,10 @@ class FixtureAI(BaseHTTPRequestHandler):
                 lite=['认识化合价', '比较电子变化', '练习配平'], deep=['氧化还原概念课', '化合价与电子转移'], reason='虚构档案仅提供学习方向'))]
         # 【逐行批注】 当前一条件不成立时继续判断：event['type'] == 'plan_course':。
         elif event['type'] == 'plan_course':
-            # 【逐行批注】 计算右侧结果并赋给 actions，更新脚本状态。
-            actions = [dict(id='plan', tool='create_course', args=dict(goal='理解化合价与电子变化', title='隔离化学课程', mode='lite', summary='用于界面验收的虚构课程',
-                # 【逐行批注】 计算右侧结果并赋给 payload，更新脚本状态。
-                payload=dict(courseStructure=[dict(stage='建立概念', goal='比较化合价变化', why='先比较变化，再联系电子', topics=['化合价比较', '电子得失']),
-                    # 【逐行批注】 计算右侧结果并赋给 dict(stage，更新脚本状态。
-                    dict(stage='应用与巩固', goal='应用比较方法', why='结合实际回答再安排练习', topics=['反应判断', '配平练习'])])))]
+            self.send_decision(dict(title='隔离化学课程', summary='用于界面验收的虚构课程',
+                courseStructure=[dict(stage='建立概念', goal='比较化合价变化', why='先比较变化，再联系电子', topics=['化合价比较', '电子得失']),
+                    dict(stage='应用与巩固', goal='应用比较方法', why='结合实际回答再安排练习', topics=['反应判断', '配平练习'])]))
+            return
         # 【逐行批注】 当前一条件不成立时继续判断：event['type'] == 'prepare_next':。
         elif event['type'] == 'prepare_next':
             # 【逐行批注】 计算右侧结果并赋给 lesson，更新脚本状态。

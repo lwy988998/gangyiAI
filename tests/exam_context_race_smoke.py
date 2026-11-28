@@ -230,7 +230,11 @@ def main(executable):
             control = api(exam_path + "/messages", {"requestId": "race-control", "text": "race-control"}, expected=202)
             control_id = control["task"]["id"]
             assert FakeModel.entered.wait(30), "普通教学的假模型请求未到达"
-            eventually(lambda: "STALE-race-control" in canonical(task(control_id).get("events", [])), seconds=10)
+            def receiving_control():
+                state = task(control_id)
+                assert "STALE-race-control" not in canonical(state), "尚未校验的普通回复已流向界面"
+                return state.get("activity", {}).get("phase") == "receiving"
+            eventually(receiving_control, seconds=10)
             FakeModel.release.set()
             assert eventually(lambda: done(control_id)).get("status") == "ready", "普通教学应正常完成"
             assert any("STALE-race-control" in item.get("content", "") for item in api(exam_path)["messages"]), "对照回复未保存"

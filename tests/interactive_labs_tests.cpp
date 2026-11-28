@@ -1,4 +1,5 @@
 #include "interactive_labs.hpp"
+#include "interactive_periodic_checks.hpp"
 #include <cassert>
 #include <fstream>
 #include <iostream>
@@ -23,6 +24,76 @@ int main(int argc, char** argv) {
         try { gangyi::checkedLabObservation(item.at("config"), item.at("state"), 2); } catch (...) { denied = true; }
         assert(denied);
     }
+    runInteractivePeriodicChecks();
+    // 固定质点的四分之一周期结果是独立的已知解析值。
+    const Json waveConfig = {{"type","wave_lab"}};
+    const Json waveState = {{"schemaVersion",1},{"contentVersion",1},{"amplitudeM",1},
+        {"waveSpeedMps",2},{"periodSeconds",2},{"timeSeconds",0},{"probeXM",1}};
+    const double pi = std::acos(-1.0);
+    const double expectedTimes[] = {0,0.5,1,1.5,2}, expectedPositions[] = {1,0,-1,0,1}, expectedVelocities[] = {0,-pi,0,pi,0};
+    for (int i=0;i<5;++i) {
+        auto state = waveState; state["timeSeconds"] = expectedTimes[i];
+        const auto value = gangyi::checkedLabObservation(waveConfig,state,1);
+        assert(std::abs(value.at("probeDisplacementM").get<double>()-expectedPositions[i])<1e-10);
+        assert(std::abs(value.at("particleVelocityMps").get<double>()-expectedVelocities[i])<1e-10);
+        assert(value.at("particleFixedXM")==1 && value.at("wavelengthM")==4 && value.at("frequencyHz")==0.5);
+        assert(value.at("scoringEligible")==false && value.at("propagationDirection")=="positive_x");
+    }
+    for (const auto& patch : Json::array({Json{{"amplitudeM",-0.5}},Json{{"waveSpeedMps",0}},Json{{"periodSeconds",0}},
+        Json{{"timeSeconds",8.25}},Json{{"timeSeconds",0.1}},Json{{"probeXM",true}},Json{{"amplitudeM",nullptr}}})) {
+        auto config = waveConfig; config.update(patch); auto state = waveState; state.update(patch);
+        bool configDenied=false,stateDenied=false;
+        try { gangyi::checkedLabConfig(config); } catch (...) { configDenied=true; }
+        try { gangyi::checkedLabObservation(waveConfig,state,1); } catch (...) { stateDenied=true; }
+        assert(configDenied && stateDenied);
+    }
+    for (const auto& patch : Json::array({Json{{"wavelengthM",100}},Json{{"score",100}},Json{{"schemaVersion",true}},Json{{"contentVersion",2}}})) {
+        auto state=waveState;state.update(patch);bool denied=false;
+        try { gangyi::checkedLabObservation(waveConfig,state,1); } catch (...) { denied=true; }
+        assert(denied);
+    }
+    auto flatWave = waveState;flatWave["amplitudeM"]=0;
+    const auto flatResult = gangyi::checkedLabObservation(waveConfig,flatWave,1);
+    assert(flatResult.at("probeDisplacementM")==0 && flatResult.at("particleVelocityMps")==0 && flatResult.at("visibleOscillation")==false);
+    // 几何结论从真实顶点重算；退化图形不应被说成三角形。
+    const Json triangleConfig = {{"type","triangle_lab"}};
+    const Json triangleState = {{"schemaVersion",1},{"contentVersion",1},{"points",{{0,0},{4,0},{0,3}}}};
+    const auto triangle = gangyi::checkedLabObservation(triangleConfig, triangleState, 1);
+    assert(triangle.at("validTriangle") == true && triangle.at("area") == 6 && triangle.at("perimeter") == 12);
+    assert(triangle.at("angleKind") == "right" && triangle.at("sideKind") == "scalene");
+    assert(triangle.at("angleDegrees").at("A") == 90 && triangle.at("scoringEligible") == false);
+    auto transformedTriangle = triangleState;
+    transformedTriangle["points"] = {{1,1},{5,1},{1,4}};
+    const auto translated = gangyi::checkedLabObservation(triangleConfig, transformedTriangle, 1);
+    assert(translated.at("area") == triangle.at("area") && translated.at("sideLengths") == triangle.at("sideLengths"));
+    transformedTriangle["points"] = {{0,0},{0,3},{4,0}};
+    const auto reversed = gangyi::checkedLabObservation(triangleConfig, transformedTriangle, 1);
+    assert(reversed.at("area") == 6 && reversed.at("orientation") == "clockwise");
+    transformedTriangle["points"] = {{-2,0},{2,0},{0,3}};
+    const auto isosceles = gangyi::checkedLabObservation(triangleConfig, transformedTriangle, 1);
+    assert(isosceles.at("sideKind") == "isosceles" && isosceles.at("angleKind") == "acute");
+    transformedTriangle["points"] = {{0,0},{4,0},{1,1}};
+    assert(gangyi::checkedLabObservation(triangleConfig, transformedTriangle, 1).at("angleKind") == "obtuse");
+    for (const auto& points : Json::array({Json::array({{0,0},{1,1},{2,2}}), Json::array({{0,0},{0,0},{2,2}})})) {
+        transformedTriangle["points"] = points;
+        const auto degenerate = gangyi::checkedLabObservation(triangleConfig, transformedTriangle, 1);
+        assert(degenerate.at("validTriangle") == false && degenerate.at("area") == 0 &&
+               degenerate.at("angleDegrees").is_null() && degenerate.at("perimeter").is_null());
+    }
+    for (const auto& points : Json::array({Json::array(), Json::array({{0,0},{1,1}}),
+        Json::array({{0,0},{1,1},{11,0}}), Json::array({{0,0},{1,1},{0.1,0}}),
+        Json::array({{0,0},{1,1},{true,0}})})) {
+        transformedTriangle["points"] = points; bool denied = false;
+        try { gangyi::checkedLabObservation(triangleConfig, transformedTriangle, 1); } catch (...) { denied = true; }
+        assert(denied);
+    }
+    transformedTriangle = triangleState; transformedTriangle["area"] = 100;
+    bool triangleDenied = false;
+    try { gangyi::checkedLabObservation(triangleConfig, transformedTriangle, 1); } catch (...) { triangleDenied = true; }
+    assert(triangleDenied);
+    triangleDenied = false;
+    try { gangyi::checkedLabObservation(triangleConfig, triangleState, 2); } catch (...) { triangleDenied = true; }
+    assert(triangleDenied);
     const Json statisticsConfig = {{"type","statistics_lab"}};
     const Json statisticsState = {{"schemaVersion",1},{"contentVersion",1},{"values",{2,3,3,4,8}},{"varianceBasis","population"}};
     for (const auto& values : Json::array({Json::array(),Json(std::vector<int>(33,0)),Json::array({true}),Json::array({nullptr}),

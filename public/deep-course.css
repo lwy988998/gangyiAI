@@ -572,3 +572,13 @@ body.deep-course-body{overflow:hidden}
 .il-statistics-chart + .il-lab-result p { margin:6px 0; }
 .il-lab[data-lab-type=statistics_lab] table { width:100%;border-collapse:collapse; }
 .il-lab[data-lab-type=statistics_lab] th,.il-lab[data-lab-type=statistics_lab] td { padding:6px 12px;text-align:left;border-bottom:1px solid var(--dc-border,#dfe6ef);font-variant-numeric:tabular-nums; }
+
+/* 目录收起入口固定在目录上缘，折叠后可从原区域重新展开。 */
+.dc-layout { position: relative; }
+.dc-directory { position: relative; }
+.dc-directory > h2 { padding-right: 45px; }
+.dc-directory-collapse { position: absolute; right: 7px; top: 7px; padding: 5px; min-height: 30px; }
+.dc-directory-reopen { position: absolute; left: 7px; top: 7px; z-index: 5; }
+.dc-stream-lecture { padding-block: 8px 20px; }
+.dc-stream-lecture .gy-stream-text { font-size: 15px; }
+.dc-stream-lecture .gy-stream-notice { font-size: 12px; }

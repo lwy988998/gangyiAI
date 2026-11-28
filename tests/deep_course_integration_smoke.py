@@ -81,6 +81,15 @@ class DeepFixture(fixture.FixtureAI):
             return
         # 【逐行批注】 计算右侧结果并赋给 event，更新脚本状态。
         event = context['event']
+        staged_feedback = context.get('stagedEvaluations', [])
+        feedback_prompt = request['messages'][0]['content'] if staged_feedback else ''
+        if staged_feedback:
+            assert [item['role'] for item in request['messages']] == ['system', 'user']
+            assert '本题评价已经暂存，尚未向学生发布' in feedback_prompt
+            assert '本轮没有工具' in feedback_prompt and '可用工具：' not in feedback_prompt
+            current = next(item for item in context['currentInputs'] if item['requestId'] == event['requestId'])
+            assert staged_feedback[0]['response'] == current['text']
+            assert staged_feedback[0]['questionId'] == current['questionId']
         # 【逐行批注】 计算右侧结果并赋给 deep，更新脚本状态。
         deep = event.get('type') == 'plan_course' and event.get('mode') == 'deep'
         # 【逐行批注】 计算右侧结果并赋给 deep |，更新脚本状态。
@@ -119,16 +128,9 @@ class DeepFixture(fixture.FixtureAI):
         actions, state, message = [], 'completed', '隔离协议内容已保存。'
         # 【逐行批注】 判断条件 event['type'] == 'plan_course':，成立时执行对应分支。
         if event['type'] == 'plan_course':
-            # 【逐行批注】 计算右侧结果并赋给 actions，更新脚本状态。
-            actions = [{'id': 'deep-plan', 'tool': 'create_course', 'args': {
-                # 【逐行批注】 执行当前 Python 语句：'goal': '理解函数图像与参数变化', 'title': '深度隔离函数课程', 'mode': 'deep',。
-                'goal': '理解函数图像与参数变化', 'title': '深度隔离函数课程', 'mode': 'deep',
-                # 【逐行批注】 执行当前 Python 语句：'summary': '用于真实 C++ 路由与浏览器协议的隔离课程',。
-                'summary': '用于真实 C++ 路由与浏览器协议的隔离课程',
-                # 【逐行批注】 执行当前 Python 语句：'payload': {'courseStructure': [{'stage': '函数与图像', 'goal': '比较变化并解释参数作用',。
-                'payload': {'courseStructure': [{'stage': '函数与图像', 'goal': '比较变化并解释参数作用',
-                                                # 【逐行批注】 执行当前 Python 语句：'topics': ['单调性的观察', '系数与曲线']}]}}}]。
-                                                'topics': ['单调性的观察', '系数与曲线']}]}}}]
+            outline = {'title': '深度隔离函数课程', 'summary': '用于真实 C++ 路由与浏览器协议的隔离课程',
+                       'courseStructure': [{'stage': '函数与图像', 'goal': '比较变化并解释参数作用',
+                                            'topics': ['单调性的观察', '系数与曲线']}]}
         # 【逐行批注】 当前一条件不成立时继续判断：event['type'] == 'prepare_next':。
         elif event['type'] == 'prepare_next':
             review = type(self).include_topic_evidence and event.get('text') == '请准备同一知识点的复习课'
@@ -278,7 +280,7 @@ class DeepFixture(fixture.FixtureAI):
                     actions = [{'id': 'close-round', 'tool': 'complete_teaching_round', 'args': {
                         'lessonId': event['lessonId'], 'roundId': round_state['roundId']}}]
                     state, message = 'waiting_student', '两题均已反馈，本轮结束。'
-            elif any(item.get('result', {}).get('evaluationId') for item in results):
+            elif staged_feedback:
                 if len(evaluated) == 1 and actual['text'] == '{1}' and not type(self).attempted_early_finish:
                     type(self).saw_feedback_stage_prompt = any(
                         entry.get('role') == 'system' and '本题评价已经暂存，尚未向学生发布' in entry.get('content', '')
@@ -287,21 +289,15 @@ class DeepFixture(fixture.FixtureAI):
                     type(self).attempted_early_finish = True
                     actions = [{'id': 'premature-close', 'tool': 'complete_teaching_round', 'args': {
                         'lessonId': event['lessonId'], 'roundId': round_state['roundId']}}]
-                    state, message = 'continue', ''
+                    state, message = 'continue', '不应显示的提前结束'
                 elif len(evaluated) == 1 and actual['text'] == '{1}' and not type(self).saw_early_finish_error:
-                    errors = []
-                    for entry in request['messages']:
-                        try:
-                            errors.append(json.loads(entry.get('content', '')).get('toolError', ''))
-                        except (ValueError, TypeError, AttributeError):
-                            pass
-                    assert any('评价已暂存' in error and 'message' in error for error in errors)
+                    assert '上次反馈未通过校验' in feedback_prompt
                     type(self).saw_early_finish_error = True
                     state, message = 'continue', '交集是 {1}，你的判断正确。'
                 elif not type(self).attempted_early_question:
                     type(self).attempted_early_question = True
                     actions = [self.round_question(event, round_state, 'premature', '这道题不应在反馈前保存。', '无')]
-                    state, message = 'continue', ''
+                    state, message = 'continue', '不应显示的提前出题'
                 else:
                     state, message = 'waiting_student', '请对照反馈检查你的判断。'
             else:
@@ -321,7 +317,7 @@ class DeepFixture(fixture.FixtureAI):
                 actions = [{'id': 'deep-close-round', 'tool': 'complete_teaching_round', 'args': {
                     'lessonId': event['lessonId'], 'roundId': round_state['roundId']}}]
                 state, message = 'waiting_student', '本轮作答和反馈已完成。'
-            elif any(item.get('result', {}).get('evaluationId') for item in results):
+            elif staged_feedback or any(item.get('result', {}).get('evaluationId') for item in results):
                 actions, state, message = [], 'waiting_student', '本次作答已保存。'
             else:
             # 【逐行批注】 计算右侧结果并赋给 actions，更新脚本状态。
@@ -380,6 +376,14 @@ class DeepFixture(fixture.FixtureAI):
                     if getattr(type(self), 'equation_lab', False):
                         labs.append({'id':'equation-lab','type':'equation_lab','title':'等式两边的变形',
                                      'left':[3,1],'right':[0,2]})
+                    if getattr(type(self), 'periodic_lab', False):
+                        labs.append({'id':'periodic-lab','type':'periodic_lab','title':'元素与原子','selectedZ':11,'comparisonZ':17})
+                    if getattr(type(self), 'wave_lab', False):
+                        labs.append({'id':'wave-lab','type':'wave_lab','title':'波形与质点',
+                                     'amplitudeM':1,'waveSpeedMps':2,'periodSeconds':2,'timeSeconds':0,'probeXM':1})
+                    if getattr(type(self), 'triangle_lab', False):
+                        labs.append({'id':'triangle-lab','type':'triangle_lab','title':'观察三角形',
+                                     'points':[[0,0],[4,0],[0,3]]})
                     if getattr(type(self), 'annotation_selection', False):
                         labs[6].update(mode='selection',fragments=['甲🌱乙，','丙丁。'])
                     content['media'].extend(labs)
@@ -388,9 +392,13 @@ class DeepFixture(fixture.FixtureAI):
                     content['lecture'].append({'sectionId':section_ids[3],
                                                'mediaIds':[item['id'] for item in labs[3:]]})
                     content['slides'][0]['mediaIds'].extend(item['id'] for item in labs)
-        value = json.dumps({'teaching': {'helpType': 'explanation', 'demonstratedQuestions': []},
-                            # 【逐行批注】 计算右侧结果并赋给 'message': message, 'actions': actions, 'sta…，更新脚本状态。
-                            'message': message, 'actions': actions, 'state': state}, ensure_ascii=False)
+        decision = outline if event['type'] == 'plan_course' else {
+            'teaching': {'helpType': 'explanation', 'demonstratedQuestions': []},
+            'message': message, 'actions': actions, 'state': state}
+        if staged_feedback and not actions:
+            decision.pop('actions')
+            decision.pop('state')
+        value = json.dumps(decision, ensure_ascii=False)
         # 【逐行批注】 执行当前 Python 语句：self.send_response(200)。
         self.send_response(200)
         # 【逐行批注】 执行当前 Python 语句：self.send_header('Content-Type', 'text/event-stream')。
@@ -1199,6 +1207,8 @@ def main(executable, output):
                 assert completed['status'] == 'waiting_student'
                 assert round_state['status'] == 'completed' and round_state['feedbackCount'] == round_state['questionCount'] == 2
                 assert DeepFixture.saw_feedback_stage_prompt and DeepFixture.saw_early_finish_error
+                assert '不应显示的提前' not in json.dumps(completed, ensure_ascii=False)
+                assert not tab.get_by_text('这道题不应在反馈前保存。', exact=True).count()
                 tab.reload()
                 round_node.wait_for()
                 assert '2/2' in round_node.inner_text() and current_question.count() == 0

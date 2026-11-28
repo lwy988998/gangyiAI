@@ -50,8 +50,33 @@ inline std::string teachingQuestionIdentity(const std::string& scope, const nloh
     return questionIdentity(scope, identity);
 // 【逐行批注】 结束当前代码块。
 }
+inline std::string teachingQuestionEvidenceKey(const std::string& scope, nlohmann::json question) {
+    // 仅用于证据去重。保留材料和数学符号，作答与评分继续绑定原题快照。
+    const auto normalize = [](const std::string& text) {
+        std::string result;
+        bool space = false;
+        for (const char character : text) {
+            if (character == ' ' || character == '\t' || character == '\r' || character == '\n') {
+                space = !result.empty();
+                continue;
+            }
+            if (space) result.push_back(' ');
+            result.push_back(character);
+            space = false;
+        }
+        return result;
+    };
+    question["question"] = normalize(question.at("question").get_ref<const std::string&>());
+    if (question.value("options", nlohmann::json()).is_array()) {
+        auto& options = question.at("options");
+        for (auto& option : options) if (option.is_string()) option = normalize(option.get_ref<const std::string&>());
+        if (options.empty()) question.erase("options");
+        else std::sort(options.begin(), options.end());
+    }
+    return teachingQuestionIdentity(scope, question);
+}
+
 // 完整示范可以使用尚未布置的另一题；只保存可见题干、选项和材料来关联以后的复做。
-// 【逐行批注】 定义函数 checkedDemonstrations，执行该函数声明的职责。
 inline nlohmann::json checkedDemonstrations(const nlohmann::json& content) {
     // 【逐行批注】 计算右侧结果并写入 using Json，更新当前运行状态。
     using Json = nlohmann::json;
@@ -101,8 +126,7 @@ inline bool matchesDemonstration(const nlohmann::json& content, const std::strin
     if (!examples.is_array()) return false;
     // 【逐行批注】 按循环规则重复处理：for (const auto& example : examples) if (example.is_object() && example.va…。
     for (const auto& example : examples) if (example.is_object() && example.value("question", nlohmann::json()).is_string() &&
-        // 【逐行批注】 调用 teachingQuestionIdentity 完成本行所需操作：teachingQuestionIdentity(course, example) == teachingQuestionIdentity…。
-        teachingQuestionIdentity(course, example) == teachingQuestionIdentity(course, question)) return true;
+        teachingQuestionEvidenceKey(course, example) == teachingQuestionEvidenceKey(course, question)) return true;
     // 【逐行批注】 结束当前函数并返回结果：return false;。
     return false;
 // 【逐行批注】 结束当前代码块。

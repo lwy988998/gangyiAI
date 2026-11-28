@@ -6,6 +6,7 @@
 #endif
 // 【逐行批注】 引入头文件 "deep_course.hpp"，为后续实现提供类型或接口声明。
 #include "deep_course.hpp"
+#include "agent_curriculum.hpp"
 // 【逐行批注】 引入头文件 "agent_lessons.hpp"，为后续实现提供类型或接口声明。
 #include "agent_lessons.hpp"
 // 【逐行批注】 引入头文件 "agent_efficiency.hpp"，为后续实现提供类型或接口声明。
@@ -221,21 +222,16 @@ void runDeepDraftRecoveryChecks() {
     // 【逐行批注】 执行当前声明或表达式：gangyi::AgentAccess access{"draft-fixture", {}};。
     gangyi::AgentAccess access{"draft-fixture", {}};
     // 【逐行批注】 计算右侧结果并写入 Json outline，更新当前运行状态。
-    const Json outline = {{"courseStructure", {{{"stage", "事件顺序"}, {"topics", {{{"id", "timeline"}, {"title", "四个事件"}}}}}}}};
+    const Json outline = {{"title", "事件先后"}, {"summary", "根据时间理解事件顺序"},
+                          {"courseStructure", {{{"stage", "事件顺序"}, {"topics", {"四个事件"}}}}}};
     // 【逐行批注】 计算右侧结果并写入 int planningCalls，更新当前运行状态。
     int planningCalls = 0;
     // 【逐行批注】 定义函数 planner，执行该函数声明的职责。
     gangyi::LearningAgent planner("", [&](const gangyi::ChatOptions&, const auto&) {
         // 【逐行批注】 调用 assert 完成本行所需操作：++planningCalls; assert(planningCalls == 1);。
         ++planningCalls; assert(planningCalls == 1);
-        // 【逐行批注】 计算右侧结果并写入 Json decision，更新当前运行状态。
-        const Json decision = {{"teaching", {{"helpType", "none"}}}, {"message", ""}, {"state", "continue"},
-            // 【逐行批注】 执行当前声明或表达式：{"actions", {{{"id", "course"}, {"tool", "create_course"}, {"args", {{"goal", "事件先后"…。
-            {"actions", {{{"id", "course"}, {"tool", "create_course"}, {"args", {{"goal", "事件先后"}, {"title", "事件先后"}, {"mode", "deep"}, {"payload", outline}}}},
-                // 【逐行批注】 调用 object 完成本行所需操作：{{"id", "premature-lesson"}, {"tool", "create_lesson"}, {"args", Json…。
-                {{"id", "premature-lesson"}, {"tool", "create_lesson"}, {"args", Json::object()}}}}};
-        // 【逐行批注】 计算右侧结果并写入 gangyi::AIResult result; result.content，更新当前运行状态。
-        gangyi::AIResult result; result.content = decision.dump(); result.model = "fixture-outline-only"; result.finishReason = "stop"; return result;
+        // 规划阶段现在直接返回受限大纲，课程和知识点身份由程序建立。
+        gangyi::AIResult result; result.content = outline.dump(); result.model = "fixture-outline-only"; result.finishReason = "stop"; return result;
     // 【逐行批注】 执行当前声明或表达式：});。
     });
     // 【逐行批注】 调用 registerAgentLessonTools 完成本行所需操作：gangyi::registerAgentLessonTools(planner);。
@@ -248,6 +244,7 @@ void runDeepDraftRecoveryChecks() {
     for (const auto& course : db.listCourses()) access.courseIds.push_back(course.id);
     // 【逐行批注】 计算右侧结果并写入 auto courseId，更新当前运行状态。
     const auto courseId = db.listCourses().at(0).id;
+    const auto topicId = gangyi::agentOutline(db, access, courseId).at("courseStructure").at(0).at("topics").at(0).at("id").get<std::string>();
     // 【逐行批注】 调用 assert、agentView 完成本行所需操作：assert(gangyi::agentView(db, access, plan.at("id")).at("status") == "…。
     assert(gangyi::agentView(db, access, plan.at("id")).at("status") == "ready" && planningCalls == 1);
     // 【逐行批注】 按循环规则重复处理：for (const auto& row : db.listClassroomActivities(courseId)) assert(row.ki…。
@@ -269,7 +266,7 @@ void runDeepDraftRecoveryChecks() {
     // 【逐行批注】 计算右侧结果并写入 failed["status"]，更新当前运行状态。
     failed["status"] = "failed"; failed["error"] = "测试预算不足"; savedPlan.payload = failed.dump(); assert(db.upsert(savedPlan));
     // 【逐行批注】 计算右侧结果并写入 Json draft，更新当前运行状态。
-    Json draft = {{"id", "saved-draft"}, {"scopeId", access.scopeId}, {"courseId", courseId}, {"topicId", "timeline"}, {"phaseIndex", 1}, {"topicIndex", 1},
+    Json draft = {{"id", "saved-draft"}, {"scopeId", access.scopeId}, {"courseId", courseId}, {"topicId", topicId}, {"phaseIndex", 1}, {"topicIndex", 1},
         // 【逐行批注】 执行当前声明或表达式：{"title", "已生成的事件讲义"}, {"purpose", "理解先后"}, {"intent", "advance"}, {"status", "draft…。
         {"title", "已生成的事件讲义"}, {"purpose", "理解先后"}, {"intent", "advance"}, {"status", "draft"}, {"version", 1}, {"entered", false},
         // 【逐行批注】 执行当前声明或表达式：{"sourceLearningVersion", db.learningRevision()}, {"taskId", plan.at("id")}, {"updat…。
@@ -302,7 +299,7 @@ void runDeepDraftRecoveryChecks() {
     // 【逐行批注】 计算右侧结果并写入 auto resumed，更新当前运行状态。
     const auto resumed = gangyi::deepCourseStart(db, access, {{"lessonId", "saved-draft"}}).at("task");
     // 【逐行批注】 计算右侧结果并写入 auto same，更新当前运行状态。
-    const auto same = gangyi::deepCourseStart(db, access, {{"courseId", courseId}, {"topicId", "timeline"}, {"requestId", "another-window"}}).at("task");
+    const auto same = gangyi::deepCourseStart(db, access, {{"courseId", courseId}, {"topicId", topicId}, {"requestId", "another-window"}}).at("task");
     // 【逐行批注】 调用 assert 完成本行所需操作：assert(resumed.at("id") == same.at("id") && resumed.at("id") != plan.…。
     assert(resumed.at("id") == same.at("id") && resumed.at("id") != plan.at("id"));
     // 【逐行批注】 计算右侧结果并写入 auto resumedRaw，更新当前运行状态。
@@ -379,8 +376,8 @@ void runDeepDraftRecoveryChecks() {
     assert(!db.findLearningCardProgress(courseId, 1, 1));
     // 【逐行批注】 计算右侧结果并写入 auto previousGoal，更新当前运行状态。
     const auto previousGoal = db.getCourse(courseId)->goal, previousAbilities = db.profileMeta("ability-profile");
-    // 【逐行批注】 按循环规则重复处理：for (const std::string forbidden : {"complete_lesson", "adjust_goal", "upd…。
-    for (const std::string forbidden : {"complete_lesson", "adjust_goal", "update_profiles"}) {
+    // 规划回复不能夹带提前建课时或修改已有学习数据的动作。
+    for (const std::string forbidden : {"create_lesson", "complete_lesson", "adjust_goal", "update_profiles"}) {
       // 【逐行批注】 计算右侧结果并写入 int guardedCalls，更新当前运行状态。
       int guardedCalls = 0;
       // 【逐行批注】 定义函数 guarded，执行该函数声明的职责。
@@ -391,20 +388,17 @@ void runDeepDraftRecoveryChecks() {
         assert(db.getClassroomActivity("saved-draft")->payload == existingLesson && !db.findLearningCardProgress(courseId, 1, 1));
         // 【逐行批注】 调用 assert 完成本行所需操作：assert(db.getCourse(courseId)->goal == previousGoal && db.profileMeta…。
         assert(db.getCourse(courseId)->goal == previousGoal && db.profileMeta("ability-profile") == previousAbilities);
-        // 【逐行批注】 计算右侧结果并写入 Json actions，更新当前运行状态。
-        Json actions = Json::array();
+        Json decision = outline;
+        decision["title"] = "另一个新目标";
         // 【逐行批注】 计算右侧结果并写入 Json forbiddenArgs，更新当前运行状态。
         Json forbiddenArgs = {{"lessonId", "saved-draft"}, {"reason", "无权借规划修改旧进度"}};
+        if (forbidden == "create_lesson") forbiddenArgs = {{"courseId", courseId}, {"topicId", topicId}, {"title", "规划时不能提前建课时"}};
         // 【逐行批注】 判断条件 (forbidden == "adjust_goal") forbiddenArgs = {{"courseId", cours…，成立时执行对应分支。
         if (forbidden == "adjust_goal") forbiddenArgs = {{"courseId", courseId}, {"goal", "无权替换旧目标"}, {"reason", "新建课程不能修改旧目标"}};
         // 【逐行批注】 判断条件 (forbidden == "update_profiles") forbiddenArgs = {{"subjects", {…，成立时执行对应分支。
         if (forbidden == "update_profiles") forbiddenArgs = {{"subjects", {{{"subject", "数学"}, {"score", nullptr}, {"sufficient", false}, {"rationale", "不能清除旧画像"}, {"recommendation", "等待"}, {"uncertainty", "未测试"}, {"evidenceIds", Json::array()}}}}};
-        // 【逐行批注】 判断条件 (guardedCalls == 1) actions.push_back({{"id", "forbidden-old-wri…，成立时执行对应分支。
-        if (guardedCalls == 1) actions.push_back({{"id", "forbidden-old-write"}, {"tool", forbidden}, {"args", forbiddenArgs}});
-        // 【逐行批注】 执行当前声明或表达式：actions.push_back({{"id", "new-course"}, {"tool", "create_course"}, {"args", {{"goal…。
-        actions.push_back({{"id", "new-course"}, {"tool", "create_course"}, {"args", {{"goal", "另一个新目标"}, {"title", "另一个新目标"}, {"mode", "deep"}, {"payload", outline}}}});
-        // 【逐行批注】 计算右侧结果并写入 Json decision，更新当前运行状态。
-        const Json decision = {{"teaching", {{"helpType", "none"}}}, {"message", ""}, {"state", "completed"}, {"actions", actions}};
+        // 首次尝试混入越权动作，重试只返回允许的课程大纲。
+        if (guardedCalls == 1) decision["actions"] = Json::array({{{"id", "forbidden-old-write"}, {"tool", forbidden}, {"args", forbiddenArgs}}});
         // 【逐行批注】 计算右侧结果并写入 gangyi::AIResult result; result.content，更新当前运行状态。
         gangyi::AIResult result; result.content = decision.dump(); result.model = "fixture-planning-write-boundary"; result.finishReason = "stop"; return result;
       // 【逐行批注】 执行当前声明或表达式：});。
@@ -425,8 +419,8 @@ void runDeepDraftRecoveryChecks() {
       assert(db.getCourse(courseId)->goal == previousGoal && db.profileMeta("ability-profile") == previousAbilities);
     // 【逐行批注】 结束当前代码块。
     }
-    // 【逐行批注】 调用 assert 完成本行所需操作：assert(db.listCourses().size() == 4);。
-    assert(db.listCourses().size() == 4);
+    // 每次越权回复被拒后只创建一次新课程。
+    assert(db.listCourses().size() == 5);
 // 【逐行批注】 结束当前代码块。
 }
 // 【逐行批注】 结束当前代码块。
@@ -614,12 +608,13 @@ void runDeepCourseChecks() {
     assert(gangyi::deepCourseEnabled(db, "new"));
     // 【逐行批注】 按循环规则重复处理：for (const std::string mode : {"lite", "deep"}) {。
     for (const std::string mode : {"lite", "deep"}) {
+        int modeCalls = 0;
         // 【逐行批注】 定义函数 planner，执行该函数声明的职责。
         gangyi::LearningAgent planner("", [&](const gangyi::ChatOptions&, const auto&) {
-            // 【逐行批注】 计算右侧结果并写入 Json decision，更新当前运行状态。
-            Json decision = {{"teaching", {{"helpType", "none"}}}, {"message", ""}, {"state", "completed"},
-                // 【逐行批注】 执行当前声明或表达式：{"actions", {{{"id", "create"}, {"tool", "create_course"}, {"args", {{"goal", "课程模式校…。
-                {"actions", {{{"id", "create"}, {"tool", "create_course"}, {"args", {{"goal", "课程模式校验"}, {"title", "课程模式校验"}, {"mode", mode == "deep" ? "lite" : "deep"}, {"payload", deepOutline}}}}}}};
+            Json decision = {{"title", "课程模式校验"}, {"summary", "核对指定课程模式"},
+                             {"courseStructure", {{{"stage", "观察"}, {"topics", {"图像"}}}}}};
+            // 模型不能覆盖用户选择的模式；非法字段被拒后返回合法大纲。
+            if (++modeCalls == 1) decision["mode"] = mode == "deep" ? "lite" : "deep";
             // 【逐行批注】 计算右侧结果并写入 gangyi::AIResult result; result.content，更新当前运行状态。
             gangyi::AIResult result; result.content = decision.dump(); result.model = "fixture-mode-choice"; result.finishReason = "stop"; return result;
         // 【逐行批注】 执行当前声明或表达式：});。
@@ -642,7 +637,7 @@ void runDeepCourseChecks() {
         // 【逐行批注】 判断条件 (planned.at("status") != "ready") std::cerr << planned.dump(2) <…，成立时执行对应分支。
         if (planned.at("status") != "ready") std::cerr << planned.dump(2) << '\n';
         // 【逐行批注】 调用 assert 完成本行所需操作：assert(planned.at("status") == "ready");。
-        assert(planned.at("status") == "ready");
+        assert(planned.at("status") == "ready" && modeCalls == 2);
         // 【逐行批注】 计算右侧结果并写入 auto createdId，更新当前运行状态。
         const auto createdId = planned.at("course").at("id").get<std::string>();
         // 【逐行批注】 调用 assert 完成本行所需操作：assert(db.getCourse(createdId)->mode == mode);。

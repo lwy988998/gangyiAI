@@ -7,6 +7,7 @@
 #include <map>
 // 【逐行批注】 引入头文件 <string>，为后续实现提供类型或接口声明。
 #include <string>
+#include <vector>
 
 // 【逐行批注】 声明或进入命名空间：namespace gangyi {。
 namespace gangyi {
@@ -21,6 +22,9 @@ struct AgentStreamDelta {
     int optionIndex = -1;
     // 【逐行批注】 执行当前声明或表达式：std::string text;。
     std::string text;
+
+    // 字段路径作为恢复与修正的稳定标识，不包含内部参数值。
+    std::string streamId;
 // 【逐行批注】 执行当前声明或表达式：};。
 };
 
@@ -32,13 +36,15 @@ public:
     // 【逐行批注】 计算右侧结果并写入 using Sink，更新当前运行状态。
     using Sink = std::function<void(const AgentStreamDelta&)>;
     // 【逐行批注】 声明对象 AgentPublicStream，并通过构造函数初始化其状态。
-    explicit AgentPublicStream(Sink sink);
+    explicit AgentPublicStream(Sink sink, bool outline = false);
     // 【逐行批注】 声明对象 push，并通过构造函数初始化其状态。
     void push(const std::string& chunk);
     // 【逐行批注】 定义函数 content，执行该函数声明的职责。
     const std::string& content() const { return content_; }
     // 【逐行批注】 定义函数 helpType，执行该函数声明的职责。
     const std::string& helpType() const { return helpType_; }
+
+    std::vector<AgentStreamDelta> fields() const;
 // 【逐行批注】 执行当前声明或表达式：private:。
 private:
     // 【逐行批注】 执行当前声明或表达式：Sink sink_;。
@@ -49,6 +55,8 @@ private:
     std::string helpType_;
     // 【逐行批注】 执行当前声明或表达式：std::map<std::string, std::string> emitted_;。
     std::map<std::string, std::string> emitted_;
+    std::map<std::string, AgentStreamDelta> fields_;
+    bool outline_ = false;
 // 【逐行批注】 执行当前声明或表达式：};。
 };
 

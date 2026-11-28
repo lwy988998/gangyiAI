@@ -1,4 +1,4 @@
-/* 深度课堂只呈现已保存的教学内容，图示交互在本地完成。 */
+/* 深度课堂逐片呈现公开草稿，保存后的讲义与图示沿用同一课时。 */
 // 【逐行批注】 计算右侧结果并更新 (()，改变页面或请求状态。
 (() => {
   // 【逐行批注】 启用 JavaScript 严格模式，减少隐式错误。
@@ -71,6 +71,7 @@
   const componentTraces = new Map();
   const interactiveInstances = [];
   let readingSignature = '';
+  let readingStreamHost, readingStreamView, readingStreams = [];
   // 【逐行批注】 声明前端变量 fullscreenSessionKey，保存本行计算出的数据或对象。
   const fullscreenSessionKey = 'gy-classroom-fullscreen';
   // 【逐行批注】 声明前端变量 svgNS，保存本行计算出的数据或对象。
@@ -417,7 +418,14 @@
     // 【逐行批注】 声明前端变量 response，保存本行计算出的数据或对象。
     const response = await fetch(path, data === undefined ? {cache:'no-store'} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
     // 【逐行批注】 声明前端变量 value，保存本行计算出的数据或对象。
-    const value = await response.json(); if (!response.ok) throw new Error(value.error || '请求未完成，请重试。'); return value;
+    let value;
+    try { value = await response.json(); }
+    catch (error) {
+      if (response.ok) throw error;
+      const failed = new Error('服务暂时未能返回结果，请稍后重试。'); failed.httpStatus = response.status; throw failed;
+    }
+    if (!response.ok) { const failed = new Error(value?.error || '请求未完成，请重试。'); failed.httpStatus = response.status; throw failed; }
+    return value;
   // 【逐行批注】 结束当前前端代码块。
   }
   // 【逐行批注】 定义函数 loadIndependentChat，封装可复用的前端行为。
@@ -513,7 +521,7 @@
           // 【逐行批注】 计算右侧结果并更新 independentChatSeen，改变页面或请求状态。
           independentChatSeen = new Set(chunks.map(item => item.seq));
           // 【逐行批注】 计算右侧结果并更新 independentChatStream，改变页面或请求状态。
-          independentChatStream = chunks.map(item => item.text || '').join('');
+          independentChatStream = Array.isArray(task.publicStreams) ? task.publicStreams.filter(item => item.field === 'message' && item.state !== 'revised').map(item => item.text).join('') : chunks.map(item => item.text || '').join('');
         // 【逐行批注】 结束当前前端代码块。
         }
         // 【逐行批注】 调用 syncChatAvailability、renderChat 执行页面交互或数据处理：syncChatAvailability(); renderChat();。
@@ -739,6 +747,7 @@
     // 【逐行批注】 声明前端变量 controls，保存本行计算出的数据或对象。
     const controls = element('div', '', 'dc-head-actions');
     // 【逐行批注】 声明前端变量 fullscreen，保存本行计算出的数据或对象。
+    const home = element('a', '返回首页', 'dc-button'); home.href = '/'; home.id = 'dc-home';
     const fullscreen = button('全屏课堂', 'fullscreen', false, 'expand'); fullscreen.id = 'dc-fullscreen';
     // 【逐行批注】 执行当前前端表达式：fullscreen.setAttribute('aria-pressed', 'false'); fullscreen.setAttribute('aria-label', '…。
     fullscreen.setAttribute('aria-pressed', 'false'); fullscreen.setAttribute('aria-label', '全屏显示课堂');
@@ -750,7 +759,7 @@
     const labsLink=element('a','互动实验','dc-button dc-labs-link');labsLink.href='/interactive-labs.html';labsLink.title='打开可自由操作的互动实验';
     const courseContextToggle = element('button', '本课上下文', 'dc-button gy-context-toggle');
     courseContextToggle.type = 'button';
-    controls.append(fullscreen, directory, courseContextToggle, answer, labsLink); head.append(heading, controls);
+    controls.append(home, fullscreen, directory, courseContextToggle, answer, labsLink); head.append(heading, controls);
     // 【逐行批注】 声明前端变量 fullscreenBar，保存本行计算出的数据或对象。
     const fullscreenBar = element('header', '', 'dc-fullscreen-bar'); fullscreenBar.id = 'dc-fullscreen-bar'; fullscreenBar.hidden = true;
     // 【逐行批注】 声明前端变量 fullscreenTitle，保存本行计算出的数据或对象。
@@ -898,7 +907,7 @@
       slideToolbar.dataset.menuKeepOpen = '';
       menu.className = 'gy-learning-actions';
       learningTools.panel.classList.add('gy-deep-menu');
-      learningTools.toggle.before(fullscreen);
+      learningTools.toggle.before(home, fullscreen);
       fullscreen.addEventListener('click', handleClick);
       learningTools.append(tabs, slideToolbar, directory, courseContextToggle, answer, next,
         learningTools.disclose('课堂操作', menu, labsLink),
@@ -917,6 +926,15 @@
     // 【逐行批注】 为页面事件绑定处理逻辑：chatDialog.addEventListener('close', () => { const room = chatDialog.querySelector('…。
     chatDialog.addEventListener('close', () => { const room = chatDialog.querySelector('.dc-chat-room'); if (room) answerPanel.append(room); mount.dataset.chatOpen = 'false'; updatePanels(); });
     // 【逐行批注】 为页面事件绑定处理逻辑：reading.addEventListener('scroll', () => {。
+    readingStreamHost = element('div', '', 'dc-lecture dc-stream-lecture');
+    readingStreamHost.id = 'dc-stream-content';
+    readingStreamView = api.createStreamView(readingStreamHost, {filter: record => !savedStreamTarget(record), viewport:reading});
+    const reopen = button('展开目录', 'directory', false, 'menu');
+    reopen.id = 'dc-directory-reopen'; reopen.classList.add('dc-directory-reopen');
+    reopen.setAttribute('aria-controls', 'dc-directory'); reopen.hidden = true;
+    mount.querySelector('.dc-layout').append(reopen);
+    api.followLatest(document.getElementById('dc-chat-scroll'));
+
     reading.addEventListener('scroll', () => {
       // 【逐行批注】 调用 store、exposeVisible 执行页面交互或数据处理：readingPositions.set(currentView, reading.scrollTop); store(`scroll:$…。
       readingPositions.set(currentView, reading.scrollTop); store(`scroll:${currentView}`, reading.scrollTop); exposeVisible();
@@ -1009,6 +1027,8 @@
     // 【逐行批注】 声明前端变量 directoryShown，保存本行计算出的数据或对象。
     const directoryShown = !fullscreenMode && !small && mount.dataset.directoryOpen === 'true';
     // 【逐行批注】 调用 String 执行页面交互或数据处理：document.getElementById('dc-directory-toggle').setAttribute('aria-exp…。
+    const reopen = document.getElementById('dc-directory-reopen');
+    if (reopen) reopen.hidden = directoryShown || small || fullscreenMode;
     document.getElementById('dc-directory-toggle').setAttribute('aria-expanded', String(directoryShown || document.getElementById('dc-outline-dialog').open));
     // 【逐行批注】 声明前端变量 chatExpanded，保存本行计算出的数据或对象。
     const chatExpanded = mount.dataset.chatOpen === 'true' || chatDialog.open;
@@ -1072,6 +1092,10 @@
     // 【逐行批注】 声明前端变量 container，保存本行计算出的数据或对象。
     const container = document.getElementById('dc-directory'); container.replaceChildren();
     // 【逐行批注】 调用 element 执行页面交互或数据处理：container.append(element('h2', saved?.course?.title || '课程目录'), eleme…。
+    const collapse = button('收起', 'directory', false, 'collapse');
+    collapse.id = 'dc-directory-collapse'; collapse.classList.add('dc-directory-collapse');
+    collapse.setAttribute('aria-label', '收起课程目录'); collapse.setAttribute('aria-controls', 'dc-directory');
+    container.append(collapse);
     container.append(element('h2', saved?.course?.title || '课程目录'), element('p', '沿课程主线，逐课探索。'));
     // 【逐行批注】 声明前端变量 stages，保存本行计算出的数据或对象。
     const stages = items(saved?.outline?.courseStructure);
@@ -1108,7 +1132,7 @@
     // 【逐行批注】 声明前端变量 dialogBody，保存本行计算出的数据或对象。
     const dialogBody = document.querySelector('#dc-outline-dialog>.dc-directory');
     // 【逐行批注】 计算右侧结果并更新 dialogBody.replaceChildren(...[...container.…，改变页面或请求状态。
-    dialogBody.replaceChildren(...[...container.children].map(node => node.cloneNode(true)));
+    dialogBody.replaceChildren(...[...container.children].filter(node => node.id !== 'dc-directory-collapse').map(node => node.cloneNode(true)));
   // 【逐行批注】 结束当前前端代码块。
   }
   // 【逐行批注】 声明前端变量 lessonQuestions，保存本行计算出的数据或对象。
@@ -1196,6 +1220,7 @@
       message.append(record.role==='user'?element('div',record.text,'dc-rich'):rich(record.text));
       // 【逐行批注】 调用 element 执行页面交互或数据处理：if(record.partial)message.append(element('p','这段回复尚未完整完成。','dc-partia…。
       if(record.partial)message.append(element('p','这段回复尚未完整完成。','dc-partial'));
+      if (record.revisions?.length) api.streamNotice(message, {state:'confirmed', revisions:record.revisions});
       // 【逐行批注】 执行当前前端表达式：thread.append(message);。
       thread.append(message);
     // 【逐行批注】 结束当前前端代码块。
@@ -1328,6 +1353,11 @@
         try { sessionStorage.setItem(`gangyi-agent:${key}`, value); } catch (_) { /* 沿用浏览器持久存储。 */ }
         api?.storage.set(key, value);
       };
+      const removeDraft = name => {
+        const key = draftKey(name);
+        try { sessionStorage.removeItem(`gangyi-agent:${key}`); } catch (_) { /* 继续清理持久存储。 */ }
+        api?.storage.remove(key);
+      };
       const serverDraft = saved?.componentDrafts?.[media.id];
       let activity;
       try {
@@ -1358,6 +1388,7 @@
         storeDraft('-activity', {signature, trace:activity});
         syncMeta = {signature, revision:serverDraft.revision, sessionId:activity.sessionId, totalChanges:activity.totalChanges};
         storeDraft('-sync', syncMeta);
+        removeDraft('-inflight');
       } else {
         syncMeta = localSync;
       }
@@ -1369,9 +1400,18 @@
       const syncKey = `${componentLessonId}:${media.id}:${version}`;
       let sync = componentDraftSyncs.get(syncKey);
       if (!sync) {
-        sync = {revision:syncMeta?.revision ?? 0, pending:null, running:false, blocked:false, timer:null};
+        let inflight = null;
+        try {
+          const stored = JSON.parse(loadDraft('-inflight') || 'null');
+          const packet = stored?.packet;
+          if (stored?.signature === signature && packet?.lessonId === componentLessonId && packet.componentId === media.id &&
+              packet.trace?.sessionId === activity.sessionId && packet.trace?.contentVersion === version &&
+              Number.isSafeInteger(packet.expectedRevision) && packet.expectedRevision >= 0) inflight = packet;
+        } catch (_) { /* 损坏的回执不覆盖当前探索，服务端仍会检查版本。 */ }
+        sync = {revision:syncMeta?.revision ?? 0, pending:null, inflight, running:false, blocked:false,
+          retryDelay:0, retrying:false, timer:null};
         componentDraftSyncs.set(syncKey, sync);
-      } else if (useServerDraft && !sync.running && !sync.pending) {
+      } else if (useServerDraft && !sync.running && !sync.pending && !sync.inflight) {
         sync.revision = serverDraft.revision;
       }
       const queueDraft = value => {
@@ -1382,21 +1422,45 @@
           contentId:page.id, state:JSON.parse(JSON.stringify(value)), trace:JSON.parse(JSON.stringify(activity))};
         clearTimeout(sync.timer);
         const flush = async () => {
-          if (sync.running || sync.blocked || !sync.pending) return;
+          if (sync.running || sync.blocked || (!sync.pending && !sync.inflight)) return;
+          // 回执丢失时必须先重发完全相同的本机幂等写入，再保存期间产生的新操作。
+          if (!sync.inflight) {
+            sync.inflight = {...sync.pending, expectedRevision:sync.revision};
+            sync.pending = null;
+            storeDraft('-inflight', {signature, packet:sync.inflight});
+          }
+          const packet = sync.inflight;
           sync.running = true;
-          const pending = sync.pending; sync.pending = null;
           try {
-            const result = await request('/api/deep-course/component-draft', {...pending, expectedRevision:sync.revision});
+            const result = await request('/api/deep-course/component-draft', packet);
             sync.revision = result.revision;
-            storeDraft('-sync', {signature, revision:sync.revision, sessionId:pending.trace.sessionId,
-              totalChanges:pending.trace.totalChanges});
+            storeDraft('-sync', {signature, revision:sync.revision, sessionId:packet.trace.sessionId,
+              totalChanges:packet.trace.totalChanges});
+            sync.inflight = null;
+            removeDraft('-inflight');
+            if (sync.pending && sync.pending.deepView === packet.deepView && sync.pending.contentId === packet.contentId &&
+                JSON.stringify(sync.pending.state) === JSON.stringify(packet.state) &&
+                JSON.stringify(sync.pending.trace) === JSON.stringify(packet.trace)) sync.pending = null;
+            if (sync.retrying && taskMessage === '探索保存暂时中断，正在重试；当前操作保留在本窗口。')
+              status('探索已恢复同步。');
+            sync.retrying = false;
+            sync.retryDelay = 0;
           } catch (error) {
-            sync.pending = sync.pending || pending;
-            sync.blocked = true;
-            status(`探索暂未同步：${error.message} 本地草稿仍保留。`);
+            const transient = error.networkFailure || (!api?.request && error instanceof TypeError) ||
+              [408, 425, 429].includes(error.httpStatus) || error.httpStatus >= 500;
+            if (transient) {
+              sync.retrying = true;
+              sync.retryDelay = Math.min(sync.retryDelay ? sync.retryDelay * 2 : 500, 30000);
+              status('探索保存暂时中断，正在重试；当前操作保留在本窗口。');
+            } else {
+              // 版本冲突及无效数据必须停下，不能覆盖其他窗口的探索。
+              sync.blocked = true;
+              status(`探索暂未同步：${error.message} 本地草稿仍保留。`);
+            }
           } finally {
             sync.running = false;
-            if (sync.pending && !sync.blocked) sync.timer = setTimeout(flush, 250);
+            if ((sync.inflight || sync.pending) && !sync.blocked)
+              sync.timer = setTimeout(flush, sync.retryDelay || 250);
           }
         };
         sync.timer = setTimeout(flush, 250);
@@ -1429,6 +1493,9 @@
           recordActivity('explain', value);
           queueDraft(value);
           const prompt = {sets:'请根据当前集合探索的操作和结果，解释当前交并补或集合关系，留意全集和空集。',function_lab:'请根据当前函数系数和图像解释变化规律。',
+            periodic_lab:'请根据我实际选择和比较的两个元素，解释周期、族和中性原子的组成；电子层示意仅覆盖前20号，不从原子量猜中子数，不把镧系或锕系整体视为同族。',
+            wave_lab:'请结合我设置的波速、周期、振幅、时刻和固定质点，解释波长与频率，以及波形传播和质点振动的区别；零振幅时不能从图形辨认波长。',
+            triangle_lab:'请结合实际移动的三个顶点，解释当前三角形的边长、角度和面积；共线或顶点重合时先说明不能组成三角形。',
             circuit_lab:'请根据当前电路的连接方式、电源和电阻，解释电流与电压的关系。',motion_lab:'请结合我设置的初位置、初速度、加速度和时刻，解释位移与路程、速度与速率的区别，引导我观察运动方向变化。',chemical_balance:'请根据当前配平系数和原子计数，解释哪些元素已经守恒、哪些尚未守恒，先不要直接给出配平答案。',
             cell_lab:'请解释我当前选择的细胞结构与功能，留意典型细胞示意的适用范围。',history_lab:'请按当前事件排列和已核对日期讨论时间顺序，不能仅凭先后断言因果。',
             climate_lab:'请比较当前选择月份的气温和降水。这是教学示例数据，不是真实城市观测。',annotation_lab:'请结合我对原文的当前标注讨论阅读理由，允许合理多解，不要把标注当成正式作答。',
@@ -1601,7 +1668,13 @@
     // 【逐行批注】 声明前端变量 submit，保存本行计算出的数据或对象。
     const submit=button('提交答案','answer',true);submit.type='submit';form.append(options,label,answer,submit);card.append(form);
     // 【逐行批注】 按循环规则遍历或重复处理：for(const evaluation of evaluations){const feedback=element('div','','dc-e…。
-    for(const evaluation of evaluations){const feedback=element('div','','dc-evaluation');feedback.dataset.evaluationId=evaluation.id;feedback.append(element('strong','本次作答反馈'),rich(evaluation.feedback || ''));card.append(feedback);}
+    for (const evaluation of evaluations) {
+      const feedback = element('div', '', 'dc-evaluation');
+      feedback.dataset.evaluationId = evaluation.id;
+      const title = typeof evaluation.choiceCorrect === 'boolean' ? (evaluation.choiceCorrect ? '选项正确' : '选项有误') : '本次作答反馈';
+      feedback.append(element('strong', title), rich(evaluation.feedback || ''));
+      card.append(feedback);
+    }
     // 【逐行批注】 声明前端变量 thread，保存本行计算出的数据或对象。
     const thread=renderTeachingThread(teaching);if(thread)card.append(thread);
     // 【逐行批注】 结束当前函数并返回结果：return card;。
@@ -1627,6 +1700,55 @@
   // 【逐行批注】 结束当前前端代码块。
   }
   // 【逐行批注】 定义函数 renderReading，封装可复用的前端行为。
+  function savedStreamTarget(record) {
+    let target;
+    if (record.field === 'message') {
+      if (record.state !== 'confirmed') return false;
+      const savedMessage = items(lesson?.timeline).find(item => item.type === 'message' && item.taskId === record.taskId && item.step === record.step && item.text === record.text);
+      if (savedMessage) target = [...document.querySelectorAll('.dc-teaching-message')].find(node => node.dataset.teachingKey === `${record.taskId}:assistant:${record.step}`);
+    } else {
+      const section = items(lesson?.sections).find(item => record.field === 'title' ? item.title === record.text :
+        item.body === record.text || item.question?.question === record.text || items(item.question?.options).includes(record.text));
+      if (section) target = [...document.querySelectorAll('#dc-reading [data-section-id]')].find(node => node.dataset.sectionId === section.id);
+    }
+    if (target && record.field !== 'title') api.streamNotice(target, record);
+    return Boolean(target);
+  }
+
+  function updateReadingStream() {
+    if (!readingStreamView) return;
+    const reading = document.getElementById('dc-reading');
+    if (readingStreamHost.parentNode !== reading) reading.append(readingStreamHost);
+    readingStreamView.update(readingStreams);
+    const placeholder = reading.querySelector(':scope > .dc-empty');
+    if (placeholder) placeholder.hidden = !readingStreamHost.hidden;
+  }
+
+  function preserveReadingSelection(reading) {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || !reading.contains(selection.anchorNode) || !reading.contains(selection.focusNode)) return () => {};
+    const point = (node, offset) => {
+      const parent = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+      const block = parent.closest('[data-section-id], [data-teaching-key], #dc-stream-content') || reading;
+      const range = document.createRange(); range.selectNodeContents(block); range.setEnd(node, offset);
+      return {section:block.dataset.sectionId, teaching:block.dataset.teachingKey, id:block.id, offset:range.toString().length};
+    };
+    const anchor = point(selection.anchorNode, selection.anchorOffset), focus = point(selection.focusNode, selection.focusOffset);
+    return () => {
+      const locate = value => {
+        const block = value.section ? [...reading.querySelectorAll('[data-section-id]')].find(node => node.dataset.sectionId === value.section) :
+          value.teaching ? [...reading.querySelectorAll('[data-teaching-key]')].find(node => node.dataset.teachingKey === value.teaching) :
+          value.id ? document.getElementById(value.id) : reading;
+        if (!block) return null;
+        const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT); let remaining = value.offset, last;
+        while (walker.nextNode()) { last = walker.currentNode; if (remaining <= last.length) return [last, remaining]; remaining -= last.length; }
+        return last ? [last, last.length] : [block, 0];
+      };
+      const start = locate(anchor), end = locate(focus);
+      if (start && end) selection.setBaseAndExtent(...start, ...end);
+    };
+  }
+
   function renderReading(preserve = true) {
     const reading = document.getElementById('dc-reading');
     const threads = teachingThreads();
@@ -1648,6 +1770,7 @@
     // 【逐行批注】 声明前端变量 wasAtBottom，保存本行计算出的数据或对象。
     const wasAtBottom=oldTop+reading.clientHeight>=reading.scrollHeight-28;
     // 【逐行批注】 执行当前前端表达式：reading.replaceChildren();。
+    const restoreSelection = preserveReadingSelection(reading);
     reading.replaceChildren();
     // 【逐行批注】 声明前端变量 threads，保存本行计算出的数据或对象。
     // 【逐行批注】 声明前端变量 lecture，保存本行计算出的数据或对象。
@@ -1704,8 +1827,26 @@
       // 【逐行批注】 声明前端变量 article，保存本行计算出的数据或对象。
       const article=element('article','','dc-lecture'),attached=new Set();
       // 【逐行批注】 按循环规则遍历或重复处理：for(const section of lecture){const block=element('section','','dc-lecture…。
-      for(const section of lecture){const block=element('section','','dc-lecture-section');block.dataset.sectionId=section.sectionId||section.id;if(section.title)block.append(element('h2',section.title));block.append(rich(section.body || ''));for(const media of mediaFor(section.mediaIds)){block.append(renderMedia(media));attached.add(media.id);}article.append(block);}
+      for (const section of lecture) {
+        const block = element('section', '', 'dc-lecture-section'); block.dataset.sectionId = section.sectionId || section.id;
+        if (section.title) block.append(element('h2', section.title));
+        block.append(rich(section.body || ''));
+        const original = items(lesson?.sections).find(value => value.id === block.dataset.sectionId);
+        if (original?.streamRevisions?.length) api.streamNotice(block, {state:'confirmed', revisions:original.streamRevisions});
+        for (const media of mediaFor(section.mediaIds)) { block.append(renderMedia(media)); attached.add(media.id); }
+        article.append(block);
+      }
       // 【逐行批注】 按循环规则遍历或重复处理：for(const media of items(saved?.content?.media))if(!attached.has(media.id)…。
+      // 课堂中新保存的小节立即接续进同一份讲义，下一轮回复或刷新后仍可阅读。
+      const published = new Set(lecture.map(section => section.sectionId || section.id));
+      for (const section of items(lesson?.sections)) {
+        if (published.has(section.id) || !['explanation','summary'].includes(section.kind) || !String(section.body || '').trim()) continue;
+        const block = element('section', '', 'dc-lecture-section'); block.dataset.sectionId = section.id;
+        if (section.title) block.append(element('h2', section.title));
+        block.append(rich(section.body));
+        if (section.streamRevisions?.length) api.streamNotice(block, {state:'confirmed', revisions:section.streamRevisions});
+        article.append(block);
+      }
       for(const media of items(saved?.content?.media))if(!attached.has(media.id))article.append(renderMedia(media));
       // 【逐行批注】 声明前端变量 questionIds，保存本行计算出的数据或对象。
       const questionIds=new Set(questions.map(section=>section.id));
@@ -1718,11 +1859,13 @@
     // 【逐行批注】 结束当前前端代码块。
     }
     // 【逐行批注】 声明前端变量 slideToolbar，保存本行计算出的数据或对象。
+    updateReadingStream();
     const slideToolbar=document.getElementById('dc-slide-navigation');slideToolbar.hidden=currentView!=='slides'||!slides.length;
     // 【逐行批注】 执行当前前端表达式：if(!slideToolbar.hidden){document.getElementById('dc-slide-previous').disabled=currentSli…。
     if(!slideToolbar.hidden){document.getElementById('dc-slide-previous').disabled=currentSlide===0;document.getElementById('dc-slide-next').disabled=currentSlide===slides.length-1;document.getElementById('dc-slide-count').textContent=`${currentSlide+1} / ${slides.length}`;}
     // 【逐行批注】 计算右侧结果并更新 reading.scrollTop，改变页面或请求状态。
     reading.scrollTop=wasAtBottom?reading.scrollHeight:oldTop;
+    restoreSelection();
     // 【逐行批注】 按循环规则遍历或重复处理：for(const tab of mount.querySelectorAll('[data-view-mode]')){。
     for(const tab of document.querySelectorAll('[data-view-mode]')){
       // 【逐行批注】 声明前端变量 selected，保存本行计算出的数据或对象。
@@ -1848,6 +1991,7 @@
     // 【逐行批注】 按循环规则遍历或重复处理：for(const node of viewport.querySelectorAll('[data-evaluation-id]')){const…。
     for(const node of viewport.querySelectorAll('[data-evaluation-id]')){const evaluation=items(lesson.evaluations).find(value=>value.id===node.dataset.evaluationId);if(evaluation)api.recordEvaluation?.(lesson.id,evaluation,node,viewport);}
       // 【逐行批注】 声明前端变量 records，保存本行计算出的数据或对象。
+      readingStreamView?.expose(viewport);
       const records=teachingRecords();
       // 【逐行批注】 按循环规则遍历或重复处理：for(const node of viewport.querySelectorAll('[data-teaching-key]')){const …。
       for(const node of viewport.querySelectorAll('[data-teaching-key]')){const record=records.get(node.dataset.teachingKey);if(record)api.recordVisibleMessage?.(record,node.querySelector('.dc-rich'),viewport);}
@@ -2082,10 +2226,19 @@
     // 【逐行批注】 调用 status 执行页面交互或数据处理：if(!api?.watch){status('实时状态暂不可用，请重新读取已保存的课堂。');return;}。
     if(!api?.watch){status('实时状态暂不可用，请重新读取已保存的课堂。');return;}
     // 【逐行批注】 计算右侧结果并更新 stopWatching，改变页面或请求状态。
-    stopWatching=api.watch(taskId,{onEvent(event){if(epoch!==activeEpoch)return false;tracePanel?.event(event);if(event.type==='action'||event.type==='round_feedback')refresh();
-      // 【逐行批注】 调用 renderChat 执行页面交互或数据处理：if(event.type==='delta'&&event.field==='message'){let record=pendingM…。
-      if(event.type==='delta'&&event.field==='message'){let record=pendingMessages.find(value=>value.taskId===taskId&&value.step===event.step);if(!record){record={id:`${taskId}:${event.step}`,taskId,step:event.step,role:'assistant',text:'',sequences:[],partial:true};pendingMessages.push(record);}record.text+=event.text;record.sequences.push(event.seq);renderChat();}return false;},
-      // 【逐行批注】 调用 onState、paintTask、refresh 执行页面交互或数据处理：onState(task){if(epoch!==activeEpoch)return;if(task.lesson?.id&&!scop…。
+    readingStreams = []; readingStreamView?.clear();
+    stopWatching=api.watch(taskId,{
+      onContent(records) {
+        if (epoch !== activeEpoch) return;
+        readingStreams = records;
+        updateReadingStream();
+      },
+      onEvent(event) {
+        if (epoch !== activeEpoch) return false;
+        tracePanel?.event(event);
+        if (event.type === 'action' || event.type === 'round_feedback' || event.type === 'stream_status') refresh();
+        return false;
+      },
       onState(task){if(epoch!==activeEpoch)return;if(task.lesson?.id&&!scope.lessonId)scope.lessonId=task.lesson.id;paintTask(task);if(!['pending','running'].includes(task.status)){for(const record of pendingMessages)if(record.taskId===taskId)record.partial=!['ready','waiting_student'].includes(task.status);refresh();}},
       // 【逐行批注】 调用 onConnectionError、status 执行页面交互或数据处理：onConnectionError(message){if(epoch===activeEpoch)status(message);}});。
       onConnectionError(message){if(epoch===activeEpoch)status(message);}});
@@ -2163,7 +2316,8 @@
     try{pending=JSON.parse(api?.storage.get(key)||'null');}catch(_){ /* 本地损坏的请求记录重新建立。 */ }
     // 【逐行批注】 执行当前前端表达式：if(pending&&pending.text===payload.text&&pending.type===payload.type&&pending.sectionVers…。
     if(pending&&pending.text===payload.text&&pending.type===payload.type&&pending.sectionVersion===payload.sectionVersion&&
-      pending.requestType===payload.requestType&&pending.teachingPreferenceVersion===payload.teachingPreferenceVersion)payload.requestId=pending.requestId;
+      pending.requestType===payload.requestType&&pending.teachingPreferenceVersion===payload.teachingPreferenceVersion&&
+      pending.selectedOption===payload.selectedOption)payload.requestId=pending.requestId;
     // 【逐行批注】 执行当前前端表达式：api?.storage.set(key,JSON.stringify(payload));。
     api?.storage.set(key,JSON.stringify(payload));
     // 【逐行批注】 声明前端变量 accepted，保存本行计算出的数据或对象。
@@ -2200,7 +2354,9 @@
     // 【逐行批注】 调用 status 执行页面交互或数据处理：if(!text){status('先选择答案或写下你的思路，再提交。');answer.focus();return;}。
     if(!text){status('先选择答案或写下你的思路，再提交。');answer.focus();return;}
     // 【逐行批注】 调用 sendEvent 执行页面交互或数据处理：sendEvent({type:'question_answer',action:'answer',text,sectionId:sect…。
-    sendEvent({type:'question_answer',action:'answer',text,sectionId:section.id,sectionVersion:section.version},{name:`answer:${section.id}`,node:answer,text:answer.value});
+    const payload = {type:'question_answer', action:'answer', text, sectionId:section.id, sectionVersion:section.version};
+    if (section.question.verifiedChoice && choices.length === 1) payload.selectedOption = choices[0];
+    sendEvent(payload, {name:`answer:${section.id}`, node:answer, text:answer.value});
   // 【逐行批注】 结束当前前端代码块。
   }
   // 【逐行批注】 定义函数 waitMediaTask，封装可复用的前端行为。
@@ -2401,7 +2557,7 @@
   // 【逐行批注】 计算右侧结果并更新 refresh().then(()，改变页面或请求状态。
   refresh().then(()=>{
     // 【逐行批注】 计算右侧结果并更新 currentView，改变页面或请求状态。
-    currentView=restore('view')==='slides'?'slides':'lecture';currentSlide=Math.max(0,finite(restore('slide')));mount.dataset.directoryOpen=restore('directory-open')==='0'?'false':'true';renderReading(false);
+    currentView=restore('view')==='slides'?'slides':'lecture';currentSlide=Math.max(0,finite(restore('slide')));mount.dataset.directoryOpen=restore('directory-open')==='0'?'false':'true';renderReading(false);api.followLatest(document.getElementById('dc-reading'));
     // 【逐行批注】 执行当前前端表达式：if(fullscreenMode){。
     if(fullscreenMode){
       // 【逐行批注】 计算右侧结果并更新 lastFullscreenCompact，改变页面或请求状态。

@@ -8,6 +8,7 @@
 #include "teaching_evidence.hpp"
 #include "learning_state.hpp"
 #include "component_activity.hpp"
+#include "set_exercise.hpp"
 // 【逐行批注】 引入头文件 "agent_curriculum.hpp"，为后续实现提供类型或接口声明。
 #include "agent_curriculum.hpp"
 // 【逐行批注】 引入头文件 "deep_course.hpp"，为后续实现提供类型或接口声明。
@@ -335,6 +336,7 @@ Json publicLesson(const Json& lesson) {
             shown.erase("body"); Json question;
             // 【逐行批注】 按循环规则重复处理：for (const auto* key : {"question", "options", "type", "materials"}) if (s…。
             for (const auto* key : {"question", "options", "type", "materials"}) if (section.at("question").contains(key)) question[key] = section["question"][key];
+            if (section.at("question").contains("setExercise")) question["verifiedChoice"] = true;
             // 【逐行批注】 判断条件 (question.contains("materials")) question["materials"] = teachin…，成立时执行对应分支。
             if (question.contains("materials")) question["materials"] = teachingMaterialSnapshot(question.at("materials"));
             // 【逐行批注】 计算右侧结果并写入 shown["question"]，更新当前运行状态。
@@ -354,33 +356,10 @@ Json publishedEvaluation(const LearningInteraction& row, const Json& value,
     Json result = {{"id", row.id}, {"sectionId", input.value("sectionId", "")},
         {"interactionId", inputRow.id}, {"requestId", input.value("requestId", "")}};
     for (const auto* field : {"questionId", "response", "score", "credible", "status", "feedback", "feedbackHelpType",
-                             "reason", "uncertainty", "assisted", "at", "diagnosis", "helpHistory", "helpMode", "rePracticeOf"})
+                             "reason", "uncertainty", "assisted", "at", "diagnosis", "helpHistory", "helpMode", "rePracticeOf",
+                             "selectedOption", "choiceCorrect"})
         if (value.contains(field)) result[field] = value.at(field);
     return result;
-}
-
-std::string topicQuestionKey(const std::string& scope, Json question) {
-    // 折叠空白与选项顺序，保留公式、数字及材料差异。
-    const auto normalize = [](const std::string& text) {
-        std::string result;
-        bool space = false;
-        for (const char character : text) {
-            if (character == ' ' || character == '\t' || character == '\r' || character == '\n') {
-                space = !result.empty();
-                continue;
-            }
-            if (space) result.push_back(' ');
-            result.push_back(character);
-            space = false;
-        }
-        return result;
-    };
-    question["question"] = normalize(question.at("question").get<std::string>());
-    if (question.value("options", Json()).is_array()) {
-        for (auto& option : question["options"]) if (option.is_string()) option = normalize(option.get<std::string>());
-        std::sort(question["options"].begin(), question["options"].end());
-    }
-    return teachingQuestionIdentity(scope, question);
 }
 
 struct TopicLink {
@@ -494,7 +473,7 @@ Json topicEvidence(Database& db, const AgentAccess& access, const Json& lesson,
                 section.value("questionId", "") == questionId && section.value("legacyKind", "") != "example";
         });
         if (item == sections.end() || item->value("question", Json()) != snapshot) continue;
-        const auto key = topicQuestionKey(questionScope, snapshot);
+        const auto key = teachingQuestionEvidenceKey(questionScope, snapshot);
         const auto sectionKey = Json::array({origin->first, item->at("id")}).dump();
         if (sectionKeys.insert(sectionKey).second)
             basis["sections"].push_back({{"id", sectionKey}, {"kind", "question"}, {"questionId", key}});
@@ -554,6 +533,26 @@ Json topicEvidence(Database& db, const AgentAccess& access, const Json& lesson,
     return result;
 }
 
+Json lessonTaskEvents(Database& db, const Json& task) {
+    std::map<int, Json> ordered;
+    int cursor = 0;
+    while (true) {
+        const auto rows = db.agentRunEvents(task.at("id"), cursor, 500);
+        if (rows.empty()) break;
+        const auto previous = cursor;
+        for (const auto& raw : rows) {
+            const auto event = Json::parse(raw, nullptr, false);
+            if (!event.is_object() || !event.value("seq", Json()).is_number_integer()) continue;
+            const int seq = event.at("seq"); ordered[seq] = event; cursor = std::max(cursor, seq);
+        }
+        if (cursor == previous || rows.size() < 500) break;
+    }
+    for (const auto& event : task.value("events", Json::array())) ordered[event.value("seq", 0)] = event;
+    Json result = Json::array();
+    for (const auto& item : ordered) if (item.first > 0) result.push_back(item.second);
+    return result;
+}
+
 Json displayedMessages(Database& db, const Json& task) {
     // 【逐行批注】 计算右侧结果并写入 auto raw，更新当前运行状态。
     const auto raw = db.profileMeta("agent-exposure:" + task.at("id").get<std::string>());
@@ -569,8 +568,8 @@ Json displayedMessages(Database& db, const Json& task) {
     std::map<int, std::string> messages;
     // 【逐行批注】 执行当前声明或表达式：std::map<int, bool> fullyDisplayed;。
     std::map<int, bool> fullyDisplayed;
-    // 【逐行批注】 按循环规则重复处理：for (const auto& event : task.value("events", Json::array()))。
-    for (const auto& event : task.value("events", Json::array()))
+    // 【逐行批注】 按循环规则重复处理：for (const auto& event : lessonTaskEvents(db, task))。
+    for (const auto& event : lessonTaskEvents(db, task))
         // 【逐行批注】 判断条件 (event.value("type", "") == "delta" && event.value("field", "") …，成立时执行对应分支。
         if (event.value("type", "") == "delta" && event.value("field", "") == "message") {
             // 【逐行批注】 计算右侧结果并写入 int step，更新当前运行状态。
@@ -584,7 +583,8 @@ Json displayedMessages(Database& db, const Json& task) {
             // 【逐行批注】 判断条件 (event.value("seq", 0) <= observed && (!displayed.is_array() || …，成立时执行对应分支。
             if (event.value("seq", 0) <= observed && (!displayed.is_array() || std::find(displayed.begin(), displayed.end(), event.at("seq")) != displayed.end()))
             // 【逐行批注】 计算右侧结果并写入 messages[event.value("step", 0)] +，更新当前运行状态。
-            messages[event.value("step", 0)] += event.value("text", "");
+            if (event.value("replace", false)) messages[step] = event.value("text", "");
+            else messages[step] += event.value("text", "");
         // 【逐行批注】 结束当前代码块。
         }
     // 【逐行批注】 计算右侧结果并写入 Json result，更新当前运行状态。
@@ -918,7 +918,7 @@ void registerAgentLessonTools(LearningAgent& agent) {
             return update(db, task, id, lesson, {{"lessonId", id}, {"roundId", round.at("roundId")}, {"status", "completed"}, {"questionCount", round.at("questionCount")}, {"evaluatedQuestionCount", evaluated.size()}, {"nextRoundRequired", true}});
         }});
     // 【逐行批注】 注册可由 AI 主控调用的工具：agent.registerTool("append_section", {"追加教学板块，不改已展示内容。参数 lessonId、section:{kind:expl…。
-    agent.registerTool("append_section", {"追加教学板块，不改已展示内容。参数 lessonId、section:{kind:explanation|question|summary,title,body 或 question:{question,options 可选,type,expectedAnswer,rubric},questionKind:interaction|practice}，activate 可选。带body的explanation和summary必须另填section.helpType:none|explanation|hint|worked_example|clarification|unknown；普通概念讲解用explanation。hint和worked_example还必须填section.targetQuestionId，使用currentInputs实际选中原题的questionId，不用新的教学焦点。课堂互动追加的问题默认立即在学生当前页面显示；仅备好未来题目时用 activate=false。选择题必须有至少两个非空 options，不可只在 message 里承诺出题。题目标准只放 expectedAnswer/rubric，示范放 explanation，不评分。完整示范另一题时，section.demonstratedQuestions 保存实际示范的题干及 options/materials，不能只填答案。返回稳定板块与题目标识。嵌套动作格式示例：{\"id\":\"new-question\",\"tool\":\"append_section\",\"args\":{\"lessonId\":\"实际课时ID\",\"section\":{\"kind\":\"question\",\"title\":\"练习\",\"questionKind\":\"practice\",\"materialOrigin\":\"ai_exercise\",\"question\":{\"question\":\"题干\",\"type\":\"open\",\"expectedAnswer\":\"私有答案\",\"rubric\":\"私有标准\"}}}}。引用依据写在section.citations中；不要把私有标准放到公开body。", false,
+    agent.registerTool("append_section", {"追加教学板块，不改已展示内容。参数 lessonId、section:{kind:explanation|question|summary,title,body 或 question:{question,options 可选,type,expectedAnswer,rubric},questionKind:interaction|practice}，activate 可选。带body的explanation和summary必须另填section.helpType:none|explanation|hint|worked_example|clarification|unknown；普通概念讲解用explanation。hint和worked_example还必须填section.targetQuestionId，使用currentInputs实际选中原题的questionId，不用新的教学焦点。课堂互动追加的问题默认立即在学生当前页面显示；仅备好未来题目时用 activate=false。选择题必须有至少两个非空 options，不可只在 message 里承诺出题。有限集合交并补和关系单选题优先使用 section.question:{setExercise:{schemaVersion:1,config:{universe,setA,setB,operation},options}}，operation 为 intersection|union|complement_a|complement_b|relations。可用同课已保存的集合组件 mediaId 替代 config，按保存的初始条件出题。运算题 options 是 2 至 6 个由全集内元素组成的数组，关系题省略 options。程序生成题面并核验唯一答案，无须另写 question、expectedAnswer 或 rubric。题目标准只放 expectedAnswer/rubric，示范放 explanation，不评分。完整示范另一题时，section.demonstratedQuestions 保存实际示范的题干及 options/materials，不能只填答案。返回稳定板块与题目标识。嵌套动作格式示例：{\"id\":\"new-question\",\"tool\":\"append_section\",\"args\":{\"lessonId\":\"实际课时ID\",\"section\":{\"kind\":\"question\",\"title\":\"练习\",\"questionKind\":\"practice\",\"materialOrigin\":\"ai_exercise\",\"question\":{\"question\":\"题干\",\"type\":\"open\",\"expectedAnswer\":\"私有答案\",\"rubric\":\"私有标准\"}}}}。引用依据写在section.citations中；不要把私有标准放到公开body。", false,
         // 【逐行批注】 执行当前声明或表达式：[](Database& db, const Json& args, const Json& task, const AIResult& source) {。
         [](Database& db, const Json& args, const Json& task, const AIResult& source) {
             // 【逐行批注】 计算右侧结果并写入 auto id，更新当前运行状态。
@@ -956,10 +956,14 @@ void registerAgentLessonTools(LearningAgent& agent) {
             // 【逐行批注】 判断条件 (kind == "question") {，成立时执行对应分支。
             if (kind == "question") {
                 // 【逐行批注】 计算右侧结果并写入 auto question，更新当前运行状态。
-                const auto question = input.at("question");
+                auto question = input.at("question");
                 // 【逐行批注】 判断条件 (!question.is_object()) throw std::invalid_argument("section.que…，成立时执行对应分支。
                 if (!question.is_object()) throw std::invalid_argument("section.question 必须为 JSON 对象，不能使用数组；一个题目对应一个 question 板块");
                 // 【逐行批注】 调用 text 完成本行所需操作：text(question, "question");。
+                if (question.contains("setExercise")) {
+                    const auto content = lesson.find("deepContent");
+                    question = checkedSetExerciseQuestion(question, content == lesson.end() ? Json::object() : *content);
+                }
                 text(question, "question");
                 // 【逐行批注】 判断条件 (input.contains("questionKind") && args.contains("questionKind")…，成立时执行对应分支。
                 if (input.contains("questionKind") && args.contains("questionKind") && input.at("questionKind") != args.at("questionKind"))
@@ -1009,7 +1013,19 @@ void registerAgentLessonTools(LearningAgent& agent) {
                         throw std::invalid_argument("追加题目的轮次标识与当前教学轮次不一致");
                     if (!args.value("activate", true)) throw std::invalid_argument("本轮只生成并展示当前一道题");
                     if (round.contains("pendingSectionId")) throw std::invalid_argument("当前题必须先完成并发布反馈，才能安排下一题");
-                    if (roundContainsQuestion(round, section["questionId"].get<std::string>())) throw std::invalid_argument("本轮不能重复追加同一道题");
+                    // 作答仍绑定保存时的题目标识与选项顺序，独立题数使用统一的证据去重规则。
+                    const auto& courseId = lesson.at("courseId").get_ref<const std::string&>();
+                    const auto key = teachingQuestionEvidenceKey(courseId, question);
+                    const auto& sections = lesson.at("sections");
+                    const bool repeated = std::any_of(sections.begin(), sections.end(), [&](const Json& previous) {
+                        if (previous.value("roundId", Json()) != round.at("roundId")) return false;
+                        const auto snapshot = previous.find("question");
+                        return snapshot != previous.end() && snapshot->is_object() &&
+                            snapshot->value("question", Json()).is_string() &&
+                            teachingQuestionEvidenceKey(courseId, *snapshot) == key;
+                    });
+                    if (roundContainsQuestion(round, section["questionId"].get<std::string>()) || repeated)
+                        throw std::invalid_argument("本轮不能重复追加同一道题。请根据上一题反馈设计有实质差异的下一题。");
                     const auto current = round.at("questionIds").size();
                     if (current >= static_cast<std::size_t>(round.at("questionCount").get<int>())) throw std::invalid_argument("本轮题数已满，请结束本轮并在下一轮补强");
                     section["roundId"] = round.at("roundId");
@@ -1038,8 +1054,9 @@ void registerAgentLessonTools(LearningAgent& agent) {
                     for (const auto& previous : lesson.at("sections")) if (previous.value("questionId", "") == original) {
                         // 【逐行批注】 计算右侧结果并写入 found，更新当前运行状态。
                         found = true;
-                        // 【逐行批注】 判断条件 (previous.contains("question") && teachingQuestionIdentity(lesso…，成立时执行对应分支。
-                        if (previous.contains("question") && teachingQuestionIdentity(lesson.at("courseId"), previous.at("question")) == section.at("questionId"))
+                        if (previous.contains("question") &&
+                            teachingQuestionEvidenceKey(lesson.at("courseId"), previous.at("question")) ==
+                                teachingQuestionEvidenceKey(lesson.at("courseId"), question))
                             // 【逐行批注】 检测到错误情形时抛出异常：throw std::invalid_argument("复练题干、选项和材料必须与原题不同，不能用新的板块标识重复原题");。
                             throw std::invalid_argument("复练题干、选项和材料必须与原题不同，不能用新的板块标识重复原题");
                     // 【逐行批注】 结束当前代码块。
@@ -1178,7 +1195,7 @@ void registerAgentLessonTools(LearningAgent& agent) {
         // 【逐行批注】 执行当前声明或表达式：}});。
         }});
     // 【逐行批注】 注册可由 AI 主控调用的工具：agent.registerTool("evaluate_answer", {"真实 AI 评价实际学生回答。args 参数 interactionId、score(0…。
-    agent.registerTool("evaluate_answer", {"真实 AI 评价实际学生回答。args 参数 interactionId、score(0..100 或 null)、credible(bool)、feedback、reason、uncertainty；后三项必须是非空文字。新版 args 内必须有 diagnosis:{summary,evidence:[回答原话],teachingDirection,needsClarification:bool}，不能放在根对象；另须 feedbackHelpType:none|explanation|hint|worked_example|clarification，按公开反馈整体分类（feedback、uncertainty、diagnosis.summary/evidence）：仅指出对错用none，本题方向用hint，给本题答案或完整步骤用worked_example。若公开反馈完整示范另一题，另填 demonstratedQuestions:[{question,options/materials可选}]。只能引用真实学生记录；同题多轮保留稳定 questionId，提示经历不丢弃。没有可靠回答或评价不完整时不要给正式分数。", false,
+    agent.registerTool("evaluate_answer", {"真实 AI 评价实际学生回答。程序核验集合单选题使用 currentInputs.selectedOption（从0开始）对照 questionSnapshot.answerIndex，选对100，选错0，理由另外诊断。无选项的文字先澄清，不猜选项。args 参数 interactionId、score(0..100 或 null)、credible(bool)、feedback、reason、uncertainty；后三项必须是非空文字。新版 args 内必须有 diagnosis:{summary,evidence:[回答原话],teachingDirection,needsClarification:bool}，不能放在根对象；另须 feedbackHelpType:none|explanation|hint|worked_example|clarification，按公开反馈整体分类（feedback、uncertainty、diagnosis.summary/evidence）：仅指出对错用none，本题方向用hint，给本题答案或完整步骤用worked_example。若公开反馈完整示范另一题，另填 demonstratedQuestions:[{question,options/materials可选}]。只能引用真实学生记录；同题多轮保留稳定 questionId，提示经历不丢弃。没有可靠回答或评价不完整时不要给正式分数。", false,
         // 【逐行批注】 执行当前声明或表达式：[](Database& db, const Json& args, const Json& task, const AIResult& source) {。
         [](Database& db, const Json& args, const Json& task, const AIResult& source) {
             // 【逐行批注】 计算右侧结果并写入 auto access，更新当前运行状态。
@@ -1224,6 +1241,20 @@ void registerAgentLessonTools(LearningAgent& agent) {
                 throw std::invalid_argument("评价分数与可信状态无效");
             // 【逐行批注】 判断条件 (!args["credible"].get<bool>() && !args["score"].is_null()) thro…，成立时执行对应分支。
             if (!args["credible"].get<bool>() && !args["score"].is_null()) throw std::invalid_argument("不可靠评价不能提交正式分数");
+            const auto& snapshot = answer.at("questionSnapshot");
+            Json checkedChoice;
+            if (snapshot.contains("setExercise") && !args.at("score").is_null()) {
+                if (!answer.contains("selectedOption")) {
+                    if (answer.value("action", "") != "unknown" || args.at("score") != 0)
+                        throw std::invalid_argument("此题没有明确提交的选项。请先澄清，不能给出正式选项分数");
+                } else {
+                    const auto index = checkedSetOption(snapshot, answer.at("selectedOption"));
+                    const bool correct = index == snapshot.at("answerIndex");
+                    if (args.at("score") != (correct ? 100 : 0))
+                        throw std::invalid_argument("分数与题面及实际提交的选项不一致。请根据 selectedOption 和 answerIndex 修正分数，理由另行诊断");
+                    checkedChoice = {{"selectedOption", index}, {"choiceCorrect", correct}};
+                }
+            }
             // 【逐行批注】 计算右侧结果并写入 Json value，更新当前运行状态。
             Json value = {{"interactionId", interactionId}, {"questionId", answer["questionId"]},
                 // 【逐行批注】 执行当前声明或表达式：{"questionSnapshot", answer["questionSnapshot"]}, {"response", answer["text"]},。
@@ -1254,6 +1285,7 @@ void registerAgentLessonTools(LearningAgent& agent) {
             if (!demonstrations.empty()) value["demonstratedQuestions"] = demonstrations;
             // 【逐行批注】 计算右侧结果并写入 value["diagnosis"]，更新当前运行状态。
             value["diagnosis"] = checkedDiagnosis(args, answer.at("text"));
+            if (checkedChoice.is_object()) value.update(checkedChoice);
             // 【逐行批注】 按循环规则重复处理：for (const auto* field : {"lessonId", "sectionId", "view", "helpHistory", …。
             for (const auto* field : {"lessonId", "sectionId", "roundId", "view", "helpHistory", "relatedLearning", "helpMode", "rePracticeOf"})
                 // 【逐行批注】 判断条件 (answer.contains(field)) value[field] = answer.at(field);，成立时执行对应分支。
@@ -1332,6 +1364,8 @@ void registerAgentLessonTools(LearningAgent& agent) {
                 if (input.value("scopeId", "") != task.at("scopeId") || !currentInput)
                     // 【逐行批注】 检测到错误情形时抛出异常：throw std::invalid_argument("只能判断本次真实输入");。
                     throw std::invalid_argument("只能判断本次真实输入");
+                if (input.contains("selectedOption"))
+                    throw std::invalid_argument("学生已经明确提交选项，须按实际选项评价，不能当成纯追问");
                 // 【逐行批注】 结束当前函数并返回结果：return PreparedAgentTool{{{"inputResolved", true}, {"resolvedRequestI…。
                 return PreparedAgentTool{{{"inputResolved", true}, {"resolvedRequestId", input.at("requestId")}, {"isAnswer", false}, {"reason", args.at("reason")}},
                     // 【逐行批注】 计算右侧结果并写入 [id, reason，更新当前运行状态。
@@ -1410,6 +1444,73 @@ bool finalizeAgentEvaluations(Database& db, const Json& task) {
 }
 
 // 【逐行批注】 定义函数 agentRecordLearnerEvent，执行该函数声明的职责。
+Json agentResolveLessonUtterance(Database& db, const AgentAccess& access, const Json& event) {
+    if (event.value("type", "") != "chat" || !event.value("lessonId", Json()).is_string() ||
+        !event.value("text", Json()).is_string() || event.contains("requestType") || event.contains("batchAnswers")) return nullptr;
+
+    const auto& body = event.at("text").get_ref<const std::string&>();
+    if (body.size() > 160) return nullptr;
+    const auto start = body.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) return nullptr;
+    auto phrase = body.substr(start, body.find_last_not_of(" \t\r\n") - start + 1);
+    if (phrase.rfind(u8"请", 0) == 0) phrase.erase(0, sizeof(u8"请") - 1);
+    for (const std::string ending : {u8"。", u8"？", u8"！", ".", "?", "!"}) {
+        if (phrase.size() >= ending.size() && phrase.compare(phrase.size() - ending.size(), ending.size(), ending) == 0) {
+            phrase.erase(phrase.size() - ending.size());
+            break;
+        }
+    }
+    // 只匹配整句明确请求，引用、提问和附带理由的作答继续由原对话处理。
+    static const std::map<std::string, std::string> intents = {
+        {u8"慢一点", "slow_down"}, {u8"讲慢一点", "slow_down"}, {u8"讲慢一点吧", "slow_down"},
+        {u8"能讲慢一点吗", "slow_down"}, {u8"能不能讲慢一点", "slow_down"},
+        {u8"快一点", "speed_up"}, {u8"讲快一点", "speed_up"},
+        {u8"讲简单一点", "simplify"}, {u8"能讲简单一点吗", "simplify"},
+        {u8"举个例子", "give_example"}, {u8"举个例子吧", "give_example"},
+        {u8"我想自己做", "independent_attempt"}, {u8"我想自己尝试", "independent_attempt"},
+        {u8"让我自己试试", "independent_attempt"}, {u8"我想先自己做", "independent_attempt"},
+        {u8"继续引导我", "resume_guidance"}, {u8"继续讲解", "resume_guidance"},
+        {u8"恢复默认讲法", "reset_preferences"}, {u8"恢复默认讲解方式", "reset_preferences"},
+        {u8"换一种讲法", "rephrase"}, {u8"换种解释", "rephrase"}, {u8"换种说法", "rephrase"},
+        {u8"再测一次", "retry_question"}, {u8"再试一道", "retry_question"}, {u8"再来一道题", "retry_question"}
+    };
+    const auto matched = intents.find(phrase);
+    if (matched == intents.end()) return nullptr;
+    const auto lesson = lessonFor(db, access, event.at("lessonId"));
+    if (lesson.at("status") != "ready" || lesson.at("courseId") != event.value("courseId", ""))
+        throw std::invalid_argument("课程尚未准备好或所属课程不匹配");
+    if (!lesson.value("entered", false)) return nullptr;
+    const auto& sections = lesson.at("sections");
+    const auto findSection = [&](const std::string& id) {
+        return std::find_if(sections.begin(), sections.end(), [&](const Json& section) { return section.at("id") == id; });
+    };
+    auto section = sections.end();
+    if (event.contains("sectionId")) {
+        section = findSection(text(event, "sectionId"));
+        if (section == sections.end()) throw std::invalid_argument("交流板块不属于该课时");
+    }
+
+    auto resolved = event;
+    resolved.erase("sectionId");
+    resolved.erase("sectionVersion");
+    const auto& intent = matched->second;
+    if (intent == "retry_question") {
+        if (section == sections.end())
+            section = findSection(lesson.value("teachingFocus", Json::object()).value("practiceSectionId", ""));
+        // 待答题优先保留；没有可关联原题时继续走普通课堂交流。
+        if (section == sections.end() || section->value("kind", "") != "question" ||
+            section->value("legacyKind", "") == "example" ||
+            (activeTeachingRound(lesson) && lesson.at("teachingRound").contains("pendingSectionId"))) return nullptr;
+        resolved["sectionId"] = section->at("id");
+        resolved["sectionVersion"] = event.value("sectionVersion", section->at("version"));
+    }
+    resolved["type"] = "teaching_request";
+    resolved["requestType"] = intent;
+    if (isTeachingPreferenceIntent(intent) && !event.contains("teachingPreferenceVersion"))
+        resolved["teachingPreferenceVersion"] = teachingPreferencesProjection(lesson).at("version");
+    return resolved;
+}
+
 void agentRecordLearnerEvent(Database& db, const AgentAccess& access, const Json& event) {
     // 【逐行批注】 判断条件 (event.contains("batchAnswers")) {，成立时执行对应分支。
     if (event.contains("batchAnswers")) {
@@ -1425,6 +1526,8 @@ void agentRecordLearnerEvent(Database& db, const AgentAccess& access, const Json
     const auto type = event.value("type", "");
     // 【逐行批注】 判断条件 (type != "answer" && type != "chat" && type != "feedback" && typ…，成立时执行对应分支。
     if (type != "answer" && type != "chat" && type != "feedback" && type != "question_answer" && type != "teaching_request") return;
+    if (event.contains("selectedOption") && (type != "question_answer" || event.value("action", "answer") != "answer" || !event.contains("lessonId")))
+        throw std::invalid_argument("选项只用于当前题的正式提交");
     // 【逐行批注】 判断条件 (type == "teaching_request" && !event.contains("lessonId")) thro…，成立时执行对应分支。
     if (type == "teaching_request" && !event.contains("lessonId")) throw std::invalid_argument("教学请求必须关联当前课时");
     // 【逐行批注】 计算右侧结果并写入 Json value，更新当前运行状态。
@@ -1476,6 +1579,10 @@ void agentRecordLearnerEvent(Database& db, const AgentAccess& access, const Json
         if (type == "question_answer") {
             requireRoundQuestion(lesson, *section);
             if (section->contains("roundId")) value["roundId"] = section->at("roundId");
+            if (event.contains("selectedOption")) {
+                if (!section->at("question").contains("setExercise")) throw std::invalid_argument("当前题不接受程序核验的单选项");
+                value["selectedOption"] = checkedSetOption(section->at("question"), event.at("selectedOption"));
+            }
         }
         // 【逐行批注】 计算右侧结果并写入 value["questionId"]，更新当前运行状态。
         value["questionId"] = section->at("questionId"); value["questionSnapshot"] = section->at("question");
@@ -1646,7 +1753,7 @@ void agentRecordLearnerEvent(Database& db, const AgentAccess& access, const Json
         if (value.value("topicId", Json()).is_string() && value.at("topicId") != "") {
             // 只在实际提交时关联已展示的历史课时示范。事后打开讲解不会改写旧作答。
             const auto topics = relatedTopics(db, access, courseId, value.at("topicId"));
-            const auto key = topicQuestionKey(courseId, section->at("question"));
+            const auto key = teachingQuestionEvidenceKey(courseId, section->at("question"));
             for (const auto& [otherCourse, otherTopic] : topics) {
                 for (const auto& row : db.listClassroomActivities(otherCourse)) {
                     if (row.kind != "agent-lesson" || row.id == lesson.at("id")) continue;
@@ -1664,7 +1771,7 @@ void agentRecordLearnerEvent(Database& db, const AgentAccess& access, const Json
                         if (!examples.is_array()) continue;
                         const auto match = std::find_if(examples.begin(), examples.end(), [&](const Json& example) {
                             return example.is_object() && example.value("question", Json()).is_string() &&
-                                topicQuestionKey(courseId, example) == key;
+                                teachingQuestionEvidenceKey(courseId, example) == key;
                         });
                         if (match == examples.end()) continue;
                         const auto detail = details.is_object() ? details.value(item.value("id", ""), Json::object()) : Json::object();
@@ -2088,14 +2195,31 @@ Json agentLessonView(Database& db, const AgentAccess& access, const std::string&
         const auto completed = task.value("completedActions", Json::object());
         // 【逐行批注】 执行当前声明或表达式：std::map<int, std::size_t> messages;。
         std::map<int, std::size_t> messages;
+        std::map<int, std::map<std::string, std::string>> bodies;
         // 【逐行批注】 执行当前声明或表达式：std::set<std::string> evaluations;。
         std::set<std::string> evaluations;
-        // 【逐行批注】 按循环规则重复处理：for (const auto& event : task.value("events", Json::array())) {。
-        for (const auto& event : task.value("events", Json::array())) {
+        // 【逐行批注】 按循环规则重复处理：for (const auto& event : lessonTaskEvents(db, task)) {。
+        for (const auto& event : lessonTaskEvents(db, task)) {
+            const auto step = event.value("step", 0);
+            if (event.value("type", "") == "delta" && event.value("field", "") == "body") {
+                auto& body = bodies[step][event.value("streamId", "body")];
+                body = (event.value("replace", false) ? std::string() : body) + event.value("text", "");
+            }
+            if (event.value("type", "") == "stream_status" && event.value("state", "") == "confirmed") {
+                const auto revisions = event.value("revisions", Json::object());
+                if (messages.count(step) && revisions.contains("message")) shown["timeline"][messages.at(step)]["revisions"] = revisions.at("message");
+                if (revisions.contains("body")) for (const auto& body : bodies[step])
+                    for (auto& section : shown["sections"]) if (section.value("body", "") == body.second)
+                        section["streamRevisions"] = revisions.at("body");
+            }
+
             // 【逐行批注】 判断条件 (event.value("type", "") == "delta" && event.value("field", "") …，成立时执行对应分支。
             if (event.value("type", "") == "delta" && event.value("field", "") == "message") {
                 // 【逐行批注】 计算右侧结果并写入 auto step，更新当前运行状态。
                 const auto step = event.value("step", 0);
+                // 草稿由实时订阅恢复，正式时间线只合并成功校验的轮次。
+                if (std::find(valid.begin(), valid.end(), step) == valid.end() &&
+                    (task.contains("validSteps") || event.value("provisional", false))) continue;
                 // 【逐行批注】 判断条件 (!messages.count(step)) {，成立时执行对应分支。
                 if (!messages.count(step)) {
                     // 【逐行批注】 计算右侧结果并写入 messages[step]，更新当前运行状态。
@@ -2111,7 +2235,7 @@ Json agentLessonView(Database& db, const AgentAccess& access, const std::string&
                 // 【逐行批注】 计算右侧结果并写入 auto& message，更新当前运行状态。
                 auto& message = shown["timeline"][messages.at(step)];
                 // 【逐行批注】 计算右侧结果并写入 message["text"]，更新当前运行状态。
-                message["text"] = message.at("text").get<std::string>() + event.value("text", "");
+                message["text"] = (event.value("replace", false) ? std::string() : message.at("text").get<std::string>()) + event.value("text", "");
                 // 【逐行批注】 执行当前声明或表达式：message["sequences"].push_back(event.at("seq"));。
                 message["sequences"].push_back(event.at("seq"));
             // 【逐行批注】 执行当前声明或表达式：} else if (event.value("type", "") == "action" && completed.is_object()) {。

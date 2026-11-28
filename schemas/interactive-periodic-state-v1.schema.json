@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "元素周期表探索状态 v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "contentVersion", "datasetId", "selectedZ", "comparisonZ", "highlight"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "contentVersion": {"type": "integer", "minimum": 1},
+    "datasetId": {"const": "pubchem-elements-20261128-v1"},
+    "selectedZ": {"type": "integer", "minimum": 1, "maximum": 118},
+    "comparisonZ": {"type": "integer", "minimum": 1, "maximum": 118},
+    "highlight": {"enum": ["none", "period", "group"]}
+  },
+  "description": "只提交元素选择、高亮和绑定版本；元素事实及中性原子组成由服务端重取和计算，探索不评分。"
+}

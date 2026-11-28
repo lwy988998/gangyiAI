@@ -175,7 +175,10 @@ void runLibraryChecks() {
     // 【逐行批注】 计算右侧结果并写入 auto rejected，更新当前运行状态。
     const auto rejected=gangyi::agentView(db,access,task.at("id"));
     // 【逐行批注】 调用 assert 完成本行所需操作：assert(rejected["status"]=="failed"&&rejected.dump().find("UNVERIFIED…。
-    assert(rejected["status"]=="failed"&&rejected.dump().find("UNVERIFIED-CITATION-MUST-NOT-APPEAR")==std::string::npos);
+    assert(rejected["status"]=="failed" && rejected.value("message", "").empty());
+    assert(std::any_of(rejected.at("events").begin(), rejected.at("events").end(), [](const auto& event) {
+        return event.value("type", "") == "stream_status" && event.value("state", "") == "interrupted";
+    }));
     // 【逐行批注】 计算右侧结果并写入 auto noSourceTask，更新当前运行状态。
     const auto noSourceTask=gangyi::agentSubmit(db,access,{{"type","chat"},{"text","用原文讲解"},{"requestId","invalid-citation-without-source"}});
     // 【逐行批注】 调用 assert、libraryContext 完成本行所需操作：assert(gangyi::libraryContext(db)["sources"].empty());。
@@ -185,7 +188,10 @@ void runLibraryChecks() {
     // 【逐行批注】 计算右侧结果并写入 auto noSourceRejected，更新当前运行状态。
     const auto noSourceRejected=gangyi::agentView(db,access,noSourceTask.at("id"));
     // 【逐行批注】 调用 assert 完成本行所需操作：assert(noSourceRejected["status"]=="failed"&&noSourceRejected.dump().…。
-    assert(noSourceRejected["status"]=="failed"&&noSourceRejected.dump().find("UNVERIFIED-CITATION-MUST-NOT-APPEAR")==std::string::npos);
+    assert(noSourceRejected["status"]=="failed" && noSourceRejected.value("message", "").empty());
+    assert(std::any_of(noSourceRejected.at("events").begin(), noSourceRejected.at("events").end(), [](const auto& event) {
+        return event.value("type", "") == "stream_status" && event.value("state", "") == "interrupted";
+    }));
     // 【逐行批注】 计算右侧结果并写入 detail，更新当前运行状态。
     detail=gangyi::libraryRead(db,{{"id",id}});
     // 【逐行批注】 调用 libraryWrite 完成本行所需操作：gangyi::libraryWrite(db,{{"id",id},{"version",detail["version"]},{"ex…。
@@ -475,8 +481,8 @@ void runLibraryChecks() {
         const auto limitView=gangyi::agentView(db,access,limitTask.at("id"));
         // 【逐行批注】 调用 assert 完成本行所需操作：assert(limitCalls==2&&limitView["status"]==(stillLimited?"failed":"re…。
         assert(limitCalls==2&&limitView["status"]==(stillLimited?"failed":"ready"));
-        // 【逐行批注】 调用 assert 完成本行所需操作：assert(limitView.dump().find("未校验的截断片段")==std::string::npos);。
-        assert(limitView.dump().find("未校验的截断片段")==std::string::npos);
+        // 【逐行批注】 调用 assert 完成本行所需操作：assert(limitView.value("message", "").find("未校验的截断片段")==std::string::npos);。
+        assert(limitView.value("message", "").find("未校验的截断片段")==std::string::npos);
         // 【逐行批注】 计算右侧结果并写入 auto limitSaved，更新当前运行状态。
         const auto limitSaved=Json::parse(db.getClassroomActivity(limitTask.at("id"))->payload);
         // 【逐行批注】 调用 assert 完成本行所需操作：assert(limitSaved["responseTokenLimit"]==16384);。

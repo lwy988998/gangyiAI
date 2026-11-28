@@ -37,7 +37,7 @@ inline void runComponentActivityChecks() {
     bad = event; bad["componentActivities"]["sets-1"]["events"][0]["state"]["score"] = 100; rejects(bad);
 
     const auto capabilities = gangyi::interactiveCapabilities();
-    assert(capabilities.at("components").size() == 15);
+    assert(capabilities.at("components").size() == 18);
     for (const auto& capability : capabilities.at("components")) {
         assert(capability.at("activityReading").at("detailsTool") == "read_component_activity");
         assert(capability.at("scoringEligible") == false);

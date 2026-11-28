@@ -61,8 +61,8 @@
 #include "classroom_service.hpp"
 // 【逐行批注】 引入头文件 "next_lesson.hpp"，为后续实现提供类型或接口声明。
 #include "next_lesson.hpp"
-// 【逐行批注】 引入头文件 "json_fix.hpp"，为后续实现提供类型或接口声明。
-#include "json_fix.hpp"
+// 【逐行批注】 引入头文件 "structured_reply.hpp"，为后续实现提供类型或接口声明。
+#include "structured_reply.hpp"
 
 // 【逐行批注】 引入头文件 <crow.h>，为后续实现提供类型或接口声明。
 #include <crow.h>
@@ -512,11 +512,11 @@ gangyi::AgentAccess localAgentAccess(gangyi::Database& db) {
 }
 
 // 【逐行批注】 声明对象 localAgentView，并通过构造函数初始化其状态。
-nlohmann::json localAgentView(gangyi::Database& db, const std::string& taskId = {}) {
+nlohmann::json localAgentView(gangyi::Database& db, const std::string& taskId = {}, int afterSeq = 0) {
     // 【逐行批注】 执行当前声明或表达式：nlohmann::json result;。
     nlohmann::json result;
     // 【逐行批注】 计算右侧结果并写入 db.readSnapshot([&] { result，更新当前运行状态。
-    db.readSnapshot([&] { result = gangyi::agentView(db, localAgentAccess(db), taskId); });
+    db.readSnapshot([&] { result = gangyi::agentView(db, localAgentAccess(db), taskId, false, afterSeq); });
     // 【逐行批注】 结束当前函数并返回结果：return result;。
     return result;
 // 【逐行批注】 结束当前代码块。
@@ -1721,7 +1721,7 @@ int main() {
                 // 【逐行批注】 在条件成立期间循环处理：while (!state->cancelled) {。
                 while (!state->cancelled) {
                     // 【逐行批注】 计算右侧结果并写入 auto task，更新当前运行状态。
-                    const auto task = localAgentView(db, taskId);
+                    const auto task = localAgentView(db, taskId, sequence);
                     // 【逐行批注】 按循环规则重复处理：for (const auto& item : task.at("events")) if (item.value("seq", 0) > sequ…。
                     for (const auto& item : task.at("events")) if (item.value("seq", 0) > sequence) {
                         // 【逐行批注】 计算右侧结果并写入 sequence，更新当前运行状态。
@@ -1729,7 +1729,9 @@ int main() {
                         // 【逐行批注】 判断条件 (item.value("type", "") == "delta" && item.value("field", "") ==…，成立时执行对应分支。
                         if (item.value("type", "") == "delta" && item.value("field", "") == "message")
                             // 【逐行批注】 调用 send 完成本行所需操作：state->send({{"type", "delta"}, {"text", item.at("text")}, {"taskId",…。
-                            state->send({{"type", "delta"}, {"text", item.at("text")}, {"taskId", taskId}, {"seq", sequence}});
+                            { auto value = item; value["taskId"] = taskId; state->send(value); }
+                        else if (item.value("type", "") == "stream_status")
+                            { auto value = item; value["taskId"] = taskId; state->send(value); }
                     // 【逐行批注】 结束当前代码块。
                     }
                     // 【逐行批注】 计算右侧结果并写入 auto status，更新当前运行状态。
@@ -1812,10 +1814,11 @@ int main() {
                 gangyi::Database db; db.open(databasePath); int sequence = body.value("afterSeq", 0);
                 // 【逐行批注】 计算右侧结果并写入 auto taskId，更新当前运行状态。
                 const auto taskId = body.value("taskId", body.value("id", ""));
+                std::string previousState;
                 // 【逐行批注】 在条件成立期间循环处理：while (!state->cancelled) {。
                 while (!state->cancelled) {
                     // 【逐行批注】 计算右侧结果并写入 auto task，更新当前运行状态。
-                    const auto task = localAgentView(db, taskId);
+                    const auto task = localAgentView(db, taskId, sequence);
                     // 【逐行批注】 按循环规则重复处理：for (const auto& event : task.value("events", nlohmann::json::array())) if…。
                     for (const auto& event : task.value("events", nlohmann::json::array())) if (event.value("seq", 0) > sequence) {
                         // 【逐行批注】 计算右侧结果并写入 value，更新当前运行状态。
@@ -1827,7 +1830,11 @@ int main() {
                     // 【逐行批注】 结束当前代码块。
                     }
                     // 【逐行批注】 调用 send 完成本行所需操作：state->send({{"type", "state"}, {"task", task}});。
-                    state->send({{"type", "state"}, {"task", task}});
+                    const auto snapshot = task.dump();
+                    if (snapshot != previousState) {
+                        state->send({{"type", "state"}, {"task", task}});
+                        previousState = snapshot;
+                    }
                     // 【逐行批注】 计算右侧结果并写入 auto status，更新当前运行状态。
                     const auto status = task.value("status", "");
                     // 【逐行批注】 判断条件 (status != "pending" && status != "running") break;，成立时执行对应分支。
@@ -2486,7 +2493,14 @@ int main() {
             // 【逐行批注】 执行当前声明或表达式：gangyi::Database connection; connection.open(databasePath);。
             gangyi::Database connection; connection.open(databasePath);
             // 【逐行批注】 计算右侧结果并写入 value，更新当前运行状态。
-            auto value = localAgentView(connection, req.url_params.get("taskId") ? req.url_params.get("taskId") : "");
+            int afterSeq = 0;
+            if (const auto* raw = req.url_params.get("afterSeq")) {
+                const std::string value(raw);
+                if (value.empty() || value.size() > 9 || value.find_first_not_of("0123456789") != std::string::npos)
+                    return crow::response(400, "任务事件序号无效");
+                afterSeq = std::stoi(value);
+            }
+            auto value = localAgentView(connection, req.url_params.get("taskId") ? req.url_params.get("taskId") : "", afterSeq);
             // 【逐行批注】 计算右侧结果并写入 value["adjustments"]，更新当前运行状态。
             value["adjustments"] = value.value("changeHistory", nlohmann::json::array());
             // 【逐行批注】 声明对象 response，并通过构造函数初始化其状态。
@@ -2778,7 +2792,14 @@ int main() {
             gangyi::Database connection; connection.open(databasePath);
             crow::response response(gangyi::deepCourseSaveComponentDraft(connection, localAgentAccess(connection), nlohmann::json::parse(req.body)).dump());
             response.set_header("Content-Type", "application/json; charset=utf-8"); return response;
-        } catch (const std::exception& error) { return crow::response(409, nlohmann::json{{"error", error.what()}}.dump()); }
+        } catch (const nlohmann::json::exception&) {
+            return crow::response(400, nlohmann::json{{"error", "组件草稿格式无效"}}.dump());
+        } catch (const std::invalid_argument& error) {
+            return crow::response(409, nlohmann::json{{"error", error.what()}}.dump());
+        } catch (const std::exception&) {
+            // 数据库繁忙等临时故障不能伪装成多窗口版本冲突；不向页面泄露数据库内部信息。
+            return crow::response(503, nlohmann::json{{"error", "探索暂时无法保存，请稍后重试"}}.dump());
+        }
     });
     // 【逐行批注】 注册 HTTP 路由并绑定对应处理函数：CROW_ROUTE(app, "/api/deep-course/start").methods(crow::HTTPMethod::POST)([databaseP…。
     CROW_ROUTE(app, "/api/deep-course/start").methods(crow::HTTPMethod::POST)([databasePath = config.database_path](const crow::request& req) {

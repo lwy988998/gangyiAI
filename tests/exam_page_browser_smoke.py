@@ -48,7 +48,7 @@ HTML = """<!doctype html><html lang="zh-CN"><head>
 <link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/clarity.css">
 <link rel="stylesheet" href="/exam-page.css"><link rel="stylesheet" href="/exam-rich-output.css">
 <link rel="stylesheet" href="/workspace.css"><script src="/workspace.js"></script>
-<script>window.GangyiAgent={watch:(id,handlers)=>{window.lastWatchedTask=id;window.watchedHandlers=handlers;return ()=>{}}};</script>
+<script src="/learning-agent.js"></script><script>window.GangyiAgent.watch=(id,handlers)=>{window.lastWatchedTask=id;window.watchedHandlers=handlers;return ()=>{}};</script>
 <script defer src="/vendor/echarts/echarts.min.js"></script><script defer src="/chat-render.js"></script><script defer src="/exam-rich-output.js"></script>
 <script defer src="/exam-page.js"></script></head><body class="clarity-app">
 <header class="site-header dark-header"><div class="dark-nav-shell"></div></header>

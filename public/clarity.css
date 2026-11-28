@@ -320,3 +320,17 @@
   border: 1px solid var(--gy-border);
   border-radius: 7px;
 }
+
+/* 流式正文与阅读定位。草稿使用稳定文本节点，核对完成后再渲染完整排版。 */
+.gy-stream-view { min-width: 0; }
+.gy-stream-piece { margin-block: 0 20px; overflow-wrap: anywhere; }
+.gy-stream-text { white-space: pre-wrap; line-height: 1.95; }
+.gy-stream-text > :last-child { margin-bottom: 0; }
+.gy-stream-piece h2 { font-size: 19px; line-height: 1.5; margin-block: 0 13px; }
+.gy-stream-notice { color: var(--gy-muted, #5e6d82); font-size: 12px; line-height: 1.7; margin-top: 8px; }
+.gy-stream-notice details { margin-top: 4px; }
+.gy-stream-notice summary { cursor: pointer; color: var(--gy-accent, #3d61ce); }
+.gy-stream-notice del { display: block; white-space: pre-wrap; max-height: 180px; overflow: auto; margin-top: 8px; }
+.gy-return-latest { position: absolute; right: 22px; bottom: 18px; z-index: 6; padding: 7px 13px; border: 1px solid var(--gy-border, #dfe6ef); border-radius: 7px; background: var(--gy-surface, #fff); color: var(--gy-accent, #3d61ce); font: inherit; font-size: 13px; cursor: pointer; }
+.gy-return-latest[hidden] { display: none !important; }
+.gy-return-latest-fixed { position: fixed; bottom: 24px; }

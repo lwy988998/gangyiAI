@@ -91,6 +91,11 @@
   const $ = id => document.getElementById(id), root = $('lesson-sections'), scroll = $('lesson-scroll'), input = $('lesson-input');
   // 【逐行批注】 声明前端变量 nodes，保存本行计算出的数据或对象。
   const nodes = new Map(), records = new Map();
+  const sectionPreviewHost = element('div', '', 'agent-stream-sections');
+  const sectionPreview = api.createStreamView(sectionPreviewHost, {filter:record => record.field !== 'message' &&
+    !(lesson?.sections || []).some(section => section.title === record.text || section.body === record.text ||
+      section.question?.question === record.text || (section.question?.options || []).includes(record.text))});
+
   // 【逐行批注】 声明前端变量 lesson，保存本行计算出的数据或对象。
   let lesson, admissionError = '', selectedQuestion = '', watchingTask = '', watchingView = '', unsubscribe, watchEpoch = 0;
   // 【逐行批注】 声明前端变量 busy，保存本行计算出的数据或对象。
@@ -411,16 +416,18 @@
     const note = node.querySelector('.chat-partial'); note.hidden = !record.partial || busy && record.taskId === watchingTask;
     // 【逐行批注】 计算右侧结果并更新 note.textContent，改变页面或请求状态。
     note.textContent = '这段回复未完整完成，已接收内容保留，不作为新的可靠评价。';
+    if (record.role === 'assistant') api.streamNotice(node, {...record, state:record.state || (record.partial ? 'interrupted' : 'confirmed')});
   // 【逐行批注】 结束当前前端代码块。
   }
   // 【逐行批注】 定义函数 makeEvaluation，封装可复用的前端行为。
   function makeEvaluation(record) {
     // 【逐行批注】 声明前端变量 card，保存本行计算出的数据或对象。
     const card = element('article', '', 'chat-evaluation'); card.dataset.area = record.view || activeView;
+    const resultTitle = typeof record.choiceCorrect === 'boolean' ? (record.choiceCorrect ? '选项正确' : '选项有误') : '本次作答';
     // 【逐行批注】 调用 element 执行页面交互或数据处理：card.append(element('p', 'AI · 本次作答评价', 'chat-author'), element('h2',…。
     card.append(element('p', 'AI · 本次作答评价', 'chat-author'), element('h2', record.credible && record.score !== null && record.score !== undefined ?
       // 【逐行批注】 执行当前前端表达式：'本次作答 · ' + record.score + ' 分' : '本次反馈 · 尚无可靠分数'));。
-      '本次作答 · ' + record.score + ' 分' : '本次反馈 · 尚无可靠分数'));
+      resultTitle + ' · ' + record.score + ' 分' : '本次反馈 · 尚无可靠分数'));
     // 【逐行批注】 声明前端变量 feedbackContent，保存本行计算出的数据或对象。
     const feedbackContent = element('div'); feedbackContent.dataset.evaluationFeedback = record.id;
     // 【逐行批注】 声明前端变量 body，保存本行计算出的数据或对象。
@@ -758,6 +765,24 @@
     const afterSeq = Math.max(0, ...[...records.values()].filter(record => record.taskId === taskId).flatMap(record => record.sequences || []));
     // 【逐行批注】 计算右侧结果并更新 unsubscribe，改变页面或请求状态。
     unsubscribe = api.watch(taskId, {afterSeq,
+      onContent(content) {
+        if (epoch !== watchEpoch || watchingView !== activeView) return;
+        mutate(() => {
+          sectionPreview.update(content);
+          if (sectionPreviewHost.parentNode !== root) root.append(sectionPreviewHost);
+          for (const item of content.filter(value => value.field === 'message')) {
+            const key = taskId + ':step:' + item.step;
+            if (item.state === 'revised') { nodes.get(key)?.remove(); records.delete(key); nodes.delete(key); continue; }
+            const previous = records.get(key);
+            const record = {...previous, type:'message', role:'assistant', taskId, view:watchingView,
+              id:key, step:item.step, text:item.text, sequences:previous?.sequences || [],
+              partial:item.state !== 'confirmed', optimistic:true, state:item.state, revisions:item.revisions};
+            const node = putRecord(key, record);
+            if (!node.isConnected) root.append(node);
+            api.streamNotice(node, item);
+          }
+        });
+      },
       // 【逐行批注】 调用 onEvent 执行页面交互或数据处理：onEvent(event) {。
       onEvent(event) {
         // 【逐行批注】 判断条件 (epoch !== watchEpoch) return false;，成立时执行对应逻辑。
@@ -769,14 +794,8 @@
         // 【逐行批注】 判断条件 (event.type !== 'delta' || event.field !== 'message' || watching…，成立时执行对应逻辑。
         if (event.type !== 'delta' || event.field !== 'message' || watchingView !== activeView) return false;
         // 【逐行批注】 声明前端变量 key，保存本行计算出的数据或对象。
-        const key = taskId + ':step:' + event.step, previous = records.get(key);
-        // 【逐行批注】 声明前端变量 record，保存本行计算出的数据或对象。
-        const record = {...previous, type:'message', role:'assistant', taskId, view:watchingView, id:key, step:event.step,
-          // 【逐行批注】 执行当前前端表达式：text:(previous?.text || '') + event.text, sequences:[...(previous?.sequences || []), even…。
-          text:(previous?.text || '') + event.text, sequences:[...(previous?.sequences || []), event.seq], partial:true, optimistic:true};
-        // 【逐行批注】 计算右侧结果并更新 mutate(()，改变页面或请求状态。
-        mutate(() => { const node = putRecord(key, record); if (!node.isConnected) root.append(node); });
-        // 【逐行批注】 结束当前函数并返回结果：return false; // 可见性检查单独记录已读，向上回看时不把新回复算作已看。。
+        const key = taskId + ':step:' + event.step, record = records.get(key);
+        if (record) record.sequences = [...new Set([...(record.sequences || []), event.seq])];
         return false; // 可见性检查单独记录已读，向上回看时不把新回复算作已看。
       // 【逐行批注】 执行当前前端表达式：},。
       },
@@ -887,7 +906,8 @@
       if (pending && pending.type === event.type && pending.text === event.text && pending.action === event.action &&
         // 【逐行批注】 执行当前前端表达式：pending.sectionId === event.sectionId && pending.sectionVersion === event.sectionVersion …。
         pending.sectionId === event.sectionId && pending.sectionVersion === event.sectionVersion && pending.view === activeView &&
-        pending.requestType === event.requestType && pending.teachingPreferenceVersion === event.teachingPreferenceVersion) event = pending;
+        pending.requestType === event.requestType && pending.teachingPreferenceVersion === event.teachingPreferenceVersion &&
+        pending.selectedOption === event.selectedOption) event = pending;
     // 【逐行批注】 执行当前前端表达式：} catch (_) { /* 损坏缓存不改变本次输入。 * / }。
     } catch (_) { /* 损坏缓存不改变本次输入。 */ }
     // 【逐行批注】 执行当前前端表达式：api.storage.set(pendingKey, JSON.stringify(event));。
@@ -940,7 +960,9 @@
     // 【逐行批注】 判断条件 (!text.trim()) { if (form) form.querySelector('.question-note').…，成立时执行对应逻辑。
     if (!text.trim()) { if (form) form.querySelector('.question-note').textContent = '请先选择选项，或在下方写出你的答案。'; selectQuestion(id, true); return; }
     // 【逐行批注】 调用 sendEvent 执行页面交互或数据处理：sendEvent({type:'question_answer', action, text, sectionId:id, sectio…。
-    sendEvent({type:'question_answer', action, text, sectionId:id, sectionVersion:section.version},
+    const event = {type:'question_answer', action, text, sectionId:id, sectionVersion:section.version};
+    if (action === 'answer' && section.question.verifiedChoice && choices.length === 1) event.selectedOption = Number(choices[0].value);
+    sendEvent(event,
       // 【逐行批注】 调用 readDraft 执行页面交互或数据处理：action === 'answer' ? {key:'draft:' + lessonId + ':' + id, text:selec…。
       action === 'answer' ? {key:'draft:' + lessonId + ':' + id, text:selectedQuestion === id ? input.value : readDraft('draft:' + lessonId + ':' + id, section)} : null,
       // 【逐行批注】 执行当前前端表达式：action === 'answer' && form ? {key:'draft:' + lessonId + ':' + id + ':choice', value:api.…。

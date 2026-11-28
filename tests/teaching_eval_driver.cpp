@@ -11,6 +11,7 @@
 #include "deep_course.hpp"
 #include "interactive_capabilities.hpp"
 #include "component_activity.hpp"
+#include "set_exercise.hpp"
 // 【逐行批注】 引入头文件 "search_client.hpp"，为后续实现提供类型或接口声明。
 #include "search_client.hpp"
 // 【逐行批注】 引入头文件 <curl/curl.h>，为后续实现提供类型或接口声明。
@@ -416,6 +417,19 @@ Json evaluationComponentSetup(const Json& test) {
         {"evidenceSource","synthetic_fixture"},{"studentActivityVerified",false}};
 }
 
+Json evaluationQuestions(const Json& test, const Json& componentSetup) {
+    const auto& source = test.at("questions");
+    if (!source.is_array()) throw std::invalid_argument("评测须提供要预装的题目列表");
+    Json questions = Json::array();
+    for (const auto& question : source) {
+        if (!questions.empty() && !test.value("seedSecond", true)) break;
+        if (question.contains("setExercise"))
+            questions.push_back(gangyi::checkedSetExerciseQuestion(question, componentSetup.value("content", Json::object())));
+        else questions.push_back(question);
+    }
+    return questions;
+}
+
 // 开发验收入口直接调用现有 C++ 主控；不进入安装包。评分标准只来自隔离用例。
 // 【逐行批注】 定义函数 main，执行该函数声明的职责。
 #ifdef _WIN32
@@ -437,7 +451,13 @@ int main(int argc, char** argv) {
             std::ifstream input(std::filesystem::u8path(argv[2])); Json source; input >> source;
             Json rows = Json::array(); bool valid = true;
             for (const auto& test : source.at("cases")) {
-                try { rows.push_back({{"caseId",test.at("id")},{"valid",true},{"setup",evaluationComponentSetup(test)}}); }
+                try {
+                    auto setup = evaluationComponentSetup(test);
+                    Json row = {{"caseId", test.at("id")}, {"valid", true}};
+                    if (test.contains("questions")) row["checkedQuestions"] = evaluationQuestions(test, setup).size();
+                    row["setup"] = std::move(setup);
+                    rows.push_back(std::move(row));
+                }
                 catch (const std::exception& error) {
                     valid = false; rows.push_back({{"caseId",test.value("id", "")},{"valid",false},{"error",error.what()}});
                 }
@@ -531,6 +551,8 @@ int main(int argc, char** argv) {
         if (argc != 4) throw std::invalid_argument("参数：用例JSON 隔离数据库 输出JSON");
         // 【逐行批注】 声明对象 input，并通过构造函数初始化其状态。
         std::ifstream input(std::filesystem::u8path(argv[1])); Json test; input >> test;
+        const auto componentSetup = evaluationComponentSetup(test);
+        const auto seededQuestions = evaluationQuestions(test, componentSetup);
         // 【逐行批注】 执行当前声明或表达式：gangyi::Database db; db.open(argv[2]); db.migrate();。
         gangyi::Database db; db.open(argv[2]); db.migrate();
         // 【逐行批注】 调用 configureUsage 完成本行所需操作：gangyi::AIActivity::configureUsage(argv[2]);。
@@ -593,9 +615,8 @@ int main(int argc, char** argv) {
         // 【逐行批注】 计算右侧结果并写入 int index，更新当前运行状态。
         int index = 0;
         // 【逐行批注】 按循环规则重复处理：for (const auto& question : test.at("questions")) {。
-        for (const auto& question : test.at("questions")) {
+        for (const auto& question : seededQuestions) {
             // 【逐行批注】 判断条件 (index > 0 && !test.value("seedSecond", true)) break;，成立时执行对应分支。
-            if (index > 0 && !test.value("seedSecond", true)) break;
             // 【逐行批注】 计算右侧结果并写入 auto id，更新当前运行状态。
             const auto id = "question-" + std::to_string(index++);
             // 【逐行批注】 执行当前声明或表达式：sections.push_back({{"id", id}, {"kind", "question"}, {"title", "实际作答"}, {"questionK…。
@@ -613,7 +634,6 @@ int main(int argc, char** argv) {
             // 【逐行批注】 执行当前声明或表达式：{"sourceLearningVersion", db.learningRevision()}, {"teachingFocus", {{"practiceSecti…。
             {"sourceLearningVersion", db.learningRevision()}, {"teachingFocus", {{"practiceSectionId", "question-0"}}}};
         // 【逐行批注】 执行当前声明或表达式：db.upsert(gangyi::ClassroomActivity{lessonId, courseId, "agent-lesson", lesson.dump(…。
-        const auto componentSetup = evaluationComponentSetup(test);
         if (!componentSetup.empty()) lesson["deepContent"] = componentSetup.at("content");
         db.upsert(gangyi::ClassroomActivity{lessonId, courseId, "agent-lesson", lesson.dump(), "2026-10-13", 0, 0});
         // 【逐行批注】 调用 agentExposeTask 完成本行所需操作：gangyi::agentExposeTask(db, access, {{"lessonId", lessonId}, {"sectio…。

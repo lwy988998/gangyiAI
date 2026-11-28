@@ -32,7 +32,7 @@
 #include "search_client.hpp"
 #include "exam_explanation.hpp"
 #include "exam_search_query.hpp"
-#include "exam_message_stream.hpp"
+#include "structured_reply.hpp"
 // 【逐行批注】 引入头文件 "version.hpp"，为后续实现提供类型或接口声明。
 #include "version.hpp"
 // 【逐行批注】 引入头文件 <algorithm>，为后续实现提供类型或接口声明。
@@ -64,6 +64,178 @@ namespace gangyi {
 namespace {
 // 【逐行批注】 计算右侧结果并写入 using Json，更新当前运行状态。
 using Json = nlohmann::json;
+
+bool recoverableResponse(const std::string& kind) {
+    return kind == "structure" || kind == "invalid_response" || kind == "output_limit";
+}
+
+void validateDecisionActions(const Json& actions, const std::set<std::string>& allowedTools, const Json& completed) {
+    std::set<std::string> stepIds;
+    for (const auto& action : actions) {
+        if (!action.is_object() || !action.value("id", Json()).is_string() ||
+            !action.value("tool", Json()).is_string() || !action.value("args", Json()).is_object())
+            throw std::runtime_error("AI 行动必须包含字符串 id、字符串 tool 和对象 args");
+        const auto id = action.at("id").get<std::string>();
+        const auto tool = action.at("tool").get<std::string>();
+        if (id.empty() || !stepIds.insert(id).second || !allowedTools.count(tool))
+            throw std::runtime_error("AI 行动的身份重复、为空或工具不允许");
+        if (completed.contains(id) && completed.at(id).at("encoded") !=
+            Json{{"tool", tool}, {"args", action.at("args")}}.dump())
+            throw std::runtime_error("AI 重复行动内容不一致");
+    }
+}
+
+void validateSetPublicReply(const Json& decision) {
+    // 学生可见的文字使用集合术语。内部回执和评分数据仍保留机器字段。
+    const auto check = [](const Json& value) {
+        const auto text = value.dump();
+        for (const auto* field : {"aSubsetB", "bSubsetA", "aProperSubsetB", "bProperSubsetA", "complementA", "complementB"}) {
+            if (text.find(field) != std::string::npos)
+                throw std::invalid_argument("公开教学文字含组件内部字段，请用实际元素和集合关系改写后再发布");
+        }
+    };
+    check(decision.at("message"));
+    for (const auto& action : decision.at("actions")) {
+        const auto& args = action.at("args");
+        if (action.at("tool") == "evaluate_answer") {
+            check(args.value("feedback", Json()));
+            check(args.value("reason", Json()));
+        }
+        if (action.at("tool") != "append_section") continue;
+        const auto section = args.value("section", Json());
+        if (!section.is_object()) continue;
+        check(section.value("title", Json()));
+        check(section.value("body", Json()));
+        const auto question = section.value("question", Json());
+        if (question.is_object()) {
+            check(question.value("question", Json()));
+            check(question.value("options", Json()));
+        }
+    }
+}
+
+void normalizeRecoveryAction(Json& decision) {
+    if (!decision.is_object()) return;
+    const bool hasTool = decision.contains("tool");
+    const bool hasId = decision.contains("actionId");
+    const bool hasArgs = decision.contains("args");
+    if (!hasTool && !hasId && !hasArgs) return;
+    if (decision.contains("actions") || !hasTool)
+        throw std::invalid_argument("恢复回复只能使用单步工具字段或原 actions，不能混用");
+    const auto& tool = decision.at("tool");
+    if (tool.is_null() && !hasId && !hasArgs) {
+        decision["actions"] = Json::array();
+    } else {
+        if (!tool.is_string() || !decision.value("actionId", Json()).is_string() ||
+            !decision.value("args", Json()).is_object())
+            throw std::invalid_argument("恢复回复中的工具步骤须同时包含 tool、actionId 和 args");
+        decision["actions"] = Json::array({{{"id", decision.at("actionId")}, {"tool", tool}, {"args", decision.at("args")}}});
+    }
+    for (const auto* field : {"tool", "actionId", "args"}) decision.erase(field);
+}
+
+void normalizeRoundFeedback(Json& decision) {
+    if (!decision.is_object() || !decision.value("message", Json()).is_string() ||
+        decision.at("message").get_ref<const std::string&>().find_first_not_of(" \t\r\n") == std::string::npos)
+        throw std::invalid_argument("本题评价已暂存，请在 message 中给出针对实际作答的反馈");
+    normalizeRecoveryAction(decision);
+    if (decision.contains("actions") && (!decision.at("actions").is_array() || !decision.at("actions").empty()))
+        throw std::invalid_argument("本题评价已暂存。请先在 message 中反馈，反馈发布后再执行教学动作");
+    if (decision.contains("state") && decision.at("state") != "continue" &&
+        decision.at("state") != "waiting_student" && decision.at("state") != "completed")
+        throw std::invalid_argument("反馈回复的旧 state 字段无效");
+    decision["actions"] = Json::array();
+    // 发布成功且可进入下一题时，事务会把状态推进到 continue。需要澄清则留在原题。
+    decision["state"] = "waiting_student";
+}
+
+std::vector<ChatMessage> roundFeedbackMessages(const Json& context, const Json& evaluations,
+                                                const std::string& teachingPolicy, bool recovery) {
+    std::string guide = "你是教学主控。本题评价已经暂存，尚未向学生发布。只按 stagedEvaluations 和 currentInputs "
+        "中的实际作答给出反馈。用学生可以理解的语言说明依据和错误原因。需要澄清时先提问。"
+        "本轮只返回一个完整 JSON 对象，例如 {\"teaching\":{\"helpType\":\"explanation\"},"
+        "\"message\":\"针对实际作答的反馈\"}。按实际公开内容分类，完整示范须标注。"
+        "材料上下文提供已核对的资料时，按实际来源填写 materialOrigin 与必要的 citations。"
+        "本轮没有工具。反馈保存后才进入出题或总结。";
+    guide += "\n" + std::string(kAgentTeachingAccuracyRule) + teachingPolicy;
+    if (recovery) guide += "\n上次反馈未通过校验。输出一份完整反馈，只提供公开教学文字与必要标注。";
+    Json input = {{"event", context.at("event")}, {"currentInputs", context.at("currentInputs")},
+                  {"stagedEvaluations", evaluations}};
+    const auto lesson = context.value("lessonContext", Json::object());
+    for (const auto* key : {"teachingPreferences", "teachingRound"})
+        if (lesson.contains(key)) input["lessonContext"][key] = lesson.at(key);
+    if (context.contains("savedLibrary")) input["savedLibrary"] = context.at("savedLibrary");
+    return {{"system", std::move(guide), ""}, {"user", input.dump(), ""}};
+}
+
+Json courseOutlineDecision(const Json& outline, const Json& event) {
+    if (!outline.is_object() || outline.size() != 3 ||
+        !outline.value("title", Json()).is_string() || !outline.value("summary", Json()).is_string() ||
+        !outline.value("courseStructure", Json()).is_array())
+        throw std::invalid_argument("课程大纲只接受 title、summary、courseStructure");
+    const auto& stages = outline.at("courseStructure");
+    const auto shortText = [](const Json& value, size_t maxBytes) {
+        if (!value.is_string()) return false;
+        const auto& text = value.get_ref<const std::string&>();
+        return text.size() <= maxBytes && text.find_first_not_of(" \t\r\n") != std::string::npos;
+    };
+    if (!shortText(outline.at("title"), 240) || !shortText(outline.at("summary"), 480) ||
+        stages.empty() || stages.size() > 12)
+        throw std::invalid_argument("课程大纲标题、简介或阶段数量超出范围");
+    for (const auto& stage : stages) {
+        if (!stage.is_object() || !shortText(stage.value("stage", Json()), 180) ||
+            !stage.value("topics", Json()).is_array() || stage.at("topics").empty() || stage.at("topics").size() > 8)
+            throw std::invalid_argument("课程大纲每个阶段需要名称和 1 至 8 个知识点标题");
+        for (const auto& [key, value] : stage.items()) {
+            if (key == "stage" || key == "topics") continue;
+            if ((key != "goal" && key != "why") || !shortText(value, 240))
+                throw std::invalid_argument("课程大纲阶段仅可附加简短的目标 goal 或安排理由 why");
+        }
+        for (const auto& topic : stage.at("topics"))
+            if (!shortText(topic, 180)) throw std::invalid_argument("课程大纲的知识点必须是简短标题");
+    }
+    const Json args = {{"goal", event.at("goal")}, {"title", outline.at("title")}, {"summary", outline.at("summary")},
+                       {"payload", {{"courseStructure", stages}}}};
+    return {{"message", ""}, {"actions", Json::array({{{"id", "course-outline"}, {"tool", "create_course"}, {"args", args}}})},
+            {"state", "completed"}};
+}
+
+std::vector<ChatMessage> courseOutlineMessages(const Json& event, const Json& context, bool recovery) {
+    // 学员最新要求优先。只带入与大纲有关的资料，长原文与工具历史留给逐课准备。
+    Json planning = Json::object();
+    const auto personal = context.value("personalCenter", Json::object());
+    const auto library = context.value("savedLibrary", Json::object());
+    const auto includeBrief = [&](const Json& source, const char* key, size_t limit) {
+        if (source.contains(key) && !source.at(key).empty() && source.at(key).dump().size() <= limit)
+            planning[key] = source.at(key);
+    };
+    includeBrief(personal, "preferences", 4000);
+    includeBrief(personal, "profile", 4000);
+    includeBrief(personal, "memories", 4000);
+    includeBrief(context, "subjects", 6000);
+    includeBrief(library, "curriculum", 4000);
+    for (const auto& source : library.value("sources", Json::array())) {
+        const auto title = source.value("title", std::string());
+        if (title.empty() || title.size() > 240) continue;
+        planning["savedResourceTitles"].push_back(title);
+        if (planning.at("savedResourceTitles").size() == 6) break;
+    }
+
+    std::string guide =
+        "你是课程大纲规划助手。按学习目标和课程模式返回一个完整 JSON 对象。"
+        "目标中的明确要求优先，历史记忆与资料仅供参考，不能据此断言学生已掌握。"
+        "保留目标的范围、顺序和必要限制，快速规划聚焦主线，深度规划体现合理依赖。"
+        "只使用 title、summary、courseStructure 三个字段，标题简短，简介一句话。"
+        "按需安排 1 至 12 个阶段，每个阶段提供 stage 和 1 至 8 个 topics 标题字符串。"
+        "每个阶段可附一条简短目标 goal 或安排理由 why。"
+        "示例："
+        R"({"title":"集合基础","summary":"理解集合的表示和关系","courseStructure":[{"stage":"集合概念","topics":["元素与集合","集合的表示"]}]})"
+        "。仅规划大纲，勿输出讲义、题目、工具调用、链接、额外字段或正文。";
+    if (recovery) guide += "上次回复未通过校验。重新输出整份 JSON，省略阶段可选字段和解释，保留原目标范围。";
+    const Json input = {{"event", {{"type", "plan_course"}, {"goal", event.at("goal")}, {"mode", event.value("mode", "deep")}}},
+                        {"planningContext", std::move(planning)}};
+    return {{"system", std::move(guide), ""}, {"user", input.dump(), ""}};
+}
 // 【逐行批注】 定义函数 parsed，执行该函数声明的职责。
 Json parsed(const std::string& value, Json fallback = Json::object()) {
     // 【逐行批注】 计算右侧结果并写入 auto result，更新当前运行状态。
@@ -565,7 +737,7 @@ Json publicTask(const Json& task) {
     // 【逐行批注】 按循环规则重复处理：for (const auto* field : {"id", "requestId", "status", "version", "seq", "…。
     for (const auto* field : {"id", "requestId", "status", "version", "seq", "events", "eventsArchivedThrough", "message", "updatedAt", "createdAt",
             // 【逐行批注】 执行当前声明或表达式："model", "calls", "error", "failure", "retry", "pauseReason", "lesson", "course", "n…。
-            "model", "calls", "error", "failure", "retry", "pauseReason", "lesson", "course", "navigate", "replacementTaskId", "changes", "teachingFocus", "activity", "queueMs", "firstContentMs", "completionMs", "reusedFromTaskId", "reuseReason", "reuseCount", "localAction"})
+            "model", "calls", "error", "failure", "retry", "pauseReason", "lesson", "course", "navigate", "replacementTaskId", "changes", "teachingFocus", "activity", "queueMs", "firstContentMs", "completionMs", "reusedFromTaskId", "reuseReason", "reuseCount", "localAction", "firstModelChunkMs"})
         // 【逐行批注】 判断条件 (task.contains(field)) output[field] = task[field];，成立时执行对应分支。
         if (task.contains(field)) output[field] = task[field];
     // 【逐行批注】 计算右侧结果并写入 output["purpose"]，更新当前运行状态。
@@ -1056,6 +1228,14 @@ Json agentSubmit(Database& db, const AgentAccess& access, Json event, AgentSubmi
         event["requestId"].get<std::string>().size() > 160 || !event.value("type", Json()).is_string())
         // 【逐行批注】 检测到错误情形时抛出异常：throw std::invalid_argument("学习事件格式无效");。
         throw std::invalid_argument("学习事件格式无效");
+    if (event.at("type") == "plan_course") {
+        if (!event.value("goal", Json()).is_string() ||
+            event.at("goal").get_ref<const std::string&>().find_first_not_of(" \t\r\n") == std::string::npos)
+            throw std::invalid_argument("请填写学习目标");
+        const auto mode = event.value("mode", Json("deep"));
+        if (mode != "lite" && mode != "deep") throw std::invalid_argument("课程模式只能是快速规划或深度规划");
+        event["mode"] = mode;
+    }
     // 【逐行批注】 计算右侧结果并写入 auto courseId，更新当前运行状态。
     const auto courseId = event.value("courseId", "");
     // 【逐行批注】 计算右侧结果并写入 bool independentChat，更新当前运行状态。
@@ -1117,9 +1297,11 @@ Json agentSubmit(Database& db, const AgentAccess& access, Json event, AgentSubmi
                 // 【逐行批注】 执行当前声明或表达式：(old.value("requestId", "") == requestId || (aliases.is_object() && aliases.contains…。
                 (old.value("requestId", "") == requestId || (aliases.is_object() && aliases.contains(requestId)))) {
                 // 【逐行批注】 计算右侧结果并写入 auto previous，更新当前运行状态。
-                const auto previous = old.value("requestId", "") == requestId ? old.at("event") : aliases.at(requestId);
-                // 【逐行批注】 判断条件 (previous != event) throw std::invalid_argument("重复请求的内容不一致");，成立时执行对应分支。
-                if (previous != event) throw std::invalid_argument("重复请求的内容不一致");
+                const bool original = old.value("requestId", "") == requestId;
+                const bool matches = original && old.contains("submittedEventDigest")
+                    ? old.at("submittedEventDigest") == resourceDigest(event.dump())
+                    : (original ? old.at("event") : aliases.at(requestId)) == event;
+                if (!matches) throw std::invalid_argument("重复请求的内容不一致");
                 // 【逐行批注】 判断条件 (old.value("manualScheduleReplan", false) != manualSchedule)，成立时执行对应分支。
                 if (old.value("manualScheduleReplan", false) != manualSchedule)
                     // 【逐行批注】 检测到错误情形时抛出异常：throw std::invalid_argument("重复请求的排课授权不一致");。
@@ -1176,6 +1358,14 @@ Json agentSubmit(Database& db, const AgentAccess& access, Json event, AgentSubmi
         if (materialStudy) libraryTeachingMaterial(db, courseId, event.at("material"));
         if (examStudy) examTeachingQuestion(db, event.at("examQuestion"));
         if (yesterdayReview) yesterdayLessonContext(db, access, event);
+        std::string submittedEventDigest;
+        if (!scopedStudy && !yesterdayReview) {
+            auto resolved = agentResolveLessonUtterance(db, access, event);
+            if (!resolved.is_null()) {
+                submittedEventDigest = resourceDigest(event.dump());
+                event = std::move(resolved);
+            }
+        }
         agentRecordLearnerEvent(db, access, event);
         // 【逐行批注】 计算右侧结果并写入 task，更新当前运行状态。
         task = {{"id", newId()}, {"scopeId", access.scopeId}, {"courseIds", access.courseIds},
@@ -1191,7 +1381,7 @@ Json agentSubmit(Database& db, const AgentAccess& access, Json event, AgentSubmi
             {"messages", Json::array()}, {"learningVersion", db.learningRevision()}, {"calls", 0},
             // 【逐行批注】 调用 stamp 完成本行所需操作：{"createdAt", stamp()}, {"navigate", event.value("navigate", false)},…。
             {"createdAt", stamp()}, {"navigate", event.value("navigate", false)}, {"manualScheduleReplan", manualSchedule || event.value("type", "") == "assistant_chat"}};
-        // 【逐行批注】 调用 taskQueued 完成本行所需操作：AIActivity::taskQueued(task.at("id"));。
+        if (!submittedEventDigest.empty()) task["submittedEventDigest"] = std::move(submittedEventDigest);
         AIActivity::taskQueued(task.at("id"));
         // 【逐行批注】 调用 saveTask 完成本行所需操作：saveTask(db, task); index.push_back(task["id"]);。
         saveTask(db, task); index.push_back(task["id"]);
@@ -1223,7 +1413,7 @@ Json agentSubmit(Database& db, const AgentAccess& access, Json event, AgentSubmi
 }
 
 // 【逐行批注】 定义函数 agentView，执行该函数声明的职责。
-Json agentView(Database& db, const AgentAccess& access, const std::string& taskId, bool compact) {
+Json agentView(Database& db, const AgentAccess& access, const std::string& taskId, bool compact, int afterSeq) {
     // 【逐行批注】 计算右侧结果并写入 auto scope，更新当前运行状态。
     const auto scope = parsed(db.profileMeta(scopeKey(access)));
     // 【逐行批注】 计算右侧结果并写入 auto id，更新当前运行状态。
@@ -1266,21 +1456,25 @@ Json agentView(Database& db, const AgentAccess& access, const std::string& taskI
                 // 【逐行批注】 执行当前声明或表达式：ordered[event["seq"].get<int>()] = event;。
                 ordered[event["seq"].get<int>()] = event;
         // 【逐行批注】 计算右侧结果并写入 auto archived，更新当前运行状态。
-        const auto archived = db.agentRunEvents(id, 0, 500);
-        // 【逐行批注】 按循环规则重复处理：for (const auto& raw : archived) {。
-        for (const auto& raw : archived) {
-            // 【逐行批注】 计算右侧结果并写入 auto event，更新当前运行状态。
-            const auto event = Json::parse(raw, nullptr, false);
-            // 【逐行批注】 判断条件 (event.is_object() && event.contains("seq") && event["seq"].is_n…，成立时执行对应分支。
-            if (event.is_object() && event.contains("seq") && event["seq"].is_number_integer())
-                // 【逐行批注】 执行当前声明或表达式：ordered[event["seq"].get<int>()] = event;。
-                ordered[event["seq"].get<int>()] = event;
-        // 【逐行批注】 结束当前代码块。
+        // 完整恢复按序读取全部归档；实时订阅只读取上次确认以后的片段。
+        int cursor = std::max(0, afterSeq);
+        while (true) {
+            const auto archived = db.agentRunEvents(id, cursor, 500);
+            if (archived.empty()) break;
+            const auto previousCursor = cursor;
+            for (const auto& raw : archived) {
+                const auto event = Json::parse(raw, nullptr, false);
+                if (!event.is_object() || !event.value("seq", Json()).is_number_integer()) continue;
+                const int seq = event.at("seq");
+                ordered[seq] = event;
+                cursor = std::max(cursor, seq);
+            }
+            if (cursor == previousCursor || archived.size() < 500) break;
         }
-        // 【逐行批注】 计算右侧结果并写入 Json events，更新当前运行状态。
+
         Json events = Json::array();
         // 【逐行批注】 按循环规则重复处理：for (const auto& item : ordered) if (item.first > 0) events.push_back(item…。
-        for (const auto& item : ordered) if (item.first > 0) events.push_back(item.second);
+        for (const auto& item : ordered) if (item.first > std::max(0, afterSeq)) events.push_back(item.second);
         // 【逐行批注】 计算右侧结果并写入 result["events"]，更新当前运行状态。
         result["events"] = std::move(events);
         // 【逐行批注】 计算右侧结果并写入 int taskSeq，更新当前运行状态。
@@ -1562,6 +1756,8 @@ Json agentControl(Database& db, const AgentAccess& access, const Json& body) {
         const auto id = body.value("taskId", scope.value("latestTaskId", ""));
         // 【逐行批注】 计算右侧结果并写入 task，更新当前运行状态。
         task = taskFor(db, access, id);
+        // 多个窗口同时重试同一失败任务时，后到的请求只读取正在执行的任务。
+        if (command == "retry" && (task["status"] == "pending" || task["status"] == "running")) return;
         // 【逐行批注】 判断条件 ((command == "retry" || command == "resume") && (task["status"] …，成立时执行对应分支。
         if ((command == "retry" || command == "resume") && (task["status"] == "ready" || task["status"] == "waiting_student")) {
             // 【逐行批注】 计算右侧结果并写入 scope["paused"]，更新当前运行状态。
@@ -1578,6 +1774,7 @@ Json agentControl(Database& db, const AgentAccess& access, const Json& body) {
         if (command == "resume" || command == "retry") {
             // 【逐行批注】 判断条件 (command == "retry") {，成立时执行对应分支。
             if (command == "retry") {
+                if (recoverableResponse(task.value("failureKind", ""))) task["responseRecovery"] = true;
                 // 保留有效动作与原输入，重新建立模型上下文，避免反复沿用失败结构或错误标识。
                 // 【逐行批注】 计算右侧结果并写入 task["messages"]，更新当前运行状态。
                 task["messages"] = Json::array();
@@ -1884,11 +2081,10 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
     AIActivity::taskRunning(taskId);
     // 【逐行批注】 计算右侧结果并写入 ownedUpdate(db, task, [](Json& current) { cu…，更新当前运行状态。
     ownedUpdate(db, task, [](Json& current) { current.erase("completionMs"); current["status"] = "running"; });
-    // 新深度模式的大纲与逐课备课分阶段；恢复时直接认领已成功保存的大纲，避免重复付费规划。
-    // 【逐行批注】 判断条件 (task.at("event").value("type", "") == "plan_course" && task.at(…，成立时执行对应分支。
-    if (task.at("event").value("type", "") == "plan_course" && task.at("event").value("mode", "") == "deep" &&
-        // 【逐行批注】 调用 Json、deepCourseEnabled 完成本行所需操作：task.value("course", Json()).is_object() && deepCourseEnabled(db, tas…。
-        task.value("course", Json()).is_object() && deepCourseEnabled(db, task.at("course").value("id", ""))) {
+    // 建课回执与大纲同事务保存。任何模式在回执保存后中断，此处直接完成原任务。
+    if (const auto savedCourse = task.value("course", Json());
+        task.at("event").value("type", "") == "plan_course" && savedCourse.is_object() &&
+        allowed(access, savedCourse.value("id", "")) && db.getCourse(savedCourse.value("id", ""))) {
         // 【逐行批注】 调用 ownedUpdate 完成本行所需操作：ownedUpdate(db, task, [](Json& current) {。
         ownedUpdate(db, task, [](Json& current) {
             // 【逐行批注】 计算右侧结果并写入 current["status"]，更新当前运行状态。
@@ -2021,6 +2217,8 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
             options.temperature = 0.25;
             // 【逐行批注】 计算右侧结果并写入 auto catalog，更新当前运行状态。
             const auto catalog = agentToolCatalog(tools_, task);
+            const bool responseRecovery = task.value("responseRecovery", false);
+            const bool planningCourse = task.at("event").value("type", "") == "plan_course" && !task.contains("course");
             // 【逐行批注】 计算右侧结果并写入 auto deepPrompt，更新当前运行状态。
             const auto deepPrompt = deepCoursePrompt(db, task);
             // 【逐行批注】 判断条件 (!deepPrompt.empty()) options.messages.push_back({"system", deep…，成立时执行对应分支。
@@ -2058,15 +2256,20 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
             // 【逐行批注】 计算右侧结果并写入 auto lessonId，更新当前运行状态。
             const auto lessonId = task.at("event").value("lessonId", "");
             // 【逐行批注】 判断条件 (!lessonId.empty() && !assessmentPhase) {，成立时执行对应分支。
+            const auto lessonRow = lessonId.empty() ? std::optional<ClassroomActivity>{} : db.getClassroomActivity(lessonId);
+            const auto lesson = lessonRow && lessonRow->kind == "agent-lesson" && allowed(access, lessonRow->courseId)
+                ? parsed(lessonRow->payload) : Json::object();
+            const bool ownsLesson = lesson.is_object() && lesson.value("scopeId", "") == access.scopeId;
+            const auto* deepContent = ownsLesson && lesson.contains("deepContent") && lesson.at("deepContent").is_object()
+                ? &lesson.at("deepContent") : nullptr;
+            const auto* classroomMedia = deepContent && deepContent->contains("media") && deepContent->at("media").is_array()
+                ? &deepContent->at("media") : nullptr;
+            const bool setClassroom = classroomMedia && std::any_of(classroomMedia->begin(), classroomMedia->end(), [](const auto& media) {
+                return media.is_object() && media.value("type", "") == "sets";
+            });
             if (!lessonId.empty() && !assessmentPhase) {
-                // 【逐行批注】 计算右侧结果并写入 auto lessonRow，更新当前运行状态。
-                const auto lessonRow = db.getClassroomActivity(lessonId);
-                // 【逐行批注】 判断条件 (lessonRow && lessonRow->kind == "agent-lesson" && allowed(acces…，成立时执行对应分支。
-                if (lessonRow && lessonRow->kind == "agent-lesson" && allowed(access, lessonRow->courseId) &&
-                    // 【逐行批注】 调用 parsed 完成本行所需操作：parsed(lessonRow->payload).value("scopeId", "") == access.scopeId) {。
-                    parsed(lessonRow->payload).value("scopeId", "") == access.scopeId) {
-                    // 【逐行批注】 计算右侧结果并写入 auto lesson，更新当前运行状态。
-                    const auto lesson = parsed(lessonRow->payload); Json currentLesson = Json::object();
+                if (ownsLesson) {
+                    Json currentLesson = Json::object();
                     currentLesson["teachingPreferences"] = teachingPreferencesProjection(lesson);
                     // 【逐行批注】 按循环规则重复处理：for (const auto* key : {"id", "courseId", "title", "purpose", "status", "v…。
                     for (const auto* key : {"id", "courseId", "title", "purpose", "status", "version", "topicId", "phaseIndex", "topicIndex", "teachingFocus", "teachingRound"})
@@ -2121,13 +2324,13 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
                     // 【逐行批注】 结束当前代码块。
                     }
                     // 【逐行批注】 判断条件 (!deepPrompt.empty() && lesson.value("deepContent", Json()).is_o…，成立时执行对应分支。
-                    if (!deepPrompt.empty() && lesson.value("deepContent", Json()).is_object()) {
+                    if (!deepPrompt.empty() && deepContent) {
                         // 【逐行批注】 计算右侧结果并写入 auto kind，更新当前运行状态。
                         const auto kind = task.at("event").value("deepView", "lecture") == "slides" ? "slides" : "lecture";
                         // 【逐行批注】 计算右侧结果并写入 auto contentId，更新当前运行状态。
                         const auto contentId = task.at("event").value("contentId", "");
                         // 【逐行批注】 计算右侧结果并写入 auto content，更新当前运行状态。
-                        const auto content = lesson.at("deepContent");
+                        const auto& content = *deepContent;
                         // 页面身份无效时也不能把原始浏览器状态直接发送给模型。
                         promptContext["event"]["mediaState"] = Json::object();
                         // 【逐行批注】 按循环规则重复处理：for (const auto& block : content.value(kind, Json::array())) if (contentId…。
@@ -2265,7 +2468,7 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
                 task.at("event").value("action", "answer") != "skip" && task.at("event").value("action", "answer") != "hint" &&
                 // 【逐行批注】 执行当前声明或表达式：task.at("event").value("action", "answer") != "omitted" && !task.value("inputResolve…。
                 task.at("event").value("action", "answer") != "omitted" && !task.value("inputResolved", false);
-            bool pendingRoundFeedback = false;
+            Json stagedRoundEvaluations = Json::array();
             if (!resolvingInput && task.at("event").value("type", "") == "question_answer" &&
                 task.value("inputResolved", false)) {
                 const auto completedActions = task.value("completedActions", Json::object());
@@ -2277,15 +2480,15 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
                     const auto evaluation = parsed(row->payload);
                     if (!evaluation.value("published", false) && evaluation.contains("roundId") &&
                         evaluation.value("lessonId", "") == task.at("event").value("lessonId", "")) {
-                        pendingRoundFeedback = true;
-                        break;
+                        auto entry = Json::object();
+                        for (const auto* key : {"questionId", "sectionId", "response", "score", "credible", "feedback",
+                                                "feedbackHelpType", "reason", "uncertainty", "diagnosis", "choiceCorrect", "selectedOption"})
+                            if (evaluation.contains(key)) entry[key] = evaluation.at(key);
+                        stagedRoundEvaluations.push_back(std::move(entry));
                     }
                 }
             }
-            if (pendingRoundFeedback) options.messages.push_back({"system",
-                "本题评价已经暂存，尚未向学生发布。先依据已保存评价，在 message 中给出针对实际作答的反馈，"
-                "按公开内容标注 teaching.helpType，actions 留空，state 使用 continue。"
-                "系统发布反馈之后，才能生成下一题或调用 complete_teaching_round。需要澄清时先追问，不能宣布轮次完成。", ""});
+            const bool pendingRoundFeedback = !stagedRoundEvaluations.empty();
             // 【逐行批注】 判断条件 (resolvingInput) options.messages.push_back({"system",，成立时执行对应分支。
             if (resolvingInput) options.messages.push_back({"system",
                 // 【逐行批注】 执行当前声明或表达式："本轮先判断学生输入是否构成作答：调用 evaluate_answer 评价本次真实输入，或调用 classify_input 明确这是纯追问。interactionI…。
@@ -2323,7 +2526,7 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
             }
             // 【逐行批注】 判断条件 (!lessonId.empty()) options.messages.front().content +=，成立时执行对应分支。
             // 诊断阶段会重建消息，因此在阶段隔离之后选择策略，不把备课或组件生成权限带入评分轮。
-            const auto teachingPolicy = selectTeachingPolicy(promptContext, resolvingInput, !deepPrompt.empty());
+            auto teachingPolicy = selectTeachingPolicy(promptContext, resolvingInput, !deepPrompt.empty());
             if (!teachingPolicy.prompt.empty()) {
                 // 策略放在当前上下文之后、工具历史之前，保留现有输入和回执的相对顺序。
                 const auto firstInput = std::find_if(options.messages.begin(), options.messages.end(),
@@ -2339,6 +2542,38 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
             // 【逐行批注】 计算右侧结果并写入 options.activity.scopeId，更新当前运行状态。
             options.activity.scopeId = access.scopeId;
             // 【逐行批注】 计算右侧结果并写入 options.activity.purpose，更新当前运行状态。
+            if (pendingRoundFeedback) {
+                allowedTools.clear();
+                if (responseRecovery) options.temperature = 0;
+                auto& modules = teachingPolicy.manifest;
+                modules.erase(std::remove_if(modules.begin(), modules.end(), [](const auto& item) {
+                    return item.at("id") == "core/system" || item.at("id") == "core/behavior-policy";
+                }), modules.end());
+                options.messages = roundFeedbackMessages(promptContext, stagedRoundEvaluations, teachingPolicy.prompt, responseRecovery);
+            } else if (responseRecovery && !planningCourse) {
+                options.temperature = 0;
+                options.messages.push_back({"system", "本轮恢复使用单步回复，把 state 写在最前面。"
+                    "只返回一个完整 JSON 对象，用根字段 tool、actionId、args 表达一个参数齐全的动作，省略 actions 数组。"
+                    "例：{\"state\":\"continue\",\"teaching\":{\"helpType\":\"none\"},\"message\":\"\","
+                    "\"tool\":\"本轮允许的工具名\",\"actionId\":\"当前步骤的稳定标识\",\"args\":{}}。请填实际工具参数。"
+                    "没有动作时只写 tool:null，不写 actionId 或 args。保留必要的帮助分类、来源与引用。"
+                    "需要多个动作时先完成一个，使用 continue 读取本轮回执后再继续。已成功行动不重做。"
+                    "不要复制上一轮回复、附加正文或输出标记。", ""});
+            }
+            if (planningCourse) {
+                // 首轮和恢复轮共用大纲协议，只有程序能发起经过权限检查的建课动作。
+                const bool canCreate = allowedTools.count("create_course") != 0;
+                allowedTools.clear();
+                if (canCreate) allowedTools.insert("create_course");
+                options.temperature = 0;
+                options.messages = courseOutlineMessages(requestEvent, promptContext, responseRecovery);
+            }
+            if (!resolvingInput && !planningCourse) options.messages.front().content =
+                "公开文字会逐片显示。按自然教学顺序输出，每个动作先写 tool，再写 args；"
+                "append_section 的 section 先写 kind、title，再写 body 或 question。"
+                "讲解先形成可读的完整小节并保存，后续小节、图示和练习继续补充。"
+                "已有上下文和已成功回执足够时直接继续，不为再次确认同一结果单独读课。"
+                "私有答案和评分标准仍只写入相应私有字段，message只放面向用户的正文。\n" + options.messages.front().content;
             options.activity.purpose = resolvingInput ? "判断本次回答或追问" : taskPurpose(task.at("event").value("type", ""));
             // 【逐行批注】 计算右侧结果并写入 options.activity.source，更新当前运行状态。
             options.activity.source = task.at("event").value("type", "") == "startup" || task.at("event").value("type", "") == "learning_updated" ? "后台学习更新" : task.at("event").value("type", "") == "assistant_chat" ? "AI管家" : "AI 教学主控";
@@ -2381,86 +2616,66 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
             // 【逐行批注】 执行当前声明或表达式：});。
             });
             // 【逐行批注】 计算右侧结果并写入 auto helpRequest，更新当前运行状态。
-            const auto helpRequest = task.at("event").value("requestType", "");
-            // 【逐行批注】 计算右侧结果并写入 bool validatedHelpRequest，更新当前运行状态。
-            const bool validatedHelpRequest = task.at("event").value("type", "") == "teaching_request" && !helpRequest.empty();
-            // 【逐行批注】 计算右侧结果并写入 bool validateSources，更新当前运行状态。
             const bool validateSources = task.at("event").value("type", "") == "library_research" ||
                 promptContext.value("savedLibrary", Json::object()).contains("curriculum") ||
-                // 【逐行批注】 调用 object、array 完成本行所需操作：!promptContext.value("savedLibrary", Json::object()).value("sources",…。
                 !promptContext.value("savedLibrary", Json::object()).value("sources", Json::array()).empty();
-            // 【逐行批注】 计算右侧结果并写入 auto sourceEvent，更新当前运行状态。
             const auto sourceEvent = task.at("event").value("type", "");
-            // 【逐行批注】 计算右侧结果并写入 bool sourceTeachingReply，更新当前运行状态。
-            const bool sourceTeachingReply = sourceEvent == "chat" || sourceEvent == "teaching_request" || sourceEvent == "question_answer" || sourceEvent == "prepare_next" || sourceEvent == "plan_course";
-            // 没有资料也可能返回编造引用，教学文字必须在整轮校验完成后才能展示。
-            // 【逐行批注】 计算右侧结果并写入 bool holdPublicContent，更新当前运行状态。
-            const bool holdPublicContent = validatedHelpRequest || validateSources || sourceTeachingReply;
-            // 【逐行批注】 计算右侧结果并写入 bool typedTeaching，更新当前运行状态。
-            const bool typedTeaching = task.value("teachingProtocolVersion", 1) >= 2 && !task.at("event").value("lessonId", "").empty() && !resolvingInput;
-            // 【逐行批注】 执行当前声明或表达式：std::vector<AgentStreamDelta> pendingHelp;。
-            std::vector<AgentStreamDelta> pendingHelp;
-            // 【逐行批注】 执行当前声明或表达式：std::vector<AgentStreamDelta> pendingType;。
-            std::vector<AgentStreamDelta> pendingType;
-            // 【逐行批注】 定义函数 stream，执行该函数声明的职责。
-            AgentPublicStream stream([&](const AgentStreamDelta& delta) {
-                // 【逐行批注】 判断条件 (resolvingInput && delta.field == "message") return;，成立时执行对应分支。
-                if (resolvingInput && delta.field == "message") return;
-                // 【逐行批注】 判断条件 (holdPublicContent) {，成立时执行对应分支。
-                if (holdPublicContent) {
-                    // 【逐行批注】 执行当前声明或表达式：pendingHelp.push_back(delta);。
-                    pendingHelp.push_back(delta);
-                    // 【逐行批注】 判断条件 (pendingHelp.size() == 1) ownedUpdate(db, task, [&](Json& curren…，成立时执行对应分支。
-                    if (pendingHelp.size() == 1) ownedUpdate(db, task, [&](Json& current) {
-                        // 【逐行批注】 调用 recordActivity 完成本行所需操作：recordActivity(current, {{"phase", "receiving"}, {"state", "started"}…。
-                        recordActivity(current, {{"phase", "receiving"}, {"state", "started"}, {"title", "接收并核验 AI 回复"},
-                            // 【逐行批注】 执行当前声明或表达式：{"detail", "正在接收内容，完整格式和引用校验通过后展示。"}});。
-                            {"detail", "正在接收内容，完整格式和引用校验通过后展示。"}});
-                    // 【逐行批注】 执行当前声明或表达式：});。
-                    });
-                    // 【逐行批注】 结束当前函数并返回结果：return;。
-                    return;
-                // 【逐行批注】 结束当前代码块。
-                }
-                // 【逐行批注】 判断条件 (typedTeaching && (!teachingHelpType(stream.helpType()) || strea…，成立时执行对应分支。
-                if (typedTeaching && (!teachingHelpType(stream.helpType()) || stream.helpType() == "unknown")) { pendingType.push_back(delta); return; }
-                // 【逐行批注】 调用 ownedUpdate 完成本行所需操作：ownedUpdate(db, task, [&](Json& current) {。
+            const bool sourceTeachingReply = sourceEvent == "chat" || sourceEvent == "teaching_request" ||
+                sourceEvent == "question_answer" || sourceEvent == "prepare_next" || sourceEvent == "plan_course";
+            // 正式记录在整轮校验后提交；公开草稿逐片发送，失败时通过同一事件流修正。
+            const bool holdPublicContent = true;
+            const bool typedTeaching = task.value("teachingProtocolVersion", 1) >= 2 &&
+                !task.at("event").value("lessonId", "").empty() && !resolvingInput;
+            const auto requestClock = std::chrono::steady_clock::now();
+            auto lastFlush = requestClock;
+            bool firstChunk = true;
+            long long modelChunkAt = 0;
+            std::map<std::string, AgentStreamDelta> buffered;
+            const auto flushPublic = [&] {
+                if (buffered.empty()) return;
                 ownedUpdate(db, task, [&](Json& current) {
-                    // 【逐行批注】 按循环规则重复处理：for (const auto& held : pendingType)。
-                    for (const auto& held : pendingType)
-                        // 【逐行批注】 调用 recordEvent 完成本行所需操作：recordEvent(current, {{"type", "delta"}, {"field", held.field}, {"act…。
-                        recordEvent(current, {{"type", "delta"}, {"field", held.field}, {"actionIndex", held.actionIndex},
-                            // 【逐行批注】 执行当前声明或表达式：{"optionIndex", held.optionIndex}, {"step", current.value("calls", 0)}, {"text", hel…。
-                            {"optionIndex", held.optionIndex}, {"step", current.value("calls", 0)}, {"text", held.text}});
-                    // 【逐行批注】 执行当前声明或表达式：pendingType.clear();。
-                    pendingType.clear();
-                    // 【逐行批注】 计算右侧结果并写入 auto title，更新当前运行状态。
-                    const auto title = delta.field == "message" ? "接收 AI 的教学回复" : delta.field == "option" ? "接收 AI 生成的题目选项" :
-                        // 【逐行批注】 执行当前声明或表达式：delta.field == "question" ? "接收 AI 生成的新题目" : "接收 AI 生成的课件内容";。
-                        delta.field == "question" ? "接收 AI 生成的新题目" : "接收 AI 生成的课件内容";
-                    // 【逐行批注】 判断条件 (current.at("activity").value("phase", "") != "receiving" || cur…，成立时执行对应分支。
-                    if (current.at("activity").value("phase", "") != "receiving" || current.at("activity").value("title", "") != title)
-                        // 【逐行批注】 调用 recordActivity 完成本行所需操作：recordActivity(current, {{"phase", "receiving"}, {"state", "started"}…。
-                        recordActivity(current, {{"phase", "receiving"}, {"state", "started"}, {"title", title},
-                            // 【逐行批注】 执行当前声明或表达式：{"detail", "正在接收公开内容；完整回复还需校验后才能保存。"}});。
-                            {"detail", "正在接收公开内容；完整回复还需校验后才能保存。"}});
-                    // 【逐行批注】 调用 recordEvent 完成本行所需操作：recordEvent(current, {{"type", "delta"}, {"field", delta.field}, {"ac…。
-                    recordEvent(current, {{"type", "delta"}, {"field", delta.field}, {"actionIndex", delta.actionIndex},
-                        // 【逐行批注】 执行当前声明或表达式：{"optionIndex", delta.optionIndex}, {"step", current.value("calls", 0)}, {"text", de…。
-                        {"optionIndex", delta.optionIndex}, {"step", current.value("calls", 0)}, {"text", delta.text}});
-                // 【逐行批注】 执行当前声明或表达式：});。
+                    if (current.at("activity").value("phase", "") != "receiving")
+                        recordActivity(current, {{"phase", "receiving"}, {"state", "started"},
+                            {"title", "正在生成内容"}, {"detail", "文字正在实时显示，内容会持续保存与核对。"}});
+                    current["publicStreamStep"] = current.value("calls", 0);
+                    for (const auto& item : buffered) {
+                        const auto& delta = item.second;
+                        recordEvent(current, {{"type", "delta"}, {"field", delta.field}, {"streamId", delta.streamId},
+                            {"actionIndex", delta.actionIndex}, {"optionIndex", delta.optionIndex},
+                            {"step", current.value("calls", 0)}, {"text", delta.text}, {"provisional", true},
+                            {"receivedAtMs", modelChunkAt}});
+                    }
                 });
-            // 【逐行批注】 执行当前声明或表达式：});。
-            });
-            // 【逐行批注】 计算右侧结果并写入 auto response，更新当前运行状态。
+                buffered.clear();
+                lastFlush = std::chrono::steady_clock::now();
+            };
+            AgentPublicStream stream([&](const AgentStreamDelta& delta) {
+                if (resolvingInput) return;
+                auto inserted = buffered.emplace(delta.streamId, delta);
+                if (!inserted.second) inserted.first->second.text += delta.text;
+            }, planningCourse);
             const auto response = model_(options, [&](const std::string& chunk) {
-                // 【逐行批注】 判断条件 (options.cancelled()) return false;，成立时执行对应分支。
                 if (options.cancelled()) return false;
-                // 【逐行批注】 执行当前声明或表达式：stream.push(chunk); return !options.cancelled();。
-                stream.push(chunk); return !options.cancelled();
-            // 【逐行批注】 执行当前声明或表达式：});。
+                modelChunkAt = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+                if (!chunk.empty() && firstChunk) {
+                    firstChunk = false;
+                    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - requestClock).count();
+                    ownedUpdate(db, task, [&](Json& current) {
+                        current["firstModelChunkMs"] = elapsed;
+                    });
+                }
+                stream.push(chunk);
+                // 首片立即提交，后续按一帧左右的间隔合并，避免逐字数据库事务拖慢接收。
+                if (task.value("publicStreamStep", -1) != task.value("calls", 0) ||
+                    std::chrono::steady_clock::now() - lastFlush >= std::chrono::milliseconds(24)) {
+                    flushPublic();
+                }
+                return !options.cancelled();
             });
-            // 【逐行批注】 计算右侧结果并写入 responseDiagnostic，更新当前运行状态。
+            flushPublic();
+
             responseDiagnostic = {{"receivedBytes", response.content.size()}, {"streamBytes", stream.content().size()},
                 // 【逐行批注】 执行当前声明或表达式：{"matchesStream", response.content == stream.content()}, {"finishReason", response.f…。
                 {"matchesStream", response.content == stream.content()}, {"finishReason", response.finishReason},
@@ -2487,20 +2702,19 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
             // 【逐行批注】 结束当前代码块。
             }
             // 【逐行批注】 判断条件 (response.content.empty() || response.model.empty() || response.…，成立时执行对应分支。
-            if (response.content.empty() || response.model.empty() || response.finishReason == "length")
+            if (response.finishReason == "length")
+                throw AIClientError("output_limit", "AI 回复达到输出长度限制");
+            if (response.content.empty() || response.model.empty())
                 // 【逐行批注】 检测到错误情形时抛出异常：throw AIClientError("invalid_response", "真实 AI 输出不完整");。
                 throw AIClientError("invalid_response", "真实 AI 输出不完整");
             // 【逐行批注】 计算右侧结果并写入 failureStage，更新当前运行状态。
             failureStage = "structure";
             // 【逐行批注】 调用 ownedUpdate 完成本行所需操作：ownedUpdate(db, task, [&](Json& current) {。
             ownedUpdate(db, task, [&](Json& current) {
-                // 保存原响应供模型修正，不能把截取或补齐后的半成品当成可执行行动。
                 // 【逐行批注】 判断条件 (!startupObserved.empty() && startupObserved != startupFingerpri…，成立时执行对应分支。
                 if (!startupObserved.empty() && startupObserved != startupFingerprint(db, access, current.at("event"))) current["startupReuseInvalidated"] = true;
                 // 【逐行批注】 计算右侧结果并写入 current["model"]，更新当前运行状态。
                 current["model"] = response.model;
-                // 【逐行批注】 执行当前声明或表达式：current["messages"].push_back({{"role", "assistant"}, {"content", response.content}}…。
-                current["messages"].push_back({{"role", "assistant"}, {"content", response.content}});
                 // 【逐行批注】 调用 recordActivity 完成本行所需操作：recordActivity(current, {{"phase", "validation"}, {"state", "started"…。
                 recordActivity(current, {{"phase", "validation"}, {"state", "started"}, {"title", "校验 AI 返回的内容和操作"},
                     // 【逐行批注】 执行当前声明或表达式：{"detail", "正在检查完整回复的格式及教学操作，校验通过后再提交。"}});。
@@ -2519,16 +2733,20 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
             // 【逐行批注】 执行当前声明或表达式：Json decision;。
             Json decision;
             // 【逐行批注】 开始可能抛出异常的保护代码块。
-            try { decision = Json::parse(response.content); }
+            size_t wrapperBytes = 0;
+            try { decision = parseStructuredReply(response.content, wrapperBytes); }
             // 【逐行批注】 捕获并处理异常：catch (const Json::parse_error& error) {。
             catch (const Json::parse_error& error) {
                 // 【逐行批注】 计算右侧结果并写入 responseDiagnostic["parseByte"]，更新当前运行状态。
-                responseDiagnostic["parseByte"] = error.byte;
+                responseDiagnostic["parseByte"] = error.byte + wrapperBytes;
                 // 【逐行批注】 检测到错误情形时抛出异常：throw;。
                 throw;
             // 【逐行批注】 结束当前代码块。
             }
             // 【逐行批注】 判断条件 (!decision.is_object() || !decision.value("message", Json()).is_…，成立时执行对应分支。
+            if (planningCourse) decision = courseOutlineDecision(decision, requestEvent);
+            else if (pendingRoundFeedback) normalizeRoundFeedback(decision);
+            else if (responseRecovery) normalizeRecoveryAction(decision);
             if (!decision.is_object() || !decision.value("message", Json()).is_string() ||
                 // 【逐行批注】 调用 Json 完成本行所需操作：!decision.value("actions", Json()).is_array() || !decision.value("sta…。
                 !decision.value("actions", Json()).is_array() || !decision.value("state", Json()).is_string())
@@ -2537,6 +2755,8 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
             // 【逐行批注】 计算右侧结果并写入 state，更新当前运行状态。
             auto state = decision.at("state").get<std::string>();
             bool calculates = false;
+            validateDecisionActions(decision.at("actions"), allowedTools, task.at("completedActions"));
+            if (setClassroom) validateSetPublicReply(decision);
             for (const auto& action : decision.at("actions"))
                 if (action.is_object() && action.value("tool", "") == "calculate_exact") calculates = true;
             if (calculates) {
@@ -2602,9 +2822,6 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
                 }
                 decision["message"] = decision.at("message").get<std::string>() + location;
             }
-            const bool annotatedReply = examStudy || !messageCitations.empty() || decision.value("materialOrigin", "") == "ai_supplement" ||
-                decision.value("materialOrigin", "") == "ai_exercise";
-            // 【逐行批注】 计算右侧结果并写入 Json teaching，更新当前运行状态。
             Json teaching = decision.value("teaching", Json::object());
             // 【逐行批注】 判断条件 (typedTeaching && (!teaching.value("helpType", Json()).is_string…，成立时执行对应分支。
             if (typedTeaching && (!teaching.value("helpType", Json()).is_string() || teaching.value("helpType", "unknown") == "unknown"))
@@ -2656,11 +2873,13 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
             // 【逐行批注】 结束当前代码块。
             }
             // 【逐行批注】 计算右侧结果并写入 ownedUpdate(db, task, [&](Json& current) { c…，更新当前运行状态。
-            ownedUpdate(db, task, [&](Json& current) { current["message"] = resolvingInput || holdPublicContent ? Json("") : decision["message"]; });
+            ownedUpdate(db, task, [&](Json& current) {
+                // 只有完成格式与权限校验的回复才能进入恢复历史。
+                current["messages"].push_back({{"role", "assistant"}, {"content", decision.dump()}});
+                current["message"] = resolvingInput || holdPublicContent ? Json("") : decision["message"];
+            });
             // 【逐行批注】 计算右侧结果并写入 Json results，更新当前运行状态。
             Json results = Json::array();
-            // 【逐行批注】 执行当前声明或表达式：std::set<std::string> stepIds;。
-            std::set<std::string> stepIds;
             // 【逐行批注】 按循环规则重复处理：for (const auto& action : decision["actions"]) {。
             for (const auto& action : decision["actions"]) {
                 // 动作提交会合法推进学习版本；此阶段以最新执行快照核对，不能复用请求开始时的取消谓词。
@@ -2678,15 +2897,7 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
                     (revisionSensitive && db.learningRevision() != task.value("learningVersion", 0)))
                     // 【逐行批注】 检测到错误情形时抛出异常：throw std::runtime_error("学习情况或任务状态已变化");。
                     throw std::runtime_error("学习情况或任务状态已变化");
-                // 【逐行批注】 判断条件 (!action.is_object()) throw std::runtime_error("AI 行动的每一项都必须是对象"…，成立时执行对应分支。
-                if (!action.is_object()) throw std::runtime_error("AI 行动的每一项都必须是对象");
-                // 【逐行批注】 计算右侧结果并写入 auto id，更新当前运行状态。
-                const auto id = action.value("id", ""), name = action.value("tool", "");
-                // 【逐行批注】 判断条件 (id.empty() || !stepIds.insert(id).second || !allowedTools.count…，成立时执行对应分支。
-                if (id.empty() || !stepIds.insert(id).second || !allowedTools.count(name) || !action.value("args", Json()).is_object())
-                    // 【逐行批注】 检测到错误情形时抛出异常：throw std::runtime_error("AI 行动格式无效");。
-                    throw std::runtime_error("AI 行动格式无效");
-                // 【逐行批注】 计算右侧结果并写入 failureStage，更新当前运行状态。
+                const auto id = action.at("id").get<std::string>(), name = action.at("tool").get<std::string>();
                 failureStage = "tool";
                 // 【逐行批注】 计算右侧结果并写入 failureTool，更新当前运行状态。
                 failureTool = name;
@@ -2696,8 +2907,6 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
                 if (task["completedActions"].contains(id)) {
                     // 【逐行批注】 计算右侧结果并写入 auto cached，更新当前运行状态。
                     const auto cached = task["completedActions"][id];
-                    // 【逐行批注】 判断条件 (cached["encoded"] != encoded) throw std::runtime_error("AI 重复行动…，成立时执行对应分支。
-                    if (cached["encoded"] != encoded) throw std::runtime_error("AI 重复行动内容不一致");
                     // 【逐行批注】 计算右侧结果并写入 result，更新当前运行状态。
                     auto result=cached["result"];
                     // 【逐行批注】 计算右侧结果并写入 if(result.value("controlId",Json()).is_strin…，更新当前运行状态。
@@ -2886,6 +3095,7 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
                 else current.erase("cachedOnlyRound");
                 if (clearFailures) {
                     current.erase("failureCount"); current.erase("failureKind");
+                    current.erase("responseRecovery");
                     current.erase("failure"); current.erase("error");
                 }
                 // 【逐行批注】 判断条件 (!startupObserved.empty() && startupObserved != startupFingerpri…，成立时执行对应分支。
@@ -2900,22 +3110,24 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
                 if (requestEvent.contains("yesterdayReview")) yesterdayLessonContext(db, access, requestEvent);
                 // 【逐行批注】 判断条件 (decision.at("message").get<std::string>().find_first_not_of(" \…，成立时执行对应分支。
                 if (decision.at("message").get<std::string>().find_first_not_of(" \t\r\n") != std::string::npos) current["_timingContentPending"] = true;
-                // 教学请求在类型、题目关联与全部动作校验通过后展示，拒绝内容不能流到页面。
-                for (const auto& delta : pendingHelp) {
-                    if (annotatedReply && delta.field == "message") continue;
-                    recordEvent(current, {{"type", "delta"}, {"field", delta.field}, {"actionIndex", delta.actionIndex},
-                        {"optionIndex", delta.optionIndex}, {"step", current.value("calls", 0)}, {"text", delta.text}});
+                if (!resolvingInput) {
+                    const auto publicFields = stream.fields();
+                    const bool hasPublicText = std::any_of(publicFields.begin(), publicFields.end(), [](const auto& field) {
+                        return field.text.find_first_not_of(" \t\r\n") != std::string::npos;
+                    });
+                    const auto correctedSteps = hasPublicText ? current.value("streamCorrectionSteps", Json::array()) : Json::array();
+                    std::string previewMessage;
+                    for (const auto& field : stream.fields()) if (field.field == "message") previewMessage = field.text;
+                    if (!decision.at("message").get<std::string>().empty() && previewMessage != decision.at("message"))
+                        recordEvent(current, {{"type", "delta"}, {"field", "message"}, {"streamId", "[\"message\"]"},
+                            {"step", current.value("calls", 0)}, {"text", decision.at("message")},
+                            {"replace", true}, {"provisional", false}});
+                    const auto previousText = correctedSteps.empty() ? Json::object() : current.value("streamRevisionTexts", Json::object());
+                    current["latestStreamRevisions"] = previousText;
+                    recordEvent(current, {{"type", "stream_status"}, {"step", current.value("calls", 0)},
+                        {"state", "confirmed"}, {"correctedSteps", correctedSteps}, {"revisions", previousText}});
+                    if (hasPublicText) { current.erase("streamCorrectionSteps"); current.erase("streamRevisionTexts"); }
                 }
-                if (holdPublicContent && annotatedReply && !resolvingInput && !decision.at("message").get<std::string>().empty())
-                    recordEvent(current, {{"type", "delta"}, {"field", "message"}, {"step", current.value("calls", 0)},
-                        {"text", decision.at("message")}});
-                // 【逐行批注】 按循环规则重复处理：for (const auto& delta : pendingType)。
-                for (const auto& delta : pendingType)
-                    // 【逐行批注】 调用 recordEvent 完成本行所需操作：recordEvent(current, {{"type", "delta"}, {"field", delta.field}, {"ac…。
-                    recordEvent(current, {{"type", "delta"}, {"field", delta.field}, {"actionIndex", delta.actionIndex},
-                        // 【逐行批注】 执行当前声明或表达式：{"optionIndex", delta.optionIndex}, {"step", current.value("calls", 0)}, {"text", de…。
-                        {"optionIndex", delta.optionIndex}, {"step", current.value("calls", 0)}, {"text", delta.text}});
-                // 【逐行批注】 判断条件 (!results.empty()) current["messages"].push_back({{"role", "user…，成立时执行对应分支。
                 if (!results.empty()) current["messages"].push_back({{"role", "user"}, {"content", Json{{"toolResults", results}}.dump()}});
                 // 【逐行批注】 判断条件 (!resolvingInput && !current.value("message", "").empty()) {，成立时执行对应分支。
                 if (!resolvingInput && !current.value("message", "").empty()) {
@@ -3038,6 +3250,31 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
             const auto providerError = dynamic_cast<const AIClientError*>(&error);
             // 【逐行批注】 计算右侧结果并写入 auto kind，更新当前运行状态。
             const auto kind = providerError ? providerError->errorType : failureStage;
+            Json revisions = Json::object();
+            if (task.value("publicStreamStep", -1) == task.value("calls", 0)) {
+                std::map<std::string, Json> fields;
+                const auto published = agentView(db, access, taskId);
+                for (const auto& event : published.value("events", Json::array())) {
+                    if (event.value("type", "") != "delta" || event.value("step", 0) != task.value("calls", 0) || event.value("field", "") == "title") continue;
+                    const auto key = event.value("streamId", event.value("field", ""));
+                    auto& field = fields[key];
+                    const auto previous = field.is_object() ? field.value("text", "") : std::string();
+                    field = {{"field", event.value("field", "")}, {"text", (event.value("replace", false) ? std::string() : previous) + event.value("text", "")}};
+                }
+                for (const auto& field : fields) if (!field.second.value("text", "").empty())
+                    revisions[field.second.at("field").get<std::string>()].push_back(field.second.at("text"));
+            }
+            if (task.value("publicStreamStep", -1) == task.value("calls", 0)) ownedUpdate(db, task, [&](Json& current) {
+                if (!current.contains("streamCorrectionSteps")) current["streamCorrectionSteps"] = Json::array();
+                for (const auto& field : revisions.items()) for (const auto& text : field.value())
+                    current["streamRevisionTexts"][field.key()].push_back(text);
+                auto& steps = current["streamCorrectionSteps"];
+                const auto step = current.value("calls", 0);
+                if (std::find(steps.begin(), steps.end(), step) == steps.end()) steps.push_back(step);
+                recordEvent(current, {{"type", "stream_status"}, {"step", step},
+                    {"state", (!providerError || providerError->retryable) && errors < 2 ? "correcting" : "interrupted"},
+                    {"message", "这段内容需要修正，正在保留原文并继续核对。"}});
+            });
             // 仅在服务商明确报告截断时扩大一次空间；未校验正文和已完成操作都不重复应用。
             // 【逐行批注】 判断条件 (kind == "output_limit" && task.value("responseTokenLimit", 8192…，成立时执行对应分支。
             if (kind == "output_limit" && task.value("responseTokenLimit", 8192) < 16384) {
@@ -3045,13 +3282,14 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
                 ownedUpdate(db, task, [&](Json& current) {
                     // 【逐行批注】 计算右侧结果并写入 current["responseTokenLimit"]，更新当前运行状态。
                     current["responseTokenLimit"] = 16384;
+                    current["responseRecovery"] = true;
                     // 【逐行批注】 执行当前声明或表达式：current.erase("failure");。
                     current.erase("failure");
                     // 【逐行批注】 调用 recordActivity 完成本行所需操作：recordActivity(current, {{"phase", "retry"}, {"state", "started"},。
                     recordActivity(current, {{"phase", "retry"}, {"state", "started"},
                         // 【逐行批注】 执行当前声明或表达式：{"title", "回复达到长度限制，正在恢复"},。
                         {"title", "回复达到长度限制，正在恢复"},
-                        // 【逐行批注】 执行当前声明或表达式：{"detail", "本次扩大回复空间，保留已经保存的步骤，完整校验后再展示。"}});。
+                        // 【逐行批注】 执行当前声明或表达式：{"detail", "正在从已保存步骤恢复，新增文字会继续实时显示。"}});。
                         {"detail", "本次扩大回复空间，保留已经保存的步骤，完整校验后再展示。"}});
                     // 【逐行批注】 执行当前声明或表达式：current["messages"].push_back({{"role", "user"}, {"content",。
                     current["messages"].push_back({{"role", "user"}, {"content",
@@ -3122,7 +3360,7 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
                 // 【逐行批注】 执行当前声明或表达式：kind == "output_limit" ? "AI 回复仍超过长度限制，已有有效步骤已保留，请缩小本次处理范围后重试。" :。
                 kind == "output_limit" ? "AI 回复仍超过长度限制，已有有效步骤已保留，请缩小本次处理范围后重试。" :
                 // 【逐行批注】 执行当前声明或表达式：kind == "structure" || kind == "invalid_response" ? "AI 返回的内容结构不完整，已有有效步骤已保留。" :。
-                kind == "structure" || kind == "invalid_response" ? "AI 返回的内容结构不完整，已有有效步骤已保留。" :
+                kind == "structure" || kind == "invalid_response" ? "AI 回复未通过格式校验，原请求和已保存内容可以继续使用。" :
                 // 【逐行批注】 调用 toolActivity、object 完成本行所需操作："“" + toolActivity(failureTool, Json::object(), false).at("title").ge…。
                 "“" + toolActivity(failureTool, Json::object(), false).at("title").get<std::string>() + "”未通过数据校验，已有有效步骤已保留。";
             // 【逐行批注】 判断条件 (detail == "本课已有更新的教学任务，旧输出不应用")，成立时执行对应分支。
@@ -3150,7 +3388,10 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
             // 【逐行批注】 调用 ownedUpdate 完成本行所需操作：ownedUpdate(db, task, [&](Json& current) {。
             ownedUpdate(db, task, [&](Json& current) {
                 current.erase("cachedOnlyRound");
-                // 【逐行批注】 计算右侧结果并写入 current["failureCount"]，更新当前运行状态。
+
+                if (recoverableResponse(kind) || (failureTool == "create_course" &&
+                    current.at("event").value("type", "") == "plan_course" && !current.contains("course")))
+                    current["responseRecovery"] = true;
                 current["failureCount"] = errors; current["failureKind"] = kind;
                 // 【逐行批注】 计算右侧结果并写入 activity，更新当前运行状态。
                 auto activity = current.value("activity", Json::object());
@@ -3182,7 +3423,7 @@ void LearningAgent::processImpl(Database& db, const std::string& taskId, bool qu
                 recordActivity(current, std::move(activity));
                 // 异常说明可能带有被截半的 UTF-8 片段，仅替换错误记录中的坏字节，决策正文仍严格校验。
                 // 【逐行批注】 判断条件 (kind == "structure") {，成立时执行对应分支。
-                if (kind == "structure") {
+                if (recoverableResponse(kind)) {
                     // 结构错误时丢弃整段错误对话，避免下一轮继续模仿坏 JSON；
                     // 只保留成功动作的最小摘要，恢复策略与手动重试一致。
                     // 【逐行批注】 计算右侧结果并写入 Json savedActions，更新当前运行状态。
@@ -3437,7 +3678,7 @@ void LearningAgent::processIndependentChat(Database& db, Json& task) {
             // 【逐行批注】 计算右侧结果并写入 auto decisionResult，更新当前运行状态。
             const auto decisionResult = model_(decision, [](const std::string&) { return true; });
             // 【逐行批注】 计算右侧结果并写入 auto value，更新当前运行状态。
-            const auto value = Json::parse(decisionResult.content, nullptr, false);
+            const auto value = parseAIJson(decisionResult.content);
             // 【逐行批注】 判断条件 (value.is_object() && value.contains("needsSearch") && value["ne…，成立时执行对应分支。
             if (value.is_object() && value.contains("needsSearch") && value["needsSearch"].is_boolean()) {
                 // 【逐行批注】 计算右侧结果并写入 needsSearch，更新当前运行状态。
@@ -3680,7 +3921,7 @@ void LearningAgent::processExamExplanation(Database& db, Json& task) {
             return;
         }
 
-        const auto recognizeBatch = [&](int pageOffset, int pageLimit, bool finalBatch) {
+        const auto requestBatch = [&](int pageOffset, int pageLimit, bool finalBatch, bool recovery) {
             Json prompt;
             db.readSnapshot([&] { prompt = examExplanationPrompt(db, examId, action, event.value("text", ""), taskId, pageOffset, pageLimit); });
             ChatOptions options;
@@ -3694,6 +3935,10 @@ void LearningAgent::processExamExplanation(Database& db, Json& task) {
             options.temperature = action == "recognize" ? 0.1 : 0.5;
             options.responseFormat = "json_object";
             options.cancelled = cancelled;
+            if (recovery) {
+                options.temperature = 0;
+                options.maxTokens = 16384;
+            }
             auto context = prompt;
             for (auto& page : context["pages"]) page.erase("dataUrl");
             const std::string system = action == "recognize"
@@ -3719,26 +3964,28 @@ void LearningAgent::processExamExplanation(Database& db, Json& task) {
                         options.messages.push_back({message.value("role", "user"), message.value("content", ""), ""});
                 if (!event.value("text", "").empty()) options.messages.push_back({"user", event.value("text", ""), ""});
             }
-            std::string partial;
-            std::string emittedMessage;
+            if (recovery) options.messages.push_back({"system",
+                action == "recognize" ?
+                    "上次返回格式有误。重新读取本批原页，只返回完整的 title 和 questions JSON，逐题保留原题内容。" :
+                    "上次返回格式有误。只输出一个完整 JSON 对象，message 放在首位。给出当前问题的关键讲解，"
+                    "必要图示写在 artifacts，不要附加正文或重复大段试卷。", ""});
+            bool received = false;
             const auto response = model_(options, [&](const std::string& chunk) {
                 if (options.cancelled()) return false;
-                partial += chunk;
-                if (action != "recognize" && prompt.value("confirmedSources", Json::array()).empty() &&
-                    prompt.value("artifacts", Json::array()).empty()) {
-                    const auto message = examMessageStreamText(partial);
-                    if (message.size() > emittedMessage.size() && message.compare(0, emittedMessage.size(), emittedMessage) == 0) {
-                        const auto delta = message.substr(emittedMessage.size());
-                        emittedMessage = message;
-                        ownedUpdate(db, task, [&](Json& current) {
-                            recordEvent(current, {{"type", "delta"}, {"field", "message"}, {"step", 1}, {"text", delta}});
-                        });
-                    }
+                if (!received && !chunk.empty()) {
+                    received = true;
+                    ownedUpdate(db, task, [](Json& current) {
+                        recordActivity(current, {{"phase", "receiving"}, {"state", "started"},
+                            {"title", "正在接收并校验试卷内容"},
+                            {"detail", "本次内容校验完成后显示，已保存的内容可继续查看。"}});
+                    });
                 }
-                return true;
+                return !options.cancelled();
             });
-            if (response.content.empty() || response.finishReason == "length")
-                throw AIClientError("invalid_response", "试卷讲解回复不完整，请重试");
+            if (response.finishReason == "length")
+                throw AIClientError("output_limit", "试卷回复达到输出长度限制");
+            if (response.content.empty()) throw StructuredReplyError("试卷回复正文为空");
+            if (cancelled()) throw std::runtime_error("试卷请求已停止或被接替");
             db.transaction([&] {
                 if (action != "recognize") {
                     const auto latest = examExplanationPrompt(db, examId, action, event.value("text", ""), taskId, pageOffset, pageLimit);
@@ -3750,21 +3997,38 @@ void LearningAgent::processExamExplanation(Database& db, Json& task) {
                 examExplanationApplyModel(db, examId, action, requestId, response, finalBatch, taskId,
                                           action == "recognize" ? pageOffset : -1);
             });
-            return response;
         };
 
-        AIResult response;
+        const auto runBatch = [&](int pageOffset, bool finalBatch) {
+            try {
+                requestBatch(pageOffset, 4, finalBatch, false);
+                return;
+            } catch (const StructuredReplyError&) {
+                // 只重做当前未保存的批次，之前的识别与消息留在原事务中。
+            } catch (const AIClientError& error) {
+                if (error.errorType != "output_limit" && !(error.retryable && error.errorType == "invalid_response"))
+                    throw;
+            }
+            if (cancelled()) throw std::runtime_error("试卷请求已停止或被接替");
+            ownedUpdate(db, task, [](Json& current) {
+                recordActivity(current, {{"phase", "retry"}, {"state", "started"},
+                    {"title", "试卷回复格式有误，正在恢复"},
+                    {"detail", "只重试当前批次，之前保存的页码与讲解仍可使用。"}});
+            });
+            requestBatch(pageOffset, 4, finalBatch, true);
+        };
+
         if (action == "recognize") {
             const auto view = examExplanationView(db, examId);
             const auto total = static_cast<int>(view.value("pages", Json::array()).size());
             const int savedOffset = view.value("progress", Json::object()).value("current", 0);
             for (int offset = savedOffset; offset < total; offset += 4) {
                 if (cancelled()) throw std::runtime_error("试卷识别已取消");
-                response = recognizeBatch(offset, 4, offset + 4 >= total);
+                runBatch(offset, offset + 4 >= total);
                 ownedUpdate(db, task, [&](Json& current) { recordActivity(current, {{"phase", "recognition"}, {"state", "progress"},
                     {"title", "已识别部分页面"}, {"detail", std::to_string(std::min(offset + 4, total)) + " / " + std::to_string(total) + " 页"}}); });
             }
-        } else response = recognizeBatch(0, 4, true);
+        } else runBatch(0, true);
         if (action != "search") examExplanationClearTask(db, examId, taskId);
         if (action == "recognize") {
             const auto access = accessFor(task);
@@ -3791,11 +4055,18 @@ void LearningAgent::processExamExplanation(Database& db, Json& task) {
         });
     } catch (const std::exception& error) {
         if (action != "search") try { examExplanationFailTask(db, examId, requestId); } catch (...) {}
+        const auto* provider = dynamic_cast<const AIClientError*>(&error);
+        const bool formatFailure = dynamic_cast<const StructuredReplyError*>(&error) != nullptr ||
+            (provider && recoverableResponse(provider->errorType));
+        const std::string message = formatFailure
+            ? (action == "recognize" ? "当前试卷页识别格式有误，已保存的页可继续使用。"
+                                     : "试卷讲解回复格式有误，已保留原问题和已有讲解。")
+            : error.what();
         ownedUpdate(db, task, [&](Json& current) {
             if (current.value("status", "") == "running") current["status"] = "failed";
-            current["error"] = error.what();
-            current["failure"] = {{"kind", "exam_explanation"}, {"message", error.what()}, {"retryable", true}};
-            recordEvent(current, {{"type", "failed"}, {"message", error.what()}});
+            current["error"] = message;
+            current["failure"] = {{"kind", formatFailure ? "structure" : provider ? provider->errorType : "exam_explanation"}, {"message", message}, {"retryable", true}};
+            recordEvent(current, {{"type", "failed"}, {"message", message}});
         });
     }
 }

@@ -9,7 +9,9 @@ import subprocess
 import sys
 import tempfile
 from threading import Thread
+import time
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import ai_money_budget as budget
@@ -79,6 +81,94 @@ class MoneyTests(unittest.TestCase):
     def state(self):
         return budget.inspect(self.config)
 
+    def write_rate_evidence(self, config_path, path, quote=None):
+        original = budget.load(config_path)
+        data = {key: original[key] for key in ('currency', 'model', 'endpoint', 'fixtureOnly')}
+        data.update(checkedAtUnix=int(time.time()), terms=quote if quote is not None else budget._pricing_terms(original),
+                    source='fixture' if original['fixtureOnly'] else 'https://api-docs.deepseek.com/zh-cn/quick_start/pricing/')
+        path.write_bytes(budget.encoded(data))
+        return path
+
+    def renew_fixture(self):
+        path = self.root / '续期.json'
+        receipt = budget.prepare_revalidation(self.config, self.prepared['configSha256'], path,
+            self.write_rate_evidence(self.config, self.root / '费率证据.json'))
+        return {'GANGYI_MONEY_REVALIDATION': str(path), 'GANGYI_MONEY_REVALIDATION_SHA256': receipt['revalidationSha256']}
+
+    def test_revalidation_keeps_historical_spend_after_expiry(self):
+        self.config, self.ledger = self.root / '短期配置.json', self.root / '短期累计.jsonl'
+        # 建立即将到期的独立模拟预算，使用真实时钟等待窗口结束。
+        with patch.object(budget.time, 'time', return_value=int(time.time()) - 3595):
+            self.prepared = self.prepare(valid_hours=1)
+        self.assertEqual(self.run_driver().returncode, 0)
+        before = self.ledger.read_bytes()
+        frozen = self.config.read_bytes()
+        time.sleep(max(0, budget.load(self.config)['expiresUnix'] - time.time()) + .05)
+        self.assertNotEqual(self.run_driver().returncode, 0)
+        self.assertEqual(len(self.server.received), 1)
+        env = self.renew_fixture()
+        self.assertEqual(self.ledger.read_bytes(), before)
+        self.assertEqual(self.run_driver('stream', env).returncode, 0)
+        self.assertEqual(len(self.server.received), 2)
+        self.assertEqual(self.config.read_bytes(), frozen)
+        self.assertTrue(self.ledger.read_bytes().startswith(before))
+        rows = [json.loads(line) for line in self.ledger.read_bytes().splitlines()]
+        self.assertEqual(rows[-2]['pricingRevalidationSha256'], env['GANGYI_MONEY_REVALIDATION_SHA256'])
+        self.assertEqual(self.state()['spentMicros'], 50)
+
+    def test_revalidation_denies_changed_evidence_and_uncertain_request(self):
+        env = self.renew_fixture()
+        evidence = self.root / '费率证据.json'
+        raw = evidence.read_bytes()
+        evidence.write_bytes(raw + b' ')
+        self.assertNotEqual(self.run_driver(env=env).returncode, 0)
+        self.assertEqual(len(self.server.received), 0)
+        evidence.write_bytes(raw)
+        self.server.behavior = 'disconnect'
+        self.assertNotEqual(self.run_driver().returncode, 0)
+        self.assertEqual(len(self.server.received), 1)
+        prior = self.state()
+        self.server.behavior = 'normal'
+        self.assertNotEqual(self.run_driver(env=env).returncode, 0)
+        self.assertEqual(len(self.server.received), 1)
+        self.assertEqual(self.state(), prior)
+
+    def test_real_revalidation_requires_fresh_reviewer_and_original_coverage(self):
+        fixed = self.root / 'mock-first-round'; fixed.mkdir()
+        config = fixed / 'money-config.json'; ledger = fixed / 'money-ledger.jsonl'
+        evidence = fixed / 'pricing.json'; renewal = fixed / 'renewal.json'
+        files = [fixed / name for name in ('native.hpp', 'entry.py')]
+        for path in files:
+            path.write_bytes(b'mock source')
+        reviewed = [{'path': str(path), 'sha256': budget.digest(path.read_bytes())} for path in files]
+        review = {'kind': 'hermes_money_budget_review', 'state': 'completed', 'allBlockingFindingsClosed': True,
+                  'requestId': 'review-1', 'sessionId': 'mock-real', 'reviewedFiles': reviewed}
+        old = fixed / 'original-review.json'; old.write_bytes(budget.encoded(review))
+        pricing = {'inputMicrosPerMillion': 2000000, 'outputMicrosPerMillion': 8000000, 'contextWindowTokens': 1048576,
+                   'outputIncludesReasoning': True, 'source': '仅测试结构', 'checkedAt': 'fixture'}
+        with patch.object(budget, 'LIVE_FOLDER', fixed):
+            initial = budget.prepare(config, ledger, 'mock-real', 'deepseek-flash', 'https://api.deepseek.com/chat/completions',
+                                     pricing, review_receipt=old, authorization_source='模拟授权')
+        self.write_rate_evidence(config, evidence)
+        def renew(path=None):
+            return budget.prepare_revalidation(config, initial['configSha256'], renewal, evidence, review_receipt=path)
+        with self.assertRaises(PermissionError):
+            renew()
+        updated = fixed / 'new-review.json'
+        review.update(requestId='review-2', pricingEvidenceSha256=budget.digest(evidence.read_bytes()), reviewedFiles=reviewed[:1])
+        updated.write_bytes(budget.encoded(review))
+        with self.assertRaises(PermissionError):
+            renew(updated)
+        review['reviewedFiles'] = reviewed
+        updated.write_bytes(budget.encoded(review))
+        receipt = renew(updated)
+        active = budget.checked_live_environment(config, initial['configSha256'], 'https://api.deepseek.com/chat/completions',
+            'deepseek-flash', revalidation_path=renewal, revalidation_hash=receipt['revalidationSha256'],
+            cumulative_limit_micros=4000000)
+        self.assertEqual(active['GANGYI_MONEY_CONFIG_SHA256'], initial['configSha256'])
+        self.assertEqual(active['GANGYI_MONEY_CUMULATIVE_LIMIT_MICROS'], '4000000')
+        self.assertEqual(self.server.received, [])
+
     def test_real_nonstream_settles_and_next_process_accumulates(self):
         self.assertEqual(self.run_driver().returncode, 0)
         self.assertEqual(self.run_driver().returncode, 0)
@@ -95,6 +185,39 @@ class MoneyTests(unittest.TestCase):
         self.prepared = self.prepare(limit_micros=1)
         self.assertNotEqual(self.run_driver().returncode, 0)
         self.assertEqual(len(self.server.received), 0)
+
+    def test_cumulative_limit_includes_prior_spend_and_stops_compatibility_retry(self):
+        self.config, self.ledger = self.root / 'scope-config.json', self.root / 'scope-ledger.jsonl'
+        self.pricing.pop('textByteUpperBoundVerified')
+        self.pricing.pop('promptOverheadTokens')
+        self.pricing['contextWindowTokens'] = 1000
+        self.prepared = self.prepare()
+        self.assertEqual(self.run_driver().returncode, 0)
+        self.assertEqual(self.state()['spentMicros'], 25)
+        self.server.behavior = 'compatibility'
+        cap = 'GANGYI_MONEY_CUMULATIVE_LIMIT_MICROS'
+        frozen = self.ledger.read_bytes()
+        denied = self.run_driver('stream', {cap: '1280'})
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertEqual(len(self.server.received), 1)
+        self.assertEqual(self.ledger.read_bytes(), frozen)
+        held = self.run_driver('stream', {cap: '1281'})
+        self.assertNotEqual(held.returncode, 0)
+        self.assertEqual(json.loads(held.stdout)['errorType'], 'money_budget')
+        self.assertEqual(len(self.server.received), 2)
+        self.assertTrue(self.ledger.read_bytes().startswith(frozen))
+        reserve = json.loads(self.ledger.read_bytes().splitlines()[-2])
+        self.assertEqual(reserve['cumulativeLimitMicros'], 1281)
+        self.assertEqual(self.state()['heldMicros'], 1256)
+
+    def test_cumulative_limit_rejects_invalid_scope_before_http(self):
+        cap = 'GANGYI_MONEY_CUMULATIVE_LIMIT_MICROS'
+        for invalid in ('0', '-1', '1.0', '10000001', '9007199254740992'):
+            result = self.run_driver(env={cap: invalid})
+            self.assertNotEqual(result.returncode, 0)
+        missing = self.run_driver(env={cap: '4000000', 'GANGYI_MONEY_CONFIG': '', 'GANGYI_MONEY_REQUIRED': ''})
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertEqual(self.server.received, [])
 
     def test_drifted_configuration_zero_http(self):
         self.config.write_bytes(self.config.read_bytes() + b' ')

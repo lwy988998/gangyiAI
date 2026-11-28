@@ -63,7 +63,9 @@
   // 【逐行批注】 为页面事件绑定处理逻辑：input.addEventListener('input', () => api.storage.set(`prepare-draft:${requestId}`, …。
   input.addEventListener('input', () => api.storage.set(`prepare-draft:${requestId}`, input.value));
   // 【逐行批注】 声明前端变量 streams，保存本行计算出的数据或对象。
-  const streams = new Map(), cards = new Map(); let current, close, entered = false, sequence = 0;
+  let current, close, entered = false, sequence = 0;
+  const liveView = api.createStreamView(root);
+  api.followLatest(document.scrollingElement);
   // 【逐行批注】 声明前端变量 openedAt，保存本行计算出的数据或对象。
   const openedAt = Date.now();
   // 【逐行批注】 声明前端变量 localFailureRetry，保存本行计算出的数据或对象。
@@ -112,38 +114,6 @@
   // 【逐行批注】 结束当前前端代码块。
   }
   // 【逐行批注】 声明前端变量 fieldNode，保存本行计算出的数据或对象。
-  const fieldNode = event => {
-    // 【逐行批注】 声明前端变量 group，保存本行计算出的数据或对象。
-    const group = `${current.id}:${event.step}:${event.actionIndex}`, key = `${group}:${event.field}:${event.optionIndex}`;
-    // 【逐行批注】 判断条件 (!cards.has(group)) {，成立时执行对应逻辑。
-    if (!cards.has(group)) {
-      // 【逐行批注】 声明前端变量 card，保存本行计算出的数据或对象。
-      const card = document.createElement('article'); card.className = 'agent-preview';
-      // 【逐行批注】 声明前端变量 label，保存本行计算出的数据或对象。
-      const label = document.createElement('p'); label.className = 'prepare-preview-label'; label.textContent = 'AI 实时生成'; card.append(label); root.append(card); cards.set(group, card);
-    // 【逐行批注】 结束当前前端代码块。
-    }
-    // 【逐行批注】 判断条件 (!streams.has(key)) {，成立时执行对应逻辑。
-    if (!streams.has(key)) {
-      // 【逐行批注】 声明前端变量 isOption，保存本行计算出的数据或对象。
-      const isOption = event.field === 'option' || event.field === 'options';
-      // 【逐行批注】 声明前端变量 node，保存本行计算出的数据或对象。
-      const node = document.createElement(event.field === 'title' ? 'h2' : isOption ? 'li' : 'div');
-      // 【逐行批注】 声明前端变量 card，保存本行计算出的数据或对象。
-      const card = cards.get(group);
-      // 【逐行批注】 判断条件 (isOption) { let options = card.querySelector('ol'); if (!option…，成立时执行对应逻辑。
-      if (isOption) { let options = card.querySelector('ol'); if (!options) { options = document.createElement('ol'); options.className = 'prepare-preview-options'; card.append(options); } options.append(node); }
-      // 【逐行批注】 执行前一条件不成立时的分支。
-      else card.append(node);
-      // 【逐行批注】 执行当前前端表达式：streams.set(key, node);。
-      streams.set(key, node);
-    // 【逐行批注】 结束当前前端代码块。
-    }
-    // 【逐行批注】 结束当前函数并返回结果：return streams.get(key);。
-    return streams.get(key);
-  // 【逐行批注】 执行当前前端表达式：};。
-  };
-  // 【逐行批注】 定义函数 follow，封装可复用的前端行为。
   function follow(task) {
     // 【逐行批注】 执行当前前端表达式：close?.(); if (current?.id !== task.id) sequence = 0; current = task;。
     close?.(); if (current?.id !== task.id) sequence = 0; current = task;
@@ -153,8 +123,9 @@
     close = api.watch(task.id, {
       // 【逐行批注】 执行当前前端表达式：afterSeq: sequence,。
       afterSeq: sequence,
+      onContent(records) { empty.hidden = records.some(record => record.state !== 'revised'); liveView.update(records); },
       // 【逐行批注】 计算右侧结果并更新 onEvent(event) { sequence，改变页面或请求状态。
-      onEvent(event) { sequence = event.seq; trace?.event(event); if (event.type === 'delta') { empty.hidden = true; fieldNode(event).textContent += event.text; } return false; },
+      onEvent(event) { sequence = event.seq; trace?.event(event); return false; },
       // 【逐行批注】 调用 onState 执行页面交互或数据处理：async onState(state) {。
       async onState(state) {
         // 【逐行批注】 计算右侧结果并更新 localFailureRetry，改变页面或请求状态。
@@ -176,7 +147,7 @@
         // 【逐行批注】 计算右侧结果并更新 saved.className，改变页面或请求状态。
         saved.className = state.status === 'ready' && state.lesson ? 'is-complete' : '';
         // 【逐行批注】 计算右侧结果并更新 document.getElementById('prepare-preview-sta…，改变页面或请求状态。
-        document.getElementById('prepare-preview-status').textContent = ['pending','running'].includes(state.status) ? '生成中内容' : cards.size ? '已保留的内容' : '暂无课件预览';
+        document.getElementById('prepare-preview-status').textContent = ['pending','running'].includes(state.status) ? '生成中内容' : root.childElementCount ? '已保留的内容' : '暂无课件预览';
         // 【逐行批注】 计算右侧结果并更新 empty.textContent，改变页面或请求状态。
         empty.textContent = ({failed:'本次尚无有效课件，可查看左侧原因后重试。',paused:'任务已暂停，恢复后继续展示生成内容。',waiting_student:'等待你补充信息后继续备课。',superseded:'学习情况已变化，请重试并读取最新记录。'})[state.status] || 'AI 正在读取学习情况，生成的内容会逐段显示在这里。';
         // 【逐行批注】 计算右侧结果并更新 errorBox.hidden，改变页面或请求状态。
@@ -292,8 +263,8 @@
     status.textContent = error.message; errorBox.textContent = error.message; errorBox.hidden = false;
     // 【逐行批注】 计算右侧结果并更新 badge.textContent，改变页面或请求状态。
     badge.textContent = current ? '需要处理' : '请求未提交'; stop.hidden = true; retry.hidden = false;
-    document.getElementById('prepare-preview-status').textContent = cards.size ? '已保留的内容' : '暂无课件预览';
-    if (!cards.size) empty.textContent = '课件预览尚未生成，可重试本次备课。';
+    document.getElementById('prepare-preview-status').textContent = root.childElementCount ? '已保留的内容' : '暂无课件预览';
+    if (!root.childElementCount) empty.textContent = '课件预览尚未生成，可重试本次备课。';
     // 【逐行批注】 计算右侧结果并更新 feedLocalFailure(current ? '恢复本次备课' : '提交本次备…，改变页面或请求状态。
     feedLocalFailure(current ? '恢复本次备课' : '提交本次备课请求', error.message, openedAt, () => retry.click());
   // 【逐行批注】 结束当前前端代码块。

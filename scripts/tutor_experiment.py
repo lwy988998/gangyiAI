@@ -87,6 +87,10 @@ def native_case(case):
     if plan:
         result['componentFixtures'] = copy.deepcopy(plan['fixtures'])
         result['concept'] += '\n组件材料来源：工程合成夹具，非真实学生操作。适配边界：' + plan['reason']
+    if 'setExercise' in case:
+        result['questions'] = [{'setExercise': copy.deepcopy(case['setExercise'])}]
+        if 'selectedOption' in case:
+            events[-1]['selectedOption'] = case['selectedOption']
     return result
 
 
@@ -102,11 +106,11 @@ def prepare(dataset_path, driver, output, case_ids=None, limit_tokens=100000, li
         if len(set(case_ids))!=len(case_ids) or set(case_ids)-set(by_id):raise ValueError('案例选择重复或不存在。')
         cases=[by_id[key] for key in case_ids]
     converted=[native_case(case) for case in cases]
-    if any(native.get('componentFixtures') for native in converted):
+    if any(native.get('componentFixtures') for native in converted) or any('setExercise' in case for case in cases):
         from tutor_component_scenes import inspect_fixtures
         checked = inspect_fixtures(driver, cases, clean_environment())
         if not checked['valid']:
-            raise ValueError('组件配置或合成状态未通过原生校验，未准备实验。')
+            raise ValueError('组件配置、合成状态或集合题未通过原生校验，未准备实验。')
     folder=Path(output).resolve();folder.mkdir(parents=True,exist_ok=False)
     benchmark.write_json(folder/'dataset.json',dataset)
     records=[]
@@ -148,16 +152,21 @@ def prepare(dataset_path, driver, output, case_ids=None, limit_tokens=100000, li
     return {'folder':str(folder),'selectedCases':len(records),'paidModelRequests':0,'status':'prepared'}
 
 
-def checked_plan(folder):
+def checked_plan(folder, *, for_execution=True):
     manifest=benchmark.load_json(folder/'manifest.json')
-    if manifest.get('schemaVersion')!=1 or manifest.get('kind')!='native_tutor_experiment':raise ValueError('实验清单版本无效。')
-    checked_build(manifest['driverPath'])
-    if (file_hash(str(manifest['driverPath'])+'.build.json')!=manifest['buildReceiptSha256'] or
-        file_hash(Path(__file__))!=manifest['executorSha256'] or file_hash(folder/'search-disabled.json')!=manifest['searchPolicySha256']):
-        raise ValueError('构建凭据、执行器或搜索策略已变化。')
+    if type(manifest.get('schemaVersion')) is not int or manifest['schemaVersion']!=1 or manifest.get('kind')!='native_tutor_experiment':
+        raise ValueError('实验清单版本无效。')
+    if for_execution:
+        checked_build(manifest['driverPath'])
+        if (file_hash(str(manifest['driverPath'])+'.build.json')!=manifest['buildReceiptSha256'] or
+            file_hash(Path(__file__))!=manifest['executorSha256'] or file_hash(manifest['driverPath'])!=manifest['driverSha256'] or
+            file_hash(ROOT/'tests/teaching_eval_driver.cpp')!=manifest['driverSourceSha256']):
+            raise ValueError('构建凭据、执行器或原生入口已变化。')
+    if file_hash(folder/'search-disabled.json')!=manifest['searchPolicySha256']:
+        raise ValueError('搜索策略已变化。')
     dataset=benchmark.load_json(folder/'dataset.json');benchmark.validate_dataset(dataset)
     if (file_hash(folder/'dataset.json')!=manifest['datasetFileSha256'] or benchmark.digest(dataset)!=manifest['datasetHash'] or
-        file_hash(manifest['driverPath'])!=manifest['driverSha256'] or file_hash(ROOT/'tests/teaching_eval_driver.cpp')!=manifest['driverSourceSha256']):
+        dataset['datasetId']!=manifest['datasetId']):
         raise ValueError('实验材料、入口或源码已变化，请重新准备。')
     if file_hash(folder/'budget-original.json')!=manifest['originalBudgetSha256']:raise ValueError('原预算快照已变化。')
     source={case['id']:case for case in dataset['cases']}
@@ -169,8 +178,12 @@ def checked_plan(folder):
         if row['inputHash']!=benchmark.digest(original):raise ValueError('案例来源身份无效。')
         relative=Path(row['caseFile'])
         if relative.is_absolute() or '..' in relative.parts or not (folder/relative).resolve().is_relative_to(folder):raise ValueError('案例路径越界。')
-        if (file_hash(folder/relative)!=row['caseSha256'] or
-            benchmark.load_json(folder/relative)!=native_case(original) or row['expectedTurns']!=len(native_case(original)['turns'])):
+        native = benchmark.load_json(folder/relative)
+        identity = {'caseId':row['caseId'], 'inputHash':row['inputHash'], 'binding':original['binding']}
+        if (file_hash(folder/relative)!=row['caseSha256'] or native.get('id')!=row['caseId'] or
+            native.get('benchmarkIdentity')!=identity or
+            type(row['expectedTurns']) is not int or not 0 < row['expectedTurns']==len(native['turns']) or
+            (for_execution and native!=native_case(original))):
             raise ValueError('原生案例已变化。')
     if not seen:raise ValueError('案例清单为空。')
     return manifest
@@ -213,7 +226,18 @@ def live_environment(folder,manifest,authorization,configuration):
             raise PermissionError('真实实验缺少已冻结的共用人民币预算。')
     endpoint = frozen['baseUrl'].rstrip('/')
     if not endpoint.endswith('/chat/completions'): endpoint += '/chat/completions'
-    money_env = checked_live_environment(frozen['moneyConfigPath'], frozen['moneyConfigSha256'], endpoint, frozen['model'])
+    revalidation_keys = ('moneyRevalidationPath', 'moneyRevalidationSha256')
+    if any(key in frozen or key in approved for key in revalidation_keys):
+        for key in revalidation_keys:
+            if not benchmark.nonblank(frozen.get(key)) or frozen[key] != approved.get(key):
+                raise PermissionError('真实实验的费率续期须同时绑定到配置和授权。')
+    limit_key = 'moneyCumulativeLimitMicros'
+    if limit_key in frozen or limit_key in approved:
+        if type(frozen.get(limit_key)) is not int or type(approved.get(limit_key)) is not int or frozen[limit_key] != approved[limit_key]:
+            raise PermissionError('本次实验累计上限须同时绑定到配置和授权。')
+    money_env = checked_live_environment(frozen['moneyConfigPath'], frozen['moneyConfigSha256'], endpoint, frozen['model'],
+        revalidation_path=frozen.get('moneyRevalidationPath'), revalidation_hash=frozen.get('moneyRevalidationSha256'),
+        cumulative_limit_micros=frozen.get('moneyCumulativeLimitMicros'))
     from teaching_eval_provider import configured_environment
     with using_decision(authorization):
         require_live_authorization()
@@ -241,7 +265,7 @@ def budget_state(folder,manifest):
     return state
 
 
-def checked_run(folder, manifest, run):
+def checked_run(folder, manifest, run, *, for_execution=True):
     """已完成结果必须与原案例、原始日志、预算链逐一匹配后才能跳过。"""
     if run.get('manifestSha256') != file_hash(folder/'manifest.json'):
         raise ValueError('恢复记录不属于当前清单。')
@@ -268,11 +292,14 @@ def checked_run(folder, manifest, run):
         if row.get('budgetBefore') != previous:raise ValueError('预算链断裂。')
         if row.get('status') in {'completed', 'preflight'}:
             case_dir = folder/row['directory']
+            if not case_dir.resolve().is_relative_to(folder):raise ValueError('结果目录越界。')
             for name, key in [('result.json','resultSha256'), ('result.json.responses.jsonl','rawResponsesSha256'),
                               ('stdout.log','stdoutSha256'), ('stderr.log','stderrSha256')]:
-                if file_hash(case_dir/name) != row.get(key):raise ValueError('已有评测结果损坏，拒绝跳过或重发。')
+                path = case_dir/name
+                if not path.resolve().is_relative_to(folder) or file_hash(path) != row.get(key):
+                    raise ValueError('已有评测结果损坏，拒绝跳过或重发。')
             result = benchmark.load_json(case_dir/'result.json')
-            coverage=validate_result(folder, record, case_dir, result, run['mode'])
+            coverage=validate_result(folder, record, case_dir, result, run['mode'], for_execution=for_execution)
             if row.get('coverage')!=coverage or (row['status']=='preflight')!=(run['mode']=='preflight'):
                 raise ValueError('保存的覆盖范围不匹配。')
             previous = row['budgetAfter']
@@ -284,10 +311,14 @@ def checked_run(folder, manifest, run):
         raise ValueError('累计预算与已保存结果不一致。')
 
 
-def validate_result(folder, record, case_dir, result, mode):
+def validate_result(folder, record, case_dir, result, mode, *, for_execution=True):
     native = benchmark.load_json(folder/record['caseFile'])
+    saved_log = Path(result.get('rawResponsesPath',''))
+    expected_log = case_dir/'result.json.responses.jsonl'
+    log_matches = (saved_log.resolve() == expected_log.resolve() if for_execution else
+                   saved_log.parts[-3:] == expected_log.parts[-3:])
     if (result.get('caseId') != record['caseId'] or result.get('experimentCaseSha256') != benchmark.digest(native) or
-        Path(result.get('rawResponsesPath','')).resolve() != (case_dir/'result.json.responses.jsonl').resolve()):
+        not log_matches):
         raise ValueError('原生结果身份无效。')
     turns = result.get('turns', [])
     if not turns or len(turns)>record['expectedTurns']:raise ValueError('结果轮数无效。')
@@ -394,6 +425,87 @@ def inspect(folder):
             'allTurnsExecuted':run['mode'] in {'fixture','live'} and run['status']=='completed' and
                 len(run['records'])==len(manifest['records']),
             'paidModelRequests':0 if run['mode']!='live' else None,'acceptanceComplete':False,'qualityMetrics':None,'reviewStatus':manifest['reviewStatus']}
+
+
+def audit_response_log(path, prompt_audit, mode):
+    """比对原始分片与回执，并将每个回执绑定到实际保存的提示。"""
+    prompt_hashes = {benchmark.digest(prompt['messages']) for prompt in prompt_audit}
+    responses, chunks, active_prompt = [], [], None
+    with path.open(encoding='utf-8') as stream:
+        for number, line in enumerate(stream, 1):
+            item = benchmark.parse_json(line)
+            prompt_hash = item.get('promptSha256') if isinstance(item, dict) else None
+            if prompt_hash not in prompt_hashes or (active_prompt is not None and prompt_hash != active_prompt):
+                raise ValueError('原始回复与实际请求提示不匹配。')
+            if item.get('kind') == 'chunk':
+                if not isinstance(item.get('text'), str):raise ValueError('回复分片类型无效。')
+                chunks.append(item['text'])
+                active_prompt = prompt_hash
+                continue
+            if (type(item.get('completed')) is not bool or item.get('partial') is not (not item['completed']) or
+                item.get('rawResponse') != ''.join(chunks) or (item['completed'] and not benchmark.nonblank(item.get('model')))):
+                raise ValueError('原始回复与收到的分片或终条不一致。')
+            responses.append({'line':number, 'promptSha256':prompt_hash, 'completed':item['completed'],
+                              'model':item.get('model'), 'rawTextSha256':hashlib.sha256(item['rawResponse'].encode('utf-8')).hexdigest()})
+            chunks.clear()
+            active_prompt = None
+    if chunks or (mode == 'preflight' and responses):
+        raise ValueError('已完成归档存在未结束的流，或零调用预检含响应。')
+    return responses
+
+
+def evaluate_native(folder):
+    """只读导入历史原生归档，不要求旧程序或当前工作树与冻结构建一致。"""
+    folder = Path(folder).resolve()
+    manifest = checked_plan(folder, for_execution=False)
+    run_path = folder/'run.json'
+    run = benchmark.load_json(run_path)
+    checked_run(folder, manifest, run, for_execution=False)
+    if run['status'] == 'running':raise ValueError('运行中不能生成归档报告。')
+    dataset = benchmark.load_json(folder/'dataset.json')
+    executed = {entry['caseId']: entry for entry in run['records']}
+    selected = {entry['caseId'] for entry in manifest['records']}
+    mode = run['mode']
+    checks = []
+    for record in manifest['records']:
+        case_id = record['caseId']
+        entry = executed.get(case_id, {})
+        status = entry.get('status', 'not_run')
+        check = {'caseId':case_id, 'inputHash':record['inputHash'], 'status':status, 'passed':False,
+                 'observedTurns':None, 'expectedTurns':record['expectedTurns']}
+        if status in {'completed','preflight'}:
+            result_file = Path(entry['directory'])/'result.json'
+            log_file = result_file.with_suffix('.json.responses.jsonl')
+            result = benchmark.load_json(folder/result_file)
+            responses = audit_response_log(folder/log_file, result['promptAudit'], mode)
+            request_count = result['httpRequestCount']
+            if (type(request_count) is not int or request_count != len(result['httpRequests']) or
+                request_count != entry['budgetAfter']['httpRequests'] - entry['budgetBefore']['httpRequests']):
+                raise ValueError('原生结果的 HTTP 数量与预算证据不一致。')
+            completed = sum(item['completed'] for item in responses)
+            if status == 'completed' and (not completed or completed > request_count):
+                raise ValueError('已完成案例缺少对应的 HTTP 回复。')
+            check.update(passed=status=='completed' and entry['coverage']['allTurnsExecuted'],
+                         observedTurns=entry['coverage']['observedTurns'], httpRequests=request_count,
+                         result={'path':result_file.as_posix(), 'sha256':entry['resultSha256']},
+                         rawResponses={'path':log_file.as_posix(), 'sha256':entry['rawResponsesSha256'], 'entries':responses})
+        elif status in {'failed','uncertain'}:
+            check['reason'] = entry.get('reason')
+            # 未封存的部分回执可能仍有诊断价值，但不计入已核验覆盖和通过数。
+            check['unverifiedArtifactsDirectory'] = entry['directory']
+        checks.append(check)
+    return {'schemaVersion':1, 'kind':'native_program_contract_report', 'sourceKind':{
+                None:'not_run', 'preflight':'preflight', 'fixture':'offline_fixture', 'live':'recorded_model'}[mode],
+            'datasetId':manifest['datasetId'], 'datasetHash':manifest['datasetHash'], 'runStatus':run['status'],
+            'manifestSha256':file_hash(folder/'manifest.json'), 'runSha256':file_hash(run_path),
+            'selectedCases':len(selected), 'recordedCases':len(executed),
+            'executedCases':sum(check['status']=='completed' for check in checks), 'checks':checks,
+            'missingCaseIds':sorted(case['id'] for case in dataset['cases'] if case['id'] not in executed),
+            'missingSelectedCaseIds':sorted(selected - executed.keys()),
+            'programChecksPassed':sum(check['passed'] for check in checks), 'reviewStatus':manifest['reviewStatus'],
+            'modelProvenanceVerified':False, 'releaseEligible':False, 'modelQuality':None,
+            'limitations':['归档摘要用于核对本地记录，不能证明服务商身份', '预检及未完成案例均不计为程序通过',
+                           '本报告仅核对运行契约和证据，学科正确性与学习效果仍需独立评价']}
 
 
 def main():

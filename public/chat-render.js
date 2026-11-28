@@ -588,7 +588,7 @@
         // 【逐行批注】 结束当前前端代码块。
         }
         // 【逐行批注】 声明前端变量 step，保存本行计算出的数据或对象。
-        const step = Math.max(3, Math.ceil(backlog / 10));
+        const step = backlog;
         // 【逐行批注】 计算右侧结果并更新 shown，改变页面或请求状态。
         shown = pending.slice(0, shown.length + step);
         // 【逐行批注】 调用 paint 执行页面交互或数据处理：paint();。
@@ -624,6 +624,16 @@
       // 【逐行批注】 执行当前前端表达式：bubble,。
       bubble,
       // 【逐行批注】 调用 push 执行页面交互或数据处理：push(chunk) {。
+      receive(event) {
+        if (!this.stream) this.stream = window.GangyiAgent.createStreamState(event.taskId || '');
+        if (!this.stream.receive(event)) return;
+        const records = this.stream.values().filter(record => record.field === 'message' && record.state !== 'revised');
+        pending = records.map(record => record.text).join('\n\n');
+        const previous = records.flatMap(record => record.revisions || []);
+        window.GangyiAgent.streamNotice(bubble, {state:records.at(-1)?.state || 'streaming', revisions:previous});
+        if (!pending.startsWith(shown)) shown = '';
+        schedule();
+      },
       push(chunk) {
         // 【逐行批注】 声明前端变量 text，保存本行计算出的数据或对象。
         const text = String(chunk ?? '');

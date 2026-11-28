@@ -110,6 +110,29 @@ int main() {
     // 【逐行批注】 调用 assert 完成本行所需操作：assert(rendered["message"] == "中文🚀测试");。
     assert(rendered["message"] == "中文🚀测试");
     // 【逐行批注】 执行当前声明或表达式：std::cout << "公开分片、Unicode 与答案隔离测试通过\n";。
+
+    // 正文必须在结束引号、动作校验与模型终态到达之前出现。
+    rendered.clear();
+    gangyi::AgentPublicStream live([&](const auto& delta) { rendered[delta.streamId] += delta.text; });
+    live.push(R"({"actions":[{"tool":"append_section","args":{"section":{"kind":"explanation","title":"实时讲义","body":"已经可读的首段)");
+    assert(rendered["[\"actions\",\"0\",\"args\",\"section\",\"body\"]"] == "已经可读的首段");
+    live.push(R"(，继续补充。"}}}]})");
+    assert(live.fields().size() == 2);
+    rendered.clear();
+    gangyi::AgentPublicStream recovery([&](const auto& delta) { rendered[delta.field] += delta.text; });
+    recovery.push(R"({"tool":"append_section","args":{"section":{"kind":"explanation","body":"恢复时的正文)");
+    assert(rendered["body"] == "恢复时的正文");
+    recovery.push(R"(","expectedAnswer":"隐藏答案"}}})");
+    assert(rendered["body"].find("隐藏") == std::string::npos);
+    rendered.clear();
+    gangyi::AgentPublicStream outline([&](const auto& delta) { rendered[delta.streamId] += delta.text; }, true);
+    outline.push(R"({"title":"课程标题","summary":"课程简介","courseStructure":[{"stage":"第一阶段","topics":["第一个知识点)");
+    assert(rendered["[\"courseStructure\",\"0\",\"topics\",\"0\"]"] == "第一个知识点");
+    rendered.clear();
+    gangyi::AgentPublicStream fenced([&](const auto& delta) { rendered[delta.field] += delta.text; });
+    fenced.push("```json\n{\"message\":\"围栏中的实时文字");
+    assert(rendered["message"] == "围栏中的实时文字");
+
     std::cout << "公开分片、Unicode 与答案隔离测试通过\n";
 // 【逐行批注】 结束当前代码块。
 }

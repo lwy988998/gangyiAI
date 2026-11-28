@@ -2,6 +2,9 @@
 (() => {
   'use strict';
   const examples={
+    periodic:{title:'从元素位置到原子组成',question:'比较 Na 与 Cl 的周期和族，再把当前元素改为 K、比较元素改为 Na，观察两者的联系。展开电子层示意，注意中性原子的电子数。',config:{type:'periodic_lab'}},
+    wave:{title:'波形向前，质点怎样运动',question:'播放并观察 P 点。暂停后改变周期，保持波速不变，比较波长；再改变振幅，波速会变化吗？',config:{type:'wave_lab'}},
+    triangle:{title:'移动顶点，观察三角形怎样变化',question:'从直角三角形开始，移动 C 点比较边长、角度与面积；再让三个点共线，观察哪些结论不再适用。',config:{type:'triangle_lab'}},
     statistics:{title:'一项数据会怎样影响整组统计量',question:'原数据为 2、3、3、4、8。把 8 改成 3，再比较平均数与中位数；切换两种方差，说明分母为什么不同。',config:{type:'statistics_lab'}},
     equation:{title:'等式两边怎样变，解才不变',question:'从 2x+3=x+7 开始。先把一次项留在一边，再把常数留在另一边。每一步都说明两边做了什么。',config:{type:'equation_lab'}},
     vector:{title:'向量相加，长度也相加吗',question:'从 A=(3,0)、B=(0,4) 开始，比较 |A+B| 和 |A|+|B|；再把 B 调到与 A 同方向，观察有什么不同。',config:{type:'vector_lab'}},

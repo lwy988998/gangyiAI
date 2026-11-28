@@ -1,4 +1,4 @@
-#include "exam_message_stream.hpp"
+#include "structured_reply.hpp"
 #include "exam_search_query.hpp"
 #include <iostream>
 #include <stdexcept>
@@ -16,23 +16,22 @@ int main() {
     })}});
     if (queries.size() != 2 || queries[0].find("清晰题目一") == std::string::npos || queries[1].find("清晰题目二") == std::string::npos)
         throw std::runtime_error("应使用两道清晰题目搜索，跳过残缺题目");
-    const std::string payload = R"({"message":"第一行\n第二行：\u4e2d\u6587和\"引号\"","artifacts":[{"content":"不能提前输出"}]})";
-    std::string previous;
-    for (std::size_t index = 0; index <= payload.size(); ++index) {
-        const auto text = gangyi::examMessageStreamText(payload.substr(0, index));
-        if (text.compare(0, previous.size(), previous) != 0) throw std::runtime_error("消息增量回退或改变");
-        if (text.find("不能提前输出") != std::string::npos) throw std::runtime_error("其他字段被提前输出");
-        previous = text;
+    const auto accepted = gangyi::parseStructuredReply(" ```json\r\n{\"message\":\"含括号 ] 的正文\"}\r\n```\n");
+    if (accepted.value("message", "") != "含括号 ] 的正文") throw std::runtime_error("完整 JSON 围栏没有正确解析");
+    const std::string rejected[] = {
+        R"({"message":"截断","artifacts":[{"type":"mindmap"})",
+        R"({"message":"缺少内部闭合符","artifacts":[{"type":"mindmap","content":{"root":{"label":"主题"}}],"state":"ok"})",
+        R"({"message":"前一对象"} {"message":"后一对象"})",
+        "说明后面才是 JSON：{\"message\":\"含前言\"}",
+        "```json\n{\"message\":\"额外正文\"}\n```\n注释",
+    };
+    for (const auto& reply : rejected) {
+        try {
+            (void)gangyi::parseStructuredReply(reply);
+        } catch (const nlohmann::json::parse_error&) {
+            continue;
+        }
+        throw std::runtime_error("不完整或混入额外内容的回复必须拒绝");
     }
-    if (previous != "第一行\n第二行：中文和\"引号\"") throw std::runtime_error("消息解码不正确");
-    if (!gangyi::examMessageStreamText(R"({"answer":"隐藏","message":"晚到"})").empty())
-        throw std::runtime_error("未确认消息字段顺序时不应输出内容");
-    const auto repaired = gangyi::parseExamModelJson(R"({"message":"图中有 ] 和 \\\"引号\\\"","artifacts":[{"type":"mindmap","content":{"root":{"label":"主题"}}],"state":"ok"})");
-    if (!repaired.is_object() || repaired["artifacts"][0]["content"]["root"]["label"] != "主题" || repaired["state"] != "ok")
-        throw std::runtime_error("缺失一个内部闭合符时应保持原文并修复");
-    if (!gangyi::parseExamModelJson(R"({"message":"截断","artifacts":[{"type":"mindmap"})").is_discarded())
-        throw std::runtime_error("结尾截断不能自动补全");
-    if (!gangyi::parseExamModelJson(R"({"message":"多处缺失","artifacts":[{"a":[{"x":1],"b":[{"y":2]}]})").is_discarded())
-        throw std::runtime_error("多处缺失闭合符不能自动补全");
-    std::cout << "试卷讲解消息流测试通过\n";
+    std::cout << "结构化回复边界测试通过\n";
 }

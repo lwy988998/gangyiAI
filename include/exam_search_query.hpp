@@ -1,13 +1,19 @@
 #pragma once
 
-#include "exam_message_stream.hpp"
-
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <cstddef>
 #include <string>
 #include <vector>
 
 namespace gangyi {
+
+inline std::string examUtf8Prefix(const std::string& value, std::size_t maxBytes) {
+    if (value.size() <= maxBytes) return value;
+    std::size_t end = maxBytes;
+    while (end > 0 && (static_cast<unsigned char>(value[end]) & 0xc0) == 0x80) --end;
+    return value.substr(0, end);
+}
 
 // 使用不同清晰题目的片段检索，避免将未识别完整的残题当作匹配线索。
 inline std::vector<std::string> examSearchQueries(const nlohmann::json& prompt) {

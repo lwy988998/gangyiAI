@@ -753,12 +753,8 @@ std::vector<std::string> Database::agentRunEvents(const std::string& taskId, int
     limit = std::clamp(limit, 1, 2000);
     // 【逐行批注】 执行当前声明或表达式：std::vector<std::string> result;。
     std::vector<std::string> result;
-    // 先取最近一段，再按正序交给页面；长任务的完整历史不会拖垮每次状态刷新。
-    // 【逐行批注】 声明对象 s，并通过构造函数初始化其状态。
-    Stmt s(db_, "WITH recent AS (SELECT payload,seq FROM AgentRunEvent WHERE taskId=? AND seq>? "
-                // 【逐行批注】 执行当前声明或表达式："ORDER BY seq DESC LIMIT ?) SELECT payload FROM recent ORDER BY seq");。
-                "ORDER BY seq DESC LIMIT ?) SELECT payload FROM recent ORDER BY seq");
-    // 【逐行批注】 调用 text、integer、max 完成本行所需操作：text(s, 1, taskId); integer(s, 2, std::max(0, afterSeq)); integer(s, …。
+    // 从已确认序号后按正序读取下一页，长回复可连续恢复而不跳过中间事件。
+    Stmt s(db_, "SELECT payload FROM AgentRunEvent WHERE taskId=? AND seq>? ORDER BY seq LIMIT ?");
     text(s, 1, taskId); integer(s, 2, std::max(0, afterSeq)); integer(s, 3, limit);
     // 【逐行批注】 在条件成立期间循环处理：while (sqlite3_step(s.p) == SQLITE_ROW) result.push_back(str(s.p, 0));。
     while (sqlite3_step(s.p) == SQLITE_ROW) result.push_back(str(s.p, 0));

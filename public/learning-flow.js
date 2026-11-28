@@ -258,9 +258,10 @@
       connection.onmessage = event => {
         // 【逐行批注】 声明前端变量 data，保存本行计算出的数据或对象。
         let data; try { data = JSON.parse(event.data); } catch (_) { return; }
-        // 【逐行批注】 判断条件 (data.type === 'delta') view.push(data.text || '');，成立时执行对应逻辑。
-        if (data.type === 'delta') view.push(data.text || '');
+        // 【逐行批注】 判断条件 (data.type === 'delta') view.receive(data);，成立时执行对应逻辑。
+        if (data.type === 'delta') view.receive(data);
         // 【逐行批注】 判断条件 (data.type === 'done') {，成立时执行对应逻辑。
+        if (data.type === 'stream_status') view.receive(data);
         if (data.type === 'done') {
           // 【逐行批注】 调用 settleSubmission 执行页面交互或数据处理：settleSubmission();。
           settleSubmission();

@@ -14,6 +14,7 @@ inline void runTeachingPreferencesAgentChecks(const std::filesystem::path& path)
         const Json lesson = {{"id", "intent-lesson"}, {"scopeId", access.scopeId}, {"courseId", "math"},
             {"title", "分数"}, {"purpose", "理解分数单位"}, {"status", "ready"}, {"entered", true},
             {"version", 1}, {"updatedAt", "2026-11-17"}, {"sourceLearningVersion", db.learningRevision()},
+            {"teachingFocus", {{"practiceSectionId", "q1"}}},
             {"sections", {{{"id", "q1"}, {"kind", "question"}, {"questionId", "intent-q1"}, {"version", 1},
                 {"question", {{"question", "1/2+1/3=?"}, {"expectedAnswer", "PRIVATE-INTENT-ANSWER"}}}}}}};
         assert(db.upsert(gangyi::ClassroomActivity{"intent-lesson", "math", "agent-lesson", lesson.dump(), "2026-11-17", 0, 0}));
@@ -63,6 +64,47 @@ inline void runTeachingPreferencesAgentChecks(const std::filesystem::path& path)
         }
         assert(shown().at("teachingPreferences").at("pace") == "normal");
         assert(shown().at("teachingPreferences").at("explanation") == "standard");
+
+        const auto chat = [](const std::string& requestId, const std::string& text) -> Json {
+            return {{"type", "chat"}, {"courseId", "math"}, {"lessonId", "intent-lesson"},
+                    {"requestId", requestId}, {"text", text}};
+        };
+        const auto slow = chat("typed-slow", " 请讲慢一点！ ");
+        const auto slowTask = gangyi::agentSubmit(db, access, slow);
+        assert(shown().at("teachingPreferences").at("pace") == "slow");
+        agent.process(db, slowTask.at("id"));
+        const auto rephrase = gangyi::agentSubmit(db, access, chat("typed-rephrase", "换种解释。"));
+        assert(raw(rephrase).at("event").at("requestType") == "rephrase");
+        agent.process(db, rephrase.at("id"));
+        const auto retry = gangyi::agentSubmit(db, access, chat("typed-retry", "再测一次。"));
+        assert(raw(retry).at("event").at("requestType") == "retry_question");
+        assert(raw(retry).at("event").at("sectionId") == "q1" && raw(retry).at("event").at("sectionVersion") == 1);
+        gangyi::agentControl(db, access, {{"command", "cancel"}, {"taskId", retry.at("id")}});
+
+        const auto typedSelf = gangyi::agentSubmit(db, access, chat("typed-self", "我想自己做。"));
+        const int callsBeforeTypedSelf = modelCalls;
+        agent.process(db, typedSelf.at("id"));
+        assert(modelCalls == callsBeforeTypedSelf && raw(typedSelf).at("status") == "waiting_student");
+        const auto typedPrefs = shown().at("teachingPreferences");
+        assert(typedPrefs.at("pace") == "slow" && typedPrefs.at("guidance") == "independent");
+        const auto interactionsBeforeRetry = db.listInteractions().size();
+        assert(gangyi::agentSubmit(db, access, slow).at("id") == slowTask.at("id"));
+        assert(shown().at("teachingPreferences") == typedPrefs && db.listInteractions().size() == interactionsBeforeRetry);
+        auto different = slow; different["text"] = "请继续讲解";
+        bool conflict = false;
+        try { gangyi::agentSubmit(db, access, different); }
+        catch (const std::invalid_argument&) { conflict = true; }
+        assert(conflict && shown().at("teachingPreferences") == typedPrefs);
+
+        const auto quoted = gangyi::agentSubmit(db, access, chat("typed-quote", "“慢一点”在这段话里是什么意思？"));
+        assert(raw(quoted).at("event").at("type") == "chat");
+        gangyi::agentControl(db, access, {{"command", "cancel"}, {"taskId", quoted.at("id")}});
+        auto formalAnswer = chat("typed-formal-answer", "我想自己做。");
+        formalAnswer["type"] = "question_answer"; formalAnswer["sectionId"] = "q1"; formalAnswer["sectionVersion"] = 1;
+        const auto answer = gangyi::agentSubmit(db, access, formalAnswer);
+        assert(raw(answer).at("event").at("type") == "question_answer" && shown().at("teachingPreferences") == typedPrefs);
+        gangyi::agentControl(db, access, {{"command", "cancel"}, {"taskId", answer.at("id")}});
+
         // 陈旧窗口、非法版本和伪造成绩全部拒绝，并回滚本次输入与任务。
         for (int kind = 0; kind < 6; ++kind) {
             auto event = eventFor("slow_down", "intent-denied-" + std::to_string(kind));
@@ -92,7 +134,7 @@ inline void runTeachingPreferencesAgentChecks(const std::filesystem::path& path)
         int inflightCalls = 0;
         gangyi::LearningAgent interrupted(path.string(), [&](const gangyi::ChatOptions& options, const auto& sink) {
             ++inflightCalls;
-            interrupt = gangyi::agentSubmit(db, access, eventFor("independent_attempt", "intent-interrupt"));
+            interrupt = gangyi::agentSubmit(db, access, chat("intent-interrupt", "让我自己试试！"));
             assert(options.cancelled && options.cancelled());
             return output({{"teaching", {{"helpType", "explanation"}, {"demonstratedQuestions", Json::array()}}},
                 {"message", "LATE-ANSWER-SHOULD-NOT-DISPLAY"}, {"actions", Json::array()}, {"state", "waiting_student"}}, sink);

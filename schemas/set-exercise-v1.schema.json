@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gangyiai:set-exercise:v1",
+  "title": "集合单选题生成请求 v1",
+  "description": "append_section 的 section.question.setExercise。服务端另核验同课组件、元素归属、集合等价和唯一正确选项。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion"],
+  "oneOf": [{"required": ["config"]}, {"required": ["mediaId"]}],
+  "properties": {
+    "schemaVersion": {"type": "integer", "const": 1},
+    "mediaId": {"type": "string", "minLength": 1},
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "universe", "setA", "setB"],
+      "properties": {
+        "operation": {"enum": ["intersection", "union", "complement_a", "complement_b", "relations"]},
+        "universe": {"allOf": [{"$ref": "#/$defs/members"}, {"minItems": 1}]},
+        "setA": {"$ref": "#/$defs/members"},
+        "setB": {"$ref": "#/$defs/members"}
+      }
+    },
+    "options": {"type": "array", "minItems": 2, "maxItems": 6, "uniqueItems": true, "items": {"$ref": "#/$defs/members"}}
+  },
+  "if": {"required": ["config"], "properties": {"config": {"properties": {"operation": {"const": "relations"}}}}},
+  "then": {"not": {"required": ["options"]}},
+  "else": {"if": {"required": ["config"]}, "then": {"required": ["options"]}},
+  "$defs": {
+    "members": {
+      "type": "array", "maxItems": 16, "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[^\\x00-\\x20\\x7f{},\"\\\\]+$"}
+    }
+  }
+}

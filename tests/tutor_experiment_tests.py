@@ -1,5 +1,6 @@
 """评测执行器的拒绝、恢复与本机原生协议回归；不会读取真实凭据。"""
 import json
+import shutil
 import os
 from pathlib import Path
 import subprocess
@@ -37,12 +38,89 @@ class ExperimentTests(unittest.TestCase):
             self.assertFalse(experiment.benchmark.load_json(folder/'authorization-template.json')['newPaidCallsAllowedThisRound'])
             self.assertEqual(experiment.inspect(folder)['paidModelRequests'], 0)
 
+    def test_offline_import_binds_raw_response_and_accepts_moved_archive_without_old_binary(self):
+        folder = self.prepare()
+        manifest = experiment.checked_plan(folder)
+        record = manifest['records'][0]
+        native = experiment.benchmark.load_json(folder / record['caseFile'])
+        run = experiment.benchmark.load_json(folder / 'run.json')
+        before = experiment.benchmark.load_json(folder / 'budget-original.json')
+        after = dict(before, httpRequests=1)
+        case_dir = folder / 'runs/000'
+        case_dir.mkdir(parents=True)
+        result_path = case_dir / 'result.json'
+        journal = case_dir / 'result.json.responses.jsonl'
+        messages = [{'role': 'user', 'content': '冻结的本机模拟提示'}]
+        prompt_hash = experiment.benchmark.digest(messages)
+        raw = '{"message":"模型回复原文"}'
+        lines = [{'kind': 'chunk', 'promptSha256': prompt_hash, 'text': raw},
+                 {'completed': True, 'partial': False, 'promptSha256': prompt_hash,
+                  'rawResponse': raw, 'model': 'isolated-fixture'}]
+        def write_log():
+            journal.write_text(''.join(json.dumps(line, ensure_ascii=False) + '\n' for line in lines), encoding='utf-8')
+        write_log()
+        result = {'caseId': record['caseId'], 'experimentCaseSha256': experiment.benchmark.digest(native),
+                  'rawResponsesPath': str(journal), 'turns': [{'event': dict(native['turns'][0], requestId='eval-turn-0'),
+                                                              'task': {'status': 'waiting_student'}}],
+                  'httpRequestCount': 1, 'httpRequests': [{}], 'promptAudit': [{'messages': messages}]}
+        experiment.atomic_save(result_path, result)
+        row = {'caseId': record['caseId'], 'status': 'completed', 'directory': 'runs/000',
+               'budgetBefore': before, 'budgetAfter': after,
+               'coverage': experiment.validate_result(folder, record, case_dir, result, 'fixture')}
+        for name, field in [('result.json', 'resultSha256'), ('result.json.responses.jsonl', 'rawResponsesSha256'),
+                            ('stdout.log', 'stdoutSha256'), ('stderr.log', 'stderrSha256')]:
+            path = case_dir / name
+            if not path.exists(): path.touch()
+            row[field] = experiment.file_hash(path)
+        run.update(status='completed', mode='fixture', identity={'mode': 'fixture'}, records=[row])
+        experiment.atomic_save(folder / 'run.json', run)
+        experiment.atomic_save(folder / 'budget-current.json', after)
+        self.driver.unlink()
+        moved = self.root / 'moved-archive'
+        shutil.copytree(folder, moved)
+        report = experiment.evaluate_native(moved)
+        self.assertEqual((report['sourceKind'], report['programChecksPassed']), ('offline_fixture', 1))
+        self.assertFalse(report['releaseEligible'])
+        self.assertEqual(report['checks'][0]['rawResponses']['entries'][0]['line'], 2)
+        lines[0]['text'] += '已变化'
+        write_log()
+        with self.assertRaisesRegex(ValueError, '结果损坏'):
+            experiment.evaluate_native(folder)
+        row['rawResponsesSha256'] = experiment.file_hash(journal)
+        experiment.atomic_save(folder / 'run.json', run)
+        with self.assertRaisesRegex(ValueError, '分片'):
+            experiment.evaluate_native(folder)
+
     def test_live_without_approval_never_loads_provider_or_starts(self):
         folder = self.prepare()
         with patch.object(experiment.subprocess, 'Popen', side_effect=AssertionError('不应启动')):
             with self.assertRaises(PermissionError):
                 experiment.execute(folder, mode='live')
         self.assertEqual(experiment.benchmark.load_json(folder/'run.json')['status'], 'prepared')
+
+    def test_live_cumulative_limit_must_match_bound_configuration(self):
+        folder = self.prepare()
+        manifest = experiment.checked_plan(folder)
+        configuration = self.root / 'configuration.json'
+        authorization = self.root / 'authorized.json'
+        frozen = {'baseUrl': 'https://api.deepseek.com', 'model': 'deepseek-flash', 'profileName': 'isolated-fixture',
+                  'moneyConfigPath': str(self.root / 'budget.json'), 'moneyConfigSha256': 'f' * 64,
+                  'moneyCumulativeLimitMicros': 4_000_000}
+        experiment.atomic_save(configuration, frozen)
+        approved = experiment.benchmark.load_json(folder / 'authorization-template.json')
+        approved.update(frozen, newPaidCallsAllowedThisRound=True, approvedBy='隔离测试', approvedAt='fixture',
+                        approvalNote='不调用真实服务', configurationPath=str(configuration),
+                        configurationSha256=experiment.file_hash(configuration), moneyCumulativeLimitMicros=6_000_000)
+        experiment.atomic_save(authorization, approved)
+        with patch('ai_money_budget.checked_live_environment', side_effect=AssertionError('不可使用不一致的上限')):
+            with self.assertRaisesRegex(PermissionError, '累计上限'):
+                experiment.live_environment(folder, manifest, authorization, configuration)
+        approved['moneyCumulativeLimitMicros'] = 4_000_000
+        experiment.atomic_save(authorization, approved)
+        with patch('ai_money_budget.checked_live_environment', side_effect=PermissionError('拦截本机隔离测试')) as inspect_budget:
+            with self.assertRaisesRegex(PermissionError, '拦截本机隔离测试'):
+                experiment.live_environment(folder, manifest, authorization, configuration)
+        self.assertEqual(inspect_budget.call_args.kwargs['cumulative_limit_micros'], 4_000_000)
 
     def test_fixture_rejects_remote_dns_userinfo_and_redirect_forms(self):
         for url in ('https://127.0.0.1:80/v1','http://localhost:1234/v1', 'http://127.0.0.1:80@example.invalid/v1',

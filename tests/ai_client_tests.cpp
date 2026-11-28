@@ -2,8 +2,8 @@
 #include "ai_client.hpp"
 // 【逐行批注】 引入头文件 "ask_generator.hpp"，为后续实现提供类型或接口声明。
 #include "ask_generator.hpp"
-// 【逐行批注】 引入头文件 "json_fix.hpp"，为后续实现提供类型或接口声明。
-#include "json_fix.hpp"
+// 【逐行批注】 引入头文件 "structured_reply.hpp"，为后续实现提供类型或接口声明。
+#include "structured_reply.hpp"
 // 【逐行批注】 引入头文件 "plan_generator.hpp"，为后续实现提供类型或接口声明。
 #include "plan_generator.hpp"
 // 【逐行批注】 引入头文件 "search_client.hpp"，为后续实现提供类型或接口声明。
@@ -452,16 +452,16 @@ int main(int argc, char** argv) {
     {
         // 【逐行批注】 计算右侧结果并写入 auto parsed，更新当前运行状态。
         const auto parsed = gangyi::parseAIJson(
-            // 【逐行批注】 执行当前声明或表达式：R"(分析中可能会提到示例 {x: 1}，最终结果如下：```json。
-            R"(分析中可能会提到示例 {x: 1}，最终结果如下：```json
+            // 【逐行批注】 执行当前声明或表达式：R"(```json。
+            R"(```json
 {"goal":"掌握函数单调性","summary":"完成定义与题型练习"}
 ```)"
         // 【逐行批注】 执行当前声明或表达式：);。
         );
         // 【逐行批注】 调用 expect 完成本行所需操作：expect(parsed.value("goal", "") == "掌握函数单调性",。
         expect(parsed.value("goal", "") == "掌握函数单调性",
-               // 【逐行批注】 执行当前声明或表达式："JSON 解析器应提取推理文本末尾的完整对象");。
-               "JSON 解析器应提取推理文本末尾的完整对象");
+               // 【逐行批注】 执行当前声明或表达式："JSON 解析器应接受包住完整回复的围栏");。
+               "JSON 解析器应接受包住完整回复的围栏");
     // 【逐行批注】 结束当前代码块。
     }
     // 【逐行批注】 判断条件 (argc == 4 && std::string(argv[1]) == "--monitor-probe") {，成立时执行对应分支。
@@ -518,44 +518,24 @@ int main(int argc, char** argv) {
     }
     // 【逐行批注】 开始当前代码块。
     {
-        // 真实模型偶尔漏写嵌套对象的右花括号；补全只能加括号，不能改写已有字段。
-        // 【逐行批注】 计算右侧结果并写入 std::string valid，更新当前运行状态。
-        const std::string valid = R"({"message":"先标化合价","actions":[{"id":"a1","tool":"create_lesson","args":{"courseId":"c1","title":"氧化还原"}}],"state":"completed"})";
-        // 【逐行批注】 计算右侧结果并写入 auto missing，更新当前运行状态。
-        const auto missing = valid.find("}}],\"state\"");
-        // 【逐行批注】 调用 expect 完成本行所需操作：expect(missing != std::string::npos, "测试用例应包含行动对象与行动数组的连续右括号");。
-        expect(missing != std::string::npos, "测试用例应包含行动对象与行动数组的连续右括号");
-        // 【逐行批注】 计算右侧结果并写入 std::string broken，更新当前运行状态。
+        const std::string valid = R"({"message":"先标化合价","actions":[{"tool":"create_lesson","args":{"title":"氧化还原"}}]})";
+        const auto missing = valid.find("}}]");
+        expect(missing != std::string::npos, "测试用例应包含嵌套对象");
         std::string broken = valid;
-        // 【逐行批注】 判断条件 (missing != std::string::npos) broken.erase(missing, 1);，成立时执行对应分支。
         if (missing != std::string::npos) broken.erase(missing, 1);
-        // 【逐行批注】 计算右侧结果并写入 auto parsed，更新当前运行状态。
-        const auto parsed = gangyi::parseAIJson(broken);
-        // 【逐行批注】 调用 expect 完成本行所需操作：expect(parsed.value("message", "") == "先标化合价" && parsed.at("actions")…。
-        expect(parsed.value("message", "") == "先标化合价" && parsed.at("actions").size() == 1,
-               // 【逐行批注】 执行当前声明或表达式："缺少一个右花括号时应补齐括号并保留顶层消息与行动");。
-               "缺少一个右花括号时应补齐括号并保留顶层消息与行动");
-        // 【逐行批注】 调用 expect 完成本行所需操作：expect(parsed.at("actions")[0].at("args").at("title") == "氧化还原",。
-        expect(parsed.at("actions")[0].at("args").at("title") == "氧化还原",
-               // 【逐行批注】 执行当前声明或表达式："括号补全不得改写行动参数内容");。
-               "括号补全不得改写行动参数内容");
-        // 【逐行批注】 调用 expect 完成本行所需操作：expect(parsed.value("state", "") == "completed", "括号补全后应保留状态字段");。
-        expect(parsed.value("state", "") == "completed", "括号补全后应保留状态字段");
-    // 【逐行批注】 结束当前代码块。
+        const auto embeddedNull = valid + '\0' + "还有数据";
+        for (const auto& payload : {broken, embeddedNull, valid + "{}", "这是草稿" + valid,
+                std::string(R"({"actions":[{"tool":"draft","too\u006c":"save"}]})"),
+                std::string(R"({"score":1e500})")}) {
+            bool rejected = false;
+            try { gangyi::parseAIJson(payload); }
+            catch (const gangyi::AIClientError& error) { rejected = error.errorType == "json_parse_error"; }
+            expect(rejected, "损坏或有歧义的回复必须归类为格式错误");
+        }
+        const auto separate = gangyi::parseAIJson(R"({"actions":[{"tool":"draft"},{"tool":"save"}]})");
+        expect(separate.at("actions").size() == 2, "不同对象可使用相同字段名");
     }
-    // 【逐行批注】 开始当前代码块。
     {
-        // 【逐行批注】 计算右侧结果并写入 bool rejected，更新当前运行状态。
-        bool rejected = false;
-        // 【逐行批注】 开始可能抛出异常的保护代码块。
-        try { gangyi::parseAIJson("这不是 JSON，也没有任何对象"); } catch (...) { rejected = true; }
-        // 【逐行批注】 调用 expect 完成本行所需操作：expect(rejected, "完全无法解析的文本必须报错，不能伪造主控结构");。
-        expect(rejected, "完全无法解析的文本必须报错，不能伪造主控结构");
-    // 【逐行批注】 结束当前代码块。
-    }
-    // 【逐行批注】 开始当前代码块。
-    {
-        // 【逐行批注】 声明对象 server，并通过构造函数初始化其状态。
         MockServer server(response(200, R"({"choices":[{"message":{"content":" 好的 "}}]})"));
         // 【逐行批注】 计算右侧结果并写入 client，更新当前运行状态。
         auto client = clientFor(server, "/v1", "configured-ask-model");

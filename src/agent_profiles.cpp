@@ -165,7 +165,7 @@ Json agentProfileEvidence(Database& db, const AgentAccess& access) {
             // 【逐行批注】 执行当前声明或表达式：(answer.is_string() && answer.get<std::string>().empty())) return;。
             (answer.is_string() && answer.get<std::string>().empty())) return;
         // 【逐行批注】 调用 teachingQuestionIdentity 完成本行所需操作：evidence.push_back({{"id", id}, {"courseId", courseId}, {"questionId"…。
-        evidence.push_back({{"id", id}, {"courseId", courseId}, {"questionId", teachingQuestionIdentity(courseId, snapshot)},
+        evidence.push_back({{"id", id}, {"courseId", courseId}, {"questionId", teachingQuestionEvidenceKey(courseId, snapshot)},
             // 【逐行批注】 执行当前声明或表达式：{"question", snapshot}, {"answer", answer}, {"unknown", unknown}, {"assisted", assis…。
             {"question", snapshot}, {"answer", answer}, {"unknown", unknown}, {"assisted", assisted},
             // 【逐行批注】 执行当前声明或表达式：{"hintHistory", hints}, {"at", at}, {"topic", topic}});。

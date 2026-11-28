@@ -29,6 +29,8 @@ AgentJson agentStartLesson(Database& db, const AgentAccess& access, const AgentJ
 // 在主控事件的同一事务中保存当前教学任务，旧窗口不能覆盖新反馈。
 // 【逐行批注】 声明对象 agentAttachLessonTask，并通过构造函数初始化其状态。
 void agentAttachLessonTask(Database& db, const AgentAccess& access, const AgentJson& event, const std::string& taskId);
+// 仅在已进入的课时解析明确的自由交流请求，题卡作答继续沿用原协议。
+AgentJson agentResolveLessonUtterance(Database& db, const AgentAccess& access, const AgentJson& event);
 // 在请求去重之后保存学生输入，题目快照从服务端已保存课件读取。
 // 【逐行批注】 声明对象 agentRecordLearnerEvent，并通过构造函数初始化其状态。
 void agentRecordLearnerEvent(Database& db, const AgentAccess& access, const AgentJson& event);

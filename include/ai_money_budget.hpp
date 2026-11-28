@@ -37,8 +37,8 @@ class AIMoneyBudget {
     inline static std::set<std::string> failed_;
     std::filesystem::path file_;
     Json config_;
-    std::string identity_, reservationId_;
-    Amount promptLimit_ = 0, outputLimit_ = 0;
+    std::string identity_, reservationId_, revalidationIdentity_;
+    Amount promptLimit_ = 0, outputLimit_ = 0, validFrom_ = 0, validUntil_ = 0;
 
     [[noreturn]] static void denied(const std::string& message) {
         throw AIClientError("money_budget", message);
@@ -175,6 +175,75 @@ class AIMoneyBudget {
         if (!ok) { failed_.insert(file_.u8string()); denied("费用账本未可靠保存，停止后续请求"); }
         observed_[file_.u8string()] = {state.revision + 1, row.at("hash").get<std::string>()};
     }
+    static Json checkedReview(const Json& binding) {
+        const auto raw = readText(std::filesystem::u8path(binding.at("reviewReceiptPath").get<std::string>()));
+        if (resourceDigest(raw) != binding.at("reviewReceiptSha256")) denied("H1独立审查回执未冻结或已变化");
+        const auto review = Json::parse(raw);
+        if (review.value("kind", "") != "hermes_money_budget_review" || review.value("state", "") != "completed" ||
+            review.value("allBlockingFindingsClosed", Json()) != true || review.value("requestId", "").empty() ||
+            !review.value("reviewedFiles", Json()).is_array() || review.at("reviewedFiles").empty())
+            denied("H1独立审查尚未关闭阻断项");
+        return review;
+    }
+    static void checkReviewFiles(const Json& review) {
+        for (const auto& item : review.at("reviewedFiles"))
+            if (resourceDigest(readText(std::filesystem::u8path(item.at("path").get<std::string>()))) != item.at("sha256"))
+                denied("费用发送代码已变化，不能沿用旧H1审查");
+    }
+    void checkValidity() const {
+        const auto now = static_cast<Amount>(std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
+        if (now < validFrom_ || now >= validUntil_) denied("费率或授权尚未生效或已过期");
+    }
+    void checkPricingAuthorization(bool fixture) {
+        const auto path = environment("GANGYI_MONEY_REVALIDATION");
+        revalidationIdentity_ = environment("GANGYI_MONEY_REVALIDATION_SHA256");
+        if (path.empty() && revalidationIdentity_.empty()) {
+            validFrom_ = number(config_.at("validFromUnix"));
+            validUntil_ = number(config_.at("expiresUnix"));
+            checkValidity();
+            if (!fixture) checkReviewFiles(checkedReview(config_));
+            return;
+        }
+        if (path.empty() || revalidationIdentity_.empty()) denied("费率续期缺少冻结身份");
+        const auto raw = readText(std::filesystem::u8path(path));
+        if (resourceDigest(raw) != revalidationIdentity_) denied("费率续期文件未冻结或已变化");
+        const auto renewal = Json::parse(raw);
+        if (renewal.value("kind", "") != "money_pricing_revalidation" ||
+            number(renewal.at("schemaVersion")) != 1 || renewal.at("configSha256") != identity_)
+            denied("费率续期未绑定原预算身份");
+        validFrom_ = number(renewal.at("checkedAtUnix"));
+        validUntil_ = number(renewal.at("expiresUnix"));
+        if (validUntil_ <= validFrom_ || validUntil_ - validFrom_ > 86400) denied("费率续期不得超过24小时");
+        checkValidity();
+        const auto evidenceRaw = readText(std::filesystem::u8path(renewal.at("pricingEvidencePath").get<std::string>()));
+        if (resourceDigest(evidenceRaw) != renewal.at("pricingEvidenceSha256")) denied("费率核验证据已变化");
+        const auto evidence = Json::parse(evidenceRaw);
+        Json terms = Json::object();
+        const auto& original = config_.at("pricing");
+        for (const auto* key : {"inputMicrosPerMillion", "outputMicrosPerMillion", "contextWindowTokens",
+                                "promptOverheadTokens", "textByteUpperBoundVerified", "outputIncludesReasoning"})
+            if (original.contains(key)) terms[key] = original.at(key);
+        if (evidence.at("terms").dump() != terms.dump() || number(evidence.at("checkedAtUnix")) != validFrom_)
+            denied("费率续期不允许修改冻结费率或上界");
+        for (const auto* key : {"currency", "model", "endpoint", "fixtureOnly"})
+            if (evidence.at(key) != config_.at(key)) denied("费率续期的币种、模型、端点或模式不匹配");
+        if (fixture) {
+            if (evidence.value("source", "") != "fixture") denied("模拟续期只能使用本机夹具费率");
+            return;
+        }
+        if (evidence.value("source", "") != "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/")
+            denied("真实费率续期须绑定 DeepSeek 官方人民币定价");
+        const auto previous = checkedReview(config_);
+        const auto reviewed = checkedReview(renewal);
+        if (reviewed.at("sessionId") != config_.at("sessionId") ||
+            reviewed.at("pricingEvidenceSha256") != renewal.at("pricingEvidenceSha256"))
+            denied("新审查未绑定同一轮次及本次费率证据");
+        std::set<std::string> reviewedPaths;
+        for (const auto& item : reviewed.at("reviewedFiles")) reviewedPaths.insert(item.at("path").get<std::string>());
+        for (const auto& item : previous.at("reviewedFiles"))
+            if (!reviewedPaths.count(item.at("path").get<std::string>())) denied("新审查未覆盖原审查文件");
+        checkReviewFiles(reviewed);
+    }
     void load(const std::string& filename, const std::string& expected, const std::string& endpoint, const std::string& model) {
         const auto raw = readText(std::filesystem::u8path(filename));
         if (expected.empty() || resourceDigest(raw) != expected) denied("费用配置未冻结或已变化");
@@ -184,8 +253,6 @@ class AIMoneyBudget {
             config_.at("model") != model || config_.at("endpoint") != endpoint)
             denied("费用授权、独立审查或模型身份不匹配");
         if (number(config_.at("limitMicros")) == 0 || number(config_.at("limitMicros")) > 10000000) denied("首轮费用上限只能在10元以内");
-        const auto now = static_cast<Amount>(std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
-        if (now < number(config_.at("validFromUnix")) || now >= number(config_.at("expiresUnix"))) denied("费率或授权尚未生效或已过期");
         const auto& price = config_.at("pricing");
         const bool fixture = config_.value("fixtureOnly", false);
         if (price.value("source", "").empty() || price.value("checkedAt", "").empty() ||
@@ -201,18 +268,8 @@ class AIMoneyBudget {
         if (!fixture && (model != "deepseek-flash" || number(price.at("contextWindowTokens")) != 1048576 ||
             (endpoint != "https://api.deepseek.com/chat/completions" && endpoint != "https://api.deepseek.com/v1/chat/completions")))
             denied("首轮真实预算只接受已核对上下文上限的 DeepSeek Flash 官方端点");
-        if (!fixture && (config_.value("authorizationSource", "").empty() ||
-            resourceDigest(readText(std::filesystem::u8path(config_.at("reviewReceiptPath").get<std::string>()))) != config_.at("reviewReceiptSha256")))
-            denied("付费授权出处或H1独立审查回执不匹配");
-        if (!fixture) {
-            const auto review = Json::parse(readText(std::filesystem::u8path(config_.at("reviewReceiptPath").get<std::string>())));
-            if (review.value("kind", "") != "hermes_money_budget_review" || review.value("state", "") != "completed" ||
-                !review.value("allBlockingFindingsClosed", false) || review.value("requestId", "").empty() || review.at("reviewedFiles").empty())
-                denied("H1审查未完成或阻断问题未关闭");
-            for (const auto& item : review.at("reviewedFiles"))
-                if (resourceDigest(readText(std::filesystem::u8path(item.at("path").get<std::string>()))) != item.at("sha256"))
-                    denied("费用发送代码已变化，不能沿用旧H1审查");
-        }
+        if (!fixture && config_.value("authorizationSource", "").empty()) denied("缺少原付费授权出处");
+        checkPricingAuthorization(fixture);
         if (fixture) {
             if (endpoint.rfind("http://127.0.0.1:", 0) != 0 && endpoint.rfind("http://[::1]:", 0) != 0) denied("模拟预算只能用于本机端点");
             const auto portBegin = endpoint.find(':', 7) + 1;
@@ -232,11 +289,22 @@ public:
     AIMoneyBudget& operator=(const AIMoneyBudget&) = delete;
     void reserve(const std::string& endpoint, const std::string& model, const ChatOptions& options, const std::string& body) {
         const auto filename = environment("GANGYI_MONEY_CONFIG");
+        const auto scopedLimit = environment("GANGYI_MONEY_CUMULATIVE_LIMIT_MICROS");
         if (filename.empty()) {
-            if (environment("GANGYI_MONEY_REQUIRED") == "1") denied("本轮要求共用费用预算，但未绑定配置");
+            if (!scopedLimit.empty() || environment("GANGYI_MONEY_REQUIRED") == "1")
+                denied("本轮要求共用费用预算，但未绑定配置");
             return;
         }
         load(filename, environment("GANGYI_MONEY_CONFIG_SHA256"), endpoint, model);
+        const auto accountLimit = number(config_.at("limitMicros"));
+        auto cumulativeLimit = accountLimit;
+        if (!scopedLimit.empty()) {
+            if (scopedLimit.find_first_not_of("0123456789") != std::string::npos)
+                denied("本次实验累计上限必须使用整数微元");
+            cumulativeLimit = number(Json::parse(scopedLimit, nullptr, false));
+            if (!cumulativeLimit || cumulativeLimit > accountLimit)
+                denied("本次实验累计上限必须在共用授权内");
+        }
         if (!reservationId_.empty() || options.maxTokens <= 0) denied("预留重复或输出上限无效");
         for (const auto& message : options.messages) if (!message.imageDataUrl.empty()) denied("首轮文字预算不能估算图像计费");
         const auto& price = config_.at("pricing");
@@ -253,10 +321,17 @@ public:
         if (state.blocked) denied("存在不确定或异常计费请求，核实前不能继续发送");
         for (const auto& pending : state.pending)
             if (!pending.second.value("observedComplete", false)) denied("上次请求仅有预留而无完成回执，核实前不能继续发送");
-        if (limit > number(config_.at("limitMicros")) - add(state.spent, state.held)) denied("剩余额度不足以预留下一次实际请求");
+        // 在进程间发送锁内同时核对原支出、未结算预留及本次实验上限。
+        const auto used = add(state.spent, state.held);
+        if (used >= cumulativeLimit || limit > cumulativeLimit - used)
+            denied("剩余额度不足以预留下一次实际请求");
         const auto id = config_.at("sessionId").get<std::string>() + ":" + std::to_string(state.revision);
-        append(state, {{"kind", "reserve"}, {"requestId", id}, {"amountMicros", limit},
-            {"promptLimit", promptLimit_}, {"outputLimit", outputLimit_}, {"bodySha256", resourceDigest(body)}});
+        checkValidity();
+        Json record = {{"kind", "reserve"}, {"requestId", id}, {"amountMicros", limit},
+            {"promptLimit", promptLimit_}, {"outputLimit", outputLimit_}, {"bodySha256", resourceDigest(body)}};
+        if (!revalidationIdentity_.empty()) record["pricingRevalidationSha256"] = revalidationIdentity_;
+        if (!scopedLimit.empty()) record["cumulativeLimitMicros"] = cumulativeLimit;
+        append(state, std::move(record));
         reservationId_ = id;
     }
     void settle(const Json& usage, bool completeTransport, const std::string& returnedModel = {}) {

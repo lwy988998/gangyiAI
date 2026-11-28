@@ -61,16 +61,15 @@ class ProtocolAI(BaseHTTPRequestHandler):
     def do_POST(self):
         # 【逐行批注】 计算右侧结果并赋给 request，更新脚本状态。
         request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
-        # 【逐行批注】 校验关键条件，测试失败时立即报错：assert '教学主控' in request['messages'][0]['content'], '运行时不能启动独立教学模型'。
-        assert '教学主控' in request['messages'][0]['content'], '运行时不能启动独立教学模型'
         # 【逐行批注】 校验关键条件，测试失败时立即报错：assert request.get('response_format') == {'type': 'json_object'}, '主控应请求有效的 JSO…。
         assert request.get('response_format') == {'type': 'json_object'}, '主控应请求有效的 JSON 对象输出'
         # 【逐行批注】 计算右侧结果并赋给 context，更新脚本状态。
         context = json.loads(request['messages'][1]['content'])
         # 【逐行批注】 计算右侧结果并赋给 event，更新脚本状态。
         event = context['event']
-        # 【逐行批注】 调用 type 完成当前脚本或测试步骤：type(self).calls.append(event['requestId'])。
-        type(self).calls.append(event['requestId'])
+        expected_guide = '课程大纲规划助手' if event['type'] == 'plan_course' else '教学主控'
+        assert expected_guide in request['messages'][0]['content'], '请求应使用本任务对应的协议'
+        type(self).calls.append(event.get('requestId', event['type']))
         # 【逐行批注】 计算右侧结果并赋给 results，更新脚本状态。
         results = []
         # 【逐行批注】 遍历数据并重复执行循环体：for item in request['messages'][2:]:。
@@ -95,10 +94,8 @@ class ProtocolAI(BaseHTTPRequestHandler):
                 lite=['认识化合价', '理解函数'], deep=['氧化还原', '函数概念'], reason='无作答时仅提出学习方向'))]
         # 【逐行批注】 当前一条件不成立时继续判断：event['type'] == 'plan_course':。
         elif event['type'] == 'plan_course':
-            # 【逐行批注】 计算右侧结果并赋给 actions，更新脚本状态。
-            actions = [dict(id='course', tool='create_course', args=dict(goal='化合价', title='自主两主题课程', mode='lite',
-                # 【逐行批注】 计算右侧结果并赋给 summary，更新脚本状态。
-                summary='按学生实际反馈调整', payload=dict(courseStructure=[dict(stage='概念', topics=['化合价', '氧化还原'])])))]
+            outline = dict(title='自主两主题课程', summary='按学生实际反馈调整',
+                           courseStructure=[dict(stage='概念', topics=['化合价', '氧化还原'])])
         # 【逐行批注】 当前一条件不成立时继续判断：event['type'] == 'prepare_next':。
         elif event['type'] == 'prepare_next':
             # 【逐行批注】 计算右侧结果并赋给 lesson，更新脚本状态。
@@ -233,10 +230,10 @@ class ProtocolAI(BaseHTTPRequestHandler):
             if action.get('tool') == 'append_section' and isinstance(section, dict) and section.get('kind') != 'question':
                 # 【逐行批注】 执行当前 Python 语句：section.setdefault('helpType', 'explanation')。
                 section.setdefault('helpType', 'explanation')
-        # 【逐行批注】 计算右侧结果并赋给 value，更新脚本状态。
-        value = json.dumps(dict(teaching=dict(helpType='hint' if event.get('action') == 'hint' else 'explanation'),
-                                # 【逐行批注】 计算右侧结果并赋给 message，更新脚本状态。
-                                message=message, actions=actions, state=state), ensure_ascii=False)
+        decision = outline if event['type'] == 'plan_course' else dict(
+            teaching=dict(helpType='hint' if event.get('action') == 'hint' else 'explanation'),
+            message=message, actions=actions, state=state)
+        value = json.dumps(decision, ensure_ascii=False)
         # 【逐行批注】 执行当前 Python 语句：self.send_response(200)。
         self.send_response(200)
         # 【逐行批注】 执行当前 Python 语句：self.send_header('Content-Type', 'text/event-stream')。

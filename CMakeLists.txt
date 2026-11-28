@@ -6,6 +6,7 @@ project(gangyiAI VERSION 5.7.2 LANGUAGES C CXX)
 
 # 提示词编译进程序，并以源码摘要追踪每次请求实际使用的模块。
 include(cmake/TeachingPrompts.cmake)
+include(cmake/PeriodicElements.cmake)
 
 # 【逐行批注】 根据构建条件选择配置：if(WIN32)。
 if(WIN32)
@@ -379,7 +380,7 @@ else()
 endif()
 
 # 【逐行批注】 声明可执行程序目标：add_executable(gangyiAI src/my_ai_pages.cpp src/main.cpp src/db.cpp src/ai_client.cpp src…。
-add_executable(gangyiAI src/my_ai_pages.cpp src/main.cpp src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/json_fix.cpp src/plan_generator.cpp src/page_renderer.cpp
+add_executable(gangyiAI src/my_ai_pages.cpp src/main.cpp src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/structured_reply.cpp src/plan_generator.cpp src/page_renderer.cpp
     # 【逐行批注】 执行 CMake 构建配置：src/plan_cache.cpp src/plan_adapter.cpp src/search_client.cpp src/quality_gate.cpp src/co…。
     src/plan_cache.cpp src/plan_adapter.cpp src/search_client.cpp src/quality_gate.cpp src/course_service.cpp
     # 【逐行批注】 执行 CMake 构建配置：src/progress_service.cpp src/profile_service.cpp src/phase_generator.cpp src/ask_generato…。
@@ -502,6 +503,12 @@ else()
 endif()
 # 【逐行批注】 根据构建条件选择配置：if(BUILD_TESTING)。
 if(BUILD_TESTING)
+    # 测试在 Release 下也必须执行断言，部分测试用断言同时核对操作返回值。
+    # 产品目标已在上方定义，以下选项只影响后续测试目标。
+    add_compile_options(
+        "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/UNDEBUG>"
+        "$<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-UNDEBUG>"
+    )
     add_executable(model-evidence-tests tests/model_evidence_log_tests.cpp)
     target_include_directories(model-evidence-tests PRIVATE include)
     target_link_libraries(model-evidence-tests PRIVATE nlohmann_json::nlohmann_json)
@@ -511,7 +518,7 @@ if(BUILD_TESTING)
     target_link_libraries(review-interval-tests PRIVATE nlohmann_json::nlohmann_json)
     add_test(NAME review-interval COMMAND review-interval-tests)
     add_executable(interactive-labs-tests tests/interactive_labs_tests.cpp)
-    target_include_directories(interactive-labs-tests PRIVATE include)
+    target_include_directories(interactive-labs-tests PRIVATE include "${CMAKE_CURRENT_BINARY_DIR}/generated")
     target_link_libraries(interactive-labs-tests PRIVATE nlohmann_json::nlohmann_json)
     add_test(NAME interactive-labs COMMAND interactive-labs-tests "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/interactive-labs-v1.json")
     add_executable(teaching-policy-tests tests/teaching_policy_tests.cpp)
@@ -534,8 +541,8 @@ if(BUILD_TESTING)
 
     # 【逐行批注】 声明可执行程序目标：add_executable(next-lesson-tests tests/next_lesson_tests.cpp src/learning_generator.cpp。
     add_executable(next-lesson-tests tests/next_lesson_tests.cpp src/learning_generator.cpp
-        # 【逐行批注】 执行 CMake 构建配置：src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp)。
-        src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp)
+        # 【逐行批注】 执行 CMake 构建配置：src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/structured_reply.cpp)。
+        src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/structured_reply.cpp)
     # 【逐行批注】 为构建目标设置头文件路径：target_include_directories(next-lesson-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include …。
     target_include_directories(next-lesson-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${GANGYI_CURL_INCLUDE})
     # 【逐行批注】 为构建目标链接依赖库：target_link_libraries(next-lesson-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_CUR…。
@@ -554,8 +561,8 @@ if(BUILD_TESTING)
         add_executable(question-dialogue-tests tests/question_dialogue_tests.cpp src/learning_flow.cpp
             # 【逐行批注】 执行 CMake 构建配置：src/next_lesson.cpp src/classroom_service.cpp src/learning_generator.cpp src/profile_serv…。
             src/next_lesson.cpp src/classroom_service.cpp src/learning_generator.cpp src/profile_service.cpp
-            # 【逐行批注】 执行 CMake 构建配置：src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp s…。
-            src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp src/course_service.cpp src/progress_service.cpp)
+            # 【逐行批注】 执行 CMake 构建配置：src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/structured_reply.cpp s…。
+            src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/structured_reply.cpp src/course_service.cpp src/progress_service.cpp)
         # 【逐行批注】 为构建目标设置头文件路径：target_include_directories(question-dialogue-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/in…。
         target_include_directories(question-dialogue-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${GANGYI_CURL_INCLUDE})
         # 【逐行批注】 为构建目标链接依赖库：target_link_libraries(question-dialogue-tests PRIVATE nlohmann_json::nlohmann_json ${GANG…。
@@ -587,7 +594,7 @@ if(BUILD_TESTING)
         # 【逐行批注】 执行 CMake 构建配置：src/learning_flow.cpp src/next_lesson.cpp src/classroom_service.cpp src/learning_generato…。
         src/learning_flow.cpp src/next_lesson.cpp src/classroom_service.cpp src/learning_generator.cpp src/profile_service.cpp
         # 【逐行批注】 执行 CMake 构建配置：src/course_service.cpp src/progress_service.cpp src/db.cpp src/ai_client.cpp src/ai_activ…。
-        src/course_service.cpp src/progress_service.cpp src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp)
+        src/course_service.cpp src/progress_service.cpp src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/structured_reply.cpp)
     # 【逐行批注】 为构建目标设置头文件路径：target_include_directories(learning-agent-tests PRIVATE include ${GANGYI_CURL_INCLUDE})。
     target_include_directories(learning-agent-tests PRIVATE include ${GANGYI_CURL_INCLUDE})
     target_link_libraries(learning-agent-tests PRIVATE gangyi-teaching-prompts)
@@ -603,11 +610,18 @@ if(BUILD_TESTING)
     endif()
     # 【逐行批注】 执行 CMake 构建配置：target_sources(learning-agent-tests PRIVATE tests/library_checks.cpp tests/deep_course_ch…。
     target_sources(learning-agent-tests PRIVATE tests/library_checks.cpp tests/deep_course_checks.cpp)
+    # 评测入口复用当前目标的产品对象，不链接增量构建目录遗留的旧对象。
+    get_target_property(TEACHING_EVAL_SOURCES learning-agent-tests SOURCES)
+    list(FILTER TEACHING_EVAL_SOURCES INCLUDE REGEX "^src/")
+    string(JOIN "\n" TEACHING_EVAL_SOURCE_LIST ${TEACHING_EVAL_SOURCES})
+    file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/teaching-eval-sources.txt" CONTENT "${TEACHING_EVAL_SOURCE_LIST}\n")
     # 【逐行批注】 注册自动化测试：add_test(NAME deep-course COMMAND learning-agent-tests --deep-course-only)。
     add_test(NAME deep-course COMMAND learning-agent-tests --deep-course-only)
     # 【逐行批注】 注册自动化测试：add_test(NAME learning-agent COMMAND learning-agent-tests)。
     add_test(NAME learning-agent COMMAND learning-agent-tests)
     add_test(NAME component-activity-agent COMMAND learning-agent-tests --component-activity-only)
+    add_test(NAME set-exercise-agent COMMAND learning-agent-tests --set-exercise-only)
+    add_test(NAME teaching-reply-recovery COMMAND learning-agent-tests --teaching-protocol-only)
     add_test(NAME exact-calculation-agent COMMAND learning-agent-tests --calculation-only)
     add_test(NAME learning-mastery-agent COMMAND learning-agent-tests --mastery-only)
     add_test(NAME teaching-preferences-agent COMMAND learning-agent-tests --teaching-preferences-only)
@@ -641,8 +655,8 @@ if(BUILD_TESTING)
     set_tests_properties(http-lifetime PROPERTIES TIMEOUT 20)
     # 【逐行批注】 声明可执行程序目标：add_executable(ai-client-tests tests/ai_client_tests.cpp src/ai_client.cpp src/ai_activit…。
     add_executable(ai-client-tests tests/ai_client_tests.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/ask_generator.cpp
-        # 【逐行批注】 执行 CMake 构建配置：src/json_fix.cpp src/plan_generator.cpp)。
-        src/json_fix.cpp src/plan_generator.cpp)
+        # 【逐行批注】 执行 CMake 构建配置：src/structured_reply.cpp src/plan_generator.cpp)。
+        src/structured_reply.cpp src/plan_generator.cpp)
     # 【逐行批注】 为构建目标设置头文件路径：target_include_directories(ai-client-tests PRIVATE。
     target_include_directories(ai-client-tests PRIVATE
         # 【逐行批注】 执行 CMake 构建配置：${CMAKE_CURRENT_SOURCE_DIR}/include。
@@ -680,7 +694,7 @@ if(BUILD_TESTING)
     # 【逐行批注】 声明可执行程序目标：add_executable(ai-content-generation-tests tests/ai_content_generation_tests.cpp。
     add_executable(ai-content-generation-tests tests/ai_content_generation_tests.cpp
         # 【逐行批注】 执行 CMake 构建配置：src/learning_generator.cpp src/phase_generator.cpp src/ai_client.cpp src/ai_activity.cpp …。
-        src/learning_generator.cpp src/phase_generator.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp)
+        src/learning_generator.cpp src/phase_generator.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/structured_reply.cpp)
     # 【逐行批注】 为构建目标设置头文件路径：target_include_directories(ai-content-generation-tests PRIVATE。
     target_include_directories(ai-content-generation-tests PRIVATE
         # 【逐行批注】 执行 CMake 构建配置：${CMAKE_CURRENT_SOURCE_DIR}/include。
@@ -719,7 +733,7 @@ if(BUILD_TESTING)
     add_test(NAME course-deletion COMMAND course-deletion-tests)
 
     # 【逐行批注】 声明可执行程序目标：add_executable(profile-service-tests tests/profile_service_tests.cpp src/db.cpp src/profi…。
-    add_executable(profile-service-tests tests/profile_service_tests.cpp src/db.cpp src/profile_service.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp)
+    add_executable(profile-service-tests tests/profile_service_tests.cpp src/db.cpp src/profile_service.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/structured_reply.cpp)
     # 【逐行批注】 为构建目标设置头文件路径：target_include_directories(profile-service-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/incl…。
     target_include_directories(profile-service-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${GANGYI_CURL_INCLUDE})
     # 【逐行批注】 为构建目标链接依赖库：target_link_libraries(profile-service-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI…。
@@ -744,8 +758,8 @@ if(BUILD_TESTING)
 
     # 【逐行批注】 声明可执行程序目标：add_executable(classroom-service-tests tests/classroom_service_tests.cpp src/classroom_se…。
     add_executable(classroom-service-tests tests/classroom_service_tests.cpp src/classroom_service.cpp
-        # 【逐行批注】 执行 CMake 构建配置：src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp s…。
-        src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp src/course_service.cpp
+        # 【逐行批注】 执行 CMake 构建配置：src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/structured_reply.cpp s…。
+        src/db.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/structured_reply.cpp src/course_service.cpp
         # 【逐行批注】 执行 CMake 构建配置：src/next_lesson.cpp src/learning_flow.cpp src/learning_generator.cpp src/profile_service.…。
         src/next_lesson.cpp src/learning_flow.cpp src/learning_generator.cpp src/profile_service.cpp src/progress_service.cpp)
     # 【逐行批注】 为构建目标设置头文件路径：target_include_directories(classroom-service-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/in…。
@@ -822,7 +836,7 @@ if(BUILD_TESTING)
     find_program(GANGYI_NODE_EXECUTABLE NAMES node)
     # 【逐行批注】 根据构建条件选择配置：if(GANGYI_NODE_EXECUTABLE)。
     if(GANGYI_NODE_EXECUTABLE)
-        add_test(NAME interactive-labs-js COMMAND ${GANGYI_NODE_EXECUTABLE} --test ${CMAKE_CURRENT_SOURCE_DIR}/tests/interactive_labs_tests.cjs)
+        add_test(NAME interactive-labs-js COMMAND ${GANGYI_NODE_EXECUTABLE} --test ${CMAKE_CURRENT_SOURCE_DIR}/tests/interactive_labs_tests.cjs ${CMAKE_CURRENT_SOURCE_DIR}/tests/interactive_wave_tests.cjs ${CMAKE_CURRENT_SOURCE_DIR}/tests/interactive_periodic_tests.cjs)
         # 【逐行批注】 注册自动化测试：add_test(NAME chat-links COMMAND ${GANGYI_NODE_EXECUTABLE}。
         add_test(NAME chat-links COMMAND ${GANGYI_NODE_EXECUTABLE}
             # 【逐行批注】 执行 CMake 构建配置：${CMAKE_CURRENT_SOURCE_DIR}/tests/chat_link_tests.cjs)。
@@ -864,6 +878,8 @@ if(BUILD_TESTING)
     endif()
     # 【逐行批注】 根据构建条件选择配置：if(Python3_Interpreter_FOUND)。
     if(Python3_Interpreter_FOUND)
+        add_test(NAME periodic-data-build COMMAND ${Python3_EXECUTABLE} -B -X utf8
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/periodic_data_build_tests.py -v)
         # 开发评测测试不进入源码交付包；原生入口由独立构建脚本刷新。
         add_test(NAME tutor-experiment COMMAND ${Python3_EXECUTABLE} -B -X utf8
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/tutor_experiment_tests.py -v)
@@ -878,6 +894,8 @@ if(BUILD_TESTING)
         endif()
         add_test(NAME tutor-benchmark COMMAND ${Python3_EXECUTABLE} -B -X utf8
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/tutor_benchmark_tests.py -v)
+        add_test(NAME tutor-native-human-review COMMAND ${Python3_EXECUTABLE} -B -X utf8
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/native_human_review_tests.py -v)
         add_test(NAME tutor-component-scenes COMMAND ${Python3_EXECUTABLE} -B -X utf8
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/tutor_component_scenes_tests.py -v)
         # 【逐行批注】 注册自动化测试：add_test(NAME release-publish COMMAND ${Python3_EXECUTABLE} -B -X utf8。
@@ -1001,7 +1019,7 @@ endif()
 # 【逐行批注】 根据构建条件选择配置：if(BUILD_TESTING)。
 if(BUILD_TESTING)
   # 【逐行批注】 声明可执行程序目标：add_executable(my-ai-tests tests/my_ai_tests.cpp src/my_ai.cpp src/db.cpp src/course_serv…。
-  add_executable(my-ai-tests tests/my_ai_tests.cpp src/my_ai.cpp src/db.cpp src/course_service.cpp src/profile_service.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/json_fix.cpp)
+  add_executable(my-ai-tests tests/my_ai_tests.cpp src/my_ai.cpp src/db.cpp src/course_service.cpp src/profile_service.cpp src/ai_client.cpp src/ai_activity.cpp src/search_client.cpp src/structured_reply.cpp)
   # 【逐行批注】 为构建目标设置头文件路径：target_include_directories(my-ai-tests PRIVATE include ${GANGYI_CURL_INCLUDE})。
   target_include_directories(my-ai-tests PRIVATE include ${GANGYI_CURL_INCLUDE})
   # 【逐行批注】 为构建目标链接依赖库：target_link_libraries(my-ai-tests PRIVATE nlohmann_json::nlohmann_json ${GANGYI_SQLITE_LI…。

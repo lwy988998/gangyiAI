@@ -1,8 +1,8 @@
 // 【逐行批注】 引入头文件 "phase_generator.hpp"，为后续实现提供类型或接口声明。
 #include "phase_generator.hpp"
 
-// 【逐行批注】 引入头文件 "json_fix.hpp"，为后续实现提供类型或接口声明。
-#include "json_fix.hpp"
+// 【逐行批注】 引入头文件 "structured_reply.hpp"，为后续实现提供类型或接口声明。
+#include "structured_reply.hpp"
 
 // 【逐行批注】 引入头文件 <algorithm>，为后续实现提供类型或接口声明。
 #include <algorithm>

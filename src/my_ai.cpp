@@ -587,7 +587,8 @@ void myAIChatReply(Database& db,const Json& task,const std::string& content) {
     // 【逐行批注】 计算右侧结果并写入 auto messageId，更新当前运行状态。
     const auto messageId="reply:"+task.at("id").get<std::string>()+":"+std::to_string(task.value("calls",0));
     // 【逐行批注】 调用 now 完成本行所需操作：db.insert(LearningInteraction{messageId,"my-ai-assistant",Json{{"text…。
-    db.insert(LearningInteraction{messageId,"my-ai-assistant",Json{{"text",content},{"taskId",task.at("id")}}.dump(),now(),{},chatId,{}});
+    db.insert(LearningInteraction{messageId,"my-ai-assistant",Json{{"text",content},{"taskId",task.at("id")},
+        {"revisions",task.value("latestStreamRevisions",Json::object()).value("message",Json::array())}}.dump(),now(),{},chatId,{}});
 // 【逐行批注】 结束当前代码块。
 }
 

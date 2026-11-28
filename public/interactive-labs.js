@@ -9,7 +9,10 @@
   const vectors = typeof module === 'object' && module.exports ? require('./interactive-vectors.js') : root.GangyiInteractiveVectors;
   const equations = typeof module === 'object' && module.exports ? require('./interactive-equations.js') : root.GangyiInteractiveEquations;
   const statistics = typeof module === 'object' && module.exports ? require('./interactive-statistics.js') : root.GangyiInteractiveStatistics;
-  const types = ['function_lab', 'circuit_lab', 'chemical_balance', 'motion_lab', 'number_line', ...(vectors?['vector_lab']:[]), ...(equations?['equation_lab']:[]), ...(statistics?['statistics_lab']:[]), ...(subjects?.types || [])];
+  const geometry = typeof module === 'object' && module.exports ? require('./interactive-geometry.js') : root.GangyiInteractiveGeometry;
+  const waves = typeof module === 'object' && module.exports ? require('./interactive-waves.js') : root.GangyiInteractiveWaves;
+  const elements = typeof module === 'object' && module.exports ? require('./interactive-elements.js') : root.GangyiInteractiveElements;
+  const types = ['function_lab', 'circuit_lab', 'chemical_balance', 'motion_lab', 'number_line', ...(vectors?['vector_lab']:[]), ...(equations?['equation_lab']:[]), ...(statistics?['statistics_lab']:[]), ...(geometry?['triangle_lab']:[]), ...(waves?['wave_lab']:[]), ...(elements?['periodic_lab']:[]), ...(subjects?.types || [])];
   const motionFields = ['initialPositionM','initialVelocityMps','accelerationMps2','timeSeconds'];
   const numberLineFields = ['lower','upper','lowerClosed','upperClosed','point'];
   const reactions = {
@@ -23,6 +26,9 @@
     return value;
   }
   function validate(source) {
+    if(source?.type==='periodic_lab'&&elements)return elements.validate(source);
+    if(source?.type==='wave_lab'&&waves)return waves.validate(source);
+    if(source?.type==='triangle_lab'&&geometry)return geometry.validate(source);
     if(source?.type==='statistics_lab'&&statistics)return statistics.validate(source);
     if(source?.type==='equation_lab'&&equations)return equations.validate(source);
     if(source?.type==='vector_lab'&&vectors)return vectors.validate(source);
@@ -85,6 +91,9 @@
       {mode:config.mode,voltage:config.voltage,r1:config.r1,r2:config.r2} : {coefficients:[...config.coefficients]})};
   }
   function checkedState(source, state, contentVersion) {
+    if(source?.type==='periodic_lab'&&elements)return elements.checkedState(source,state,contentVersion);
+    if(source?.type==='wave_lab'&&waves)return waves.checkedState(source,state,contentVersion);
+    if(source?.type==='triangle_lab'&&geometry)return geometry.checkedState(source,state,contentVersion);
     if(source?.type==='statistics_lab'&&statistics)return statistics.checkedState(source,state,contentVersion);
     if(source?.type==='equation_lab'&&equations)return equations.checkedState(source,state,contentVersion);
     if(source?.type==='vector_lab'&&vectors)return vectors.checkedState(source,state,contentVersion);
@@ -120,6 +129,9 @@
     return result;
   }
   function calculate(source, state, contentVersion) {
+    if(source?.type==='periodic_lab'&&elements)return elements.calculate(source,state,contentVersion);
+    if(source?.type==='wave_lab'&&waves)return waves.calculate(source,state,contentVersion);
+    if(source?.type==='triangle_lab'&&geometry)return geometry.calculate(source,state,contentVersion);
     if(source?.type==='statistics_lab'&&statistics)return statistics.calculate(source,state,contentVersion);
     if(source?.type==='equation_lab'&&equations)return equations.calculate(source,state,contentVersion);
     if(source?.type==='vector_lab'&&vectors)return vectors.calculate(source,state,contentVersion);
@@ -168,6 +180,9 @@
   }
   let boardCounter=0;
   function mount(host, source, options={}) {
+    if(source?.type==='periodic_lab'&&elements)return elements.mount(host,source,options);
+    if(source?.type==='wave_lab'&&waves)return waves.mount(host,source,options);
+    if(source?.type==='triangle_lab'&&geometry)return geometry.mount(host,source,options);
     if(source?.type==='statistics_lab'&&statistics)return statistics.mount(host,source,options);
     if(source?.type==='equation_lab'&&equations)return equations.mount(host,source,options);
     if(source?.type==='vector_lab'&&vectors)return vectors.mount(host,source,options);

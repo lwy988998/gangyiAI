@@ -6,8 +6,8 @@
 #include "classroom_service.hpp"
 // 【逐行批注】 引入头文件 "course_service.hpp"，为后续实现提供类型或接口声明。
 #include "course_service.hpp"
-// 【逐行批注】 引入头文件 "json_fix.hpp"，为后续实现提供类型或接口声明。
-#include "json_fix.hpp"
+// 【逐行批注】 引入头文件 "structured_reply.hpp"，为后续实现提供类型或接口声明。
+#include "structured_reply.hpp"
 // 【逐行批注】 引入头文件 "learning_generator.hpp"，为后续实现提供类型或接口声明。
 #include "learning_generator.hpp"
 // 【逐行批注】 引入头文件 "profile_service.hpp"，为后续实现提供类型或接口声明。
@@ -553,7 +553,7 @@ Json selectTask(AIClient& ai, const Json& context, const Json& candidates,
     // 【逐行批注】 判断条件 (response.content.empty() || response.finishReason == "length" |…，成立时执行对应分支。
     if (response.content.empty() || response.finishReason == "length" || response.model.empty()) throw AIClientError("invalid_response", "下一课选择输出不完整");
     // 【逐行批注】 计算右侧结果并写入 decision，更新当前运行状态。
-    auto decision = Json::parse(response.content, nullptr, false);
+    auto decision = parseAIJson(response.content);
     // 【逐行批注】 判断条件 (!decision.is_object() || !decision.value("reason", Json()).is_s…，成立时执行对应分支。
     if (!decision.is_object() || !decision.value("reason", Json()).is_string() || decision.value("reason", "").empty() ||
         // 【逐行批注】 调用 Json 完成本行所需操作：!decision.value("taskId", Json()).is_string() || !decision.value("min…。

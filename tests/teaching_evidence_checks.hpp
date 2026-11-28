@@ -250,7 +250,7 @@ inline void runTeachingEvidenceChecks(const std::filesystem::path& path) {
     // 【逐行批注】 计算右侧结果并写入 rejected，更新当前运行状态。
     auto rejected = gangyi::agentView(db, access, hint.at("id")); assert(rejected.at("status") == "failed");
     // 【逐行批注】 按循环规则重复处理：for (const auto& event : rejected.at("events")) assert(event.value("field"…。
-    for (const auto& event : rejected.at("events")) assert(event.value("field", "") != "message");
+    for (const auto& event : rejected.at("events")) assert(event.value("field", "") != "message" || event.value("provisional", false));
     // 【逐行批注】 计算右侧结果并写入 fullExample，更新当前运行状态。
     fullExample = false; wrongTarget = true;
     // 【逐行批注】 调用 agentControl 完成本行所需操作：gangyi::agentControl(db, access, {{"command", "retry"}, {"taskId", hi…。
@@ -260,7 +260,7 @@ inline void runTeachingEvidenceChecks(const std::filesystem::path& path) {
     // 【逐行批注】 调用 assert、agentLessonView 完成本行所需操作：assert(gangyi::agentLessonView(db, access, "lesson-check").at("sectio…。
     assert(gangyi::agentLessonView(db, access, "lesson-check").at("sections").size() == 3);
     // 【逐行批注】 按循环规则重复处理：for (const auto& event : rejected.at("events")) assert(event.value("field"…。
-    for (const auto& event : rejected.at("events")) assert(event.value("field", "") != "message" && event.value("field", "") != "body");
+    for (const auto& event : rejected.at("events")) assert((event.value("field", "") != "message" && event.value("field", "") != "body") || event.value("provisional", false));
     // 【逐行批注】 计算右侧结果并写入 wrongTarget，更新当前运行状态。
     wrongTarget = false; gangyi::agentControl(db, access, {{"command", "retry"}, {"taskId", hint.at("id")}});
     // 【逐行批注】 执行当前声明或表达式：helper.process(db, hint.at("id"));。
@@ -308,11 +308,16 @@ inline void runTeachingEvidenceChecks(const std::filesystem::path& path) {
     // 【逐行批注】 调用 assert 完成本行所需操作：assert(deniedExample.value("message", "").empty());。
     assert(deniedExample.value("message", "").empty());
     // 【逐行批注】 按循环规则重复处理：for (const auto& event : deniedExample.at("events")) assert(event.value("f…。
-    for (const auto& event : deniedExample.at("events")) assert(event.value("field", "") != "message" && event.value("field", "") != "body");
+    for (const auto& event : deniedExample.at("events")) assert((event.value("field", "") != "message" && event.value("field", "") != "body") || event.value("provisional", false));
     // 【逐行批注】 计算右侧结果并写入 auto assisted，更新当前运行状态。
     const auto assisted = submit("q1", "question_answer", "5/6");
     // 【逐行批注】 调用 assert、inputFor 完成本行所需操作：assert(inputFor(assisted).at("helpMode") == "after_hint" && inputFor(…。
-    assert(inputFor(assisted).at("helpMode") == "after_hint" && inputFor(assisted).at("helpHistory").size() == 1);
+    // 失败轮次的公开草稿已实际展示，后续修正不能把这次帮助重新算成独立作答。
+    assert(inputFor(assisted).at("helpMode") == "help_unknown" && inputFor(assisted).at("helpHistory").size() > 1);
+    const auto assistedHistory = inputFor(assisted).at("helpHistory");
+    assert(std::any_of(assistedHistory.begin(), assistedHistory.end(), [](const auto& entry) {
+        return entry.value("helpType", "") == "hint" && !entry.value("partial", true);
+    }));
     // 【逐行批注】 调用 agentControl 完成本行所需操作：gangyi::agentControl(db, access, {{"command", "cancel"}, {"taskId", a…。
     gangyi::agentControl(db, access, {{"command", "cancel"}, {"taskId", assisted.at("id")}});
     // 【逐行批注】 计算右侧结果并写入 auto independent，更新当前运行状态。

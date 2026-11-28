@@ -1,5 +1,5 @@
 /* 实验页延续澄明蓝白阅读体系；一次只展示一个可操作的学习目标。 */
-.labs-page { margin: 0; background: var(--gy-bg,#f5f7fc); color: var(--gy-text,#21324b); font-family: "Microsoft YaHei",sans-serif; }
+.labs-page { --dc-bg:var(--gy-bg,#f5f7fc);--dc-surface:var(--gy-surface,#fff);--dc-soft:var(--gy-surface-alt,#eef3fc);--dc-text:var(--gy-text,#21324b);--dc-muted:var(--gy-muted,#5e6d82);--dc-line:var(--gy-border,#dfe6ef);--dc-accent:var(--gy-accent,#3d61ce);margin: 0; background: var(--gy-bg,#f5f7fc); color: var(--gy-text,#21324b); font-family: "Microsoft YaHei",sans-serif; }
 .labs-header { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 22px max(22px,calc((100% - 1040px)/2)); background: var(--gy-surface,#fff); border-bottom: 1px solid var(--gy-border,#dfe6ef); }
 .labs-header>a { font-size: 18px; font-weight: 600; text-decoration: none; color: inherit; }
 .labs-header nav { display: flex; gap: 20px; font-size: 14px; }
@@ -14,6 +14,6 @@
 .labs-workspace>p { line-height: 1.9; margin-bottom: 24px; }
 .labs-workspace .il-function-board { height: 360px; }
 .labs-footer { font-size: 12px; margin-top: 36px; }
-.labs-page :focus-visible { outline: 3px solid #3d61ce; outline-offset: 3px; }
+.labs-page :focus-visible { outline: 3px solid var(--gy-accent,#3d61ce); outline-offset: 3px; }
 .labs-page ::selection { background: #dce6ff; color: #132747; }
 @media(max-width:600px) { .labs-header { padding: 18px; gap: 12px; }.labs-header nav { gap: 12px;font-size:12px; }.labs-main { margin: 28px auto;padding:0 16px; }.labs-workspace { padding: 20px 14px; }.labs-workspace .il-function-board { height: 280px; }.labs-topics button { font-size: 14px;padding:10px 12px; } }

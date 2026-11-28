@@ -292,8 +292,8 @@
       const data = JSON.parse(event.data);
       // 【逐行批注】 判断条件 (data.type === 'delta') {，成立时执行对应逻辑。
       if (data.type === 'delta') {
-        // 【逐行批注】 执行当前前端表达式：view.push(data.text);。
-        view.push(data.text);
+        // 【逐行批注】 执行当前前端表达式：view.receive(data);。
+        view.receive(data);
         // 只记录接收进度，不把模型正文写进轨迹历史。
         // 【逐行批注】 计算右侧结果并更新 received +，改变页面或请求状态。
         received += 1;
@@ -306,6 +306,7 @@
       // 【逐行批注】 结束当前前端代码块。
       }
       // 【逐行批注】 判断条件 (data.type === 'done') { finished = true; live.status=data.cance…，成立时执行对应逻辑。
+        if (data.type === 'stream_status') view.receive(data);
       if (data.type === 'done') { finished = true; live.status=data.cancelled?'cancelled':'ready';live.activity={title:data.cancelled?'已停止回答':'回答已完成',detail:data.cancelled?'本次回答未保存。':'回答已完整接收'+(received?'（共 '+received+' 段）':'')+'。',state:'completed',at:new Date().toISOString()};paint();finish(view, question, data); connection.close(); }
       // 【逐行批注】 判断条件 (data.type === 'error') { finished = true; live.status='failed';…，成立时执行对应逻辑。
       if (data.type === 'error') { finished = true; live.status='failed';live.failure={message:data.message||'回答未完成'};live.activity={title:'回答未完成',detail:data.message||'连接中断，已有文字仍可查看。',state:'failed',at:new Date().toISOString()};paint();view.fail(data.message); connection.close(); }

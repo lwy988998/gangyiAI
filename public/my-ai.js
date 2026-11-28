@@ -361,6 +361,32 @@
     // 新建聊天发送失败时 state 已存在但 URL 还没有 id，后续草稿、轮询和重试都按实际聊天编号工作。
     // 【逐行批注】 声明前端变量 sessionId，保存本行计算出的数据或对象。
     const sessionId=()=>state?.id||chatId;
+    const agent = window.GangyiAgent;
+    const liveHost = document.createElement('div'); liveHost.id = 'streaming-reply';
+    const liveView = agent.createStreamView(liveHost, {filter:record => record.field === 'message' &&
+      !(record.state === 'confirmed' && (state?.messages || []).some(message => message.role === 'assistant' && message.text === record.text))});
+    let watchedTask = '', stopLiveWatch, liveRecords = [];
+    function watchReply(taskId) {
+      if (!taskId || watchedTask === taskId) return;
+      stopLiveWatch?.(); watchedTask = taskId; liveRecords = []; liveView.clear();
+      stopLiveWatch = agent.watch(taskId, {
+        onContent(records) {
+          if (watchedTask !== taskId) return;
+          liveRecords = records; liveView.update(records);
+          if (liveHost.parentNode !== messages) messages.append(liveHost);
+        },
+        onEvent(event) { if (event.type === 'action') pollOnce(); return false; },
+        onState(task) {
+          if (watchedTask !== taskId) return;
+          chatTrace?.update(task);
+          setTaskStatus((taskLabels[task.status] || '正在处理') + (task.activity?.title ? ' · ' + task.activity.title : ''));
+          if (!['pending','running'].includes(task.status)) { watchedTask = ''; pollOnce(); }
+        },
+        onConnectionError(message) { setTaskStatus(message); },
+      });
+    }
+    window.addEventListener('pagehide', () => stopLiveWatch?.(), {once:true});
+
     // 共享轨迹统一展示任务编号、阶段、持续计时、已保存步骤和失败原因；页面不再另造一套步骤/重试界面。
     // 【逐行批注】 声明前端变量 control，保存本行计算出的数据或对象。
     const control=async(command,taskId)=>{
@@ -401,9 +427,38 @@
       // 【逐行批注】 调用 Date 执行页面交互或数据处理：activity:{title:'正在提交给 AI',detail:'要求已发出，等待服务端返回任务编号。',state:'pending…。
       activity:{title:'正在提交给 AI',detail:'要求已发出，等待服务端返回任务编号。',state:'pending',at:new Date().toISOString()},events:[]});
     // 【逐行批注】 声明前端变量 renderMessages，保存本行计算出的数据或对象。
-    const renderMessages=items=>{const near=scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<100;messages.innerHTML=items.map(m=>'<article class="ma-message '+m.role+'"><div class="ma-message-label">'+(m.role==='user'?'我':'AI管家')+'</div><div class="ma-message-content">'+(m.role==='assistant'&&window.GangyiChat?window.GangyiChat.renderMarkdown(m.text,{math:true}):escape(m.text))+'</div></article>').join('');if(near)scroll.scrollTop=scroll.scrollHeight;};
+    const messageNodes = new Map();
+    const renderMessages = items => {
+      const near = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 100;
+      const used = new Set(), ordered = [];
+      for (const [index, message] of items.entries()) {
+        const key = message.id || (message.requestId ? message.requestId + ':' + message.role : String(index));
+        used.add(key);
+        const signature = JSON.stringify([message.role, message.text, message.revisions]);
+        let entry = messageNodes.get(key);
+        if (!entry || entry.signature !== signature) {
+          const node = document.createElement('article'); node.className = 'ma-message ' + message.role;
+          const label = document.createElement('div'); label.className = 'ma-message-label'; label.textContent = message.role === 'user' ? '我' : 'AI管家';
+          const content = document.createElement('div'); content.className = 'ma-message-content';
+          if (message.role === 'assistant' && window.GangyiChat) content.innerHTML = window.GangyiChat.renderMarkdown(message.text, {math:true});
+          else content.textContent = message.text;
+          node.append(label, content);
+          if (message.revisions?.length) agent.streamNotice(node, {state:'confirmed', revisions:message.revisions});
+          entry = {node, signature}; messageNodes.set(key, entry);
+        }
+        ordered.push(entry.node);
+      }
+      let cursor = messages.firstChild;
+      for (const node of ordered) { if (node === cursor) cursor = cursor.nextSibling; else messages.insertBefore(node, cursor); }
+      for (const [key, entry] of messageNodes) if (!used.has(key)) { entry.node.remove(); messageNodes.delete(key); }
+      for (const node of [...messages.children]) if (!ordered.includes(node) && node !== liveHost) node.remove();
+      liveView.update(liveRecords);
+      if (liveHost.parentNode !== messages || liveHost !== messages.lastElementChild) messages.append(liveHost);
+      if (near) scroll.scrollTop = scroll.scrollHeight;
+    };
     // 【逐行批注】 计算右侧结果并更新 if(state){renderMessages(state.messages);inp…，改变页面或请求状态。
     if(state){renderMessages(state.messages);input.value=localStorage.getItem('my-ai-draft:'+chatId)??state.draft;scroll.scrollTop=state.scroll||0;sessionStorage.setItem('my-ai-return-chat',chatId);}else messages.innerHTML=empty('新建一个聊天，或直接输入要求开始。');
+    agent.followLatest(scroll);
     // 【逐行批注】 计算右侧结果并更新 document.getElementById('new-chat').onclick，改变页面或请求状态。
     document.getElementById('new-chat').onclick=action(async()=>{const item=await api('chats',{title:'新聊天'});location.href='/my-ai/chat?id='+encodeURIComponent(item.id);});
     // 【逐行批注】 计算右侧结果并更新 document.getElementById('chat-search').oninp…，改变页面或请求状态。
@@ -435,7 +490,7 @@
         // 【逐行批注】 调用 Date 执行页面交互或数据处理：chatTrace?.update({...pendingTask,...task,purpose:task.purpose||pendi…。
         chatTrace?.update({...pendingTask,...task,purpose:task.purpose||pendingTask.purpose,createdAt:task.createdAt||pendingTask.createdAt,updatedAt:task.updatedAt||new Date().toISOString()});
         // 【逐行批注】 计算右侧结果并更新 state.taskId，改变页面或请求状态。
-        state.taskId=task.id;input.value='';localStorage.removeItem('my-ai-draft:'+sessionId());dirty=false;request=null;state=await api('chat',null,{id:sessionId()});renderMessages(state.messages);setTaskStatus('AI正在处理，可随时停止。');scroll.scrollTop=scroll.scrollHeight;
+        state.taskId=task.id;watchReply(task.id);input.value='';localStorage.removeItem('my-ai-draft:'+sessionId());dirty=false;request=null;state=await api('chat',null,{id:sessionId()});renderMessages(state.messages);setTaskStatus('AI正在处理，可随时停止。');scroll.scrollTop=scroll.scrollHeight;
       // 【逐行批注】 执行当前前端表达式：}catch(error){。
       }catch(error){
         // 提交阶段失败：保留已输入内容和已有记录，并在轨迹里就地显示失败原因与已耗时。
@@ -486,10 +541,10 @@
           // 【逐行批注】 调用 setTaskStatus 执行页面交互或数据处理：setTaskStatus((taskLabels[task.status]||'正在处理')+(task.activity?.title…。
           setTaskStatus((taskLabels[task.status]||'正在处理')+(task.activity?.title?' · '+task.activity.title:''));
           // 【逐行批注】 声明前端变量 old，保存本行计算出的数据或对象。
-          const old=document.getElementById('streaming-reply');if(old)old.remove();
-          // 【逐行批注】 执行当前前端表达式：if(task.status==='running'){const events=(task.events||[]).filter(e=>e.type==='delta'&&e.…。
-          if(task.status==='running'){const events=(task.events||[]).filter(e=>e.type==='delta'&&e.field==='message'&&e.step===task.calls);const text=events.map(e=>e.text).join('');if(text){const draft=document.createElement('article');draft.className='ma-message assistant';draft.id='streaming-reply';const draftLabel=document.createElement('div');draftLabel.className='ma-message-label';draftLabel.textContent='AI管家 · 正在回复';const content=document.createElement('div');content.className='ma-message-content';content.textContent=text;draft.append(draftLabel,content);messages.append(draft);}}
-        // 【逐行批注】 结束当前前端代码块。
+          if (['pending','running'].includes(task.status)) watchReply(task.id);
+          liveView.update(liveRecords);
+          if (liveHost.parentNode !== messages) messages.append(liveHost);
+
         }
         // 【逐行批注】 调用 showActions 执行页面交互或数据处理：await showActions(document.getElementById('chat-actions'));。
         await showActions(document.getElementById('chat-actions'));
@@ -500,7 +555,8 @@
     // 【逐行批注】 结束当前前端代码块。
     }
     // 【逐行批注】 调用 setInterval 执行页面交互或数据处理：setInterval(pollOnce,2000);。
-    setInterval(pollOnce,2000);
+    const refreshTimer = setInterval(() => { if (!watchedTask && !document.hidden) pollOnce(); }, 5000);
+    window.addEventListener('pagehide', () => clearInterval(refreshTimer), {once:true});
     // 【逐行批注】 调用 pollOnce 执行页面交互或数据处理：if(state?.taskId)pollOnce();。
     if(state?.taskId)pollOnce();
     // 【逐行批注】 为页面事件绑定处理逻辑：window.addEventListener('pagehide',()=>{if(!state)return;localStorage.setItem('my-ai…。

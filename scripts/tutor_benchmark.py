@@ -24,6 +24,7 @@ MASTERY = {
 ERROR_TYPES = {"conceptual", "condition_omission", "unit_conversion", "reasoning", "boundary", "calculation", "expression", "unknown"}
 BINDING_FIELDS = {"courseId", "lessonId", "questionId", "interactionId"}
 RATING_FIELDS = ["accuracy", "clarity", "diagnosticRelevance", "adaptation", "guidance", "interactionDesign"]
+NATIVE_RUBRIC_VERSION = "gangyi-tutor-six-dimensions-v1"
 
 
 def require(condition: bool, message: str) -> None:
@@ -99,6 +100,12 @@ def validate_dataset(dataset: object) -> dict:
         if 'componentPlan' in case:
             from tutor_component_scenes import validate_scene_plan
             validate_scene_plan(case)
+        if 'setExercise' in case:
+            require(case['subject'] == 'mathematics' and case['formalSubmission'] and isinstance(case['setExercise'], dict),
+                    f'{case_id} 集合题诊断需要数学学科、集合配置和正式提交。')
+        if 'selectedOption' in case:
+            require('setExercise' in case and type(case['selectedOption']) is int and 0 <= case['selectedOption'] <= 5,
+                    f'{case_id} 程序核验单选项必须是从0开始的整数。')
     require(subjects == SUBJECTS, "首批须覆盖九个学科")
     required = {"diagnosis", "partial_answer", "multi_turn", "ambiguity", "image_uncertainty", "interaction_selection", "invalid_component_parameter", "course_interruption", "context_recovery", "independent_exploration", "model_failure"}
     require(required <= scenarios, "缺少场景：" + ", ".join(sorted(required - scenarios)))
@@ -114,7 +121,7 @@ def prepare(dataset: dict) -> dict:
         "instructions": "隔离实验内部请求；依据当前问题和实际回答教学。输出仅用于评测，禁止本地操作。",
         "records": [{
             "caseId": case["id"], "inputHash": digest(case),
-            "input": {field: case[field] for field in ["subject", "knowledgePoint", "binding", "turns", "prompt", "studentResponse", "formalSubmission", "reference", *(['componentPlan'] if 'componentPlan' in case else [])]},
+            "input": {field: case[field] for field in ["subject", "knowledgePoint", "binding", "turns", "prompt", "studentResponse", "formalSubmission", "reference", *[key for key in ('componentPlan', 'setExercise', 'selectedOption') if key in case]]},
             "outputContract": {
                 "binding": case["binding"], "message": "非空教学反馈", "nextAction": sorted(ACTIONS),
                 "score": "正式作答且可靠时0..100整数，否则null",
@@ -214,6 +221,92 @@ def rating_template(dataset: dict) -> dict:
     }
 
 
+def native_rating_template(report: dict) -> dict:
+    """生成绑定当前归档和原始回复的空白评审文件。"""
+    return {
+        "schemaVersion": 1, "kind": "native_human_review", "rubricVersion": NATIVE_RUBRIC_VERSION,
+        "datasetId": report["datasetId"], "datasetHash": report["datasetHash"],
+        "manifestSha256": report["manifestSha256"], "runSha256": report["runSha256"],
+        "sourceKind": report["sourceKind"], "reviewer": None,
+        "records": [{"caseId": row["caseId"], "inputHash": row["inputHash"], "result": row["result"],
+                     "rawResponses": row["rawResponses"], "status": "pending", "reviewedAt": None,
+                     "ratings": dict.fromkeys(RATING_FIELDS), "evidenceLines": [], "criticalErrors": [], "notes": None}
+                    for row in report["checks"] if row["passed"]],
+    }
+
+
+def summarize_native_ratings(report: dict, reviews: list[dict]) -> dict:
+    """核验评审记录并按案例等权汇总，原始评分和严重问题保留。"""
+    template = native_rating_template(report)
+    expected = {row["caseId"]: row for row in template["records"]}
+    rated = {case: [] for case in expected}
+    reviewers, critical, pending_observations = set(), [], []
+    for review in reviews:
+        require(isinstance(review, dict) and type(review.get("schemaVersion")) is int and
+                all(review.get(key) == template[key] for key in template if key not in {"reviewer", "records"}),
+                "评分版本、标准或原始归档发生变化")
+        reviewer = review.get("reviewer")
+        require(isinstance(reviewer, dict) and all(nonblank(reviewer.get(k)) for k in ("id", "name", "qualification"))
+                and reviewer.get("kind") == "human", "评审需填写人工身份、姓名与学科资质")
+        reviewer_id = reviewer["id"].strip().casefold()
+        require(reviewer_id not in reviewers, "同一评审身份重复提交")
+        reviewers.add(reviewer_id)
+        rows = review.get("records")
+        require(isinstance(rows, list), "评分记录格式无效")
+        seen = set()
+        for row in rows:
+            case_id = row.get("caseId") if isinstance(row, dict) else None
+            require(isinstance(case_id, str) and case_id in expected and case_id not in seen, "评分案例未知、重复或不可评")
+            seen.add(case_id)
+            original = expected[case_id]
+            require(all(row.get(key) == original[key] for key in ("inputHash", "result", "rawResponses")), "评分未绑定本次原始回复")
+            scores = row.get("ratings")
+            require(isinstance(scores, dict) and set(scores) == set(RATING_FIELDS), "评分维度不完整")
+            lines = row.get("evidenceLines")
+            valid_lines = {item["line"] for item in original["rawResponses"]["entries"] if item["completed"]}
+            require(isinstance(lines, list) and all(type(line) is int and line in valid_lines for line in lines)
+                    and len(set(lines)) == len(lines), "评审引用的行号须对应本案例实际回复终条")
+            errors = row.get("criticalErrors")
+            require(isinstance(errors, list) and all(nonblank(error) for error in errors), "关键错误须逐条填写文字说明")
+            require(not errors or bool(lines), "关键错误须关联实际回复行号")
+            notes = row.get("notes")
+            require(notes is None or nonblank(notes), "评语须为空或非空文字")
+            for error in errors:
+                critical.append({"caseId": case_id, "reviewerId": reviewer["id"], "description": error, "evidenceLines": lines})
+            if row.get("status") == "pending":
+                require(all(value is None for value in scores.values()) and row.get("reviewedAt") is None,
+                        "未评案例不能包含分数或完成时间")
+                if notes is not None or lines or errors:
+                    # 尚未完成六维评分时，保留人工发现而不计入分数。
+                    pending_observations.append({"caseId": case_id, "reviewerId": reviewer["id"],
+                                                 "notes": notes, "evidenceLines": lines, "criticalErrors": errors})
+                continue
+            require(row.get("status") == "reviewed" and all(type(value) is int and 1 <= value <= 5 for value in scores.values()),
+                    "已评案例的六项分数必须为 1 至 5 的整数")
+            require(nonblank(row.get("reviewedAt")) and datetime.fromisoformat(row["reviewedAt"]).utcoffset() is not None,
+                    "评审时间须为带时区的 ISO 8601 时间")
+            require(bool(lines) and nonblank(notes), "已评案例须记录评语和实际回复终条行号")
+            rated[case_id].append({"reviewer": reviewer, "ratings": scores, "reviewedAt": row["reviewedAt"],
+                                  "evidenceLines": lines, "notes": row["notes"]})
+
+    # 先对同一案例求均值，避免被更多人打分的案例在总体占更大权重。
+    case_means = [{field: sum(row["ratings"][field] for row in rows) / len(rows) for field in RATING_FIELDS}
+                  for rows in rated.values() if rows]
+    by_dimension = {field: (round(sum(row[field] for row in case_means) / len(case_means), 4) if case_means else None)
+                    for field in RATING_FIELDS}
+    average = (round(sum(sum(row.values()) for row in case_means) / (len(case_means) * len(RATING_FIELDS)), 4)
+               if case_means else None)
+    return {"schemaVersion": 1, "kind": "native_human_review_report", "rubricVersion": NATIVE_RUBRIC_VERSION,
+            "datasetId": report["datasetId"], "datasetHash": report["datasetHash"], "runSha256": report["runSha256"],
+            "sourceKind": report["sourceKind"], "reviewerCount": len(reviewers), "selectedCases": report["selectedCases"],
+            "reviewedCases": len(case_means), "unreviewedCaseIds": sorted(case for case, rows in rated.items() if not rows),
+            "unavailableCaseIds": sorted(row["caseId"] for row in report["checks"] if not row["passed"]),
+            "missingDatasetCaseIds": report["missingCaseIds"], "declaredHumanRatings": rated,
+            "descriptiveScore": {"average": average, "byDimension": by_dimension}, "criticalErrors": critical,
+            "pendingObservations": pending_observations,
+            "modelQuality": None, "humanIdentityVerified": False, "modelProvenanceVerified": False, "releaseEligible": False}
+
+
 def write_json(path: Path, value: dict) -> None:
     """结果文件禁止覆盖已有原始实验记录。"""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -224,29 +317,45 @@ def write_json(path: Path, value: dict) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["validate", "prepare", "evaluate", "rating-template"])
-    parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
+    parser.add_argument("command", choices=["validate", "prepare", "evaluate", "rating-template", "summarize-ratings"])
+    parser.add_argument("--dataset", type=Path)
     parser.add_argument("--results", type=Path)
+    parser.add_argument("--native-run", type=Path, help="原生评测归档目录，使用其中冻结的数据集")
+    parser.add_argument("--reviews", type=Path, action="append", help="已填写的人工评审文件，可重复传入")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     try:
-        dataset = load_json(args.dataset)
-        if args.command == "validate":
+        if args.native_run is not None:
+            require(args.command in {"evaluate", "rating-template", "summarize-ratings"} and args.results is None and args.dataset is None,
+                    "原生评测命令使用归档中的冻结数据集")
+            from tutor_experiment import evaluate_native
+            report = evaluate_native(args.native_run)
+            if args.command == "rating-template":
+                report = native_rating_template(report)
+            elif args.command == "summarize-ratings":
+                require(bool(args.reviews), "summarize-ratings 需要至少一份 --reviews")
+                report = summarize_native_ratings(report, [load_json(path) for path in args.reviews])
+        elif args.command == "summarize-ratings":
+            require(False, "summarize-ratings 需要 --native-run")
+        elif args.command == "validate":
+            dataset = load_json(args.dataset or DEFAULT_DATASET)
             report = {"kind": "dataset_validation", **validate_dataset(dataset), "modelExperimentExecuted": False}
         elif args.command == "prepare":
-            report = prepare(dataset)
+            report = prepare(load_json(args.dataset or DEFAULT_DATASET))
         elif args.command == "rating-template":
-            report = rating_template(dataset)
+            report = rating_template(load_json(args.dataset or DEFAULT_DATASET))
         else:
             require(args.results is not None, "evaluate 需要 --results")
-            report = evaluate(dataset, load_json(args.results))
+            report = evaluate(load_json(args.dataset or DEFAULT_DATASET), load_json(args.results))
         if args.output:
             write_json(args.output, report)
             print(json.dumps({"saved": str(args.output), "kind": report["kind"]}, ensure_ascii=False))
         else:
             print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
+        if args.native_run is not None and args.command == "evaluate":
+            return 0 if report["programChecksPassed"] == report["selectedCases"] else 1
         return 1 if args.command == "evaluate" and (report["missingCaseIds"] or report["programChecksPassed"] != report["executedCases"]) else 0
-    except (ValueError, OSError, TypeError) as error:
+    except (ValueError, OSError, TypeError, KeyError) as error:
         print("教学评测未完成：" + str(error), file=sys.stderr)
         return 2
 

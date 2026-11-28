@@ -14,23 +14,42 @@
     // 【逐行批注】 执行当前前端表达式：try {。
     try {
       // 【逐行批注】 声明前端变量 response，保存本行计算出的数据或对象。
-      const response = await fetch(path, data === undefined
-        // 【逐行批注】 执行当前前端表达式：? { cache: 'no-store', signal: controller.signal }。
-        ? { cache: 'no-store', signal: controller.signal }
-        // 【逐行批注】 执行当前前端表达式：: { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify…。
-        : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), signal: controller.signal });
+      let response;
+      try {
+        response = await fetch(path, data === undefined
+          ? { cache: 'no-store', signal: controller.signal }
+          : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), signal: controller.signal });
+      } catch (error) {
+        if (controller.signal.aborted) throw error;
+        const interrupted = new Error(error?.message || '网络连接中断。');
+        interrupted.networkFailure = true;
+        throw interrupted;
+      }
       // 【逐行批注】 声明前端变量 value，保存本行计算出的数据或对象。
-      const value = await response.json();
-      // 【逐行批注】 判断条件 (!response.ok) throw new Error(value.error || '请求未完成，请稍后重试。');，成立时执行对应逻辑。
-      if (!response.ok) throw new Error(value.error || '请求未完成，请稍后重试。');
+      let value;
+      try { value = await response.json(); }
+      catch (error) {
+        if (response.ok) throw error;
+        const failed = new Error('服务暂时未能返回结果，请稍后重试。');
+        failed.httpStatus = response.status;
+        throw failed;
+      }
+      // 保留 HTTP 状态，调用方才能区分临时故障与不应重试的版本冲突。
+      if (!response.ok) {
+        const failed = new Error(value?.error || '请求未完成，请稍后重试。');
+        failed.httpStatus = response.status;
+        throw failed;
+      }
       // 【逐行批注】 结束当前函数并返回结果：return value;。
       return value;
     // 【逐行批注】 执行当前前端表达式：} catch (error) {。
     } catch (error) {
       // 【逐行批注】 判断条件 (controller.signal.aborted)，成立时执行对应逻辑。
-      if (controller.signal.aborted)
-        // 【逐行批注】 在错误分支抛出异常：throw new Error('请求超过 20 秒未返回；任务可能仍在后台，请打开顶部“AI 状态”查看。');。
-        throw new Error('请求超过 20 秒未返回；任务可能仍在后台，请打开顶部“AI 状态”查看。');
+      if (controller.signal.aborted) {
+        const timeout = new Error('请求超过 20 秒未返回；任务可能仍在后台，请打开顶部“AI 状态”查看。');
+        timeout.networkFailure = true;
+        throw timeout;
+      }
       // 【逐行批注】 在错误分支抛出异常：throw error;。
       throw error;
     // 【逐行批注】 执行当前前端表达式：} finally {。
@@ -182,13 +201,184 @@
   // 【逐行批注】 结束当前前端代码块。
   }
   // 【逐行批注】 定义函数 watch，封装可复用的前端行为。
+  // 公开草稿独立于正式课程记录，按任务、轮次与字段路径恢复和替换。
+  function createStreamState(taskId) {
+    const fields = new Map(), sequences = new Set(), states = new Map();
+    return {
+      receive(event) {
+        if (!Number.isInteger(event.seq) || sequences.has(event.seq)) return false;
+        sequences.add(event.seq);
+        if (event.type === 'delta') {
+          const key = JSON.stringify([taskId, event.step, event.streamId || [event.actionIndex, event.field, event.optionIndex]]);
+          const previous = fields.get(key);
+          const text = event.replace ? String(event.text || '') : (previous?.text || '') + String(event.text || '');
+          const revisions = [...(previous?.revisions || [])];
+          if (event.replace && previous?.text && !text.startsWith(previous.text)) revisions.push(previous.text);
+          fields.set(key, {...previous, ...event, key, taskId, text, revisions,
+            sequences:[...(previous?.sequences || []), event.seq],
+            state: states.get(event.step) || (event.provisional === false ? 'confirmed' : 'streaming')});
+          return true;
+        }
+        if (event.type !== 'stream_status') return false;
+        states.set(event.step, event.state);
+        const previousTexts = [];
+        for (const record of fields.values()) {
+          if ((event.correctedSteps || []).includes(record.step)) {
+            record.state = 'revised';
+            if (record.field !== 'title' && record.text) previousTexts.push(record.text);
+          }
+        }
+        for (const record of fields.values()) if (record.step === event.step) {
+          record.state = event.state;
+          record.reason = event.message || '';
+          if (record.field !== 'title') {
+            const persisted = event.revisions?.[record.field];
+            record.revisions.push(...(Array.isArray(persisted) && persisted.length ? persisted : previousTexts));
+          }
+        }
+        return true;
+      },
+      settle(status) {
+        if (['pending','running'].includes(status)) return false;
+        let changed = false;
+        for (const record of fields.values()) if (record.state === 'streaming') {
+          record.state = ['ready','waiting_student'].includes(status) ? 'confirmed' : 'interrupted'; changed = true;
+        }
+        return changed;
+      },
+      values() { return [...fields.values()]; },
+    };
+  }
+
+  function streamNotice(node, record) {
+    let note = node.querySelector(':scope > .gy-stream-notice');
+    if (!note) { note = document.createElement('div'); note.className = 'gy-stream-notice'; node.append(note); }
+    const signature = JSON.stringify([record.state, record.revisions]);
+    if (note.dataset.signature === signature) return;
+    note.dataset.signature = signature;
+    note.replaceChildren();
+    const labels = {streaming:'生成中', correcting:'正在自动修正这段内容', interrupted:'这段内容尚未完成核对，可继续重试'};
+    if (labels[record.state]) {
+      const status = document.createElement('span'); status.textContent = labels[record.state]; note.append(status);
+    }
+    const revisions = [...new Set(record.revisions || [])];
+    if (revisions.length) {
+      const details = document.createElement('details'), summary = document.createElement('summary');
+      summary.textContent = '已修正 · 查看改动'; details.append(summary);
+      for (const text of revisions) { const previous = document.createElement('del'); previous.textContent = text; details.append(previous); }
+      note.append(details);
+    }
+    note.hidden = !note.childElementCount;
+  }
+
+  function createStreamView(host, options = {}) {
+    host.classList.add('gy-stream-view');
+    const nodes = new Map();
+    return {
+      update(records) {
+        const used = new Set(), ordered = [];
+        for (const record of records) {
+          if (record.state === 'revised' || options.filter && !options.filter(record)) continue;
+          used.add(record.key);
+          let entry = nodes.get(record.key);
+          if (!entry) {
+            const node = document.createElement('section'); node.className = 'gy-stream-piece';
+            node.dataset.streamStep = String(record.step);
+            const content = document.createElement(record.field === 'title' ? 'h2' : 'div');
+            content.className = 'gy-stream-text'; node.append(content);
+            entry = {node, content, text:''}; nodes.set(record.key, entry);
+          }
+          if (entry.text !== record.text) {
+            const selection = window.getSelection?.();
+            const selected = selection && !selection.isCollapsed && entry.content.contains(selection.anchorNode);
+            if (!selected || record.text.startsWith(entry.text) && entry.content.childNodes.length === 1 && entry.content.firstChild.nodeType === 3) {
+              if (entry.content.childNodes.length === 1 && entry.content.firstChild.nodeType === 3 && record.text.startsWith(entry.text))
+                entry.content.firstChild.appendData(record.text.slice(entry.text.length));
+              else entry.content.textContent = record.text;
+              entry.text = record.text;
+            }
+          }
+          if (record.state === 'confirmed' && window.GangyiChat && entry.formatted !== record.text) {
+            const selection = window.getSelection?.();
+            if (!selection || selection.isCollapsed || !entry.content.contains(selection.anchorNode)) {
+              entry.content.innerHTML = window.GangyiChat.renderMarkdown(record.text, {math:true});
+              entry.formatted = record.text; entry.text = record.text;
+            }
+          }
+          if (record.field !== 'title') streamNotice(entry.node, record);
+          entry.record = record;
+          ordered.push(entry.node);
+        }
+        let cursor = host.firstChild;
+        for (const node of ordered) {
+          if (node === cursor) cursor = cursor.nextSibling;
+          else host.insertBefore(node, cursor);
+        }
+        for (const [key, entry] of nodes) if (!used.has(key)) { entry.node.remove(); nodes.delete(key); }
+        host.hidden = !used.size;
+        if (options.viewport) requestAnimationFrame(() => {
+          for (const entry of nodes.values()) if (entry.record.field === 'message')
+            window.GangyiAgent.recordVisibleMessage(entry.record, entry.content, options.viewport);
+        });
+      },
+      expose(viewport) {
+        for (const entry of nodes.values()) if (entry.record.field === 'message')
+          window.GangyiAgent.recordVisibleMessage(entry.record, entry.content, viewport);
+      },
+      clear() { nodes.clear(); host.replaceChildren(); host.hidden = true; },
+    };
+  }
+
+  function followLatest(scroll) {
+    const documentScroll = scroll === document.scrollingElement;
+    const parent = documentScroll ? document.body : scroll.parentElement;
+    if (!parent) return {destroy() {}};
+    if (!documentScroll && getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
+    const control = document.createElement('button'); control.type = 'button';
+    control.className = 'gy-return-latest'; control.textContent = '回到最新'; control.hidden = true;
+    if (documentScroll) control.classList.add('gy-return-latest-fixed');
+    parent.append(control);
+    let following = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 56;
+    const update = () => {
+      control.hidden = following || scroll.scrollHeight <= scroll.clientHeight + 56;
+      if (!control.hidden && !documentScroll) {
+        const region = scroll.getBoundingClientRect(), bounds = parent.getBoundingClientRect();
+        control.style.bottom = Math.max(12, bounds.bottom - region.bottom + 12) + 'px';
+        control.style.right = Math.max(12, bounds.right - region.right + 12) + 'px';
+      }
+    };
+    const onScroll = () => { following = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 56; update(); };
+    const showLatest = () => { following = true; scroll.scrollTop = scroll.scrollHeight; update(); };
+    const target = documentScroll ? window : scroll;
+    target.addEventListener('scroll', onScroll, {passive:true});
+    control.addEventListener('click', showLatest);
+    const observer = new MutationObserver(() => { if (following) showLatest(); else update(); });
+    observer.observe(documentScroll ? document.body : scroll, {childList:true, subtree:true, characterData:true});
+    const resize = new ResizeObserver(() => { if (following) showLatest(); else update(); });
+    resize.observe(scroll);
+    window.addEventListener('pagehide', () => { observer.disconnect(); resize.disconnect(); }, {once:true});
+    return {showLatest, destroy() { observer.disconnect(); resize.disconnect(); target.removeEventListener('scroll', onScroll); control.remove(); }};
+  }
+
   function watch(taskId, handlers = {}) {
     // 【逐行批注】 声明前端变量 sequence，保存本行计算出的数据或对象。
     let sequence = handlers.afterSeq || 0, socket, timer, socketTimer, stopped = false, polling = false;
     // 【逐行批注】 声明前端变量 events，保存本行计算出的数据或对象。
     const events = new Set();
+    const stream = createStreamState(taskId);
+    const delivery = {taskId, firstDisplayMs:null, maxDeliveryMs:0, fragments:0};
     // 【逐行批注】 声明前端变量 receive，保存本行计算出的数据或对象。
-    const receive = event => {
+    const receive = (event, replayed = false) => {
+      if (!stopped && stream.receive(event)) {
+        handlers.onContent?.(stream.values(), event);
+        if (!replayed && event.type === 'delta' && event.provisional && Number.isFinite(event.receivedAtMs)) {
+          const elapsed = Math.max(0, Date.now() - event.receivedAtMs);
+          delivery.firstDisplayMs ??= elapsed;
+          delivery.maxDeliveryMs = Math.max(delivery.maxDeliveryMs, elapsed);
+          delivery.fragments += 1;
+          window.dispatchEvent(new CustomEvent('gangyi:stream-delivery', {detail:{...delivery}}));
+        }
+      }
       // 【逐行批注】 判断条件 (stopped || !Number.isInteger(event.seq) || event.seq <= sequenc…，成立时执行对应逻辑。
       if (stopped || !Number.isInteger(event.seq) || event.seq <= sequence || events.has(event.seq)) return;
       // 【逐行批注】 计算右侧结果并更新 events.add(event.seq); sequence，改变页面或请求状态。
@@ -208,9 +398,10 @@
       // 【逐行批注】 判断条件 (stopped) return;，成立时执行对应逻辑。
       if (stopped) return;
       // 【逐行批注】 按循环规则遍历或重复处理：for (const event of task.events || []) receive(event);。
-      for (const event of task.events || []) receive(event);
+      for (const event of task.events || []) receive(event, true);
       // 【逐行批注】 执行当前前端表达式：handlers.onState?.(task);。
-      handlers.onState?.(task);
+      if (stream.settle(task.status)) handlers.onContent?.(stream.values());
+      handlers.onState?.({...task, publicStreams:stream.values()});
       // 【逐行批注】 计算右侧结果并更新 flushExposure().catch(()，改变页面或请求状态。
       flushExposure().catch(() => { /* 下一次学生提交前再次保存已展示序号。 */ });
       // 软件退出产生的暂停会在新进程接续，页面继续读取同一任务。
@@ -234,7 +425,7 @@
       if (stopped) return;
       polling = true;
       // 【逐行批注】 计算右侧结果并更新 try { state(await request(`/api/learning-age…，改变页面或请求状态。
-      try { state(await request(`/api/learning-agent?taskId=${encodeURIComponent(taskId)}`)); }
+      try { state(await request(`/api/learning-agent?taskId=${encodeURIComponent(taskId)}&afterSeq=${sequence}`)); }
       // 【逐行批注】 执行当前前端表达式：catch (error) { if(!stopped)handlers.onConnectionError?.(error.message); }。
       catch (error) { if(!stopped)handlers.onConnectionError?.(error.message); }
       finally { polling = false; schedulePoll(1200); }
@@ -485,6 +676,7 @@
     // 【逐行批注】 执行当前前端表达式：},。
     },
     // 【逐行批注】 计算右侧结果并更新 submit: async event，改变页面或请求状态。
+    createStreamState, createStreamView, streamNotice, followLatest,
     submit: async event => { await flushExposure(); return request('/api/learning-agent/events', event); },
     // 【逐行批注】 计算右侧结果并更新 control: value，改变页面或请求状态。
     control: value => request('/api/learning-agent/control', value),

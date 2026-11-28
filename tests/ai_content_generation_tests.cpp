@@ -387,6 +387,21 @@ int main() {
         expect(adapted["overview"]["_generation"]["promptVersion"] == "ai-adaptation-v1", "重备必须来自真实模型请求");
         // 【逐行批注】 调用 expect 完成本行所需操作：expect(adapted["overview"]["title"] == topic && server.count() == 1, …。
         expect(adapted["overview"]["title"] == topic && server.count() == 1, "重备围绕原主题，单次请求无需重复完整课程名");
+
+        auto broken = nlohmann::json{{"overview", overview}}.dump();
+        broken.pop_back();
+        const nlohmann::json brokenResponse = {{"model", "configured-model"},
+            {"choices", nlohmann::json::array({{{"message", {{"content", broken}}}}})}};
+        MockServer brokenServer(brokenResponse.dump(), 1);
+        auto brokenClient = clientFor(brokenServer);
+        gangyi::LearningGenerator brokenGenerator(brokenClient);
+        try {
+            brokenGenerator.adaptBlocks(goal, plan, phase, topic, {"overview"}, nlohmann::json::object(), {});
+            expect(false, "已读到完整板块但回复被截断时，不得将该板块交给保存流程");
+        } catch (const gangyi::AIClientError& error) {
+            expect(error.errorType == "json_parse_error", "截断回复应保留结构错误分类");
+        }
+        brokenServer.wait();
     // 【逐行批注】 结束当前代码块。
     }
     // 【逐行批注】 开始当前代码块。

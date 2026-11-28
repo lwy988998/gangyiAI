@@ -50,7 +50,12 @@ if ($BaselineRoot) {
 # 【逐行批注】 执行当前 PowerShell 构建或测试命令：} else {。
 } else {
     # 【逐行批注】 执行命令并将结果保存到 $objects。
-    $objects = Get-ChildItem -LiteralPath (Join-Path $BuildDir 'CMakeFiles\learning-agent-tests.dir\src') -Filter '*.obj'
+    $sources = Get-Content -LiteralPath (Join-Path $BuildDir 'teaching-eval-sources.txt')
+    $objectRoot = Join-Path $BuildDir 'CMakeFiles\learning-agent-tests.dir'
+    $objects = foreach ($source in $sources) {
+        if (-not $source) { continue }
+        Get-Item -LiteralPath (Join-Path $objectRoot ($source + '.obj'))
+    }
 # 【逐行批注】 开始或结束当前脚本代码块。
 }
 # 【逐行批注】 判断条件 (-not $objects) { throw '请先完成 learning-agent-tests 构建。' }，成立时执行对应流程。

@@ -15,6 +15,15 @@ inline nlohmann::json interactiveCapabilities() {
         {{"type","function_lab"},{"subject","数学"},{"purpose","常数、一次、二次多项式系数、定义域、值域和零点探索"},
          {"limits",{{"coefficientMin",-10},{"coefficientMax",10},{"coefficientStep",0.5},{"viewportMin",-20},{"viewportMax",20},
             {"domain",{{"default","real"},{"optional","closed_interval"},{"min",-20},{"max",20}}},{"arbitraryExpressionSupported",false}}}},
+        {{"type","wave_lab"},{"subject","物理"},{"purpose","向右传播的理想简谐横波、波长周期与固定质点振动"},
+         {"limits",{{"amplitudeM",{0,2}},{"waveSpeedMps",{1,5}},{"periodSeconds",{1,4}},
+            {"timeSeconds",{0,8}},{"probeXM",{0,12}},{"parameterSteps",{{"amplitudeM",0.5},{"waveSpeedMps",1},{"periodSeconds",0.5},{"timeSeconds",0.25},{"probeXM",0.5}}},
+            {"wavelength","waveSpeedMps * periodSeconds"},{"playback","手动播放，暂停保存，不逐帧触发AI"},
+            {"reflectionInterferenceEnergy",false}}}},
+        {{"type","triangle_lab"},{"subject","数学"},{"purpose","平面三角形顶点、边长、角度和面积探索"},
+         {"limits",{{"dimensions",2},{"vertexCount",3},{"coordinateRange",{-10,10}},{"coordinateStep",0.5},
+            {"degenerate","顶点共线或重合时面积为零，不判断边角类型"},{"exactEquilateral",false},
+            {"equilateralLimit","半整数坐标网格无法精确构造非退化等边三角形"},{"spatialGeometry",false},{"arbitraryConstruction",false}}}},
         {{"type","statistics_lab"},{"subject","数学"},{"purpose","有限单变量数据的平均数、中位数、众数及两种方差"},
          {"limits",{{"items",{1,32}},{"valueRange",{-100,100}},{"step",0.5},{"varianceBasis",{"population","sample"}},
             {"sampleVarianceMinimumCount",2},{"allUniqueModes","此处记无众数"},{"populationInference",false}}}},
@@ -35,6 +44,11 @@ inline nlohmann::json interactiveCapabilities() {
         {{"type","motion_lab"},{"subject","物理"},{"purpose","一维恒定加速度下的位置、位移、路程、速度与速率"},
          {"limits",{{"initialPositionM",{-100,100}},{"initialVelocityMps",{-20,20}},
             {"accelerationMps2",{-10,10}},{"timeSeconds",{0,20}},{"variableAcceleration",false}}}},
+        {{"type","periodic_lab"},{"subject","化学"},{"purpose","118种元素选择、周期与族比较、中性原子组成及前20号电子层示意"},
+         {"limits",{{"datasetId",kPeriodicElementsId},{"atomicNumber",{1,118}},{"selectionFields",{"selectedZ","comparisonZ"}},
+            {"highlight",{"none","period","group"}},{"neutralShellDiagramThroughAtomicNumber",20},
+            {"seriesGroup","镧系及锕系单列，group为null，不作统一同族判断"},
+            {"neutrons","缺少具体同位素，保持未知"},{"ionsIsotopesBondsReactionPrediction",false}}}},
         {{"type","chemical_balance"},{"subject","化学"},{"purpose","已注册反应的原子守恒配平"},
          {"limits",{{"reactionIds",{"water","methane","iron_oxide"}},{"coefficients",{1,8}},{"arbitraryReactionSupported",false}}}},
         {{"type","cell_lab"},{"subject","生物"},{"purpose","典型真核植物/动物细胞结构功能比较"},
@@ -60,6 +74,8 @@ inline nlohmann::json interactiveCapabilities() {
         auto example = item.value("example", Json::object()); example["type"] = type;
         if (type == "sets") {
             item["example"] = checkedSetConfig(example); item["example"]["type"] = "sets";
+            item["checkedExercise"] = {{"tool", "append_section"}, {"field", "section.question.setExercise"}, {"schemaVersion", 1},
+                {"description", u8"单选题从全集和子集生成题面及私有答案。提供 config 或同课已保存的 mediaId。运算题提供2至6个候选集合，关系题由程序生成互斥选项。探索仍不评分。"}};
         } else item["example"] = checkedLabConfig(example);
         item["schemaVersion"] = 1;
         item["activityReading"] = {{"default","componentActivities摘要"},{"detailsTool","read_component_activity"},{"pageLimit",50}};
@@ -67,7 +83,7 @@ inline nlohmann::json interactiveCapabilities() {
         item["recovery"] = "按课时、组件、内容版本保存合法状态；版本变化时不声称完整恢复";
         result.push_back(std::move(item));
     }
-    return {{"schemaVersion",1},{"revision","2026-11-21-r4"},{"components",result},
+    return {{"schemaVersion",1},{"revision","2026-11-28-r9"},{"components",result},
         {"unsupportedBehavior","使用文字回退并说明限制，不生成或执行任意组件代码"}};
 }
 

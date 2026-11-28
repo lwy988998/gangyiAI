@@ -1,8 +1,8 @@
 // 【逐行批注】 引入头文件 "learning_generator.hpp"，为后续实现提供类型或接口声明。
 #include "learning_generator.hpp"
 
-// 【逐行批注】 引入头文件 "json_fix.hpp"，为后续实现提供类型或接口声明。
-#include "json_fix.hpp"
+// 【逐行批注】 引入头文件 "structured_reply.hpp"，为后续实现提供类型或接口声明。
+#include "structured_reply.hpp"
 // 【逐行批注】 引入头文件 "text_utils.hpp"，为后续实现提供类型或接口声明。
 #include "text_utils.hpp"
 
@@ -880,9 +880,7 @@ json LearningGenerator::generateBlockStream(const std::string& goal, const json&
         // 【逐行批注】 检测到错误情形时抛出异常：throw AIClientError("invalid_response", "备课输出或模型来源不完整");。
         throw AIClientError("invalid_response", "备课输出或模型来源不完整");
     // 【逐行批注】 计算右侧结果并写入 auto output，更新当前运行状态。
-    const auto output = json::parse(response.content, nullptr, false);
-    // 【逐行批注】 判断条件 (!output.is_object()) throw AIClientError("invalid_response", "流…，成立时执行对应分支。
-    if (!output.is_object()) throw AIClientError("invalid_response", "流式备课不是完整严格 JSON");
+    const auto output = parseAIJson(response.content);
     // 【逐行批注】 计算右侧结果并写入 auto issue，更新当前运行状态。
     const auto issue = validate(block, output, goal, phaseName, topic, false);
     // 【逐行批注】 判断条件 (!issue.empty()) throw AIClientError("quality_rejected", issue);，成立时执行对应分支。

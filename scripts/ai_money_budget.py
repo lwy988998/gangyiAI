@@ -186,7 +186,88 @@ def inspect(config_path):
             'qualityEvaluated': False}
 
 
-def checked_live_environment(config_path, expected_hash, endpoint, model):
+def _review_material(path, expected_hash):
+    raw = Path(path).read_bytes()
+    if digest(raw) != expected_hash:
+        raise PermissionError('H1独立审查回执未冻结或已变化。')
+    review = parse_json(raw.decode('utf-8'))
+    if (review.get('kind') != 'hermes_money_budget_review' or review.get('state') != 'completed' or
+            review.get('allBlockingFindingsClosed') is not True or not review.get('requestId') or not review.get('reviewedFiles')):
+        raise PermissionError('H1独立审查尚未关闭阻断项。')
+    return review
+
+
+def _check_review_files(review):
+    for item in review['reviewedFiles']:
+        if digest(Path(item['path']).read_bytes()) != item['sha256']:
+            raise PermissionError('费用发送代码已变化，需要复核H1覆盖范围。')
+
+
+def _pricing_terms(config):
+    fields = ('inputMicrosPerMillion', 'outputMicrosPerMillion', 'contextWindowTokens',
+              'promptOverheadTokens', 'textByteUpperBoundVerified', 'outputIncludesReasoning')
+    return {key: config['pricing'][key] for key in fields if key in config['pricing']}
+
+
+def _check_revalidation(config, expected_hash, renewal):
+    now = int(time.time())
+    start, expiry = integer(renewal.get('checkedAtUnix')), integer(renewal.get('expiresUnix'))
+    if (renewal.get('kind') != 'money_pricing_revalidation' or integer(renewal.get('schemaVersion')) != 1 or
+            renewal.get('configSha256') != expected_hash or not start <= now < expiry or expiry - start > 86400):
+        raise PermissionError('费率续期身份或有效期不匹配。')
+    evidence_path = Path(renewal['pricingEvidencePath'])
+    evidence_raw = evidence_path.read_bytes()
+    if digest(evidence_raw) != renewal.get('pricingEvidenceSha256'):
+        raise PermissionError('费率核验证据已变化。')
+    evidence = parse_json(evidence_raw.decode('utf-8'))
+    if (encoded(evidence.get('terms')) != encoded(_pricing_terms(config)) or integer(evidence.get('checkedAtUnix')) != start or
+            any(evidence.get(key) != config[key] for key in ('currency', 'model', 'endpoint', 'fixtureOnly'))):
+        raise PermissionError('续期须沿用相同模型、服务端点和冻结费率。')
+    if config['fixtureOnly']:
+        if evidence.get('source') != 'fixture':
+            raise PermissionError('模拟续期只能使用本机夹具费率。')
+        return
+    if evidence.get('source') != 'https://api-docs.deepseek.com/zh-cn/quick_start/pricing/':
+        raise PermissionError('真实费率续期须绑定 DeepSeek 官方人民币定价。')
+    previous = _review_material(config['reviewReceiptPath'], config['reviewReceiptSha256'])
+    reviewed = _review_material(renewal['reviewReceiptPath'], renewal['reviewReceiptSha256'])
+    if (reviewed.get('sessionId') != config['sessionId'] or
+            reviewed.get('pricingEvidenceSha256') != renewal['pricingEvidenceSha256'] or
+            not {item['path'] for item in previous['reviewedFiles']} <= {item['path'] for item in reviewed['reviewedFiles']}):
+        raise PermissionError('新审查须覆盖原文件、同一轮次及本次费率证据。')
+    _check_review_files(reviewed)
+
+
+def prepare_revalidation(config_path, expected_hash, output, evidence, *, review_receipt=None, valid_hours=24):
+    """独占创建新的费率核验文件。原配置、账本和累计额度保持原样。"""
+    config_path, output, evidence = (Path(item).resolve() for item in (config_path, output, evidence))
+    config_raw = config_path.read_bytes()
+    if not expected_hash or digest(config_raw) != expected_hash:
+        raise PermissionError('续期须绑定原配置摘要。')
+    config = parse_json(config_raw.decode('utf-8'))
+    if type(valid_hours) is not int or not 1 <= valid_hours <= 24:
+        raise ValueError('费率续期有效期须在1至24小时内。')
+    evidence_raw = evidence.read_bytes()
+    start = integer(parse_json(evidence_raw.decode('utf-8')).get('checkedAtUnix'))
+    renewal = {'kind': 'money_pricing_revalidation', 'schemaVersion': 1, 'configSha256': expected_hash,
+               'checkedAtUnix': start, 'expiresUnix': start + valid_hours * 3600,
+               'pricingEvidencePath': str(evidence), 'pricingEvidenceSha256': digest(evidence_raw)}
+    if review_receipt is not None:
+        review = Path(review_receipt).resolve()
+        renewal.update(reviewReceiptPath=str(review), reviewReceiptSha256=digest(review.read_bytes()))
+    elif config['fixtureOnly'] is not True:
+        raise PermissionError('真实续期需要本次费率的独立审查。')
+    _check_revalidation(config, expected_hash, renewal)
+    state = inspect(config_path)
+    raw = encoded(renewal) + b'\n'
+    with output.open('xb') as stream:
+        stream.write(raw); stream.flush(); os.fsync(stream.fileno())
+    return {'revalidationPath': str(output), 'revalidationSha256': digest(raw), 'expiresUnix': renewal['expiresUnix'],
+            'sessionId': state['sessionId'], 'availableMicros': state['availableMicros'], 'paidRequests': 0}
+
+
+def checked_live_environment(config_path, expected_hash, endpoint, model, *, revalidation_path=None,
+                             revalidation_hash=None, cumulative_limit_micros=None):
     """读取真实凭据前检查共用人民币身份；账本锁仍由每次原生发送重新取得。"""
     config_path = Path(config_path).resolve()
     if not expected_hash or digest(config_path.read_bytes()) != expected_hash:
@@ -194,21 +275,32 @@ def checked_live_environment(config_path, expected_hash, endpoint, model):
     config = load(config_path)
     if (config.get('fixtureOnly') is not False or config.get('authorized') is not True or config.get('reviewed') is not True or
         config.get('currency') != 'CNY' or config.get('model') != model or config.get('endpoint') != endpoint or
-        not 0 < integer(config.get('limitMicros')) <= 10000000 or
-        not integer(config.get('validFromUnix')) <= int(time.time()) < integer(config.get('expiresUnix'))):
-        raise PermissionError('人民币预算模式、授权、模型或费率有效期不匹配。')
-    receipt = Path(config['reviewReceiptPath'])
-    if digest(receipt.read_bytes()) != config.get('reviewReceiptSha256'):
-        raise PermissionError('H1独立审查回执已变化。')
-    reviewed = load(receipt)
-    for item in reviewed['reviewedFiles']:
-        if digest(Path(item['path']).read_bytes()) != item['sha256']:
-            raise PermissionError('费用发送代码已变化，需要复核H1覆盖范围。')
+        not 0 < integer(config.get('limitMicros')) <= 10000000):
+        raise PermissionError('人民币预算模式、授权或模型不匹配。')
+    renewal_env = {}
+    if revalidation_path or revalidation_hash:
+        if not revalidation_path or not revalidation_hash:
+            raise PermissionError('续期文件缺少冻结身份。')
+        path = Path(revalidation_path).resolve()
+        raw = path.read_bytes()
+        if digest(raw) != revalidation_hash:
+            raise PermissionError('续期文件未冻结或已变化。')
+        _check_revalidation(config, expected_hash, parse_json(raw.decode('utf-8')))
+        renewal_env = {'GANGYI_MONEY_REVALIDATION': str(path), 'GANGYI_MONEY_REVALIDATION_SHA256': revalidation_hash}
+    else:
+        if not integer(config.get('validFromUnix')) <= int(time.time()) < integer(config.get('expiresUnix')):
+            raise PermissionError('原费率有效期已过或尚未生效。')
+        _check_review_files(_review_material(config['reviewReceiptPath'], config['reviewReceiptSha256']))
     state = inspect(config_path)
     if state['blocked']:
         raise PermissionError('人民币账本存在不确定或异常请求，停止后续调用。')
+    if cumulative_limit_micros is not None:
+        limit = integer(cumulative_limit_micros)
+        if not state['spentMicros'] + state['heldMicros'] < limit <= config['limitMicros']:
+            raise PermissionError('本次实验累计上限已用尽或超出共用授权。')
+        renewal_env['GANGYI_MONEY_CUMULATIVE_LIMIT_MICROS'] = str(limit)
     return {'GANGYI_MONEY_CONFIG': str(config_path), 'GANGYI_MONEY_CONFIG_SHA256': expected_hash,
-            'GANGYI_MONEY_REQUIRED': '1'}
+            'GANGYI_MONEY_REQUIRED': '1', **renewal_env}
 
 
 def main():
@@ -221,12 +313,21 @@ def main():
     create.add_argument('--fixture-only', action='store_true'); create.add_argument('--review-receipt', type=Path)
     create.add_argument('--authorization-source'); create.add_argument('--limit-micros', type=int, default=10000000)
     view = commands.add_parser('inspect'); view.add_argument('--config', type=Path, required=True)
+    renew = commands.add_parser('revalidate')
+    renew.add_argument('--config', type=Path, required=True); renew.add_argument('--config-sha256', required=True)
+    renew.add_argument('--output', type=Path, required=True); renew.add_argument('--evidence', type=Path, required=True)
+    renew.add_argument('--review-receipt', type=Path); renew.add_argument('--valid-hours', type=int, default=24)
     args = parser.parse_args()
     try:
-        result = inspect(args.config) if args.command == 'inspect' else prepare(
-            args.config, args.ledger, args.session, args.model, args.endpoint, load(args.pricing),
-            fixture=args.fixture_only, limit_micros=args.limit_micros, review_receipt=args.review_receipt,
-            authorization_source=args.authorization_source)
+        if args.command == 'inspect':
+            result = inspect(args.config)
+        elif args.command == 'revalidate':
+            result = prepare_revalidation(args.config, args.config_sha256, args.output, args.evidence,
+                                           review_receipt=args.review_receipt, valid_hours=args.valid_hours)
+        else:
+            result = prepare(args.config, args.ledger, args.session, args.model, args.endpoint, load(args.pricing),
+                fixture=args.fixture_only, limit_micros=args.limit_micros, review_receipt=args.review_receipt,
+                authorization_source=args.authorization_source)
         print(json.dumps(result, ensure_ascii=False, indent=2)); return 0
     except (OSError, ValueError, KeyError, TypeError, RuntimeError):
         print('费用准备或检查失败；未发起模型请求。', file=sys.stderr); return 2

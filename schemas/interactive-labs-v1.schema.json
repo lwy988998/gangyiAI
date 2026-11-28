@@ -609,6 +609,51 @@
           ]
         }
       }
+    },
+    {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {"const": "triangle_lab"},
+        "schemaVersion": {"const": 1},
+        "points": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {"type": "number", "minimum": -10, "maximum": 10, "multipleOf": 0.5}
+          },
+          "default": [[0, 0], [4, 0], [0, 3]]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {"const": "wave_lab"},
+        "schemaVersion": {"const": 1},
+        "amplitudeM": {"type": "number", "minimum": 0, "maximum": 2, "multipleOf": 0.5},
+        "waveSpeedMps": {"type": "integer", "minimum": 1, "maximum": 5},
+        "periodSeconds": {"type": "number", "minimum": 1, "maximum": 4, "multipleOf": 0.5},
+        "timeSeconds": {"type": "number", "minimum": 0, "maximum": 8, "multipleOf": 0.25},
+        "probeXM": {"type": "number", "minimum": 0, "maximum": 12, "multipleOf": 0.5}
+      }
+    },
+    {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {"const": "periodic_lab"},
+        "schemaVersion": {"const": 1},
+        "datasetId": {"const": "pubchem-elements-20261128-v1"},
+        "selectedZ": {"type": "integer", "minimum": 1, "maximum": 118},
+        "comparisonZ": {"type": "integer", "minimum": 1, "maximum": 118},
+        "highlight": {"enum": ["none", "period", "group"]}
+      }
     }
   ]
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <nlohmann/json.hpp>
+#include "teaching_evidence.hpp"
 #include "teaching_preferences.hpp"
 
 #include <algorithm>
@@ -11,6 +12,14 @@
 #include <string>
 
 namespace gangyi {
+
+inline std::string learningQuestionEvidenceKey(const std::string& courseId, const nlohmann::json& section) {
+    using Json = nlohmann::json;
+    const auto snapshot = section.value("question", Json());
+    if (snapshot.is_object() && snapshot.value("question", Json()).is_string())
+        return teachingQuestionEvidenceKey(courseId, snapshot);
+    return section.value("questionId", "");
+}
 
 // 只接受已经过课时权限检查的公开视图；不读取数据库，也不执行模型判断。
 inline nlohmann::json learningStateProjection(const nlohmann::json& lesson) {
@@ -47,7 +56,12 @@ inline nlohmann::json learningStateProjection(const nlohmann::json& lesson) {
         {"nextTeachingAction", nullptr},
     };
     // 焦点仅复制当前课时中存在的板块，拒绝携带额外字段或私有内容。
-    std::map<std::string, std::string> questions;
+    struct QuestionReference {
+        std::string storedId;
+        std::string evidenceKey;
+    };
+    const auto courseId = lesson.at("courseId").get<std::string>();
+    std::map<std::string, QuestionReference> questions;
     std::set<std::string> sections;
     const auto items = lesson.find("sections");
     if (items != lesson.end() && items->is_array()) for (const auto& section : *items) {
@@ -55,7 +69,7 @@ inline nlohmann::json learningStateProjection(const nlohmann::json& lesson) {
         const auto id = section.at("id").get<std::string>();
         sections.insert(id);
         if (section.value("kind", "") == "question" && nonblank(section.value("questionId", Json())))
-            questions[id] = section.at("questionId").get<std::string>();
+            questions[id] = {section.at("questionId").get<std::string>(), learningQuestionEvidenceKey(courseId, section)};
     }
     const auto focus = lesson.find("teachingFocus");
     if (focus != lesson.end() && focus->is_object()) {
@@ -76,7 +90,7 @@ inline nlohmann::json learningStateProjection(const nlohmann::json& lesson) {
                 !nonblank(evaluation.value("response", Json())) ||
                 evaluation.value("credible", Json()) != Json(true)) return false;
             const auto section = questions.find(evaluation.at("sectionId").get<std::string>());
-            if (section == questions.end() || section->second != evaluation.at("questionId")) return false;
+            if (section == questions.end() || section->second.storedId != evaluation.at("questionId")) return false;
             const auto score = evaluation.find("score");
             if (score == evaluation.end() || !score->is_number_integer()) return false;
             if (score->is_number_unsigned()) {
@@ -98,7 +112,7 @@ inline nlohmann::json learningStateProjection(const nlohmann::json& lesson) {
             result["evidence"]["excludedEvaluationCount"] = result["evidence"]["excludedEvaluationCount"].get<int>() + 1;
             continue;
         }
-        const auto question = evaluation.at("questionId").get<std::string>();
+        const auto& question = questions.at(evaluation.at("sectionId").get<std::string>()).evidenceKey;
         distinct.insert(question);
         result["evidence"]["evaluationIds"].push_back(evaluation.at("id"));
         // 帮助状态不完整时保留正式作答引用，但不擅自计入独立证据。
@@ -164,6 +178,7 @@ inline nlohmann::json checkedLearningMastery(const nlohmann::json& lesson,
         throw std::invalid_argument("下一步教学建议类型无效");
     const auto& eligible = projected.at("evidence").at("evaluationIds");
     const auto& independent = projected.at("evidence").at("independentEvaluationIds");
+    const auto courseId = lesson.at("courseId").get<std::string>();
     std::set<std::string> references, independentQuestions;
     for (const auto& id : proposal.at("evidenceIds")) {
         if (!id.is_string() || !references.insert(id.get<std::string>()).second ||
@@ -173,7 +188,7 @@ inline nlohmann::json checkedLearningMastery(const nlohmann::json& lesson,
         // 用公开题干和选项去重，不能仅换questionId把同一题变成多次独立验证。
         for (const auto& evaluation : lesson.at("evaluations")) if (evaluation.at("id") == id)
             for (const auto& section : lesson.at("sections")) if (section.at("id") == evaluation.at("sectionId"))
-                independentQuestions.insert(section.value("question", Json{{"questionId", section.value("questionId", "")}}).dump());
+                independentQuestions.insert(learningQuestionEvidenceKey(courseId, section));
     }
     const auto status = proposal.at("status").get<std::string>();
     const bool learning = lesson.value("entered", false);

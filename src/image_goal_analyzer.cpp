@@ -1,8 +1,8 @@
 // 【逐行批注】 引入头文件 "image_goal_analyzer.hpp"，为后续实现提供类型或接口声明。
 #include "image_goal_analyzer.hpp"
 
-// 【逐行批注】 引入头文件 "json_fix.hpp"，为后续实现提供类型或接口声明。
-#include "json_fix.hpp"
+// 【逐行批注】 引入头文件 "structured_reply.hpp"，为后续实现提供类型或接口声明。
+#include "structured_reply.hpp"
 // 【逐行批注】 引入头文件 "text_utils.hpp"，为后续实现提供类型或接口声明。
 #include "text_utils.hpp"
 

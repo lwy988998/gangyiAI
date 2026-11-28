@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "简谐横波探索状态 v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "contentVersion", "amplitudeM", "waveSpeedMps", "periodSeconds", "timeSeconds", "probeXM"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "contentVersion": {"type": "integer", "minimum": 1},
+    "amplitudeM": {"type": "number", "minimum": 0, "maximum": 2, "multipleOf": 0.5},
+    "waveSpeedMps": {"type": "integer", "minimum": 1, "maximum": 5},
+    "periodSeconds": {"type": "number", "minimum": 1, "maximum": 4, "multipleOf": 0.5},
+    "timeSeconds": {"type": "number", "minimum": 0, "maximum": 8, "multipleOf": 0.25},
+    "probeXM": {"type": "number", "minimum": 0, "maximum": 12, "multipleOf": 0.5}
+  },
+  "description": "只提交实际参数和版本；波长、频率、位移与质点振动速度由服务端重算，探索不评分。"
+}

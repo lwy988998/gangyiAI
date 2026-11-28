@@ -64,7 +64,7 @@ AgentJson agentSubmit(Database& db, const AgentAccess& access, AgentJson event,
                       // 【逐行批注】 计算右侧结果并写入 AgentSubmissionOrigin origin，更新当前运行状态。
                       AgentSubmissionOrigin origin = AgentSubmissionOrigin::ordinary);
 // 【逐行批注】 声明对象 agentView，并通过构造函数初始化其状态。
-AgentJson agentView(Database& db, const AgentAccess& access, const std::string& taskId = {}, bool compact = false);
+AgentJson agentView(Database& db, const AgentAccess& access, const std::string& taskId = {}, bool compact = false, int afterSeq = 0);
 // 按课程与知识点重新定位仍在准备或失败可恢复的备课任务，供页面切换后重连。
 // 【逐行批注】 声明对象 agentDeepPreparationView，并通过构造函数初始化其状态。
 AgentJson agentDeepPreparationView(Database& db, const AgentAccess& access, const AgentJson& scope);

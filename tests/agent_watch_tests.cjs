@@ -41,7 +41,7 @@ function fixture(nextTask){
     result.timers=activeTimers.size;
     callback();
   };
-  return {resolve,reject,result,close,fireNextTimer};
+  return {resolve,reject,result,close,fireNextTimer,api:window.GangyiAgent};
 // 【逐行批注】 结束当前前端代码块。
 }
 // 【逐行批注】 定义函数 main，封装可复用的前端行为。
@@ -160,6 +160,20 @@ async function main(){
     assert.equal(f.result.timers,0,'用户主动暂停保持原样');
     assert.equal(f.result.sockets.length,0);
     f.close();
+  }
+  {
+    const f=fixture(), stream=f.api.createStreamState('流式任务');f.close();
+    const first={seq:1,type:'delta',field:'message',step:1,streamId:'message',text:'需要修正的草稿',provisional:true};
+    assert.equal(stream.receive(first),true);
+    assert.equal(stream.receive(first),false,'断线重放不能重复追加');
+    stream.receive({seq:2,type:'stream_status',step:1,state:'correcting'});
+    stream.receive({seq:3,type:'delta',field:'message',step:2,streamId:'message',text:'核对后的正文',provisional:true});
+    stream.receive({seq:4,type:'stream_status',step:2,state:'confirmed',correctedSteps:[1]});
+    assert.equal(stream.values()[0].state,'revised');
+    assert.equal(stream.values()[1].text,'核对后的正文');
+    assert.equal(stream.values()[1].revisions[0],'需要修正的草稿');
+    stream.receive({seq:5,type:'delta',field:'message',step:2,streamId:'message',text:'核对后的正文与来源',replace:true,provisional:false});
+    assert.equal(stream.values()[1].text,'核对后的正文与来源','校验后的完整文字替换草稿');
   }
   console.log('订阅取消、主动暂停与软件退出后的恢复时序通过。');
 // 【逐行批注】 结束当前前端代码块。

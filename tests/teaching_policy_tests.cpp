@@ -23,6 +23,9 @@ int main() {
     assert(!selected(diagnosis, "components/component-generator"));
     assert(!selected(diagnosis, "teaching/concept-explainer"));
     assert(!selected(diagnosis, "core/system"));
+    const std::string accuracyRule = teachingPromptModule("evaluation/factuality-checker").body;
+    assert(accuracyRule.find("元素数较多的集合不可能包含于元素数较少的集合") != std::string::npos);
+    assert(accuracyRule.find("元素数相同只能排除真包含，不能仅凭个数断言集合相等") != std::string::npos);
     const auto feedback = selectTeachingPolicy(context, false, true);
     assert(selected(feedback, "teaching/concept-explainer"));
     assert(selected(feedback, "teaching/feedback-generator"));

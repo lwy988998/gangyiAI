@@ -4,6 +4,9 @@
 #include "interactive_vectors.hpp"
 #include "interactive_equations.hpp"
 #include "interactive_statistics.hpp"
+#include "interactive_geometry.hpp"
+#include "interactive_waves.hpp"
+#include "interactive_elements.hpp"
 
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -17,7 +20,7 @@
 namespace gangyi {
 
 inline bool isInteractiveLab(const std::string& type) {
-    return type == "function_lab" || type == "circuit_lab" || type == "chemical_balance" || type == "motion_lab" || type == "number_line" || type == "vector_lab" || type == "equation_lab" || type == "statistics_lab" || isSubjectLab(type);
+    return type == "function_lab" || type == "circuit_lab" || type == "chemical_balance" || type == "motion_lab" || type == "number_line" || type == "vector_lab" || type == "equation_lab" || type == "statistics_lab" || type == "triangle_lab" || type == "wave_lab" || type == "periodic_lab" || isSubjectLab(type);
 }
 
 inline double labNumber(const nlohmann::json& value, double low, double high, bool integer = false) {
@@ -49,6 +52,9 @@ inline const ChemicalReaction& labReaction(const std::string& id) {
 inline nlohmann::json checkedLabConfig(const nlohmann::json& source) {
     using Json = nlohmann::json;
     const auto type = source.value("type", "");
+    if (type == "periodic_lab") return checkedPeriodicConfig(source);
+    if (type == "wave_lab") return checkedWaveConfig(source);
+    if (type == "triangle_lab") return checkedTriangleConfig(source);
     if (type == "statistics_lab") return checkedStatisticsConfig(source);
     if (type == "equation_lab") return checkedEquationConfig(source);
     if (type == "vector_lab") return checkedVectorConfig(source);
@@ -109,8 +115,9 @@ inline nlohmann::json checkedLabConfig(const nlohmann::json& source) {
         result["r1"] = labNumber(source.value("r1", Json(10)), 1, 100, true);
         result["r2"] = labNumber(source.value("r2", Json(20)), 1, 100, true);
     } else {
-        result["reactionId"] = source.value("reactionId", "water");
-        const auto& reaction = labReaction(result.at("reactionId"));
+        const auto reactionId = source.value("reactionId", "water");
+        const auto& reaction = labReaction(reactionId);
+        result["reactionId"] = reactionId;
         const auto coefficients = source.value("coefficients", Json(std::vector<int>(reaction.formulas.size(), 1)));
         if (!coefficients.is_array() || coefficients.size() != reaction.formulas.size()) throw std::invalid_argument("配平系数数量不符");
         for (const auto& value : coefficients) labNumber(value, 1, 8, true);
@@ -164,6 +171,9 @@ inline nlohmann::json labFunctionAnalysis(const nlohmann::json& checked) {
 inline nlohmann::json checkedLabObservation(const nlohmann::json& source,
                                            const nlohmann::json& state, int contentVersion) {
     using Json = nlohmann::json;
+    if (source.value("type", "") == "periodic_lab") return checkedPeriodicObservation(source, state, contentVersion);
+    if (source.value("type", "") == "wave_lab") return checkedWaveObservation(source, state, contentVersion);
+    if (source.value("type", "") == "triangle_lab") return checkedTriangleObservation(source, state, contentVersion);
     if (source.value("type", "") == "vector_lab") return checkedVectorObservation(source, state, contentVersion);
     if (source.value("type", "") == "equation_lab") return checkedEquationObservation(source, state, contentVersion);
     if (source.value("type", "") == "statistics_lab") return checkedStatisticsObservation(source, state, contentVersion);
@@ -231,7 +241,8 @@ inline nlohmann::json checkedLabObservation(const nlohmann::json& source,
         result["voltage2"] = series ? voltage * r2 / resistance : voltage;
         result["model"] = "ideal_dc_two_resistors";
     } else {
-        const auto& reaction = labReaction(config.at("reactionId"));
+        const auto& reactionId = config.at("reactionId").get_ref<const std::string&>();
+        const auto& reaction = labReaction(reactionId);
         Json left = Json::object(), right = Json::object();
         for (std::size_t index = 0; index < reaction.atoms.size(); ++index) for (const auto& [element, count] : reaction.atoms[index]) {
             auto& side = index < reaction.leftCount ? left : right;

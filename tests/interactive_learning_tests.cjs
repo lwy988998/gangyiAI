@@ -16,7 +16,7 @@ test('交集符合同时属于两集合的定义，含空集和全集', () => {
 });
 
 test('拒绝未知组件与无效配置，不执行任意代码', () => {
-  assert.deepEqual(engine.types, ['sets','function_lab','circuit_lab','chemical_balance','motion_lab','number_line','vector_lab','equation_lab','statistics_lab','cell_lab','history_lab','climate_lab','annotation_lab','sentence_lab','algorithm_lab']);
+  assert.deepEqual(engine.types, ['sets','function_lab','circuit_lab','chemical_balance','motion_lab','number_line','vector_lab','equation_lab','statistics_lab','triangle_lab','wave_lab','periodic_lab','cell_lab','history_lab','climate_lab','annotation_lab','sentence_lab','algorithm_lab']);
   for (const patch of [{type: 'javascript'}, {schemaVersion: true}, {universe: []}, {setA: ['9']}, {setA: ['1', '1']}, {setA: [1]}, {universe: ['中'.repeat(22)]}])
     assert.throws(() => engine.validate({...config, ...patch}));
 });

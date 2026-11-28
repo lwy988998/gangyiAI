@@ -121,6 +121,9 @@ void runDraftRoundChecks(const std::filesystem::path& path) {
             {"question", {{"question", title + "的判断"}, {"type", "open"},
                 {"expectedAnswer", "虚构标准"}, {"rubric", "虚构评分依据"}}}};
     };
+    auto firstQuestion = question("第一题");
+    firstQuestion["question"] = {{"question", "A 是 B 的子集吗？"}, {"type", "choice"},
+        {"options", {"是", "否"}}, {"answerIndex", 0}, {"expectedAnswer", "是"}, {"rubric", "核对真实集合关系"}};
     gangyi::LearningAgent agent(path.string(), [&](const gangyi::ChatOptions& options, const auto& sink) {
         ++calls;
         Json actions = Json::array();
@@ -136,7 +139,7 @@ void runDraftRoundChecks(const std::filesystem::path& path) {
         if (calls == 4) {
             roundId = Json::parse(options.messages.back().content).at("toolResults")[0]["result"]["roundId"].get<std::string>();
             actions.push_back({{"id", "question-one"}, {"tool", "append_section"}, {"args", {
-                {"lessonId", lessonId}, {"section", question("第一题")}}}});
+                {"lessonId", lessonId}, {"section", firstQuestion}}}});
         }
         if (calls == 5) actions.push_back({{"id", "too-early"}, {"tool", "append_section"}, {"args", {
             {"lessonId", lessonId}, {"roundId", "wrong-round"}, {"section", question("错误轮次的题")}}}});
@@ -168,6 +171,90 @@ void runDraftRoundChecks(const std::filesystem::path& path) {
     other.process(db, unauthorized.at("id"));
     assert(gangyi::agentView(db, access, unauthorized.at("id")).at("status") == "failed");
     assert(Json::parse(db.getClassroomActivity(lessonId)->payload).at("teachingRound") == lesson.at("teachingRound"));
+
+    // 复用草稿生成的原题和轮次，隔离夹具推进到可作答状态。
+    auto ready = db.getClassroomActivity(lessonId).value();
+    auto entered = lesson;
+    entered["status"] = "ready";
+    entered["entered"] = true;
+    ready.payload = entered.dump();
+    assert(db.upsert(ready));
+    const auto sectionId = lesson.at("sections")[0].at("id");
+    const auto answer = gangyi::agentSubmit(db, access, {{"type", "question_answer"}, {"courseId", "round-course"},
+        {"lessonId", lessonId}, {"sectionId", sectionId}, {"sectionVersion", 1}, {"view", "practice"},
+        {"requestId", "round-answer"}, {"text", "A 的每个元素都在 B 中"}});
+    const auto answerTaskId = answer.at("id").get<std::string>();
+    const auto taskRecord = [&] { return Json::parse(db.getClassroomActivity(answerTaskId)->payload); };
+    const auto input = gangyi::agentContext(db, access, taskRecord().at("event")).at("currentInputs").at(0);
+    const auto feedback = "你检查了 A 的每个元素是否都在 B 中，这正是子集的定义。";
+    auto repeated = firstQuestion;
+    repeated["title"] = "看似另一题";
+    repeated["question"]["question"] = " A  是 B 的子集吗？ ";
+    repeated["question"]["options"] = {"否", "是"};
+    repeated["question"]["answerIndex"] = 1;
+    auto next = firstQuestion;
+    next["title"] = "带新条件的第二题";
+    next["question"]["materials"] = {{{"text", "已知 A={1,2}，B={2,3}。"}}};
+    next["question"]["answerIndex"] = 1;
+    next["question"]["expectedAnswer"] = "否";
+    int followupCalls = 0;
+    gangyi::LearningAgent followup(path.string(), [&](const auto&, const auto& sink) {
+        ++followupCalls;
+        Json actions = Json::array();
+        if (followupCalls == 1) actions.push_back({{"id", "grade-first"}, {"tool", "evaluate_answer"}, {"args", {
+            {"interactionId", input.at("interactionId")}, {"score", 100}, {"credible", true}, {"feedback", feedback},
+            {"feedbackHelpType", "explanation"}, {"reason", "核对本次实际回答"}, {"uncertainty", "只验证本题"},
+            {"diagnosis", {{"summary", "会检查包含关系"}, {"evidence", {input.at("text")}},
+                {"teachingDirection", "用新的集合条件验证判断"}, {"needsClarification", false}}}}}});
+        if (followupCalls == 3 || followupCalls == 4) {
+            const bool duplicate = followupCalls == 3;
+            actions.push_back({{"id", duplicate ? "duplicate-variant" : "distinct-question"}, {"tool", "append_section"},
+                {"args", {{"lessonId", lessonId}, {"roundId", roundId}, {"section", duplicate ? repeated : next}}}});
+        }
+        return output({{"message", followupCalls == 2 ? feedback : followupCalls >= 4 ? "请根据新的集合条件作答。" : ""},
+            {"actions", actions}, {"state", followupCalls >= 4 ? "waiting_student" : "continue"}}, sink);
+    });
+    gangyi::registerAgentLessonTools(followup);
+    followup.process(db, answerTaskId);
+    const auto committed = taskRecord().at("completedActions");
+    assert(!committed.contains("duplicate-variant"));
+    assert(committed.contains("distinct-question") && followupCalls == 4);
+    const auto after = gangyi::agentLessonView(db, access, lessonId);
+    assert(after.at("sections").size() == 2 && after.at("sections").back().at("title") == "带新条件的第二题");
+    assert(after.at("teachingRound").at("questionCount") == 2 && after.at("teachingRound").at("questionNumber") == 2);
+    assert(after.at("teachingRound").at("feedbackCount") == 1 && after.at("evaluations").size() == 1);
+
+    const auto& pendingQuestion = after.at("sections").back();
+    const auto savedSections = Json::parse(db.getClassroomActivity(lessonId)->payload).at("sections");
+    const auto clarifyEvent = Json{{"type", "question_answer"}, {"courseId", "round-course"}, {"lessonId", lessonId},
+        {"sectionId", pendingQuestion.at("id")}, {"sectionVersion", pendingQuestion.at("version")}, {"view", "practice"},
+        {"requestId", "round-answer-needs-clarification"}, {"text", "我不确定这里用的是哪两个集合"}};
+    const auto clarifyTask = gangyi::agentSubmit(db, access, clarifyEvent);
+    const auto unclear = gangyi::agentContext(db, access, clarifyEvent).at("currentInputs").at(0);
+    int clarificationCalls = 0;
+    const std::string clarification = "先从题面的两个集合各找出一个元素，你是在哪个集合的条件上不确定？";
+    gangyi::LearningAgent clarifier(path.string(), [&](const gangyi::ChatOptions& options, const auto& sink) {
+        if (++clarificationCalls == 1) return output({{"message", ""}, {"state", "continue"},
+            {"actions", {{{"id", "assess-unclear"}, {"tool", "evaluate_answer"}, {"args", {
+                {"interactionId", unclear.at("interactionId")}, {"score", nullptr}, {"credible", false},
+                {"feedback", clarification}, {"feedbackHelpType", "clarification"}, {"reason", "实际输入未明确判断"},
+                {"uncertainty", "需要补充所用集合"}, {"diagnosis", {{"summary", "需要核对题面条件"},
+                    {"evidence", {unclear.at("text")}}, {"teachingDirection", "先澄清所用集合"}, {"needsClarification", true}}}
+            }}}}}}, sink);
+        assert(clarificationCalls == 2 && options.messages.size() == 2);
+        const auto context = Json::parse(options.messages[1].content);
+        assert(context.at("stagedEvaluations").at(0).at("diagnosis").at("needsClarification") == true);
+        assert(context.at("stagedEvaluations").at(0).at("response") == unclear.at("text"));
+        return output({{"message", clarification}, {"teaching", {{"helpType", "clarification"}}}}, sink);
+    });
+    gangyi::registerAgentLessonTools(clarifier);
+    clarifier.process(db, clarifyTask.at("id"));
+    const auto waiting = gangyi::agentView(db, access, clarifyTask.at("id"));
+    const auto confirmed = gangyi::agentLessonView(db, access, lessonId);
+    assert(clarificationCalls == 2 && waiting.at("status") == "waiting_student" && waiting.at("message") == clarification);
+    assert(Json::parse(db.getClassroomActivity(lessonId)->payload).at("sections") == savedSections);
+    assert(confirmed.at("teachingRound").at("feedbackCount") == 1);
+    assert(confirmed.at("teachingRound").at("pendingSectionId") == pendingQuestion.at("id"));
 }
 
 void runDuplicateEvaluationChecks(const std::filesystem::path& path) {
@@ -528,6 +615,7 @@ void runIndependentChatChecks(const std::string& path) {
 // 【逐行批注】 引入头文件 "agent_efficiency_checks.hpp"，为后续实现提供类型或接口声明。
 #include "agent_efficiency_checks.hpp"
 #include "component_activity_checks.hpp"
+#include "set_exercise_checks.hpp"
 // 【逐行批注】 引入头文件 "agent_quantum_checks.hpp"，为后续实现提供类型或接口声明。
 #include "agent_quantum_checks.hpp"
 // 【逐行批注】 引入头文件 "startup_reuse_checks.hpp"，为后续实现提供类型或接口声明。
@@ -580,6 +668,15 @@ int main(int argc, char** argv) {
         runDuplicateEvaluationChecks(root / "fixture.db");
         std::filesystem::remove_all(root);
         std::cout << "同次任务中的单次作答只产生一份评价。\n";
+        return 0;
+    }
+    if (argc == 2 && std::string(argv[1]) == "--set-exercise-only") {
+        const auto root = std::filesystem::temp_directory_path() /
+            ("gangyi-set-exercise-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        std::filesystem::create_directories(root);
+        runSetExerciseChecks(root / "fixture.db");
+        std::filesystem::remove_all(root);
+        std::cout << "集合单选题的唯一答案、版本快照、私有评分依据和探索隔离检查通过。\n";
         return 0;
     }
     if (argc == 2 && std::string(argv[1]) == "--component-activity-only") {

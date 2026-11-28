@@ -120,7 +120,8 @@ inline void runAgentQuantumChecks(const std::filesystem::path& path) {
     // 【逐行批注】 计算右侧结果并写入 auto rejectedView，更新当前运行状态。
     const auto rejectedView = agentView(db, access, rejectedTask.at("id"));
     // 【逐行批注】 调用 assert 完成本行所需操作：assert(rejectedView.at("status") == "failed" && !rejectedView.contain…。
-    assert(rejectedView.at("status") == "failed" && !rejectedView.contains("firstContentMs"));
+    // 草稿已实时显示，计时应包含它；动作事务仍须回滚，不能成为正式结果。
+    assert(rejectedView.at("status") == "failed" && rejectedView.at("firstContentMs").get<long long>() >= 0);
     // 无本进程起点的恢复任务不能把持久化的旧单调值当作当前耗时。
     // 【逐行批注】 计算右侧结果并写入 auto legacyId，更新当前运行状态。
     const auto legacyId = "legacy-no-clock";
@@ -365,7 +366,7 @@ inline void runAgentQuantumChecks(const std::filesystem::path& path) {
                         // 【逐行批注】 调用 assert 完成本行所需操作：assert(incoming.profileMeta("first-section") == "committed" && before…。
                         assert(incoming.profileMeta("first-section") == "committed" && before.at("completedActions").contains("first"));
                         // 【逐行批注】 调用 assert 完成本行所需操作：assert(!before.contains("firstContentMs"));。
-                        assert(!before.contains("firstContentMs"));
+                        assert(before.at("firstContentMs").get<long long>() >= 0);
                         // 【逐行批注】 调用 agentControl 完成本行所需操作：agentControl(incoming, access, {{"command", command}, {"taskId", cont…。
                         agentControl(incoming, access, {{"command", command}, {"taskId", controlled.at("id")}});
                         // 【逐行批注】 计算右侧结果并写入 controlledPayload，更新当前运行状态。

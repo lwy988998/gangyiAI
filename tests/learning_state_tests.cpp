@@ -114,6 +114,25 @@ int main() {
     multiple["sections"].push_back(question);
     proposal["evidenceIds"].push_back("evaluation-2");
     rejects(multiple, proposal);
+
+    multiple["sections"][0]["question"] = {{"question", "选择 1/2+1/3 的结果"}, {"options", {"5/6", "2/5"}}};
+    auto firstQuestion = multiple["sections"][0]["question"];
+    auto reordered = firstQuestion;
+    reordered["question"] = " 选择\n1/2+1/3 的结果 ";
+    reordered["options"] = {"2/5", " 5/6 "};
+    multiple["sections"][1]["question"] = reordered;
+    state = gangyi::learningStateProjection(multiple);
+    assert(state["evidence"]["evaluationIds"].size() == 2);
+    assert(state["evidence"]["distinctQuestionCount"] == 1 && state["evidence"]["independentQuestionCount"] == 1);
+    rejects(multiple, proposal);
+    assert(gangyi::teachingQuestionIdentity("course-1", firstQuestion) != gangyi::teachingQuestionIdentity("course-1", reordered));
+    const Json shownExample = {{"demonstratedQuestions", {firstQuestion}}};
+    assert(gangyi::matchesDemonstration(shownExample, "course-1", reordered));
+    reordered["materials"] = {{{"text", "第一项改用1/4"}}};
+    assert(!gangyi::matchesDemonstration(shownExample, "course-1", reordered));
+    multiple["sections"][1]["question"] = reordered;
+    assert(gangyi::checkedLearningMastery(multiple, proposal)["independentQuestionCount"] == 2);
+
     multiple["sections"][1]["question"]["question"] = "1/4+1/6=?";
     assert(gangyi::checkedLearningMastery(multiple, proposal)["status"] == "VERIFIED_MASTERY");
     multiple["evaluations"][1]["helpMode"] = "after_example";

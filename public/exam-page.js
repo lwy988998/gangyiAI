@@ -566,14 +566,17 @@
     const bubble = document.createElement('article'); bubble.className = 'exam-chat-message exam-chat-message--assistant is-streaming'; bubble.textContent = '正在读取试卷内容…'; messages?.append(bubble);
     if (following && learningTools) messages.scrollTop = messages.scrollHeight;
     let text = '';
+    const liveView = window.GangyiAgent.createStreamView(bubble, {filter:record => record.field === 'message'});
+    bubble.replaceChildren();
+    const follow = messages && window.GangyiAgent.followLatest(messages);
     stopWatch = window.GangyiAgent.watch(taskId, {
+      onContent(records) {
+        if (watchingTaskId !== taskId) return;
+        liveView.update(records); text = records.filter(record => record.field === 'message' && record.state !== 'revised').map(record => record.text).join('\n\n');
+        bubble.dataset.hasContent = String(Boolean(text));
+      },
       onEvent(event) {
         if (event.type !== 'delta' || event.field !== 'message') return false;
-        const follow = messages && nearLatest(messages);
-        text += event.text || '';
-        bubble.textContent = text;
-        bubble.dataset.hasContent = 'true';
-        if (follow && learningTools) messages.scrollTop = messages.scrollHeight;
         return true;
       },
       onState(task) {
@@ -583,7 +586,7 @@
             typeof task.error === 'string' && task.error ? task.error : 'AI 请求未完成。';
           saveFailure({taskId, requestId: watchedRequestId, message: reason.slice(0, 4000)});
         } else if (task.status === 'ready') saveFailure(null);
-        watchingTaskId = ''; void load();
+        follow?.destroy(); watchingTaskId = ''; void load();
       },
       onConnectionError(message) { bubble.textContent = text || message; },
     });

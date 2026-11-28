@@ -78,6 +78,9 @@ def inspect_fixtures(driver, cases, env):
     """调用真实 C++ 的配置、课件与轨迹校验，不在 Python 复制学科公式。"""
     payload = {'cases': [{'id': case['id'], 'componentFixtures': case.get('componentPlan', {}).get('fixtures', [])}
                          for case in cases]}
+    for case, item in zip(cases, payload['cases']):
+        if 'setExercise' in case:
+            item['questions'] = [{'setExercise': case['setExercise']}]
     with tempfile.TemporaryDirectory(prefix='gangyi-component-preflight-') as folder:
         path = Path(folder) / 'scenes.json'
         path.write_text(json.dumps(payload, ensure_ascii=False, allow_nan=False), encoding='utf-8')
@@ -91,6 +94,9 @@ def inspect_fixtures(driver, cases, env):
             [item.get('caseId') for item in result['cases']] == [case['id'] for case in cases] and
             result['valid'] == all(item.get('valid') is True for item in result['cases']) and
             (process.returncode == 0) == result['valid'], '原生组件预检结果不完整或状态不符')
+    for case, row in zip(cases, result['cases']):
+        if 'setExercise' in case and row['valid']:
+            require(row.get('checkedQuestions') == 1, '原生驱动未核对集合题，请重新构建。')
     return result
 
 

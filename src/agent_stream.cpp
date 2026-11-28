@@ -53,7 +53,17 @@ public:
     // 【逐行批注】 定义函数 PrefixReader，执行该函数声明的职责。
     explicit PrefixReader(const std::string& input) : input_(input) {}
     // 【逐行批注】 定义函数 read，执行该函数声明的职责。
-    std::vector<StringValue> read() { value({}); return strings_; }
+    std::vector<StringValue> read() {
+        space();
+        // 接口返回 Markdown JSON 围栏时，在首个换行后继续读取真实对象。
+        if (input_.compare(position_, 3, "```") == 0) {
+            const auto line = input_.find('\n', position_);
+            if (line == std::string::npos) return {};
+            position_ = line + 1;
+        }
+        value({});
+        return strings_;
+    }
 // 【逐行批注】 执行当前声明或表达式：private:。
 private:
     // 【逐行批注】 定义函数 space，执行该函数声明的职责。
@@ -200,7 +210,13 @@ std::string key(const std::vector<std::string>& path) {
 } // namespace
 
 // 【逐行批注】 调用 AgentPublicStream、sink_、move 完成本行所需操作：AgentPublicStream::AgentPublicStream(Sink sink) : sink_(std::move(sin…。
-AgentPublicStream::AgentPublicStream(Sink sink) : sink_(std::move(sink)) {}
+AgentPublicStream::AgentPublicStream(Sink sink, bool outline) : sink_(std::move(sink)), outline_(outline) {}
+
+std::vector<AgentStreamDelta> AgentPublicStream::fields() const {
+    std::vector<AgentStreamDelta> result;
+    for (const auto& item : fields_) result.push_back(item.second);
+    return result;
+}
 // 【逐行批注】 定义函数 AgentPublicStream::push，执行该函数声明的职责。
 void AgentPublicStream::push(const std::string& chunk) {
     // 【逐行批注】 判断条件 (content_.size() + chunk.size() > 2 * 1024 * 1024) throw std::ru…，成立时执行对应分支。
@@ -226,9 +242,11 @@ void AgentPublicStream::push(const std::string& chunk) {
         // 【逐行批注】 判断条件 (item.path == std::vector<std::string>{"message"}) delta.field =…，成立时执行对应分支。
         if (item.path == std::vector<std::string>{"message"}) delta.field = "message";
         // 【逐行批注】 在前一条件不成立时继续判断：(item.path.size() >= 5 && item.path[0] == "actions" && item.path…。
-        else if (item.path.size() >= 5 && item.path[0] == "actions" && item.path[2] == "args" && item.path[3] == "section") {
+        else if ((item.path.size() >= 5 && item.path[0] == "actions" && item.path[2] == "args" && item.path[3] == "section") ||
+                 (item.path.size() >= 3 && item.path[0] == "args" && item.path[1] == "section")) {
             // 【逐行批注】 计算右侧结果并写入 auto prefix，更新当前运行状态。
-            const auto prefix = std::vector<std::string>{"actions", item.path[1]};
+            const bool recovery = item.path[0] == "args";
+            const auto prefix = recovery ? std::vector<std::string>{} : std::vector<std::string>{"actions", item.path[1]};
             // 【逐行批注】 计算右侧结果并写入 toolPath，更新当前运行状态。
             auto toolPath = prefix; toolPath.push_back("tool");
             // 【逐行批注】 计算右侧结果并写入 kindPath，更新当前运行状态。
@@ -240,23 +258,34 @@ void AgentPublicStream::push(const std::string& chunk) {
             // 【逐行批注】 判断条件 (kind != "explanation" && kind != "question" && kind != "summary…，成立时执行对应分支。
             if (kind != "explanation" && kind != "question" && kind != "summary") continue;
             // 【逐行批注】 判断条件 (item.path.size() == 5 && item.path[4] == "title") delta.field =…，成立时执行对应分支。
-            if (item.path.size() == 5 && item.path[4] == "title") delta.field = "title";
+            const size_t offset = recovery ? 2 : 4;
+            if (item.path.size() == offset + 1 && item.path[offset] == "title") delta.field = "title";
             // 【逐行批注】 在前一条件不成立时继续判断：(item.path.size() == 5 && item.path[4] == "body" && kind != "que…。
-            else if (item.path.size() == 5 && item.path[4] == "body" && kind != "question") delta.field = "body";
+            else if (item.path.size() == offset + 1 && item.path[offset] == "body" && kind != "question") delta.field = "body";
             // 【逐行批注】 在前一条件不成立时继续判断：(item.path.size() == 6 && item.path[4] == "question" && item.pat…。
-            else if (item.path.size() == 6 && item.path[4] == "question" && item.path[5] == "question" && kind == "question")
+            else if (item.path.size() == offset + 2 && item.path[offset] == "question" && item.path[offset + 1] == "question" && kind == "question")
                 // 【逐行批注】 计算右侧结果并写入 delta.field，更新当前运行状态。
                 delta.field = "question";
             // 【逐行批注】 在前一条件不成立时继续判断：(item.path.size() == 7 && item.path[4] == "question" && item.pat…。
-            else if (item.path.size() == 7 && item.path[4] == "question" && item.path[5] == "options" && kind == "question") {
+            else if (item.path.size() == offset + 3 && item.path[offset] == "question" && item.path[offset + 1] == "options" && kind == "question") {
                 // 【逐行批注】 计算右侧结果并写入 delta.field，更新当前运行状态。
                 delta.field = "option";
                 // 【逐行批注】 计算右侧结果并写入 delta.optionIndex，更新当前运行状态。
-                delta.optionIndex = std::stoi(item.path[6]);
+                delta.optionIndex = std::stoi(item.path[offset + 2]);
             // 【逐行批注】 执行当前声明或表达式：} else continue;。
             } else continue;
             // 【逐行批注】 计算右侧结果并写入 delta.actionIndex，更新当前运行状态。
+            delta.actionIndex = recovery ? 0 : std::stoi(item.path[1]);
+        } else if (outline_ && item.path.size() == 1 && (item.path[0] == "title" || item.path[0] == "summary")) {
+            delta.field = item.path[0] == "title" ? "title" : "body";
+        } else if (outline_ && item.path.size() >= 3 && item.path[0] == "courseStructure") {
             delta.actionIndex = std::stoi(item.path[1]);
+            if (item.path.size() == 3 && item.path[2] == "stage") delta.field = "title";
+            else if (item.path.size() == 3 && (item.path[2] == "goal" || item.path[2] == "why")) delta.field = "body";
+            else if (item.path.size() == 4 && item.path[2] == "topics") {
+                delta.field = "topic";
+                delta.optionIndex = std::stoi(item.path[3]);
+            } else continue;
         // 【逐行批注】 执行当前声明或表达式：} else continue;。
         } else continue;
         // 【逐行批注】 计算右侧结果并写入 auto& previous，更新当前运行状态。
@@ -265,8 +294,12 @@ void AgentPublicStream::push(const std::string& chunk) {
         if (item.value.size() < previous.size() || item.value.compare(0, previous.size(), previous) != 0) continue;
         // 【逐行批注】 计算右侧结果并写入 delta.text，更新当前运行状态。
         delta.text = item.value.substr(previous.size());
+        delta.streamId = key(item.path);
         // 【逐行批注】 计算右侧结果并写入 previous，更新当前运行状态。
         previous = item.value;
+        auto complete = delta;
+        complete.text = item.value;
+        fields_[delta.streamId] = std::move(complete);
         // 【逐行批注】 判断条件 (!delta.text.empty()) sink_(delta);，成立时执行对应分支。
         if (!delta.text.empty()) sink_(delta);
     // 【逐行批注】 结束当前代码块。

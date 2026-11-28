@@ -1,6 +1,6 @@
 #include "exam_explanation.hpp"
 #include "exam_sources.hpp"
-#include "exam_message_stream.hpp"
+#include "structured_reply.hpp"
 
 #include "search_client.hpp"
 
@@ -669,10 +669,17 @@ void examExplanationApplyModel(Database& db, const std::string& id, const std::s
     auto value = parsePayload(*row);
     if (action != "search" && !taskId.empty() && value.value("activeRequestId", "") != requestId)
         throw std::runtime_error("这条回复已被新的学习请求接替");
+    Json parsed;
+    try {
+        parsed = parseStructuredReply(response.content);
+    } catch (const Json::exception&) {
+        throw StructuredReplyError("试卷回复不是完整的 JSON 对象");
+    }
+    if (!parsed.is_object()) throw StructuredReplyError("试卷回复应为一个 JSON 对象");
     if (action == "recognize") {
-        const auto parsed = Json::parse(response.content, nullptr, false);
-        if (!parsed.is_object() || !parsed.value("questions", Json()).is_array())
-            throw std::runtime_error("试卷识别结果格式无效");
+        if (!parsed.value("questions", Json()).is_array() ||
+            (parsed.contains("title") && !parsed.at("title").is_string()))
+            throw StructuredReplyError("试卷识别需要题目列表和有效标题");
         value["title"] = parsed.value("title", value.value("title", "未命名试卷"));
         Json merged = value.value("questions", Json::array());
         if (merged.size() + parsed.at("questions").size() > 500) throw std::runtime_error("识别结果题目过多");
@@ -684,7 +691,7 @@ void examExplanationApplyModel(Database& db, const std::string& id, const std::s
         std::set<std::string> questionIds;
         for (const auto& question : merged) questionIds.insert(question.value("id", ""));
         for (const auto& source : parsed.at("questions")) {
-            if (!source.is_object()) continue;
+            if (!source.is_object()) throw StructuredReplyError("识别结果中的每个题目应为对象");
             Json question = Json::object();
             for (const auto* key : {"id", "number", "subject", "type", "stem", "materials", "subquestions",
                                     "handwrittenAnswer", "handwrittenAnswerConfidence", "referenceAnswer", "rubric",
@@ -737,16 +744,18 @@ void examExplanationApplyModel(Database& db, const std::string& id, const std::s
             }
         }
     } else {
-        auto parsed = parseExamModelJson(response.content);
-        std::string content = response.content;
+        if (!parsed.value("message", Json()).is_string() ||
+            (parsed.contains("artifacts") && !parsed.at("artifacts").is_array()) ||
+            (parsed.contains("currentQuestionId") && !parsed.at("currentQuestionId").is_string()) ||
+            (parsed.contains("state") && !parsed.at("state").is_string()))
+            throw StructuredReplyError("试卷讲解需要有效的正文及可选图示");
+        const auto content = parsed.at("message").get<std::string>();
         const auto messageId = uniqueRecordId(value, "messages", "message");
         Json artifactIds = Json::array();
         Json updatedArtifactIds = Json::array();
         Json artifactParts = Json::array();
         std::vector<std::string> proposedIds;
-        if (parsed.is_object() && parsed.value("message", Json()).is_string()) {
-            content = parsed.at("message").get<std::string>();
-            if (parsed.contains("artifacts") && !parsed.at("artifacts").is_array()) throw std::runtime_error("模型图示列表格式无效");
+        {
             if (parsed.value("artifacts", Json()).is_array()) {
                 if (parsed.at("artifacts").size() > 10) throw std::runtime_error("单条回复的图示过多");
                 if (!value.value("artifacts", Json()).is_array()) value["artifacts"] = Json::array();

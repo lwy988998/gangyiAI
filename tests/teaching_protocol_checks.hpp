@@ -3,7 +3,54 @@
 
 // 回放真实故障的两类括号错误；未经完整校验的文字和动作不得公开或保存。
 // 【逐行批注】 定义函数 runTeachingProtocolChecks，执行该函数声明的职责。
-inline void runTeachingProtocolChecks(const std::filesystem::path& path) {
+inline // 真实接收回调内检查数据库，保证公开草稿在模型返回之前已经可订阅。
+void runPublicStreamChecks(const std::filesystem::path& path) {
+    gangyi::Database db; db.open(path.string()); db.migrate();
+    const gangyi::AgentAccess access{"public-stream-check", {}};
+    const auto task = gangyi::agentSubmit(db, access, {{"type", "chat"}, {"text", "逐片显示并修正"}, {"requestId", "public-stream-check"}});
+    int calls = 0;
+    gangyi::LearningAgent agent(path.string(), [&](const auto&, const auto& sink) {
+        ++calls;
+        if (calls == 2) return output({{"message", ""}, {"actions", Json::array({{{"id", "recheck"}, {"tool", "read_context"}, {"args", Json::object()}}})}, {"state", "continue"}}, sink);
+        const std::string head = calls == 1 ? R"({"message":"首片草稿)" : R"({"message":"修正后的正文)";
+        sink(head);
+        const auto running = gangyi::agentView(db, access, task.at("id"));
+        assert(running.at("status") == "running");
+        assert(std::any_of(running.at("events").begin(), running.at("events").end(), [&](const auto& event) {
+            return event.value("type", "") == "delta" && event.value("step", 0) == calls && event.value("provisional", false);
+        }));
+        const std::string tail = calls == 1 ? R"(","actions":[})" : R"(","teaching":{"helpType":"explanation"},"actions":[],"state":"waiting_student"})";
+        sink(tail);
+        gangyi::AIResult result; result.content = head + tail; result.model = "stream-fixture"; result.finishReason = "stop";
+        return result;
+    });
+    agent.process(db, task.at("id"));
+    const auto ready = gangyi::agentView(db, access, task.at("id"));
+    assert(calls == 3 && ready.at("message") == "修正后的正文");
+    assert(std::any_of(ready.at("events").begin(), ready.at("events").end(), [](const auto& event) {
+        return event.value("type", "") == "stream_status" && event.value("state", "") == "confirmed" &&
+            event.value("correctedSteps", Json::array()) == Json::array({1});
+    }));
+
+    // 超过一页归档后仍可完整恢复，并支持按确认序号读取增量。
+    const auto archivedTask = gangyi::agentSubmit(db, access, {{"type", "chat"}, {"text", "长回复恢复"}, {"requestId", "long-public-stream"}});
+    const auto row = db.getClassroomActivity(archivedTask.at("id"));
+    auto stored = Json::parse(row->payload);
+    const int start = stored.value("seq", 0);
+    for (int index = 1; index <= 650; ++index) {
+        const Json event = {{"seq", start + index}, {"type", "delta"}, {"field", "message"}, {"step", 1}, {"text", "字"}};
+        db.appendAgentRunEvent(stored.at("id"), start + index, event.dump(), "now");
+    }
+    stored["seq"] = start + 650; stored["events"] = Json::array();
+    db.upsert(gangyi::ClassroomActivity{stored.at("id"), "", "agent-task", stored.dump(), "now", 0, 0});
+    const auto full = gangyi::agentView(db, access, stored.at("id"));
+    assert(full.at("events").size() >= 650);
+    const auto incremental = gangyi::agentView(db, access, stored.at("id"), false, start + 600);
+    assert(incremental.at("events").size() == 50);
+}
+
+void runTeachingProtocolChecks(const std::filesystem::path& path) {
+    runPublicStreamChecks(path.string() + ".public-stream");
     // 【逐行批注】 执行当前声明或表达式：const std::vector<std::string> malformed = {。
     const std::vector<std::string> malformed = {
         // 【逐行批注】 执行当前声明或表达式：R"({"teaching":{"helpType":"explanation"},"message":"INVALID-PUBLIC","actions":[{"id…。
@@ -53,7 +100,8 @@ inline void runTeachingProtocolChecks(const std::filesystem::path& path) {
         // 【逐行批注】 定义函数 agent，执行该函数声明的职责。
         gangyi::LearningAgent agent(database, [&](const gangyi::ChatOptions& options, const auto& sink) {
             // 【逐行批注】 调用 assert 完成本行所需操作：assert(options.maxTokens == 8192 && options.temperature == 0.25 && op…。
-            assert(options.maxTokens == 8192 && options.temperature == 0.25 && options.maxAttempts == 1);
+            assert(options.maxTokens == 8192 && options.maxAttempts == 1);
+            assert(options.temperature == (teachingCalls > 0 ? 0.0 : 0.25));
             // 【逐行批注】 调用 assert 完成本行所需操作：assert(options.responseFormat == "json_object");。
             assert(options.responseFormat == "json_object");
             // 【逐行批注】 调用 assert 完成本行所需操作：assert(options.messages.front().content.find(gangyi::kAgentTeachingAc…。
@@ -98,8 +146,7 @@ inline void runTeachingProtocolChecks(const std::filesystem::path& path) {
             return output({{"message", "分母表示把同一整体平均分成的份数；先统一分数单位，再解释你的方法。"},
                 // 【逐行批注】 调用 array 完成本行所需操作：{"teaching", {{"helpType", "explanation"}, {"demonstratedQuestions", …。
                 {"teaching", {{"helpType", "explanation"}, {"demonstratedQuestions", Json::array()}}},
-                // 【逐行批注】 调用 array 完成本行所需操作：{"actions", Json::array()}, {"state", "waiting_student"}}, sink);。
-                {"actions", Json::array()}, {"state", "waiting_student"}}, sink);
+                {"tool", nullptr}, {"state", "waiting_student"}}, sink);
         // 【逐行批注】 执行当前声明或表达式：});。
         });
         // 【逐行批注】 调用 registerAgentLessonTools 完成本行所需操作：gangyi::registerAgentLessonTools(agent); agent.process(db, task.at("i…。
@@ -119,7 +166,7 @@ inline void runTeachingProtocolChecks(const std::filesystem::path& path) {
         // 【逐行批注】 按循环规则重复处理：for (const auto& item : raw.at("events")) if (item.value("type", "") == "d…。
         for (const auto& item : raw.at("events")) if (item.value("type", "") == "delta")
             // 【逐行批注】 调用 assert 完成本行所需操作：assert(item.value("text", "").find("INVALID-PUBLIC") == std::string::…。
-            assert(item.value("text", "").find("INVALID-PUBLIC") == std::string::npos);
+            assert(item.value("text", "").find("INVALID-PUBLIC") == std::string::npos || item.value("provisional", false));
         // 【逐行批注】 计算右侧结果并写入 shown，更新当前运行状态。
         auto shown = gangyi::agentLessonView(db, access, "protocol-lesson");
         // 【逐行批注】 调用 assert 完成本行所需操作：assert(shown.at("sections").size() == 1 && shown.at("evaluations").em…。
@@ -172,6 +219,7 @@ inline void runTeachingProtocolChecks(const std::filesystem::path& path) {
         {{"type", "chat"}, {"courseId", "protocol-recovery"}, {"requestId", "auto-recovery"}, {"text", "继续准备"}});
     // 【逐行批注】 计算右侧结果并写入 int recoveryCalls，更新当前运行状态。
     int recoveryCalls = 0;
+    int savedActions = 0;
     // 【逐行批注】 计算右侧结果并写入 bool carriedInvalidStructure，更新当前运行状态。
     bool carriedInvalidStructure = false;
     // 【逐行批注】 定义函数 autoRecoveryAgent，执行该函数声明的职责。
@@ -182,12 +230,11 @@ inline void runTeachingProtocolChecks(const std::filesystem::path& path) {
         if (recoveryCalls > 1)
             // 【逐行批注】 按循环规则重复处理：for (const auto& message : options.messages)。
             for (const auto& message : options.messages)
-                // 【逐行批注】 计算右侧结果并写入 carriedInvalidStructure，更新当前运行状态。
-                carriedInvalidStructure = carriedInvalidStructure || message.content.find("INVALID-AUTO-RECOVERY") != std::string::npos;
+                carriedInvalidStructure = carriedInvalidStructure || message.content.find("INVALID-") != std::string::npos;
         // 【逐行批注】 判断条件 (recoveryCalls == 1) {，成立时执行对应分支。
         if (recoveryCalls == 1) {
             // 【逐行批注】 计算右侧结果并写入 std::string invalid，更新当前运行状态。
-            const std::string invalid = R"({"message":"INVALID-AUTO-RECOVERY","actions":[)";
+            const std::string invalid = R"({"message":"INVALID-AUTO-RECOVERY","actions":[{"id":"old","tool":"record_recovery","args":{"value":"原任务"}],"state":"waiting_student"})";
             // 【逐行批注】 调用 sink 完成本行所需操作：sink(invalid);。
             sink(invalid);
             // 【逐行批注】 计算右侧结果并写入 gangyi::AIResult result; result.content，更新当前运行状态。
@@ -196,20 +243,37 @@ inline void runTeachingProtocolChecks(const std::filesystem::path& path) {
             return result;
         // 【逐行批注】 结束当前代码块。
         }
-        // 【逐行批注】 结束当前函数并返回结果：return output({{"message", "已自动恢复。"}, {"teaching", {{"helpType", "non…。
-        return output({{"message", "已自动恢复。"}, {"teaching", {{"helpType", "none"}, {"demonstratedQuestions", Json::array()}}},
-            // 【逐行批注】 调用 array 完成本行所需操作：{"actions", Json::array()}, {"state", "waiting_student"}}, sink);。
-            {"actions", Json::array()}, {"state", "waiting_student"}}, sink);
+        assert(std::any_of(options.messages.begin(), options.messages.end(), [](const auto& item) {
+            return item.role == "system" && item.content.find("本轮恢复使用单步回复") != std::string::npos;
+        }));
+        assert(savedActions == 0);
+        Json recovered = {{"message", "已自动恢复。"}, {"teaching", {{"helpType", "none"}}},
+            {"tool", "record_recovery"}, {"actionId", "same-task-action"}, {"args", {{"value", "原任务"}}}, {"state", "waiting_student"}};
+        if (recoveryCalls == 2) {
+            recovered["message"] = "INVALID-MIXED-RECOVERY";
+            recovered["actions"] = Json::array();
+        }
+        return output(recovered, sink);
     // 【逐行批注】 执行当前声明或表达式：});。
     });
     // 【逐行批注】 执行当前声明或表达式：autoRecoveryAgent.process(autoRecoveryDb, autoRecoveryTask.at("id"));。
+    autoRecoveryAgent.registerTool("record_recovery", {"记录原任务的已核对结果", false,
+        [&](auto&, const Json& args, const Json&, const auto&) {
+            assert(args.at("value") == "原任务");
+            return gangyi::PreparedAgentTool{{{"saved", true}}, [&](auto&) { ++savedActions; }};
+        }});
     autoRecoveryAgent.process(autoRecoveryDb, autoRecoveryTask.at("id"));
     // 【逐行批注】 计算右侧结果并写入 auto recoveredTask，更新当前运行状态。
     const auto recoveredTask = Json::parse(autoRecoveryDb.getClassroomActivity(autoRecoveryTask.at("id"))->payload);
     // 【逐行批注】 调用 assert 完成本行所需操作：assert(recoveryCalls == 2 && !carriedInvalidStructure);。
-    assert(recoveryCalls == 2 && !carriedInvalidStructure);
+    assert(recoveryCalls == 3 && savedActions == 1 && !carriedInvalidStructure);
     // 【逐行批注】 调用 assert 完成本行所需操作：assert(recoveredTask.at("status") == "waiting_student" && !recoveredT…。
     assert(recoveredTask.at("status") == "waiting_student" && !recoveredTask.contains("failure") && !recoveredTask.contains("failureCount"));
+    assert(recoveredTask.at("message") == "已自动恢复。" && recoveredTask.at("completedActions").size() == 1);
+    std::string streamedReply;
+    for (const auto& item : recoveredTask.at("events")) if (item.value("type", "") == "delta" && item.value("step", 0) == 3)
+        streamedReply = (item.value("replace", false) ? std::string() : streamedReply) + item.value("text", "");
+    assert(streamedReply == "已自动恢复。");
 
     // JSON 解析器的异常摘录可能截断汉字；记录错误时不得再次抛出并遗留运行中任务。
     // 【逐行批注】 计算右侧结果并写入 auto database，更新当前运行状态。

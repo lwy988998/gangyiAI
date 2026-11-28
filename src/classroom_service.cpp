@@ -4,8 +4,8 @@
 #include "ai_client.hpp"
 // 【逐行批注】 引入头文件 "course_service.hpp"，为后续实现提供类型或接口声明。
 #include "course_service.hpp"
-// 【逐行批注】 引入头文件 "json_fix.hpp"，为后续实现提供类型或接口声明。
-#include "json_fix.hpp"
+// 【逐行批注】 引入头文件 "structured_reply.hpp"，为后续实现提供类型或接口声明。
+#include "structured_reply.hpp"
 // 【逐行批注】 引入头文件 "question_evidence.hpp"，为后续实现提供类型或接口声明。
 #include "question_evidence.hpp"
 // 【逐行批注】 引入头文件 "next_lesson.hpp"，为后续实现提供类型或接口声明。

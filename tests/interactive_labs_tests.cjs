@@ -4,6 +4,33 @@ const assert = require('node:assert/strict');
 const labs = require('../public/interactive-labs.js');
 const fixtures = require('./fixtures/interactive-labs-v1.json');
 
+test('三角形顶点驱动几何量，退化、错误版本和伪造结果均有明确边界', () => {
+  const config={type:'triangle_lab'},state={schemaVersion:1,contentVersion:1,points:[[0,0],[4,0],[0,3]]};
+  const right=labs.calculate(config,state,1);
+  assert.equal(right.area,6);assert.equal(right.perimeter,12);assert.equal(right.angleKind,'right');
+  assert.equal(right.angleDegrees.A,90);assert.equal(right.sideKind,'scalene');assert.equal(right.scoringEligible,false);
+  const translated=labs.calculate(config,{...state,points:[[1,1],[5,1],[1,4]]},1);
+  assert.equal(translated.area,right.area);assert.deepEqual(translated.sideLengths,right.sideLengths);
+  const reversed=labs.calculate(config,{...state,points:[[0,0],[0,3],[4,0]]},1);
+  assert.equal(reversed.area,6);assert.equal(reversed.orientation,'clockwise');
+  const isosceles=labs.calculate(config,{...state,points:[[-2,0],[2,0],[0,3]]},1);
+  assert.equal(isosceles.sideKind,'isosceles');assert.equal(isosceles.angleKind,'acute');
+  assert.equal(labs.calculate(config,{...state,points:[[0,0],[4,0],[1,1]]},1).angleKind,'obtuse');
+  for(const points of [[[0,0],[1,1],[2,2]],[[0,0],[0,0],[2,2]]]){
+    const flat=labs.calculate(config,{...state,points},1);
+    assert.equal(flat.validTriangle,false);assert.equal(flat.area,0);assert.equal(flat.perimeter,null);
+    assert.equal(flat.angleDegrees,null);assert.equal(flat.angleKind,null);
+  }
+  for(const points of [[],[[0,0],[1,1]],[[0,0],[1,1],[11,0]],[[0,0],[1,1],[.1,0]],
+    [[0,0],[1,1],[true,0]],Array(3),[[0,0],[1,1],Array(2)]]){
+    assert.throws(()=>labs.validate({...config,points}));
+    assert.throws(()=>labs.calculate(config,{...state,points},1));
+  }
+  assert.throws(()=>labs.calculate(config,{...state,area:100},1));
+  assert.throws(()=>labs.calculate(config,state,2));
+  const copy=labs.checkedState(config,state,1);state.points[0][0]=5;assert.equal(copy.points[0][0],0);
+});
+
 test('统计量保留频数、平移缩放与排列不变性，拒绝非法数据和自报结果', () => {
   const config={type:'statistics_lab'},state={schemaVersion:1,contentVersion:1,values:[2,3,3,4,8],varianceBasis:'population'};
   for(const values of [[],Array(33).fill(0),[true],[null],['3'],[Infinity],[NaN],[100.5],[-101],[.1]]) {

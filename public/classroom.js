@@ -357,9 +357,10 @@
       socket.onmessage = event => {
         // 【逐行批注】 声明前端变量 data，保存本行计算出的数据或对象。
         const data = JSON.parse(event.data);
-        // 【逐行批注】 判断条件 (data.type === 'delta') view.push(data.text);，成立时执行对应逻辑。
-        if (data.type === 'delta') view.push(data.text);
+        // 【逐行批注】 判断条件 (data.type === 'delta') view.receive(data);，成立时执行对应逻辑。
+        if (data.type === 'delta') view.receive(data);
         // 【逐行批注】 判断条件 (data.type === 'done') { finished = true; finish(view, question,…，成立时执行对应逻辑。
+        if (data.type === 'stream_status') view.receive(data);
         if (data.type === 'done') { finished = true; finish(view, question, data); socket.close(); }
         // 【逐行批注】 判断条件 (data.type === 'error') { finished = true; view.fail(data.messag…，成立时执行对应逻辑。
         if (data.type === 'error') { finished = true; view.fail(data.message); socket.close(); }
