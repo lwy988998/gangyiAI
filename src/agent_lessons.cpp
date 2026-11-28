@@ -581,10 +581,14 @@ Json displayedMessages(Database& db, const Json& task) {
                 // 【逐行批注】 调用 find 完成本行所需操作：std::find(complete.begin(), complete.end(), event.at("seq")) != compl…。
                 std::find(complete.begin(), complete.end(), event.at("seq")) != complete.end();
             // 【逐行批注】 判断条件 (event.value("seq", 0) <= observed && (!displayed.is_array() || …，成立时执行对应分支。
-            if (event.value("seq", 0) <= observed && (!displayed.is_array() || std::find(displayed.begin(), displayed.end(), event.at("seq")) != displayed.end()))
-            // 【逐行批注】 计算右侧结果并写入 messages[event.value("step", 0)] +，更新当前运行状态。
-            if (event.value("replace", false)) messages[step] = event.value("text", "");
-            else messages[step] += event.value("text", "");
+            if (event.value("seq", 0) <= observed && (!displayed.is_array() || std::find(displayed.begin(), displayed.end(), event.at("seq")) != displayed.end())) {
+                // 只合并实际显示过的消息；更正事件替换正文，普通分片追加正文。
+                if (event.value("replace", false)) {
+                    messages[step] = event.value("text", "");
+                } else {
+                    messages[step] += event.value("text", "");
+                }
+            }
         // 【逐行批注】 结束当前代码块。
         }
     // 【逐行批注】 计算右侧结果并写入 Json result，更新当前运行状态。
